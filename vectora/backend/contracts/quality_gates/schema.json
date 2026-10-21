@@ -94,57 +94,6 @@
       "type": "object"
     },
     "WorkspaceVerificationProfile": {
-      "$defs": {
-        "QualityGateSpec": {
-          "description": "Definição de um gate de qualidade a ser executado pós-turno do agente.",
-          "properties": {
-            "command": {
-              "description": "Comando e argumentos a serem executados em sandbox",
-              "items": {
-                "type": "string"
-              },
-              "title": "Command",
-              "type": "array"
-            },
-            "file_patterns": {
-              "description": "Padrões glob de arquivos que ativam este gate (ex: ['**/*.py'])",
-              "items": {
-                "type": "string"
-              },
-              "title": "File Patterns",
-              "type": "array"
-            },
-            "id": {
-              "description": "Identificador único do gate (ex: pytest, eslint, sast)",
-              "title": "Id",
-              "type": "string"
-            },
-            "name": {
-              "description": "Nome legível para exibição na UI",
-              "title": "Name",
-              "type": "string"
-            },
-            "policy": {
-              "default": "block",
-              "description": "Comportamento em caso de falha: 'block' (falha o run), 'degrade' (marca degraded), 'inform' (adverte)",
-              "enum": ["block", "degrade", "inform"],
-              "title": "Policy",
-              "type": "string"
-            },
-            "timeout_seconds": {
-              "default": 300,
-              "description": "Tempo máximo de execução em segundos",
-              "maximum": 3600,
-              "minimum": 5,
-              "title": "Timeout Seconds",
-              "type": "integer"
-            }
-          },
-          "required": ["id", "name", "command"],
-          "title": "QualityGateSpec",
-          "type": "object"
-        }
-      },
       "description": "Perfil de verificação pós-execução configurado por workspace.",
       "properties": {
         "enabled": {
@@ -156,7 +105,7 @@
         "gates": {
           "description": "Lista de gates configurados",
           "items": {
-            "$ref": "#/$defs/QualityGateSpec"
+            "$ref": "#/definitions/QualityGateSpec"
           },
           "title": "Gates",
           "type": "array"
