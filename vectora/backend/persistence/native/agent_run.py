@@ -130,10 +130,6 @@ def redact_sensitive_data(value: tuple[JsonValue, ...]) -> tuple[JsonValue, ...]
 
 
 @overload
-def redact_sensitive_data(value: JsonValue) -> JsonValue: ...
-
-
-@overload
 def redact_sensitive_data(value: Any) -> Any: ...
 
 
