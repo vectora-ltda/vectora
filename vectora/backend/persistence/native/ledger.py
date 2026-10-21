@@ -176,16 +176,13 @@ async def backfill_thread_ledger(
     async with pool.acquire() as conn:
         await conn.execute("BEGIN IMMEDIATE")
         try:
-            # 1. Verificar se a thread existe em sessions; se não, registrar como sessão legada para satisfazer FK
+            # 1. Verificar se a thread existe em sessions; se não existir, não cria sessão e encerra
             cur_sess = await conn.execute(
                 "SELECT thread_id FROM sessions WHERE thread_id = ?", (thread_id,)
             )
             if not await cur_sess.fetchone():
-                await conn.execute(
-                    "INSERT INTO sessions (thread_id, user_id, mode, permission_mode, created_at, updated_at) "
-                    "VALUES (?, ?, 'chat', 'ask', ?, ?) ON CONFLICT(thread_id) DO NOTHING",
-                    (thread_id, user_id or "local", now, now),
-                )
+                await conn.rollback()
+                return 0, 0
 
             cur_bf = await conn.execute(
                 "SELECT status, migrated_messages, last_seq FROM ledger_backfill WHERE thread_id = ?",
