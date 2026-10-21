@@ -32,6 +32,7 @@ from backend.engine.stream_events import (
     WorkbenchInvalidate,
 )
 from backend.persistence.native.session_store import SessionStore
+from backend.services.policy_compiler import PolicySnapshot
 from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.tools import media as _media_module
 from backend.tools import planning as _planning_module
@@ -662,6 +663,7 @@ class TestEmissaoDeEventos:
             tool_registry: ToolRegistry,
             ctx: ToolContext,
             on_event: EventSink | None = None,
+            policy_snapshot: PolicySnapshot | None = None,
         ) -> VMessage:
             chamadas.append(dict(tool_call.args))
             return VMessage(
@@ -1481,3 +1483,34 @@ class TestResumeConversation:
         )
         assert chamadas == []
         assert await session_store.get_pending_approval("thread-1") is None
+
+    async def test_run_conversation_restores_untrusted_content_from_run(
+        self, session_store: SessionStore, ctx: ToolContext
+    ) -> None:
+        from backend.persistence.native.agent_run import AgentRun
+
+        await session_store.upsert_agent_run(
+            AgentRun(
+                run_id="run-untrusted-ctx",
+                thread_id="thread-1",
+                status="waiting_approval",
+                untrusted_content=True,
+            )
+        )
+
+        client = _ScriptedChatClient([[_texto_chunk("olá")]])
+        registry = ToolRegistry()
+
+        assert "untrusted_content" not in ctx._extra
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+        )
+
+        assert resultado.stopped_reason == "stop"
+        assert ctx._extra.get("untrusted_content") is True

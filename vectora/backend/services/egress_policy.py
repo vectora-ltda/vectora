@@ -185,6 +185,23 @@ def is_url_allowed(  # noqa: PLR0911
             )
 
     if not resolve_dns:
+        try:
+            literal_ip = ipaddress.ip_address(host)
+        except ValueError:
+            literal_ip = None
+        if literal_ip is not None:
+            fake_info: list[_AddrInfo] = [
+                (
+                    socket.AF_INET if literal_ip.version == 4 else socket.AF_INET6,
+                    socket.SOCK_STREAM,
+                    socket.IPPROTO_TCP,
+                    "",
+                    (host, port),
+                )
+            ]
+            ok, reason, _ = _validate_addr_infos_and_port(host, port, pol, fake_info)
+            return ok, reason
+
         if pol.allowed_ports and port not in pol.allowed_ports:
             return (
                 False,
