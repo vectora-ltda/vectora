@@ -935,12 +935,18 @@ async def get_thread(
                 ) as cur_cursor:
                     if cursor_row := await cur_cursor.fetchone():
                         legacy_count = int(cursor_row[0] or 0)
-            await ensure_thread_backfilled(
-                session_store._pool,
-                thread.id,
-                user_id=user_id,
-                legacy_read_count=legacy_count,
-            )
+            try:
+                await ensure_thread_backfilled(
+                    session_store._pool,
+                    thread.id,
+                    user_id=user_id,
+                    legacy_read_count=legacy_count,
+                )
+            except Exception:
+                logger.exception(
+                    "threads: falha ao garantir backfill de ledger para thread %s",
+                    thread.id,
+                )
         summaries = await session_store.get_thread_summaries(
             [thread.id], user_id=user_id
         )
@@ -1047,12 +1053,18 @@ async def list_threads(
                     for row_c in await cur_cursors.fetchall():
                         legacy_counts[str(row_c[0])] = int(row_c[1] or 0)
             for tid in thread_ids:
-                await ensure_thread_backfilled(
-                    session_store._pool,
-                    tid,
-                    user_id=user_id,
-                    legacy_read_count=legacy_counts.get(tid, 0),
-                )
+                try:
+                    await ensure_thread_backfilled(
+                        session_store._pool,
+                        tid,
+                        user_id=user_id,
+                        legacy_read_count=legacy_counts.get(tid, 0),
+                    )
+                except Exception:
+                    logger.exception(
+                        "threads: falha ao garantir backfill de ledger para thread %s",
+                        tid,
+                    )
         summaries_list = await session_store.get_thread_summaries(
             thread_ids, user_id=user_id
         )
@@ -1126,12 +1138,18 @@ async def mark_thread_read(
                 ) as cur_cursor:
                     if cursor_row := await cur_cursor.fetchone():
                         legacy_count = int(cursor_row[0] or 0)
-            await ensure_thread_backfilled(
-                session_store._pool,
-                thread_id,
-                user_id=user_id,
-                legacy_read_count=legacy_count,
-            )
+            try:
+                await ensure_thread_backfilled(
+                    session_store._pool,
+                    thread_id,
+                    user_id=user_id,
+                    legacy_read_count=legacy_count,
+                )
+            except Exception:
+                logger.exception(
+                    "threads: falha ao garantir backfill de ledger para thread %s",
+                    thread_id,
+                )
         result = await session_store.mark_events_seen(
             thread_id=thread_id,
             user_id=user_id,
