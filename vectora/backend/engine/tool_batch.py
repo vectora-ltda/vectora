@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
@@ -69,6 +69,7 @@ async def _run_one(
     ctx: ToolContext,
     turn_budget: TurnBudget | None,
     on_event: EventSink | None,
+    on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> VMessage:
     """Executa uma chamada do lote com contexto correlacionado à própria tool."""
     spec = tool_registry.get(tool_call.name)
@@ -91,6 +92,9 @@ async def _run_one(
                 name=tool_call.name,
                 is_error=True,
             )
+
+    if on_tool_started is not None:
+        await on_tool_started(tool_call)
 
     if spec is None:
         texto = f"Error: tool '{tool_call.name}' não encontrada no registry"
@@ -134,6 +138,7 @@ async def execute_tool_batch(
     ctx: ToolContext,
     turn_budget: TurnBudget | None = None,
     on_event: EventSink | None = None,
+    on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> list[VMessage]:
     """Executa todas as `tool_calls` do turno, na ordem em que aparecem no
     resultado — paralelo se nenhuma é destrutiva, sequencial (mas ainda
@@ -157,6 +162,7 @@ async def execute_tool_batch(
                 ctx=ctx,
                 turn_budget=turn_budget,
                 on_event=on_event,
+                on_tool_started=on_tool_started,
             )
             for tc in tool_calls
         ]
@@ -170,6 +176,7 @@ async def execute_tool_batch(
                     ctx=ctx,
                     turn_budget=turn_budget,
                     on_event=on_event,
+                    on_tool_started=on_tool_started,
                 )
                 for tc in tool_calls
             )

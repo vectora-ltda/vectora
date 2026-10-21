@@ -12,6 +12,7 @@ a sintaxe SQL mudam (``$1``/``$2`` de placeholder, ``BIGSERIAL``,
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -39,6 +40,8 @@ if TYPE_CHECKING:
 # pra um `parent_message_id` corrompido/cíclico não fazer a CTE recursar
 # sem fim. Mesmo valor/motivo de `session_store.py::_CHAIN_DEPTH_CAP`.
 _CHAIN_DEPTH_CAP = 100_000
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -612,43 +615,56 @@ class PostgresSessionStore:
             return None
         if row["expires_at"] and row["expires_at"] <= _now():
             agora = _now()
-            async with self._pool.acquire() as conn, conn.transaction():
-                await conn.execute(
-                    "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
+            try:
+                async with self._pool.acquire() as conn, conn.transaction():
+                    await conn.execute(
+                        "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
+                        thread_id,
+                    )
+                    deleted = await conn.fetchval(
+                        "DELETE FROM vectora_native_pending_approvals "
+                        "WHERE thread_id = $1 AND interrupt_id = $2 "
+                        "AND expires_at IS NOT NULL AND expires_at <= $3 "
+                        "RETURNING 1",
+                        thread_id,
+                        row["interrupt_id"],
+                        agora,
+                    )
+                    if not deleted:
+                        return None
+                    max_seq = await conn.fetchval(
+                        "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
+                        thread_id,
+                    )
+                    current_seq = int(max_seq or 0) + 1
+                    resolved_key = make_approval_resolved_key(row["interrupt_id"])
+                    payload = {
+                        "tool_name": row["tool_name"],
+                        "tool_call_id": row["tool_call_id"],
+                        "interrupt_id": row["interrupt_id"],
+                        "expired": True,
+                    }
+                    await conn.execute(
+                        "INSERT INTO vectora_native_thread_events (thread_id, seq, event_key, type, "
+                        "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
+                        "ON CONFLICT (thread_id, event_key) DO NOTHING",
+                        thread_id,
+                        current_seq,
+                        resolved_key,
+                        "approval_resolved",
+                        None,
+                        None,
+                        None,
+                        row["tool_call_id"],
+                        row["interrupt_id"],
+                        json.dumps(payload, ensure_ascii=False),
+                        agora,
+                    )
+            except Exception:
+                logger.exception(
+                    "postgres_session_store: falha ao expirar pending approval para thread %s",
                     thread_id,
-                )
-                await conn.execute(
-                    "DELETE FROM vectora_native_pending_approvals WHERE thread_id = $1",
-                    thread_id,
-                )
-                max_seq = await conn.fetchval(
-                    "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
-                    thread_id,
-                )
-                current_seq = int(max_seq or 0) + 1
-                resolved_key = make_approval_resolved_key(row["interrupt_id"])
-                payload = {
-                    "tool_name": row["tool_name"],
-                    "tool_call_id": row["tool_call_id"],
-                    "interrupt_id": row["interrupt_id"],
-                    "expired": True,
-                }
-                await conn.execute(
-                    "INSERT INTO vectora_native_thread_events (thread_id, seq, event_key, type, "
-                    "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
-                    "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
-                    "ON CONFLICT (thread_id, event_key) DO NOTHING",
-                    thread_id,
-                    current_seq,
-                    resolved_key,
-                    "approval_resolved",
-                    None,
-                    None,
-                    None,
-                    row["tool_call_id"],
-                    row["interrupt_id"],
-                    json.dumps(payload, ensure_ascii=False),
-                    agora,
                 )
             return None
         return {

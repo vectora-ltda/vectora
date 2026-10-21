@@ -412,6 +412,32 @@ async def run_conversation(
                 )
             )
             await emit(MessageBreak())
+            if config.run_id:
+                try:
+                    if hasattr(session_store, "append_ledger_event"):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_run_failed_key(config.run_id),
+                            event_type="run_failed",
+                            run_id=config.run_id,
+                            payload={"error": "empty_model_response"},
+                        )
+                    elif hasattr(session_store, "append_event"):
+                        await session_store.append_event(
+                            thread_id,
+                            ThreadLedgerEvent(
+                                thread_id=thread_id,
+                                event_key=make_run_failed_key(config.run_id),
+                                type="run_failed",
+                                run_id=config.run_id,
+                                payload={"error": "empty_model_response"},
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar RUN_FAILED (empty_model_response) no ledger para thread %s",
+                        thread_id,
+                    )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=None,
@@ -471,6 +497,36 @@ async def run_conversation(
                 )
                 await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
                 await emit(MessageBreak())
+                if config.run_id:
+                    try:
+                        if hasattr(session_store, "append_ledger_event"):
+                            await session_store.append_ledger_event(
+                                thread_id,
+                                event_key=make_run_failed_key(config.run_id),
+                                event_type="run_failed",
+                                run_id=config.run_id,
+                                payload={
+                                    "error": f"loop_cap_exceeded: tool_call_repeated ({nomes})"
+                                },
+                            )
+                        elif hasattr(session_store, "append_event"):
+                            await session_store.append_event(
+                                thread_id,
+                                ThreadLedgerEvent(
+                                    thread_id=thread_id,
+                                    event_key=make_run_failed_key(config.run_id),
+                                    type="run_failed",
+                                    run_id=config.run_id,
+                                    payload={
+                                        "error": f"loop_cap_exceeded: tool_call_repeated ({nomes})"
+                                    },
+                                ),
+                            )
+                    except Exception:
+                        logger.exception(
+                            "Falha ao registrar RUN_FAILED (tool_call_repeated) no ledger para thread %s",
+                            thread_id,
+                        )
                 return LoopResult(
                     stopped_reason="loop_cap_exceeded",
                     final_message=None,
@@ -636,13 +692,20 @@ async def run_conversation(
 
         tool_started_at: dict[str, float] = {}
         tool_args_previews: dict[str, str] = {}
-        for tc in tool_calls:
+
+        async def _record_tool_started(
+            tc: ToolCall,
+            *,
+            _started_at: dict[str, float] = tool_started_at,
+            _previews: dict[str, str] = tool_args_previews,
+        ) -> None:
             spec = tool_registry.get(tc.name)
             extras = spec.extras if spec is not None else None
-            tool_started_at[tc.id] = time.monotonic()
+            _started_at[tc.id] = time.monotonic()
             preview = _args_preview(tc.args)
-            tool_args_previews[tc.id] = preview
+            _previews[tc.id] = preview
             if config.run_id:
+                sanitized_tc = _sanitize_tool_call(tc, ctx)
                 try:
                     if hasattr(session_store, "append_ledger_event"):
                         await session_store.append_ledger_event(
@@ -651,7 +714,10 @@ async def run_conversation(
                             event_type="tool_started",
                             run_id=config.run_id,
                             tool_call_id=tc.id,
-                            payload={"tool_name": tc.name, "args": tc.args},
+                            payload={
+                                "tool_name": sanitized_tc.name,
+                                "args": sanitized_tc.args,
+                            },
                         )
                     elif hasattr(session_store, "append_event"):
                         await session_store.append_event(
@@ -662,7 +728,10 @@ async def run_conversation(
                                 type="tool_started",
                                 run_id=config.run_id,
                                 tool_call_id=tc.id,
-                                payload={"tool_name": tc.name, "args": tc.args},
+                                payload={
+                                    "tool_name": sanitized_tc.name,
+                                    "args": sanitized_tc.args,
+                                },
                             ),
                         )
                 except Exception:
@@ -694,13 +763,15 @@ async def run_conversation(
             ctx=ctx,
             turn_budget=turn_budget,
             on_event=on_event,
+            on_tool_started=_record_tool_started,
         )
         for resultado in resultados:
             parent_id = await session_store.append_message(
                 thread_id, resultado, parent_message_id=parent_id
             )
             call_id = resultado.tool_call_id or ""
-            if config.run_id and call_id:
+            was_started = call_id in tool_started_at
+            if config.run_id and call_id and was_started:
                 try:
                     if hasattr(session_store, "append_ledger_event"):
                         await session_store.append_ledger_event(
