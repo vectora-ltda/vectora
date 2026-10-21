@@ -49,7 +49,6 @@ from backend.engine.stream_events import (
 )
 from backend.engine.tool_batch import _is_tool_error, execute_tool_batch
 from backend.persistence.native.ledger import (
-    LedgerEventType,
     ThreadLedgerEvent,
     make_run_completed_key,
     make_run_failed_key,
@@ -464,7 +463,7 @@ async def run_conversation(
                         await session_store.append_ledger_event(
                             thread_id,
                             event_key=make_run_completed_key(config.run_id),
-                            event_type=LedgerEventType.RUN_COMPLETED,
+                            event_type="run_completed",
                             run_id=config.run_id,
                             payload={"stopped_reason": "stop"},
                         )
@@ -474,7 +473,7 @@ async def run_conversation(
                             ThreadLedgerEvent(
                                 thread_id=thread_id,
                                 event_key=make_run_completed_key(config.run_id),
-                                type=LedgerEventType.RUN_COMPLETED,
+                                type="run_completed",
                                 run_id=config.run_id,
                                 payload={"stopped_reason": "stop"},
                             ),
@@ -620,7 +619,7 @@ async def run_conversation(
                         await session_store.append_ledger_event(
                             thread_id,
                             event_key=make_tool_started_key(config.run_id, tc.id),
-                            event_type=LedgerEventType.TOOL_STARTED,
+                            event_type="tool_started",
                             run_id=config.run_id,
                             tool_call_id=tc.id,
                             payload={"tool_name": tc.name, "args": tc.args},
@@ -631,7 +630,7 @@ async def run_conversation(
                             ThreadLedgerEvent(
                                 thread_id=thread_id,
                                 event_key=make_tool_started_key(config.run_id, tc.id),
-                                type=LedgerEventType.TOOL_STARTED,
+                                type="tool_started",
                                 run_id=config.run_id,
                                 tool_call_id=tc.id,
                                 payload={"tool_name": tc.name, "args": tc.args},
@@ -678,7 +677,7 @@ async def run_conversation(
                         await session_store.append_ledger_event(
                             thread_id,
                             event_key=make_tool_finished_key(config.run_id, call_id),
-                            event_type=LedgerEventType.TOOL_FINISHED,
+                            event_type="tool_finished",
                             run_id=config.run_id,
                             tool_call_id=call_id,
                             payload={
@@ -694,7 +693,7 @@ async def run_conversation(
                                 event_key=make_tool_finished_key(
                                     config.run_id, call_id
                                 ),
-                                type=LedgerEventType.TOOL_FINISHED,
+                                type="tool_finished",
                                 run_id=config.run_id,
                                 tool_call_id=call_id,
                                 payload={
@@ -749,7 +748,7 @@ async def run_conversation(
                         await session_store.append_ledger_event(
                             thread_id,
                             event_key=make_run_failed_key(config.run_id),
-                            event_type=LedgerEventType.RUN_FAILED,
+                            event_type="run_failed",
                             run_id=config.run_id,
                             payload={
                                 "error": f"loop_cap_exceeded: {turn_budget.exceeded}"
@@ -761,7 +760,7 @@ async def run_conversation(
                             ThreadLedgerEvent(
                                 thread_id=thread_id,
                                 event_key=make_run_failed_key(config.run_id),
-                                type=LedgerEventType.RUN_FAILED,
+                                type="run_failed",
                                 run_id=config.run_id,
                                 payload={
                                     "error": f"loop_cap_exceeded: {turn_budget.exceeded}"
@@ -797,7 +796,7 @@ async def run_conversation(
                 await session_store.append_ledger_event(
                     thread_id,
                     event_key=make_run_failed_key(config.run_id),
-                    event_type=LedgerEventType.RUN_FAILED,
+                    event_type="run_failed",
                     run_id=config.run_id,
                     payload={"error": f"recursion_limit: {config.max_iterations}"},
                 )
@@ -807,7 +806,7 @@ async def run_conversation(
                     ThreadLedgerEvent(
                         thread_id=thread_id,
                         event_key=make_run_failed_key(config.run_id),
-                        type=LedgerEventType.RUN_FAILED,
+                        type="run_failed",
                         run_id=config.run_id,
                         payload={"error": f"recursion_limit: {config.max_iterations}"},
                     ),

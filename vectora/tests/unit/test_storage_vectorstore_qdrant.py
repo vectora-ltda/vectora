@@ -5,6 +5,7 @@ testes reais em `tests/integration/test_storage_qdrant.py`)."""
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -204,10 +205,18 @@ class TestQdrantBackendListRows:
 class TestQdrantBackendDelete:
     @pytest.mark.asyncio
     async def test_delete_envia_point_ids_list(self, backend, mock_client):
-        mock_client.count.side_effect = [5, 3]
+        mock_client.count.return_value = 2
         count = await backend.delete("articles", ["p1", "p2"])
 
         assert count == 2
+        count_kwargs = mock_client.count.call_args.kwargs
+        assert count_kwargs["collection_name"] == "articles"
+        assert count_kwargs["exact"] is True
+        assert count_kwargs["count_filter"].must[0].has_id == [
+            _point_id("articles", "p1"),
+            _point_id("articles", "p2"),
+        ]
+
         _, kwargs = mock_client.delete.call_args
         assert kwargs["collection_name"] == "articles"
         assert kwargs["points_selector"].points == [
@@ -215,6 +224,16 @@ class TestQdrantBackendDelete:
             _point_id("articles", "p2"),
         ]
         assert kwargs["wait"] is True
+
+    @pytest.mark.asyncio
+    async def test_delete_concorrente_coordena_exclusoes(self, backend, mock_client):
+        mock_client.count.side_effect = [1, 0]
+        results = await asyncio.gather(
+            backend.delete("articles", ["p1"]),
+            backend.delete("articles", ["p1"]),
+        )
+        assert sorted(results) == [0, 1]
+        assert mock_client.delete.call_count == 1
 
     @pytest.mark.asyncio
     async def test_delete_lista_vazia_nao_chama_cliente(self, backend, mock_client):
