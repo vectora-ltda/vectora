@@ -963,63 +963,94 @@ async def run_conversation(
                         and hasattr(session_store, "get_agent_run")
                         and hasattr(session_store, "upsert_agent_run")
                     ):
-                        active_item = next(
-                            (t for t in todos if t.status == "in_progress"),
-                            None,
-                        )
-                        active_step_id = (
-                            (active_item.step_id or active_item.content)
-                            if active_item
-                            else None
-                        )
-                        agent_run = await session_store.get_agent_run(config.run_id)
-                        if agent_run is not None:
-                            agent_run.plan_step = active_step_id
-                            # Recupera gates já concluídos com sucesso para não reexecutar
-                            for ev in agent_run.evidence:
-                                if (
-                                    isinstance(ev, dict)
-                                    and ev.get("kind") == "quality_gate_verification"
-                                    and ev.get("passed")
-                                ):
-                                    ev_step = ev.get("step_id")
-                                    ev_gate = ev.get("quality_gate")
-                                    if ev_step and ev_gate:
-                                        executed_step_gates.add(
-                                            (str(ev_step), str(ev_gate))
-                                        )
+                        try:
+                            active_item = next(
+                                (t for t in todos if t.status == "in_progress"),
+                                None,
+                            )
+                            active_step_id = (
+                                (active_item.step_id or active_item.content)
+                                if active_item
+                                else None
+                            )
+                            agent_run = await session_store.get_agent_run(config.run_id)
+                            if agent_run is not None:
+                                agent_run.plan_step = active_step_id
+                                # Recupera gates já concluídos com sucesso para não reexecutar
+                                for ev in agent_run.evidence:
+                                    if (
+                                        isinstance(ev, dict)
+                                        and ev.get("kind")
+                                        == "quality_gate_verification"
+                                        and ev.get("passed")
+                                    ):
+                                        ev_step = ev.get("step_id")
+                                        ev_gate = ev.get("quality_gate")
+                                        if ev_step and ev_gate:
+                                            executed_step_gates.add(
+                                                (str(ev_step), str(ev_gate))
+                                            )
 
-                            # Executa quality gates específicos para etapas concluídas
-                            for item in todos:
-                                if item.status == "completed" and item.quality_gate:
-                                    step_key = item.step_id or item.content
-                                    gate_key = item.quality_gate
-                                    pair = (step_key, gate_key)
-                                    if pair in executed_step_gates:
-                                        continue
+                                # Executa quality gates específicos para etapas concluídas
+                                for item in todos:
+                                    if item.status == "completed" and item.quality_gate:
+                                        step_key = item.step_id or item.content
+                                        gate_key = item.quality_gate
+                                        pair = (step_key, gate_key)
+                                        if pair in executed_step_gates:
+                                            continue
 
-                                    from backend.services.verification import (
-                                        run_verification,
+                                        try:
+                                            from backend.services.verification import (
+                                                run_verification,
+                                            )
+
+                                            ws_id = getattr(ctx, "workspace_id", None)
+                                            ws_dir = getattr(
+                                                ctx, "workspace_dir", None
+                                            ) or getattr(ctx, "cwd", None)
+                                            v_res = await run_verification(
+                                                ws_id,
+                                                ws_dir,
+                                                target_gate_ids=[item.quality_gate],
+                                            )
+                                            v_entry = v_res.to_evidence_entry()
+                                            v_entry["step_id"] = step_key
+                                            v_entry["quality_gate"] = gate_key
+                                            agent_run.evidence.append(v_entry)
+                                            if v_res.passed:
+                                                executed_step_gates.add(pair)
+                                            else:
+                                                agent_run.status = v_res.status
+                                        except Exception as gate_exc:
+                                            logger.exception(
+                                                "Falha ao executar quality gate %s para step %s (run_id %s)",
+                                                gate_key,
+                                                step_key,
+                                                config.run_id,
+                                            )
+                                            agent_run.status = "failed"
+                                            agent_run.evidence.append(
+                                                {
+                                                    "kind": "quality_gate_verification",
+                                                    "step_id": step_key,
+                                                    "quality_gate": gate_key,
+                                                    "passed": False,
+                                                    "error": str(gate_exc),
+                                                }
+                                            )
+                                try:
+                                    await session_store.upsert_agent_run(agent_run)
+                                except Exception:
+                                    logger.exception(
+                                        "Falha ao persistir AgentRun atualizado com quality gates (run_id %s)",
+                                        config.run_id,
                                     )
-
-                                    ws_id = getattr(ctx, "workspace_id", None)
-                                    ws_dir = getattr(
-                                        ctx, "workspace_dir", None
-                                    ) or getattr(ctx, "cwd", None)
-                                    v_res = await run_verification(
-                                        ws_id,
-                                        ws_dir,
-                                        target_gate_ids=[item.quality_gate],
-                                    )
-                                    v_entry = v_res.to_evidence_entry()
-                                    v_entry["step_id"] = step_key
-                                    v_entry["quality_gate"] = gate_key
-                                    agent_run.evidence.append(v_entry)
-                                    if v_res.passed:
-                                        executed_step_gates.add(pair)
-                                    else:
-                                        agent_run.status = v_res.status
-                            await session_store.upsert_agent_run(agent_run)
+                        except Exception:
+                            logger.exception(
+                                "Erro inesperado ao processar plano e quality gates para run_id %s",
+                                config.run_id,
+                            )
 
         if turn_budget.exceeded is not None:
             if config.run_id:

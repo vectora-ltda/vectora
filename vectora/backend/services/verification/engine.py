@@ -210,7 +210,7 @@ async def run_verification(
 
     # 2. Filtragem dos gates relevantes aos arquivos alterados ou especificados
     target_set = set(target_gate_ids) if target_gate_ids is not None else None
-    if target_set is not None:
+    if prof.enabled and target_set is not None:
         existing_gate_ids = {g.id for g in prof.gates} if prof.gates else set()
         missing_gate_ids = target_set - existing_gate_ids
         if missing_gate_ids:
