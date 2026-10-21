@@ -294,10 +294,7 @@ def should_require_approval(
             if (
                 isinstance(elevated, set)
                 and _risk_assessment_key(tool_name, args) in elevated
-            ):
-                decision = True
-                reason = "systemone_risk_elevated"
-            elif (
+            ) or (
                 elevated is None
                 and extra.get("systemone_risk_requires_approval") is True
             ):
