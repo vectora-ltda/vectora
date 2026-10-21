@@ -204,9 +204,9 @@ async def run_verification(
     root_dir = Path(cwd) if cwd else Path.cwd()
     prof = profile or get_verification_profile(workspace_id)
 
-    # 1. Checagem de require_clean_git quando habilitado
+    # 1. Checagem de require_clean_git quando habilitado na verificação final
     git_unclean_reason: str | None = None
-    if prof.enabled and prof.require_clean_git:
+    if prof.enabled and prof.require_clean_git and target_gate_ids is None:
         is_clean, unclean_details = await _is_git_working_tree_clean(root_dir)
         if not is_clean:
             git_unclean_reason = f"Git working tree não está limpo:\n{unclean_details}"
