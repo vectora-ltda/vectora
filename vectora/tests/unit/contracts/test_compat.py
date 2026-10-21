@@ -107,7 +107,11 @@ def test_schema_compat_nested_schemas_and_refs() -> None:
 
 
 def test_openapi_endpoint_and_request_schema_removal_detection() -> None:
-    from devtools.contracts.__main__ import _classify_openapi_schemas
+    from devtools.contracts.__main__ import (
+        _classify_openapi_schemas,
+        _removed_operations,
+        _removed_request_schemas,
+    )
 
     baseline_openapi = {
         "paths": {
@@ -185,20 +189,9 @@ def test_openapi_endpoint_and_request_schema_removal_detection() -> None:
     assert "UserListResponse" in resp_schemas
 
     # Verifica detecção de remoção de endpoint
-    old_paths = baseline_openapi["paths"]
-    new_paths = new_openapi["paths"]
-    removed_endpoints = [
-        (method.upper(), path_str)
-        for path_str, old_item in old_paths.items()
-        for method in old_item
-        if method.lower() not in new_paths.get(path_str, {})
-    ]
+    removed_endpoints = _removed_operations(baseline_openapi, new_openapi)
     assert removed_endpoints == [("POST", "/api/v1/users")]
 
     # Verifica detecção de remoção de request schema
-    old_schemas = baseline_openapi["components"]["schemas"]
-    new_schemas = new_openapi["components"]["schemas"]
-    removed_req_schemas = [
-        s for s in old_schemas if s not in new_schemas and s in req_schemas
-    ]
+    removed_req_schemas = _removed_request_schemas(baseline_openapi, new_openapi)
     assert removed_req_schemas == ["CreateUserRequest"]
