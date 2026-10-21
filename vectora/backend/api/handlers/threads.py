@@ -2660,7 +2660,7 @@ async def get_agent_run(run_id: str, request: Request) -> AgentRun:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Run {run_id!r} não encontrada.",
         )
-    await _assert_owns_thread(run.thread_id, request)
+    await _assert_existing_thread_ownership(run.thread_id, request)
     return run
 
 
@@ -2681,7 +2681,7 @@ async def get_agent_run_timeline(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Run {run_id!r} não encontrada.",
         )
-    await _assert_owns_thread(run.thread_id, request)
+    await _assert_existing_thread_ownership(run.thread_id, request)
     timeline: list[AgentRunTimelineEntry] = []
     if hasattr(session_store, "get_agent_run_timeline"):
         timeline = await session_store.get_agent_run_timeline(run_id)
@@ -2693,7 +2693,7 @@ async def list_thread_agent_runs(
     thread_id: str, request: Request, limit: int = 50
 ) -> list[AgentRun]:
     """Lista as execuções de agente vinculadas a uma thread."""
-    await _assert_owns_thread(thread_id, request)
+    await _assert_existing_thread_ownership(thread_id, request)
     session_store = await _get_session_store()
     if not hasattr(session_store, "list_agent_runs"):
         return []

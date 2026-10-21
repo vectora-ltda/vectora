@@ -64,16 +64,7 @@ def _map_legacy_session_run_status(status: str) -> str:
 
     session_runs CHECK: ('queued', 'running', 'streaming', 'completed', 'failed', 'cancelled')
     """
-    if status in (
-        "planned",
-        "admitted",
-        "running",
-        "waiting_approval",
-        "waiting_provider",
-        "tool_running",
-        "verifying",
-        "recovery_required",
-    ):
+    if status in ("planned", "running", "waiting_approval", "verifying"):
         return "running"
     if status in ("passed", "degraded"):
         return "completed"
@@ -209,17 +200,6 @@ class SessionStore:
         await self.setup()
         now = _now()
         async with self._pool.acquire() as conn:
-            # Alguns consumidores nativos podem abrir um stream sintético
-            # antes de materializar os metadados da thread (por exemplo, um
-            # replay HITL). A execução continua subordinada à thread, então
-            # criamos somente o registro mínimo e de forma idempotente antes
-            # de satisfazer a FK de session_runs.
-            await conn.execute(
-                "INSERT INTO sessions (thread_id, user_id, mode, permission_mode, created_at, updated_at) "
-                "VALUES (?, 'local', 'chat', 'ask', ?, ?) "
-                "ON CONFLICT(thread_id) DO NOTHING",
-                (thread_id, now, now),
-            )
             if turn_id is not None:
                 existing_cur = await conn.execute(
                     "SELECT run_id FROM session_runs "
@@ -282,35 +262,7 @@ class SessionStore:
         tests_run = json.dumps(redact_sensitive_data(run.tests_run), ensure_ascii=False)
         artifacts = json.dumps(redact_sensitive_data(run.artifacts), ensure_ascii=False)
         metrics = json.dumps(run.metrics.model_dump(), ensure_ascii=False)
-        evidence_list = list(run.evidence)
-        if run.untrusted_content and not any(
-            isinstance(e, dict) and e.get("untrusted_content") is True
-            for e in evidence_list
-        ):
-            evidence_list.append({"kind": "provenance", "untrusted_content": True})
-        if not any(
-            isinstance(e, dict) and e.get("untrusted_content") is True
-            for e in evidence_list
-        ):
-            # Preserva proveniência de conteúdo não confiável já registrada
-            cur_prev = await conn.execute(
-                "SELECT evidence_json FROM agent_runs WHERE run_id = ?",
-                (run.run_id,),
-            )
-            prev_row = await cur_prev.fetchone()
-            if prev_row and prev_row[0]:
-                try:
-                    prev_evidence = json.loads(prev_row[0])
-                except ValueError:
-                    prev_evidence = []
-                if any(
-                    isinstance(e, dict) and e.get("untrusted_content") is True
-                    for e in prev_evidence
-                ):
-                    evidence_list.append(
-                        {"kind": "provenance", "untrusted_content": True}
-                    )
-        evidence = json.dumps(redact_sensitive_data(evidence_list), ensure_ascii=False)
+        evidence = json.dumps(redact_sensitive_data(run.evidence), ensure_ascii=False)
 
         # Mantém paridade com session_runs legado
         mapped_status = _map_legacy_session_run_status(run.status)
@@ -344,14 +296,12 @@ class SessionStore:
         # Insere/atualiza na tabela canônica agent_runs
         await conn.execute(
             "INSERT INTO agent_runs ("
-            "run_id, thread_id, turn_id, parent_run_id, correlation_id, user_id, workspace_id, model, provider, "
+            "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
             "status, plan_step, tools_available_json, tools_used_json, approvals_json, "
             "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
             "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(run_id) DO UPDATE SET "
-            "parent_run_id=COALESCE(excluded.parent_run_id, agent_runs.parent_run_id), "
-            "correlation_id=COALESCE(excluded.correlation_id, agent_runs.correlation_id), "
             "status=excluded.status, "
             "plan_step=COALESCE(excluded.plan_step, agent_runs.plan_step), "
             "tools_available_json=excluded.tools_available_json, "
@@ -371,8 +321,6 @@ class SessionStore:
                 run.run_id,
                 run.thread_id,
                 run.turn_id,
-                run.parent_run_id,
-                run.correlation_id,
                 run.user_id,
                 run.workspace_id,
                 run.model,
@@ -536,7 +484,7 @@ class SessionStore:
     async def _get_agent_run_on_conn(self, conn: Any, run_id: str) -> AgentRun | None:
         """Carrega e desserializa um AgentRun na conexão fornecida."""
         cur = await conn.execute(
-            "SELECT run_id, thread_id, turn_id, parent_run_id, correlation_id, user_id, workspace_id, "
+            "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
             "model, provider, status, plan_step, tools_available_json, "
             "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
             "tests_run_json, artifacts_json, metrics_json, evidence_json, "
@@ -581,38 +529,30 @@ class SessionStore:
                 terminal_at=str(leg[9]) if leg[9] else None,
             )
 
-        evidence_data = json.loads(row[19] or "[]")
-        is_untrusted = any(
-            isinstance(e, dict) and e.get("untrusted_content") is True
-            for e in evidence_data
-        )
         return AgentRun(
             run_id=str(row[0]),
             thread_id=str(row[1]),
             turn_id=str(row[2]) if row[2] else None,
-            parent_run_id=str(row[3]) if row[3] else None,
-            correlation_id=str(row[4]) if row[4] else None,
-            user_id=str(row[5] or ""),
-            workspace_id=str(row[6]) if row[6] else None,
-            model=str(row[7] or ""),
-            provider=str(row[8] or ""),
-            status=cast("AgentRunStatus", row[9]),
-            plan_step=str(row[10]) if row[10] else None,
-            tools_available=json.loads(row[11] or "[]"),
-            tools_used=json.loads(row[12] or "[]"),
-            approvals=json.loads(row[13] or "[]"),
-            files_touched=json.loads(row[14] or "[]"),
-            commands_run=json.loads(row[15] or "[]"),
-            tests_run=json.loads(row[16] or "[]"),
-            artifacts=json.loads(row[17] or "[]"),
-            metrics=AgentRunMetrics(**json.loads(row[18] or "{}")),
-            evidence=evidence_data,
-            untrusted_content=is_untrusted,
-            detail=str(row[20]) if row[20] else None,
-            error_code=str(row[21]) if row[21] else None,
-            started_at=str(row[22]),
-            updated_at=str(row[23]),
-            terminal_at=str(row[24]) if row[24] else None,
+            user_id=str(row[3] or ""),
+            workspace_id=str(row[4]) if row[4] else None,
+            model=str(row[5] or ""),
+            provider=str(row[6] or ""),
+            status=cast("AgentRunStatus", row[7]),
+            plan_step=str(row[8]) if row[8] else None,
+            tools_available=json.loads(row[9] or "[]"),
+            tools_used=json.loads(row[10] or "[]"),
+            approvals=json.loads(row[11] or "[]"),
+            files_touched=json.loads(row[12] or "[]"),
+            commands_run=json.loads(row[13] or "[]"),
+            tests_run=json.loads(row[14] or "[]"),
+            artifacts=json.loads(row[15] or "[]"),
+            metrics=AgentRunMetrics(**json.loads(row[16] or "{}")),
+            evidence=json.loads(row[17] or "[]"),
+            detail=str(row[18]) if row[18] else None,
+            error_code=str(row[19]) if row[19] else None,
+            started_at=str(row[20]),
+            updated_at=str(row[21]),
+            terminal_at=str(row[22]) if row[22] else None,
         )
 
     async def get_agent_run(self, run_id: str) -> AgentRun | None:
@@ -629,7 +569,7 @@ class SessionStore:
         safe_limit = max(1, min(500, int(limit)))
         async with self._pool.acquire() as conn:
             cur = await conn.execute(
-                "SELECT run_id, thread_id, turn_id, parent_run_id, correlation_id, user_id, workspace_id, "
+                "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
                 "model, provider, status, plan_step, tools_available_json, "
                 "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
                 "tests_run_json, artifacts_json, metrics_json, evidence_json, "
@@ -639,44 +579,34 @@ class SessionStore:
                 (thread_id, safe_limit),
             )
             rows = await cur.fetchall()
-            runs: list[AgentRun] = []
-            for r in rows:
-                evidence_data = json.loads(r[19] or "[]")
-                is_untrusted = any(
-                    isinstance(e, dict) and e.get("untrusted_content") is True
-                    for e in evidence_data
+            return [
+                AgentRun(
+                    run_id=str(r[0]),
+                    thread_id=str(r[1]),
+                    turn_id=str(r[2]) if r[2] else None,
+                    user_id=str(r[3] or ""),
+                    workspace_id=str(r[4]) if r[4] else None,
+                    model=str(r[5] or ""),
+                    provider=str(r[6] or ""),
+                    status=cast("AgentRunStatus", r[7]),
+                    plan_step=str(r[8]) if r[8] else None,
+                    tools_available=json.loads(r[9] or "[]"),
+                    tools_used=json.loads(r[10] or "[]"),
+                    approvals=json.loads(r[11] or "[]"),
+                    files_touched=json.loads(r[12] or "[]"),
+                    commands_run=json.loads(r[13] or "[]"),
+                    tests_run=json.loads(r[14] or "[]"),
+                    artifacts=json.loads(r[15] or "[]"),
+                    metrics=AgentRunMetrics(**json.loads(r[16] or "{}")),
+                    evidence=json.loads(r[17] or "[]"),
+                    detail=str(r[18]) if r[18] else None,
+                    error_code=str(r[19]) if r[19] else None,
+                    started_at=str(r[20]),
+                    updated_at=str(r[21]),
+                    terminal_at=str(r[22]) if r[22] else None,
                 )
-                runs.append(
-                    AgentRun(
-                        run_id=str(r[0]),
-                        thread_id=str(r[1]),
-                        turn_id=str(r[2]) if r[2] else None,
-                        parent_run_id=str(r[3]) if r[3] else None,
-                        correlation_id=str(r[4]) if r[4] else None,
-                        user_id=str(r[5] or ""),
-                        workspace_id=str(r[6]) if r[6] else None,
-                        model=str(r[7] or ""),
-                        provider=str(r[8] or ""),
-                        status=cast("AgentRunStatus", r[9]),
-                        plan_step=str(r[10]) if r[10] else None,
-                        tools_available=json.loads(r[11] or "[]"),
-                        tools_used=json.loads(r[12] or "[]"),
-                        approvals=json.loads(r[13] or "[]"),
-                        files_touched=json.loads(r[14] or "[]"),
-                        commands_run=json.loads(r[15] or "[]"),
-                        tests_run=json.loads(r[16] or "[]"),
-                        artifacts=json.loads(r[17] or "[]"),
-                        metrics=AgentRunMetrics(**json.loads(r[18] or "{}")),
-                        evidence=evidence_data,
-                        untrusted_content=is_untrusted,
-                        detail=str(r[20]) if r[20] else None,
-                        error_code=str(r[21]) if r[21] else None,
-                        started_at=str(r[22]),
-                        updated_at=str(r[23]),
-                        terminal_at=str(r[24]) if r[24] else None,
-                    )
-                )
-            return runs
+                for r in rows
+            ]
 
     async def get_agent_run_timeline(self, run_id: str) -> list[AgentRunTimelineEntry]:
         """Recupera todos os eventos do ledger correlacionados a um run_id."""
