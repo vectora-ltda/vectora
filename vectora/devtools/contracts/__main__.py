@@ -11,6 +11,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 
 def _setup_isolation_env() -> Path:
     temp_home = Path(tempfile.gettempdir()) / "vectora_contracts_isolation"
@@ -264,14 +266,208 @@ def export_quality_gates(contracts_dir: Path) -> None:
     print("Exported Quality Gates schema.")
 
 
-def export_typescript(contracts_dir: Path) -> None:
-    """Exporta definições de tipos TypeScript sincronizadas com os contratos canônicos."""
-    frontend_contracts_dir = (
-        Path(__file__).resolve().parents[2] / "frontend" / "lib" / "contracts"
-    )
-    frontend_contracts_dir.mkdir(parents=True, exist_ok=True)
+def _python_type_to_ts(annotation: Any) -> str:
+    import types
+    import typing
 
-    ts_content = """/**
+    origin = typing.get_origin(annotation)
+    args = typing.get_args(annotation)
+
+    if origin is typing.Literal:
+        return " | ".join(json.dumps(a) for a in args)
+    if origin is list:
+        inner = _python_type_to_ts(args[0]) if args else "unknown"
+        return f"{inner}[]"
+    if origin is dict:
+        return "Record<string, unknown>"
+    if origin is typing.Union or isinstance(annotation, types.UnionType):
+        non_none = [a for a in args if a is not type(None)]
+        ts_types = [_python_type_to_ts(a) for a in non_none]
+        return " | ".join(ts_types)
+    if annotation is str:
+        return "string"
+    if annotation in (int, float):
+        return "number"
+    if annotation is bool:
+        return "boolean"
+    if annotation is Any:
+        return "unknown"
+    if hasattr(annotation, "__name__"):
+        return str(annotation.__name__)
+    return "unknown"
+
+
+def _generate_ts_interface(
+    model: type[BaseModel], *, optional_override: set[str] | None = None
+) -> str:
+    lines = [f"export interface {model.__name__} {{"]
+    opt_set = optional_override or set()
+    for fname, finfo in model.model_fields.items():
+        name = finfo.alias or fname
+        is_opt = name in ("$schema",) or fname in opt_set
+        tname = (
+            "QualityGatePolicy"
+            if fname == "policy"
+            else _python_type_to_ts(finfo.annotation)
+        )
+        opt = "?" if is_opt else ""
+        lines.append(f"  {name}{opt}: {tname};")
+    lines.append("}")
+    return "\n".join(lines)
+
+
+def _extract_schema_refs(obj: Any) -> set[str]:
+    """Extrai nomes de schemas referenciados via #/components/schemas/<Name>."""
+    refs: set[str] = set()
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if (
+                k == "$ref"
+                and isinstance(v, str)
+                and v.startswith("#/components/schemas/")
+            ):
+                refs.add(v.split("/")[-1])
+            else:
+                refs.update(_extract_schema_refs(v))
+    elif isinstance(obj, list):
+        for item in obj:
+            refs.update(_extract_schema_refs(item))
+    return refs
+
+
+def _classify_openapi_schemas(openapi: dict[str, Any]) -> tuple[set[str], set[str]]:
+    """Classifica schemas em (request_schemas, response_schemas) transitivamente a partir dos endpoints."""
+    all_schemas = openapi.get("components", {}).get("schemas", {})
+    request_roots: set[str] = set()
+    response_roots: set[str] = set()
+
+    paths = openapi.get("paths", {})
+    if isinstance(paths, dict):
+        for _path, path_item in paths.items():
+            if not isinstance(path_item, dict):
+                continue
+            for method, op in path_item.items():
+                if method.lower() not in (
+                    "get",
+                    "post",
+                    "put",
+                    "delete",
+                    "patch",
+                    "options",
+                    "head",
+                ) or not isinstance(op, dict):
+                    continue
+                if "parameters" in op:
+                    request_roots.update(_extract_schema_refs(op["parameters"]))
+                if "requestBody" in op:
+                    request_roots.update(_extract_schema_refs(op["requestBody"]))
+                if "responses" in op:
+                    response_roots.update(_extract_schema_refs(op["responses"]))
+
+    def _expand_transitive(roots: set[str]) -> set[str]:
+        expanded = set(roots)
+        queue = list(roots)
+        while queue:
+            curr = queue.pop()
+            schema_body = all_schemas.get(curr)
+            if schema_body:
+                for child in _extract_schema_refs(schema_body):
+                    if child not in expanded:
+                        expanded.add(child)
+                        queue.append(child)
+        return expanded
+
+    return _expand_transitive(request_roots), _expand_transitive(response_roots)
+
+
+def export_typescript(contracts_dir: Path, target_dir: Path | None = None) -> None:
+    """Exporta definições de tipos TypeScript sincronizadas com os contratos canônicos."""
+    from backend.contracts.models import (
+        AppearanceSettings,
+        EditorSettings,
+        FileSettings,
+        LintSettings,
+        LocaleSettings,
+        QualityGateRunResult,
+        QualityGateSpec,
+        SuggestionsSettings,
+        UpdatesSettings,
+        UserSettingsV1,
+        WatcherSettings,
+        WorkbenchesSettings,
+        WorkspaceVerificationProfile,
+    )
+
+    out_dir = (
+        target_dir
+        if target_dir is not None
+        else (Path(__file__).resolve().parents[2] / "frontend" / "lib" / "contracts")
+    )
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    matrix_file = contracts_dir / "errors" / "matrix.json"
+    if matrix_file.exists():
+        matrix_data = json.loads(matrix_file.read_text(encoding="utf-8"))
+        error_codes = sorted(matrix_data.keys())
+    else:
+        error_codes = [
+            "BAD_REQUEST",
+            "EMPTY_MODEL_RESPONSE",
+            "FORBIDDEN",
+            "INTERNAL",
+            "INTERNAL_ERROR",
+            "MODEL_NOT_ALLOWED",
+            "MODEL_NO_TOOL_CALLING",
+            "MODEL_NO_VISION",
+            "NOT_FOUND",
+            "RATE_LIMITED",
+            "SERVICE_UNAVAILABLE",
+            "UNAUTHORIZED",
+        ]
+    error_codes_union = "\n  | ".join(f'"{c}"' for c in error_codes)
+
+    settings_models = [
+        LocaleSettings,
+        AppearanceSettings,
+        SuggestionsSettings,
+        LintSettings,
+        EditorSettings,
+        WatcherSettings,
+        FileSettings,
+        WorkbenchesSettings,
+        UpdatesSettings,
+        UserSettingsV1,
+    ]
+    settings_interfaces = "\n\n".join(
+        _generate_ts_interface(
+            m,
+            optional_override={"schema_url"},
+        )
+        for m in settings_models
+    )
+
+    quality_gate_interfaces = "\n\n".join(
+        [
+            'export type QualityGatePolicy = "block" | "degrade" | "inform";',
+            _generate_ts_interface(
+                QualityGateSpec,
+                optional_override={"file_patterns", "timeout_seconds"},
+            ),
+            _generate_ts_interface(
+                WorkspaceVerificationProfile,
+                optional_override={
+                    "require_clean_git",
+                    "inject_stack_trace_on_failure",
+                },
+            ),
+            _generate_ts_interface(
+                QualityGateRunResult,
+                optional_override={"output", "duration_ms", "artifacts_collected"},
+            ),
+        ]
+    )
+
+    ts_content = f"""/**
  * CANONICAL TYPESCRIPT CONTRACTS (AUTO-GENERATED)
  *
  * Fonte da verdade: vectora/backend/contracts/
@@ -284,141 +480,35 @@ def export_typescript(contracts_dir: Path) -> None:
 // ============================================================================
 
 export type CanonicalErrorCode =
-  | "UNAUTHORIZED"
-  | "FORBIDDEN"
-  | "NOT_FOUND"
-  | "RATE_LIMITED"
-  | "BAD_REQUEST"
-  | "INTERNAL"
-  | "INTERNAL_ERROR"
-  | "SERVICE_UNAVAILABLE"
-  | "MODEL_NO_VISION"
-  | "MODEL_NO_TOOL_CALLING"
-  | "MODEL_NOT_ALLOWED"
-  | "EMPTY_MODEL_RESPONSE";
+  | {error_codes_union};
 
-export interface CanonicalErrorSpec {
+export interface CanonicalErrorSpec {{
   status_code: number;
   retryable: boolean;
   category: "auth" | "client" | "server";
-}
+}}
 
 // ============================================================================
 // Settings Schema v1 (vectora/backend/contracts/settings/v1.schema.json)
 // ============================================================================
 
-export interface LocaleSettings {
-  language: string;
-  timezone: string;
-}
-
-export interface AppearanceSettings {
-  theme: "dark" | "light" | "system";
-  sidebarPosition: "left" | "right";
-}
-
-export interface SuggestionsSettings {
-  enabled: boolean;
-  aiEnabled: boolean;
-}
-
-export interface LintSettings {
-  enabled: boolean;
-  showDiagnostics: boolean;
-}
-
-export interface EditorSettings {
-  fontFamily: string;
-  fontSize: number;
-  lineHeight: number;
-  fontLigatures: boolean;
-  wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
-  minimap: boolean;
-  smoothScrolling: boolean;
-  formatOnSave: boolean;
-  formatOnPaste: boolean;
-  suggestions: SuggestionsSettings;
-  lint: LintSettings;
-}
-
-export interface WatcherSettings {
-  enabled: boolean;
-  exclude: string[];
-}
-
-export interface FileSettings {
-  autoSave: "off" | "afterDelay" | "onFocusChange" | "onWindowChange";
-  autoSaveDelayMs: number;
-  encoding: string;
-  eol: "lf" | "crlf" | "auto";
-  trimTrailingWhitespace: boolean;
-  insertFinalNewline: boolean;
-  watcher: WatcherSettings;
-}
-
-export interface WorkbenchesSettings {
-  git: Record<string, unknown>;
-  plan: Record<string, unknown>;
-  tasks: Record<string, unknown>;
-  browser: Record<string, unknown>;
-  storage: Record<string, unknown>;
-  contextGraph: Record<string, unknown>;
-  library: Record<string, unknown>;
-  terminal: Record<string, unknown>;
-}
-
-export interface UpdatesSettings {
-  autoUpdateEnabled: boolean;
-}
-
-export interface UserSettingsV1 {
-  $schema?: string;
-  version: number;
-  locale: LocaleSettings;
-  appearance: AppearanceSettings;
-  editor: EditorSettings;
-  files: FileSettings;
-  workbenches: WorkbenchesSettings;
-  updates: UpdatesSettings;
-}
+{settings_interfaces}
 
 // ============================================================================
 // Quality Gates & Post-Run Verification (vectora/backend/contracts/quality_gates/schema.json)
 // ============================================================================
 
-export type QualityGatePolicy = "block" | "degrade" | "inform";
-
-export interface QualityGateSpec {
-  id: string;
-  name: string;
-  command: string[];
-  policy: QualityGatePolicy;
-  file_patterns?: string[];
-  timeout_seconds?: number;
-}
-
-export interface WorkspaceVerificationProfile {
-  workspace_id: string;
-  enabled: boolean;
-  gates: QualityGateSpec[];
-  require_clean_git?: boolean;
-  inject_stack_trace_on_failure?: boolean;
-}
-
-export interface QualityGateRunResult {
-  gate_id: string;
-  passed: boolean;
-  exit_code: number;
-  output?: string;
-  duration_ms?: number;
-  artifacts_collected?: string[];
-}
+{quality_gate_interfaces}
 """
-    (frontend_contracts_dir / "index.ts").write_text(ts_content, encoding="utf-8")
+    (out_dir / "index.ts").write_text(ts_content, encoding="utf-8")
     print("Exported TypeScript contracts.")
 
 
-def export_all(contracts_dir: Path, only: str | None = None) -> None:
+def export_all(
+    contracts_dir: Path,
+    only: str | None = None,
+    ts_target_dir: Path | None = None,
+) -> None:
     if only in (None, "http"):
         export_http(contracts_dir)
     if only in (None, "tools"):
@@ -432,7 +522,7 @@ def export_all(contracts_dir: Path, only: str | None = None) -> None:
     if only in (None, "quality_gates"):
         export_quality_gates(contracts_dir)
     if only in (None, "typescript"):
-        export_typescript(contracts_dir)
+        export_typescript(contracts_dir, target_dir=ts_target_dir)
 
 
 def check_all(contracts_dir: Path) -> int:
@@ -443,9 +533,29 @@ def check_all(contracts_dir: Path) -> int:
 
     with tempfile.TemporaryDirectory() as tmp_str:
         temp_dir = Path(tmp_str)
-        export_all(temp_dir)
+        temp_ts_dir = temp_dir / "typescript"
+        export_all(temp_dir, ts_target_dir=temp_ts_dir)
 
         has_diff = False
+
+        # Verifica index.ts em relação ao arquivo rastreado no frontend sem modificar working tree
+        tracked_ts = (
+            Path(__file__).resolve().parents[2]
+            / "frontend"
+            / "lib"
+            / "contracts"
+            / "index.ts"
+        )
+        generated_ts = temp_ts_dir / "index.ts"
+        if not tracked_ts.exists():
+            print("MISSING: frontend/lib/contracts/index.ts")
+            has_diff = True
+        elif generated_ts.exists():
+            if tracked_ts.read_text(encoding="utf-8") != generated_ts.read_text(
+                encoding="utf-8"
+            ):
+                print("DRIFT DETECTED: frontend/lib/contracts/index.ts")
+                has_diff = True
 
         # 1. Checa se algum arquivo gerado está ausente ou tem drift em relação a contracts_dir
         for expected_file in temp_dir.rglob("*.json"):
@@ -462,60 +572,67 @@ def check_all(contracts_dir: Path) -> int:
                 has_diff = True
 
             # Se for schema OpenAPI ou SSE, executa check_schema_compatibility
-            # Carrega baseline do branch base se disponível (ex: git show origin/release/0.3:...),
-            # ou usa current_data (artefato em disco/PR) como baseline local.
-            baseline_data = current_data
+            baseline_data: dict[str, Any] | None = None
             try:
-                git_rel = f"vectora/{contracts_dir.name}/{rel.as_posix()}"
                 res = subprocess.run(  # nosec B603, B607 # noqa: S603
-                    ["git", "show", f"origin/release/0.3:{git_rel}"],  # noqa: S607
+                    ["git", "show", f"origin/release/0.3:./{rel.as_posix()}"],  # noqa: S607
+                    cwd=_contracts_root(),
                     capture_output=True,
                     text=True,
                     check=False,
                 )
                 if res.returncode == 0 and res.stdout.strip():
                     baseline_data = json.loads(res.stdout)
-            except Exception:
-                baseline_data = current_data
+                else:
+                    print(
+                        f"WARNING: Baseline para {rel.as_posix()} não encontrado em origin/release/0.3; comparação de compatibilidade ignorada."
+                    )
+            except Exception as exc:
+                print(
+                    f"WARNING: Falha ao carregar baseline de origin/release/0.3 para {rel.as_posix()}: {exc}; comparação ignorada."
+                )
+
+            if baseline_data is None:
+                continue
 
             if (
                 rel.name == "openapi.json"
                 and isinstance(baseline_data, dict)
                 and isinstance(expected_data, dict)
             ):
-                # Comparar cada schema de components.schemas individualmente
                 old_schemas = baseline_data.get("components", {}).get("schemas", {})
                 new_schemas = expected_data.get("components", {}).get("schemas", {})
+                req_schemas, resp_schemas = _classify_openapi_schemas(expected_data)
+
                 for s_name, old_s in old_schemas.items():
                     if s_name in new_schemas:
                         new_s = new_schemas[s_name]
-                        # Decide direção: request schemas terminam em Request / Config / Input / etc.
-                        direction = (
-                            "request"
-                            if any(
-                                k in s_name.lower()
-                                for k in ("request", "config", "input", "query")
+                        directions: list[str] = []
+                        if s_name in req_schemas:
+                            directions.append("request")
+                        if s_name in resp_schemas:
+                            directions.append("response")
+                        if not directions:
+                            directions = ["request", "response"]
+
+                        for direction in directions:
+                            report = check_schema_compatibility(
+                                old_s,
+                                new_s,
+                                path=f"components.schemas.{s_name}",
+                                direction=direction,
                             )
-                            else "response"
-                        )
-                        report = check_schema_compatibility(
-                            old_s,
-                            new_s,
-                            path=f"components.schemas.{s_name}",
-                            direction=direction,
-                        )
-                        if not report.is_compatible:
-                            print(
-                                f"BREAKING SCHEMA CHANGE in openapi.json ({s_name}): {report.breaking}"
-                            )
-                            has_diff = True
+                            if not report.is_compatible:
+                                print(
+                                    f"BREAKING SCHEMA CHANGE in openapi.json ({s_name}, {direction}): {report.breaking}"
+                                )
+                                has_diff = True
 
             elif (
                 rel.name == "events.schema.json"
                 and isinstance(baseline_data, dict)
                 and isinstance(expected_data, dict)
             ):
-                # SSE events são eventos de resposta / streaming
                 old_defs = baseline_data.get("$defs", {})
                 new_defs = expected_data.get("$defs", {})
                 for d_name, old_d in old_defs.items():
