@@ -135,9 +135,8 @@ async def test_postgres_agent_run_upsert_uses_for_update_and_preserves_untrusted
 
     execute_call = conn.execute.await_args
     assert execute_call is not None
-    # O SQL ocupa args[0]; evidence_json é o 19º valor ($19 -> args[19])
-    # depois da inclusão explícita de artifacts_json e metrics_json no run.
-    evidence_saved = json.loads(execute_call.args[19])
+    # evidence_json é o 18º valor de parâmetro ($18 -> args[18])
+    evidence_saved = json.loads(execute_call.args[18])
     assert any(
         isinstance(e, dict) and e.get("untrusted_content") is True
         for e in evidence_saved

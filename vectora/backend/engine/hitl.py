@@ -94,6 +94,9 @@ REQUIRE_APPROVAL: frozenset[str] = frozenset(
     }
 )
 
+#: Métodos HTTP considerados seguros (somente leitura / idempotentes) para allowlist
+SAFE_HTTP_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
+
 #: Tools auto-aprovadas no modo "accept_edits".
 _ACCEPT_EDITS_AUTO: frozenset[str] = frozenset(
     {"file_write", "file_write_tool", "file_edit"}
@@ -227,8 +230,8 @@ def call_requires_separate_approval(
     if tool_name == "git_push" and bool(call_args.get("force", False)):
         return True
     if tool_name == "http_request":
-        method = str(call_args.get("method", "GET")).upper()
-        if method in ("POST", "PUT", "PATCH", "DELETE"):
+        method = str(call_args.get("method", "GET")).strip().upper()
+        if method not in SAFE_HTTP_METHODS:
             return True
     return False
 
@@ -312,11 +315,8 @@ def should_require_approval(  # noqa: PLR0911
             )
             return True
     if tool_name == "http_request":
-        method = str(args.get("method", "GET")).upper()
-        if (
-            method in ("POST", "PUT", "PATCH", "DELETE")
-            and mode not in _NON_INTERRUPTING_MODES
-        ):
+        method = str(args.get("method", "GET")).strip().upper()
+        if method not in SAFE_HTTP_METHODS and mode not in _NON_INTERRUPTING_MODES:
             _log_decision(
                 tool_name,
                 ctx,

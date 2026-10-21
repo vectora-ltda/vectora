@@ -11,6 +11,7 @@ import asyncio
 import ipaddress
 import logging
 import socket
+from collections.abc import Sequence
 from enum import StrEnum
 from typing import Any
 from urllib.parse import urlparse
@@ -77,11 +78,20 @@ def _matches_pattern(host: str, pattern: str) -> bool:
     return norm_host == norm_pat
 
 
+_AddrInfo = tuple[
+    socket.AddressFamily,
+    socket.SocketKind,
+    int,
+    str,
+    tuple[str, int] | tuple[str, int, int, int] | tuple[int, bytes],
+]
+
+
 def _validate_addr_infos_and_port(
     host: str,
     port: int,
     pol: EgressPolicy,
-    addr_infos: list[tuple[Any, ...]],
+    addr_infos: Sequence[_AddrInfo],
 ) -> tuple[bool, str, str | None]:
     is_loopback_target = False
     first_ip: str | None = None
@@ -126,7 +136,10 @@ def _validate_addr_infos_and_port(
 
 
 def is_url_allowed(  # noqa: PLR0911
-    url: str, policy: EgressPolicy | None = None
+    url: str,
+    policy: EgressPolicy | None = None,
+    *,
+    resolve_dns: bool = True,
 ) -> tuple[bool, str]:
     """Verifica se a URL é autorizada pela política de egress e segura contra SSRF.
 
@@ -170,6 +183,14 @@ def is_url_allowed(  # noqa: PLR0911
                 False,
                 f"Host '{host}' não consta na allowlist de destinos autorizados",
             )
+
+    if not resolve_dns:
+        if pol.allowed_ports and port not in pol.allowed_ports:
+            return (
+                False,
+                f"Porta de conexão {port} não autorizada pela política de egress",
+            )
+        return True, ""
 
     # 3. Resolução DNS para proteção contra SSRF e DNS rebinding
     try:

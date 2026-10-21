@@ -14,7 +14,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from backend.engine.hitl import REQUIRE_APPROVAL
+from backend.engine.hitl import REQUIRE_APPROVAL, SAFE_HTTP_METHODS
 from backend.rbac import tool_policy
 from backend.services.egress_policy import EgressPolicy, is_url_allowed
 from backend.services.mcp_policy import evaluate as evaluate_mcp
@@ -63,10 +63,10 @@ class PolicySnapshot:
         if not allowed:
             return False, reason
 
-        # Em fluxos com untrusted_content, bloqueia métodos HTTP mutáveis
+        # Em fluxos com untrusted_content, bloqueia métodos HTTP fora da allowlist segura
         if self.untrusted_content and tool_name == "http_request":
-            method = str(args.get("method", "GET")).upper()
-            if method in ("POST", "PUT", "PATCH", "DELETE"):
+            method = str(args.get("method", "GET")).strip().upper()
+            if method not in SAFE_HTTP_METHODS:
                 return (
                     False,
                     f"Método HTTP mutável '{method}' bloqueado para execução com conteúdo não confiável (untrusted_content)",
@@ -81,11 +81,13 @@ class PolicySnapshot:
                     "git_push com --force bloqueado pela política de governança de repositório",
                 )
 
-        # Checagem unificada de saída de rede (egress)
+        # Checagem unificada de saída de rede (egress) sem resolução síncrona de DNS
         if tool_name in ("http_request", "web_fetch", "web_crawl", "web_map"):
             url = args.get("url")
             if isinstance(url, str):
-                ok, egress_reason = is_url_allowed(url, self.egress_policy)
+                ok, egress_reason = is_url_allowed(
+                    url, self.egress_policy, resolve_dns=False
+                )
                 if not ok:
                     return False, f"Egress policy violada para '{url}': {egress_reason}"
 
