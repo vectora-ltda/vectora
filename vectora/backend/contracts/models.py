@@ -104,6 +104,12 @@ class FileSettings(BaseModel):
 
 
 class WorkbenchesSettings(BaseModel):
+    """Configurações específicas das workbenches.
+
+    O uso de `dict[str, Any]` é justificado pois as seções de cada workbench são
+    livres e flexíveis na v1 do schema e poderão ser estritamente tipadas em versões futuras.
+    """
+
     git: dict[str, Any] = Field(
         default_factory=dict, description="Configurações da Git Workbench"
     )
