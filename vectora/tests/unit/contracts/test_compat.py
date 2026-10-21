@@ -104,3 +104,101 @@ def test_schema_compat_nested_schemas_and_refs() -> None:
     report = check_schema_compatibility(old, new)
     assert not report.is_compatible
     assert any("referência $ref alterada" in b for b in report.breaking)
+
+
+def test_openapi_endpoint_and_request_schema_removal_detection() -> None:
+    from devtools.contracts.__main__ import _classify_openapi_schemas
+
+    baseline_openapi = {
+        "paths": {
+            "/api/v1/users": {
+                "get": {
+                    "responses": {
+                        "200": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "$ref": "#/components/schemas/UserListResponse"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "post": {
+                    "requestBody": {
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CreateUserRequest"
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+        },
+        "components": {
+            "schemas": {
+                "CreateUserRequest": {
+                    "type": "object",
+                    "properties": {"name": {"type": "string"}},
+                },
+                "UserListResponse": {
+                    "type": "object",
+                    "properties": {"users": {"type": "array"}},
+                },
+            }
+        },
+    }
+
+    new_openapi = {
+        "paths": {
+            "/api/v1/users": {
+                "get": {
+                    "responses": {
+                        "200": {
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "$ref": "#/components/schemas/UserListResponse"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "components": {
+            "schemas": {
+                "UserListResponse": {
+                    "type": "object",
+                    "properties": {"users": {"type": "array"}},
+                },
+            }
+        },
+    }
+
+    req_schemas, resp_schemas = _classify_openapi_schemas(baseline_openapi)
+    assert "CreateUserRequest" in req_schemas
+    assert "UserListResponse" in resp_schemas
+
+    # Verifica detecção de remoção de endpoint
+    old_paths = baseline_openapi["paths"]
+    new_paths = new_openapi["paths"]
+    removed_endpoints = [
+        (method.upper(), path_str)
+        for path_str, old_item in old_paths.items()
+        for method in old_item
+        if method.lower() not in new_paths.get(path_str, {})
+    ]
+    assert removed_endpoints == [("POST", "/api/v1/users")]
+
+    # Verifica detecção de remoção de request schema
+    old_schemas = baseline_openapi["components"]["schemas"]
+    new_schemas = new_openapi["components"]["schemas"]
+    removed_req_schemas = [
+        s for s in old_schemas if s not in new_schemas and s in req_schemas
+    ]
+    assert removed_req_schemas == ["CreateUserRequest"]

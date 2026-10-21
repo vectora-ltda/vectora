@@ -3177,6 +3177,59 @@
         "title": "HasUsersResponse",
         "type": "object"
       },
+      "HealthLiveResponse": {
+        "description": "Contrato de resposta da sonda de liveness.",
+        "properties": {
+          "status": {
+            "const": "live",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["status", "version"],
+        "title": "HealthLiveResponse",
+        "type": "object"
+      },
+      "HealthReadyChecks": {
+        "description": "Estado detalhado das dependências vitais.",
+        "properties": {
+          "lancedb": {
+            "title": "Lancedb",
+            "type": "boolean"
+          },
+          "store": {
+            "title": "Store",
+            "type": "boolean"
+          }
+        },
+        "required": ["store", "lancedb"],
+        "title": "HealthReadyChecks",
+        "type": "object"
+      },
+      "HealthReadyResponse": {
+        "description": "Contrato de resposta da sonda de readiness.",
+        "properties": {
+          "checks": {
+            "$ref": "#/components/schemas/HealthReadyChecks"
+          },
+          "status": {
+            "enum": ["ready", "not_ready"],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["status", "version", "checks"],
+        "title": "HealthReadyResponse",
+        "type": "object"
+      },
       "HistoryMessage": {
         "properties": {
           "attachments": {
@@ -11805,9 +11858,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Health Live Health Live Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/HealthLiveResponse"
                 }
               }
             },
@@ -11826,9 +11877,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Health Ready Health Ready Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/HealthReadyResponse"
                 }
               }
             },
