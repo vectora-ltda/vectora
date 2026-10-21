@@ -92,9 +92,14 @@ def check_schema_compatibility(
             )
     removed_req = old_req - new_req
     if removed_req:
-        report.non_breaking.append(
-            f"{path}: campos não mais obrigatórios: {sorted(removed_req)}"
-        )
+        if direction == "response":
+            report.breaking.append(
+                f"{path}: campos não mais obrigatórios em response: {sorted(removed_req)}"
+            )
+        else:
+            report.non_breaking.append(
+                f"{path}: campos não mais obrigatórios: {sorted(removed_req)}"
+            )
 
     # 5. Checa propriedades de objetos
     old_props = old_schema.get("properties", {})

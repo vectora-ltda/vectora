@@ -14,7 +14,11 @@ import lancedb
 import pyarrow as pa
 
 from backend.storage.lancedb.index import create_fts_index
-from backend.storage.vectorstore.base import VectorHit, VectorRow
+from backend.storage.vectorstore.base import (
+    VectorHit,
+    VectorRow,
+    VectorStoreHealth,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -236,10 +240,10 @@ class LanceDBBackend:
         except Exception:
             return None
 
-    async def health(self) -> dict[str, Any]:
+    async def health(self) -> VectorStoreHealth:
         """Verifica se o LanceDB está acessível e lista tabelas."""
         try:
             tables = await self.list_collections()
-            return {"ok": True, "error": None, "tables": tables, "internal": True}
+            return VectorStoreHealth(ok=True, error=None, tables=tables, internal=True)
         except Exception as exc:
-            return {"ok": False, "error": str(exc), "internal": True}
+            return VectorStoreHealth(ok=False, error=str(exc), internal=True)
