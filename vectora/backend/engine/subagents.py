@@ -79,7 +79,11 @@ from backend.engine.conversation_loop import LoopConfig, run_conversation
 from backend.engine.stream_events import MessageChunk, SubagentOutput
 from backend.rbac import tool_policy
 from backend.services.egress_policy import EgressPolicy
-from backend.services.policy_compiler import DESTRUCTIVE_TOOLS, PolicySnapshot
+from backend.services.policy_compiler import (
+    DESTRUCTIVE_TOOLS,
+    PolicySnapshot,
+    compile_policy_snapshot,
+)
 from backend.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -389,29 +393,29 @@ async def _run_subagent_once(
         else (ctx.correlation_id or None)
     )
 
-    child_disabled = set(tool_policy.effective_disabled(ctx.user_id))
-    is_untrusted = False
+    base_policy = compile_policy_snapshot(ctx)
+
+    child_disabled = set(base_policy.disabled_tools)
+    is_untrusted = base_policy.untrusted_content
+    is_jailed = base_policy.is_jailed
+    allow_force_push = base_policy.allow_force_push
+    egress_policy = base_policy.egress_policy
+
     if parent_policy_snapshot is not None:
         child_disabled.update(parent_policy_snapshot.disabled_tools)
-        is_untrusted = parent_policy_snapshot.untrusted_content
-    else:
-        extra = getattr(ctx, "_extra", {})
-        if isinstance(extra, dict) and extra.get("untrusted_content"):
-            is_untrusted = True
+        is_untrusted = is_untrusted or parent_policy_snapshot.untrusted_content
+        is_jailed = is_jailed or parent_policy_snapshot.is_jailed
+        allow_force_push = allow_force_push and parent_policy_snapshot.allow_force_push
+        if parent_policy_snapshot.egress_policy is not None:
+            egress_policy = parent_policy_snapshot.egress_policy
 
-    child_policy = PolicySnapshot(
-        workspace_id=ctx.workspace_id or None,
-        user_id=ctx.user_id or "local",
-        permission_mode=ctx.permission_mode or "ask",
+    child_policy = replace(
+        base_policy,
         disabled_tools=frozenset(child_disabled),
-        egress_policy=parent_policy_snapshot.egress_policy
-        if parent_policy_snapshot
-        else EgressPolicy(workspace_id=ctx.workspace_id or None),
-        is_jailed=parent_policy_snapshot.is_jailed if parent_policy_snapshot else False,
         untrusted_content=is_untrusted,
-        allow_force_push=parent_policy_snapshot.allow_force_push
-        if parent_policy_snapshot
-        else False,
+        is_jailed=is_jailed,
+        allow_force_push=allow_force_push,
+        egress_policy=egress_policy,
     )
 
     if hasattr(session_store, "upsert_agent_run"):
