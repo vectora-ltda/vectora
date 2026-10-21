@@ -226,14 +226,16 @@ class TestQdrantBackendDelete:
         assert kwargs["wait"] is True
 
     @pytest.mark.asyncio
-    async def test_delete_concorrente_coordena_exclusoes(self, backend, mock_client):
+    async def test_delete_concorrente_coordena_exclusoes(
+        self, backend: QdrantBackend, mock_client: AsyncMock
+    ) -> None:
         mock_client.count.side_effect = [1, 0]
         results = await asyncio.gather(
             backend.delete("articles", ["p1"]),
             backend.delete("articles", ["p1"]),
         )
         assert sorted(results) == [0, 1]
-        assert mock_client.delete.call_count == 1
+        mock_client.delete.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_delete_lista_vazia_nao_chama_cliente(self, backend, mock_client):

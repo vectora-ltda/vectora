@@ -8,6 +8,9 @@ Valida:
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
+from pathlib import Path
+
 import pytest
 
 from backend.persistence.native.ledger import (
@@ -20,7 +23,7 @@ from backend.vtypes.message import MessageRole, text_message
 
 
 @pytest.fixture
-async def pool(tmp_path):
+async def pool(tmp_path: Path) -> AsyncGenerator[AsyncConnectionPool]:
     p = AsyncConnectionPool(str(tmp_path / "sessions.db"), min_size=1, max_size=5)
     await p.open()
     store = SessionStore(p)
@@ -32,7 +35,7 @@ async def pool(tmp_path):
 
 
 class TestLedgerBackfill:
-    async def test_backfill_idempotent(self, pool: AsyncConnectionPool):
+    async def test_backfill_idempotent(self, pool: AsyncConnectionPool) -> None:
         store = SessionStore(pool)
         await store.create_session("thread-old", user_id="alice")
 
@@ -89,7 +92,9 @@ class TestLedgerBackfill:
         events = await store.list_events("thread-old")
         assert len(events) == 3
 
-    async def test_ensure_thread_backfilled_lazy(self, pool: AsyncConnectionPool):
+    async def test_ensure_thread_backfilled_lazy(
+        self, pool: AsyncConnectionPool
+    ) -> None:
         store = SessionStore(pool)
         await store.create_session("thread-lazy", user_id="bob")
         await store.append_message(
