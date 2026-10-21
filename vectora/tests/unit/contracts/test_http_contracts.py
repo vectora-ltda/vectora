@@ -35,6 +35,35 @@ def test_correlation_and_contract_version_headers() -> None:
     assert res.headers["x-correlation-id"] == custom_cid
 
 
+def test_correlation_sanitization_and_unhandled_exception_headers() -> None:
+    app = create_app(serve_static=False)
+
+    @app.get("/test/error-route")
+    async def _failing_route():
+        raise RuntimeError("Simulated unhandled explosion")
+
+    client = TestClient(app, raise_server_exceptions=False)
+
+    # 1. Header inválido (caracteres proibidos ou vazio) é sanitizado gerando novo UUID
+    invalid_cid = "bad/id\nwith spaces and injection"
+    res = client.get("/health", headers={"X-Correlation-ID": invalid_cid})
+    assert res.status_code == 200
+    assert res.headers["x-correlation-id"] != invalid_cid
+    assert len(res.headers["x-correlation-id"]) == 36
+
+    # 2. Exceção não tratada retorna 500 com os 3 cabeçalhos garantidos
+    custom_cid = "valid-corr-999"
+    custom_rid = "valid-req-888"
+    err_res = client.get(
+        "/test/error-route",
+        headers={"X-Correlation-ID": custom_cid, "X-Request-ID": custom_rid},
+    )
+    assert err_res.status_code == 500
+    assert err_res.headers["x-correlation-id"] == custom_cid
+    assert err_res.headers["x-request-id"] == custom_rid
+    assert err_res.headers["x-vectora-contract-version"] == CONTRACT_VERSION
+
+
 def test_health_live_and_ready_endpoints() -> None:
     app = create_app(serve_static=False)
     client = TestClient(app)

@@ -238,6 +238,8 @@ def export_settings(contracts_dir: Path) -> None:
 
 def export_quality_gates(contracts_dir: Path) -> None:
     """Exporta os schemas de Quality Gates e perfis de verificação pós-execução."""
+    from pydantic.json_schema import models_json_schema
+
     from backend.contracts.models import (
         QualityGateRunResult,
         QualityGateSpec,
@@ -248,19 +250,21 @@ def export_quality_gates(contracts_dir: Path) -> None:
     gates_dir = contracts_dir / "quality_gates"
     gates_dir.mkdir(parents=True, exist_ok=True)
 
-    profile_schema = WorkspaceVerificationProfile.model_json_schema()
-    spec_schema = QualityGateSpec.model_json_schema()
-    result_schema = QualityGateRunResult.model_json_schema()
+    _, top = models_json_schema(
+        [
+            (WorkspaceVerificationProfile, "validation"),
+            (QualityGateSpec, "validation"),
+            (QualityGateRunResult, "validation"),
+        ],
+        ref_template="#/definitions/{model}",
+    )
+    definitions = top.get("$defs", {})
 
     bundle = {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QualityGatesVerificationBundle",
         "description": "Schemas de perfis e resultados de verificação pós-execução.",
-        "definitions": {
-            "WorkspaceVerificationProfile": profile_schema,
-            "QualityGateSpec": spec_schema,
-            "QualityGateRunResult": result_schema,
-        },
+        "definitions": definitions,
     }
     (gates_dir / "schema.json").write_text(dumps_normalized(bundle), encoding="utf-8")
     print("Exported Quality Gates schema.")
@@ -600,8 +604,48 @@ def check_all(contracts_dir: Path) -> int:
                 and isinstance(baseline_data, dict)
                 and isinstance(expected_data, dict)
             ):
+                # 1. Identificar operações HTTP removidas em paths
+                old_paths = baseline_data.get("paths", {})
+                new_paths = expected_data.get("paths", {})
+                http_methods = {
+                    "get",
+                    "post",
+                    "put",
+                    "delete",
+                    "patch",
+                    "options",
+                    "head",
+                    "trace",
+                }
+                if isinstance(old_paths, dict) and isinstance(new_paths, dict):
+                    for path_str, old_item in old_paths.items():
+                        if not isinstance(old_item, dict):
+                            continue
+                        new_item = new_paths.get(path_str, {})
+                        if not isinstance(new_item, dict):
+                            new_item = {}
+                        for method in old_item:
+                            method_lower = method.lower()
+                            if method_lower in http_methods and method_lower not in [
+                                m.lower() for m in new_item
+                            ]:
+                                print(
+                                    f"BREAKING API CHANGE in openapi.json: Removed endpoint {method.upper()} {path_str}"
+                                )
+                                has_diff = True
+
+                # 2. Identificar schemas de request removidos de components.schemas
                 old_schemas = baseline_data.get("components", {}).get("schemas", {})
                 new_schemas = expected_data.get("components", {}).get("schemas", {})
+                old_req_schemas, _ = _classify_openapi_schemas(baseline_data)
+                for s_name in old_schemas:
+                    if s_name not in new_schemas and s_name in old_req_schemas:
+                        print(
+                            f"BREAKING SCHEMA CHANGE in openapi.json: Removed request schema components.schemas.{s_name}"
+                        )
+                        has_diff = True
+
+                # 3. Comparação de schemas existentes em ambas as versões
                 req_schemas, resp_schemas = _classify_openapi_schemas(expected_data)
 
                 for s_name, old_s in old_schemas.items():
