@@ -11,18 +11,18 @@
 // ============================================================================
 
 export type CanonicalErrorCode =
-  | "UNAUTHORIZED"
-  | "FORBIDDEN"
-  | "NOT_FOUND"
-  | "RATE_LIMITED"
   | "BAD_REQUEST"
+  | "EMPTY_MODEL_RESPONSE"
+  | "FORBIDDEN"
   | "INTERNAL"
   | "INTERNAL_ERROR"
-  | "SERVICE_UNAVAILABLE"
-  | "MODEL_NO_VISION"
-  | "MODEL_NO_TOOL_CALLING"
   | "MODEL_NOT_ALLOWED"
-  | "EMPTY_MODEL_RESPONSE";
+  | "MODEL_NO_TOOL_CALLING"
+  | "MODEL_NO_VISION"
+  | "NOT_FOUND"
+  | "RATE_LIMITED"
+  | "SERVICE_UNAVAILABLE"
+  | "UNAUTHORIZED";
 
 export interface CanonicalErrorSpec {
   status_code: number;
