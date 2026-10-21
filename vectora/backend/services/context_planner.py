@@ -7,6 +7,7 @@ preserva a integridade causal de tool-calls/tool-results e instruções do siste
 from __future__ import annotations
 
 import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -30,7 +31,14 @@ def compute_transcript_hash(messages: list[VMessage]) -> str:
     """Calcula o hash SHA-256 estável da sequência de mensagens."""
     h = hashlib.sha256()
     for m in messages:
-        h.update(f"{m.role.value}:{m.text()}:{len(m.tool_calls)}".encode())
+        payload = json.dumps(
+            m.to_dict(),
+            sort_keys=True,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        h.update(len(payload).to_bytes(8, byteorder="big"))
+        h.update(payload)
     return h.hexdigest()
 
 
@@ -123,7 +131,26 @@ class ContextPlanner:
             )
 
         # 2. Aplica limitação segura em resultados de tool
-        bounded = _bound_tool_results(full_messages)
+        if preserve_latest_tool_result:
+            latest_tool_idx = next(
+                (
+                    i
+                    for i in reversed(range(len(full_messages)))
+                    if full_messages[i].role == MessageRole.TOOL
+                ),
+                None,
+            )
+            if latest_tool_idx is not None:
+                bounded = [
+                    *_bound_tool_results(full_messages[:latest_tool_idx]),
+                    full_messages[latest_tool_idx],
+                    *_bound_tool_results(full_messages[latest_tool_idx + 1 :]),
+                ]
+            else:
+                bounded = _bound_tool_results(full_messages)
+        else:
+            bounded = _bound_tool_results(full_messages)
+
         if sum(_message_tokens(m) for m in bounded) <= max_tokens:
             manifest = ContextManifest(
                 blocks=[
@@ -170,14 +197,39 @@ class ContextPlanner:
         marker_cost = _message_tokens(marker_msg)
         selection_budget = max_tokens - marker_cost
 
+        latest_tool_unit = None
+        if preserve_latest_tool_result:
+            latest_tool_unit = next(
+                (
+                    unit
+                    for unit in reversed(units)
+                    if any(item.role is MessageRole.TOOL for item in unit)
+                ),
+                None,
+            )
+
         for unit in reversed(units):
             cost = sum(_message_tokens(m) for m in unit)
             if used_tokens + cost > selection_budget:
-                continue
+                if not selected_units:
+                    # A unidade mais recente é obrigatória.
+                    selected_units.append(unit)
+                    used_tokens += cost
+                break
             selected_units.append(unit)
             used_tokens += cost
 
-        selected_non_system = [m for unit in reversed(selected_units) for m in unit]
+        if (
+            preserve_latest_tool_result
+            and latest_tool_unit is not None
+            and latest_tool_unit not in selected_units
+        ):
+            selected_units.append(latest_tool_unit)
+            used_tokens += sum(_message_tokens(m) for m in latest_tool_unit)
+
+        unit_order = {id(u): i for i, u in enumerate(units)}
+        selected_units.sort(key=lambda u: unit_order[id(u)])
+        selected_non_system = [m for unit in selected_units for m in unit]
         omitted = len(non_system) - len(selected_non_system)
 
         final_messages = [*systems]

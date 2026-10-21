@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Literal, TypedDict
 
 ContextDomain = Literal[
     "system",
@@ -14,6 +14,41 @@ ContextDomain = Literal[
     "vector_rag",
     "structural_graph",
 ]
+
+
+class ContextBlockDict(TypedDict):
+    domain: ContextDomain
+    title: str
+    token_count: int
+    reason: str
+    provenance: str | None
+    untrusted_content: bool
+
+
+class ContextProjectionEvidence(TypedDict):
+    kind: Literal["context_projection"]
+    start_seq: int
+    end_seq: int
+    source_transcript_hash: str
+    tokens_before: int
+    tokens_after: int
+    model: str
+    policy_version: str
+    preserved_decisions_count: int
+    preserved_errors_count: int
+    preserved_approvals_count: int
+    excluded_items_count: int
+    created_at: str
+
+
+class ContextManifestEvidence(TypedDict):
+    kind: Literal["context_manifest"]
+    total_tokens: int
+    untrusted_content: bool
+    blocks_count: int
+    blocks: list[ContextBlockDict]
+    has_projection: bool
+    created_at: str
 
 
 @dataclass
@@ -27,7 +62,7 @@ class ContextBlock:
     provenance: str | None = None
     untrusted_content: bool = False
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> ContextBlockDict:
         return {
             "domain": self.domain,
             "title": self.title,
@@ -59,7 +94,7 @@ class ContextProjection:
         """Verifica se a projeção é compatível com o hash atual do transcript."""
         return self.source_transcript_hash == current_transcript_hash
 
-    def to_evidence_entry(self) -> dict[str, Any]:
+    def to_evidence_entry(self) -> ContextProjectionEvidence:
         return {
             "kind": "context_projection",
             "start_seq": self.start_seq,
@@ -87,7 +122,7 @@ class ContextManifest:
     projection: ContextProjection | None = None
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
-    def to_evidence_entry(self) -> dict[str, Any]:
+    def to_evidence_entry(self) -> ContextManifestEvidence:
         return {
             "kind": "context_manifest",
             "total_tokens": self.total_tokens,
