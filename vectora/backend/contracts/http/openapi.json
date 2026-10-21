@@ -353,6 +353,11 @@
             ],
             "title": "Turn Id"
           },
+          "untrusted_content": {
+            "default": false,
+            "title": "Untrusted Content",
+            "type": "boolean"
+          },
           "updated_at": {
             "title": "Updated At",
             "type": "string"
