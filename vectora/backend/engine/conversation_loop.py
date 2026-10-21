@@ -384,6 +384,26 @@ async def run_conversation(
                 )
             )
             await emit(MessageBreak())
+            if (
+                config.run_id
+                and session_store
+                and hasattr(session_store, "update_agent_run_status")
+            ):
+                iter_metrics = (
+                    AgentRunMetrics(
+                        input_tokens=int(last_usage.get("input_tokens", 0) or 0),
+                        output_tokens=int(last_usage.get("output_tokens", 0) or 0),
+                        total_tokens=int(last_usage.get("total_tokens", 0) or 0),
+                    )
+                    if last_usage
+                    else None
+                )
+                await session_store.update_agent_run_status(
+                    config.run_id,
+                    status="failed",
+                    detail="O provedor LLM encerrou o stream sem retornar texto ou ferramenta.",
+                    metrics=iter_metrics,
+                )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=None,

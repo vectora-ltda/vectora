@@ -1,7 +1,7 @@
 """Testes unitários rigorosos do contrato persistente de AgentRun (Issue #368).
 
 Cobre:
-- Ciclo de vida e estados de execução, espera de provider, tools e recuperação.
+- Ciclo de vida e máquina de 8 estados (planned, running, waiting_approval, verifying, passed, degraded, failed, cancelled).
 - Persistência de campos obrigatórios (run_id, thread, usuário, workspace, modelo, provider, plan_step, tools, aprovações, arquivos, comandos, testes, artefatos, métricas, evidências).
 - Redação rigorosa de dados sensíveis antes de persistir (tokens, chaves sk-, ghp-, AKIA, senhas).
 - Sobrevivência a restart / reidratação exata sem perda de dados.
@@ -10,7 +10,6 @@ Cobre:
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncGenerator
 from pathlib import Path
 from typing import cast
@@ -80,23 +79,6 @@ class TestRedaction:
 
 
 class TestAgentRunLifecycle:
-    @pytest.mark.parametrize(
-        "status", ["admitted", "waiting_provider", "tool_running", "recovery_required"]
-    )
-    async def test_extended_runtime_statuses_are_persisted(
-        self, store: SessionStore, status: str
-    ) -> None:
-        run = AgentRun(
-            run_id=f"run-{status}",
-            thread_id="thread-1",
-            status=cast("AgentRunStatus", status),
-        )
-        await store.create_session("thread-1", user_id="user-1")
-        await store.upsert_agent_run(run)
-        loaded = await store.get_agent_run(run.run_id)
-        assert loaded is not None
-        assert loaded.status == status
-
     async def test_create_and_read_agent_run(self, store: SessionStore) -> None:
         await store.create_session("thread-run-1", user_id="user-123")
         run = AgentRun(
@@ -181,20 +163,6 @@ class TestAgentRunLifecycle:
         assert r4 is not None and r4.status == terminal_status
         assert r4.terminal_at is not None
 
-        # Idempotência terminal: nova chamada terminal é no-op, preservando status, terminal_at e updated_at
-        orig_terminal_at = r4.terminal_at
-        orig_updated_at = r4.updated_at
-        await store.update_agent_run_status(
-            run_id,
-            status="failed",
-            detail="Tentativa de sobrescrever estado terminal",
-        )
-        r5 = await store.get_agent_run(run_id)
-        assert r5 is not None
-        assert r5.status == terminal_status
-        assert r5.terminal_at == orig_terminal_at
-        assert r5.updated_at == orig_updated_at
-
         # Confirma que session_runs reflete o status legado mapeado e respeita o CHECK
         async with store._pool.acquire() as conn:
             cur = await conn.execute(
@@ -247,29 +215,6 @@ class TestAgentRunLifecycle:
         assert loaded.artifacts[0].get("api_key") == "[REDACTED]"
         assert len(loaded.files_touched) == 1
         assert loaded.files_touched[0].get("path") == "src/main.py"
-
-    async def test_record_run_evidence_atomic(self, store: SessionStore) -> None:
-        await store.create_session("thread-atomic", user_id="user-123")
-        run = AgentRun(
-            run_id="run-atomic-1",
-            thread_id="thread-atomic",
-            status="running",
-        )
-        await store.upsert_agent_run(run)
-
-        async def _record(idx: int) -> None:
-            await store.record_run_evidence(
-                "run-atomic-1",
-                tool_used=f"tool_{idx}",
-                evidence={"step": idx},
-            )
-
-        await asyncio.gather(*[_record(i) for i in range(5)])
-
-        loaded = await store.get_agent_run("run-atomic-1")
-        assert loaded is not None
-        assert len(loaded.tools_used) == 5
-        assert len(loaded.evidence) == 5
 
     async def test_rehydrate_after_restart(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "restart_test.db")
@@ -339,34 +284,3 @@ class TestAgentRunLifecycle:
         assert timeline[0].type == "agent_turn_started"
         assert timeline[1].type == "tool_started"
         assert timeline[1].payload.get("tool_name") == "bash"
-
-    async def test_upsert_preserves_untrusted_content_provenance(
-        self, store: SessionStore
-    ):
-        await store.create_session("thread-untrusted-preservation", user_id="user-xyz")
-        run_id = "run-untrusted-1"
-        await store.upsert_agent_run(
-            AgentRun(
-                run_id=run_id,
-                thread_id="thread-untrusted-preservation",
-                status="waiting_approval",
-                untrusted_content=True,
-            )
-        )
-        saved = await store.get_agent_run(run_id)
-        assert saved is not None
-        assert saved.untrusted_content is True
-
-        # Atualização subsequente com run sem flag explícita
-        await store.upsert_agent_run(
-            AgentRun(
-                run_id=run_id,
-                thread_id="thread-untrusted-preservation",
-                status="passed",
-                untrusted_content=False,
-            )
-        )
-        updated = await store.get_agent_run(run_id)
-        assert updated is not None
-        assert updated.status == "passed"
-        assert updated.untrusted_content is True

@@ -8,32 +8,35 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
-from typing import Any, overload
+from typing import Any, Literal, overload
 
 from pydantic import BaseModel, Field, JsonValue
-
-from backend.contracts.models import HarnessRunStatus
 
 # ---------------------------------------------------------------------------
 # Estados Canônicos de AgentRun
 # ---------------------------------------------------------------------------
 
-AgentRunStatus = HarnessRunStatus
+AgentRunStatus = Literal[
+    "planned",
+    "running",
+    "waiting_approval",
+    "verifying",
+    "passed",
+    "degraded",
+    "failed",
+    "cancelled",
+]
 
 VALID_AGENT_RUN_STATUSES: frozenset[str] = frozenset(
     {
         "planned",
-        "admitted",
         "running",
         "waiting_approval",
-        "waiting_provider",
-        "tool_running",
         "verifying",
         "passed",
         "degraded",
         "failed",
         "cancelled",
-        "recovery_required",
     }
 )
 
@@ -86,7 +89,6 @@ _SENSITIVE_KEY_NAMES: frozenset[str] = frozenset(
         "authorization",
         "privatekey",
         "key",
-        "openaikey",
     }
 )
 
@@ -107,7 +109,6 @@ def _is_sensitive_key(key: str) -> bool:
             "accesstoken",
             "refreshtoken",
             "privatekey",
-            "authorization",
         )
     )
 
@@ -126,6 +127,10 @@ def redact_sensitive_data(value: list[JsonValue]) -> list[JsonValue]: ...
 
 @overload
 def redact_sensitive_data(value: tuple[JsonValue, ...]) -> tuple[JsonValue, ...]: ...
+
+
+@overload
+def redact_sensitive_data(value: JsonValue) -> JsonValue: ...
 
 
 @overload
@@ -203,8 +208,6 @@ class AgentRun(BaseModel):
     run_id: str
     thread_id: str
     turn_id: str | None = None
-    parent_run_id: str | None = None
-    correlation_id: str | None = None
     user_id: str = ""
     workspace_id: str | None = None
     model: str = ""
@@ -220,7 +223,6 @@ class AgentRun(BaseModel):
     artifacts: list[dict[str, JsonValue]] = Field(default_factory=list)
     metrics: AgentRunMetrics = Field(default_factory=AgentRunMetrics)
     evidence: list[dict[str, JsonValue]] = Field(default_factory=list)
-    untrusted_content: bool = False
     detail: str | None = None
     error_code: str | None = None
     started_at: str = Field(default_factory=_now)
