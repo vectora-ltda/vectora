@@ -1243,6 +1243,36 @@ async def mark_thread_read(
                     },
                 )
                 await asyncio.sleep(delay)
+
+    # Sincroniza o fallback que processa read_message_id com o ledger
+    if hasattr(session_store, "mark_events_seen"):
+        try:
+            if hasattr(session_store, "_pool"):
+                await ensure_thread_backfilled(
+                    session_store._pool,
+                    thread_id,
+                    user_id=user_id,
+                    legacy_read_count=read_count,
+                )
+            target_seq = None
+            if hasattr(session_store, "get_event_seq_by_message_id"):
+                target_seq = await session_store.get_event_seq_by_message_id(
+                    thread_id, confirmed_cursor
+                )
+            if target_seq is not None and target_seq > 0:
+                ledger_res = await session_store.mark_events_seen(
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    device_id=device_id,
+                    seen_seq=target_seq,
+                )
+                unread_count = ledger_res.get("unread_count", unread_count)
+        except Exception:
+            logger.exception(
+                "threads: falha ao sincronizar fallback de read_message_id com ledger para thread %s",
+                thread_id,
+            )
+
     return {"thread_id": thread_id, "unread_count": unread_count}
 
 
@@ -2505,7 +2535,16 @@ async def remove_smart_approval_allowlist(
     return SmartApprovalAllowlistResponse(allowlist=_allowlist_items(body.workspace_id))
 
 
-@router.get("/threads/{thread_id}/events")
+@router.get(
+    "/threads/{thread_id}/events",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": "Stream SSE de eventos do ledger da thread",
+            "content": {"text/event-stream": {}},
+        }
+    },
+)
 async def stream_thread_ledger_events(
     thread_id: str,
     request: Request,
@@ -2588,7 +2627,7 @@ async def stream_thread_ledger_events(
 
 
 # ---------------------------------------------------------------------------
-# Endpoints de AgentRun e Auditoria de Execução (Issue #368)
+# Endpoints de AgentRun e Auditoria de Execução
 # ---------------------------------------------------------------------------
 
 
