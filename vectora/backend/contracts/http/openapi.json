@@ -208,6 +208,17 @@
             "title": "Commands Run",
             "type": "array"
           },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
           "detail": {
             "anyOf": [
               {
@@ -253,6 +264,17 @@
             "default": "",
             "title": "Model",
             "type": "string"
+          },
+          "parent_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Run Id"
           },
           "plan_step": {
             "anyOf": [
@@ -340,6 +362,11 @@
               }
             ],
             "title": "Turn Id"
+          },
+          "untrusted_content": {
+            "default": false,
+            "title": "Untrusted Content",
+            "type": "boolean"
           },
           "updated_at": {
             "title": "Updated At",
@@ -7620,10 +7647,32 @@
             "title": "Content",
             "type": "string"
           },
+          "quality_gate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Gate"
+          },
           "status": {
             "enum": ["pending", "in_progress", "completed"],
             "title": "Status",
             "type": "string"
+          },
+          "step_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Id"
           }
         },
         "required": ["content", "status"],
