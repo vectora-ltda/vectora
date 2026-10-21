@@ -448,7 +448,7 @@ async def run_goal(
     max_goal_turns: int = 20,
     should_require_approval: Callable[..., bool] | None,
     approval_gate: ApprovalGate | None = None,
-    systemone_harness: Any | None = None,
+    systemone_harness: SystemOneHarness | None = None,
 ) -> GoalOutcome:
     """Encadeia turnos de ``run_conversation`` até o objetivo ser cumprido
     (gates + judge, AND independente) ou o turn budget/guardrails de falha
@@ -500,7 +500,7 @@ async def resume_goal(
     max_goal_turns: int = 20,
     should_require_approval: Callable[..., bool] | None,
     approval_gate: ApprovalGate | None = None,
-    systemone_harness: Any | None = None,
+    systemone_harness: SystemOneHarness | None = None,
 ) -> GoalOutcome:
     """Resolve a pendência HITL do turno pausado (``resume_conversation``) e
     reentra no goal loop pelos turnos restantes — diferente de retomar só o
