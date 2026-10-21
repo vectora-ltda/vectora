@@ -57,6 +57,7 @@ from backend.engine.tool_batch import (
 from backend.persistence.native.agent_run import AgentRunMetrics
 from backend.persistence.native.ledger import (
     ThreadLedgerEvent,
+    make_agent_turn_started_key,
     make_run_completed_key,
     make_run_failed_key,
     make_tool_finished_key,
@@ -268,6 +269,15 @@ async def run_conversation(
     from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    if hasattr(session_store, "get_session") and not (
+        isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
+    ):
+        session_meta = await session_store.get_session(thread_id)
+        if session_meta and session_meta.get("mode") == "connect":
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
+
     if hasattr(session_store, "list_agent_runs") and not (
         isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
     ):
@@ -281,9 +291,42 @@ async def run_conversation(
     if policy_snapshot is None:
         policy_snapshot = compile_policy_snapshot(ctx)
 
+    if isinstance(ctx._extra, dict):
+        sub_deps = ctx._extra.get("subagent_deps")
+        if sub_deps is not None and getattr(sub_deps, "policy_snapshot", None) is None:
+            sub_deps.policy_snapshot = policy_snapshot
+
     emit = on_event or _noop_event
     tools = tool_registry.all()
     parent_id = await session_store.get_branch_head_id(thread_id)
+
+    if config.run_id:
+        try:
+            if hasattr(session_store, "append_ledger_event"):
+                await session_store.append_ledger_event(
+                    thread_id,
+                    event_key=make_agent_turn_started_key(config.run_id),
+                    event_type="agent_turn_started",
+                    run_id=config.run_id,
+                    payload={"iteration": 1},
+                )
+            elif hasattr(session_store, "append_event"):
+                await session_store.append_event(
+                    thread_id,
+                    ThreadLedgerEvent(
+                        thread_id=thread_id,
+                        event_key=make_agent_turn_started_key(config.run_id),
+                        type="agent_turn_started",
+                        run_id=config.run_id,
+                        payload={"iteration": 1},
+                    ),
+                )
+        except Exception:
+            logger.exception(
+                "conversation_loop: falha ao registrar agent_turn_started no ledger para thread %s",
+                thread_id,
+            )
+
     assinaturas_anteriores: tuple[tuple[str, str], ...] | None = None
     repeticoes_seguidas = 0
     turn_budget = TurnBudget(config=config.loop_caps)
@@ -451,6 +494,26 @@ async def run_conversation(
                 )
             )
             await emit(MessageBreak())
+            if (
+                config.run_id
+                and session_store
+                and hasattr(session_store, "update_agent_run_status")
+            ):
+                iter_metrics = (
+                    AgentRunMetrics(
+                        input_tokens=int(last_usage.get("input_tokens", 0) or 0),
+                        output_tokens=int(last_usage.get("output_tokens", 0) or 0),
+                        total_tokens=int(last_usage.get("total_tokens", 0) or 0),
+                    )
+                    if last_usage
+                    else None
+                )
+                await session_store.update_agent_run_status(
+                    config.run_id,
+                    status="failed",
+                    detail="O provedor LLM encerrou o stream sem retornar texto ou ferramenta.",
+                    metrics=iter_metrics,
+                )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=None,
@@ -1302,6 +1365,11 @@ async def resume_conversation(
     from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    is_untrusted_thread = False
+    if hasattr(session_store, "get_session"):
+        session_meta = await session_store.get_session(thread_id)
+        if session_meta and session_meta.get("mode") == "connect":
+            is_untrusted_thread = True
     if hasattr(session_store, "list_agent_runs"):
         runs = await session_store.list_agent_runs(thread_id, limit=5)
         paused_run = next(
@@ -1309,9 +1377,11 @@ async def resume_conversation(
             runs[0] if runs else None,
         )
         if paused_run and paused_run.untrusted_content:
-            if not isinstance(ctx._extra, dict):
-                ctx._extra = {}
-            ctx._extra["untrusted_content"] = True
+            is_untrusted_thread = True
+    if is_untrusted_thread:
+        if not isinstance(ctx._extra, dict):
+            ctx._extra = {}
+        ctx._extra["untrusted_content"] = True
 
     if policy_snapshot is None:
         policy_snapshot = compile_policy_snapshot(ctx)

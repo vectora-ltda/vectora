@@ -380,7 +380,12 @@ def stream_engine_events(
             },
         )
 
+        empty_model_response = False
+
         async def on_event(event: EngineEvent) -> None:
+            nonlocal empty_model_response
+            if isinstance(event, ErrorSignal) and event.code == "EMPTY_MODEL_RESPONSE":
+                empty_model_response = True
             await queue.put(event)
 
         async def _runner() -> None:
@@ -426,11 +431,19 @@ def stream_engine_events(
                         detail="A execução foi cancelada antes de produzir uma resposta.",
                     )
                 elif stopped_reason == "stop":
-                    await _update_persisted_run(
-                        resolved_run_id,
-                        status="completed",
-                        detail="Execução concluída.",
-                    )
+                    if empty_model_response:
+                        await _persist_terminal_outcome(
+                            thread_id,
+                            resolved_run_id,
+                            status="failed",
+                            detail="O provedor LLM encerrou o stream sem retornar texto ou ferramenta.",
+                        )
+                    else:
+                        await _update_persisted_run(
+                            resolved_run_id,
+                            status="completed",
+                            detail="Execução concluída.",
+                        )
                 await queue.put(_SENTINEL)
 
         term_queue: asyncio.Queue[str] = asyncio.Queue()
@@ -608,28 +621,36 @@ def stream_engine_events(
                     detail="A execução foi cancelada antes de produzir uma resposta.",
                 )
             elif stopped_reason == "stop":
-                await _update_persisted_run(
-                    resolved_run_id,
-                    status="completed",
-                    detail="Execução concluída.",
-                    partial_text=accumulated_partial_content,
-                )
-                t = asyncio.ensure_future(_clear_partial(thread_id))
-                background_tasks.add(t)
-                t.add_done_callback(background_tasks.discard)
-
-                if workspace_id:
-                    await _record_turn_checkpoint(
-                        workspace_id, thread_id, {"run_id": str(uuid.uuid4())}
+                if empty_model_response:
+                    await _persist_terminal_outcome(
+                        thread_id,
+                        resolved_run_id,
+                        status="failed",
+                        detail="O provedor LLM encerrou o stream sem retornar texto ou ferramenta.",
                     )
+                else:
+                    await _update_persisted_run(
+                        resolved_run_id,
+                        status="completed",
+                        detail="Execução concluída.",
+                        partial_text=accumulated_partial_content,
+                    )
+                    t = asyncio.ensure_future(_clear_partial(thread_id))
+                    background_tasks.add(t)
+                    t.add_done_callback(background_tasks.discard)
 
-                from backend.services.remember_trigger import maybe_trigger_remember
+                    if workspace_id:
+                        await _record_turn_checkpoint(
+                            workspace_id, thread_id, {"run_id": str(uuid.uuid4())}
+                        )
 
-                t2 = asyncio.ensure_future(
-                    maybe_trigger_remember(thread_id, user_id or "local")
-                )
-                background_tasks.add(t2)
-                t2.add_done_callback(background_tasks.discard)
+                    from backend.services.remember_trigger import maybe_trigger_remember
+
+                    t2 = asyncio.ensure_future(
+                        maybe_trigger_remember(thread_id, user_id or "local")
+                    )
+                    background_tasks.add(t2)
+                    t2.add_done_callback(background_tasks.discard)
 
         except Exception as exc:
             logger.exception("native_stream: erro no stream nativo")

@@ -8,7 +8,7 @@ import logging
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from backend.embedding.queue import get_embedding_queue
 from backend.services.text import text_service
@@ -165,10 +165,24 @@ class SystemOneRerank:
     def compress_documents(
         self, documents: Any, query: str, callbacks: Any = None
     ) -> list[Document]:
-        return asyncio.run(self.acompress_documents(documents, query, callbacks))
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.acompress_documents(documents, query, callbacks))
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return cast(
+                list[Document],
+                pool.submit(
+                    asyncio.run, self.acompress_documents(documents, query, callbacks)
+                ).result(),
+            )
 
 
-def _build_systemone_reranker(workspace_id: str = "default") -> Any:
+def _build_systemone_reranker(
+    workspace_id: str = "default",
+) -> SystemOneRerank | None:
     """Constrói `SystemOneRerank` se os Decision Models estiverem habilitados."""
     try:
         from backend.llm.systemone.harness import SystemOneHarness

@@ -74,6 +74,10 @@ async def run_agent_for_thread(thread_id: str, text: str) -> str:
     chat_client = FallbackChatClient(primary_model_id="")
     loop_config = LoopConfig(max_iterations=50)
 
+    from backend.services.policy_compiler import compile_policy_snapshot
+
+    snapshot = compile_policy_snapshot(run_ctx, untrusted_content=True)
+
     if native_agent.subagent_catalog:
         from backend.tools.subagent_delegate import SubagentDeps
 
@@ -83,11 +87,8 @@ async def run_agent_for_thread(thread_id: str, text: str) -> str:
             chat_client=chat_client,
             config=loop_config,
             should_require_approval=should_require_approval,
+            policy_snapshot=snapshot,
         )
-
-    from backend.services.policy_compiler import compile_policy_snapshot
-
-    snapshot = compile_policy_snapshot(run_ctx, untrusted_content=True)
 
     result = await run_conversation(
         session_store=session_store,

@@ -97,6 +97,7 @@ if TYPE_CHECKING:
     from backend.engine.stream_events import EventSink
     from backend.llm.base import ChatClient
     from backend.persistence.native.session_store import SessionStore
+    from backend.services.policy_compiler import PolicySnapshot
     from backend.tools.context import ToolContext
     from backend.tools.registry import ToolSpec
     from backend.vtypes.message import VMessage
@@ -231,6 +232,7 @@ async def run_subagent(
     turn_budget: TurnBudget | None = None,
     liveness: LivenessConfig | None = None,
     parent_policy_snapshot: PolicySnapshot | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> str:
     """Roda `spec` até completar (ou pausar em HITL) e devolve o texto
     final. Sem `spec.correlation_id`, delega direto pra
@@ -240,6 +242,7 @@ async def run_subagent(
     esse `Future` em vez de rodar `_run_subagent_once` de novo — nenhum
     ponto de `await` entre o check e o registro, então duas chamadas via
     `asyncio.gather` nunca duplicam."""
+    effective_parent_policy = parent_policy_snapshot or policy_snapshot
     if not spec.correlation_id:
         return await _run_subagent_once(
             spec,
@@ -253,7 +256,7 @@ async def run_subagent(
             should_require_approval=should_require_approval,
             turn_budget=turn_budget,
             liveness=liveness,
-            parent_policy_snapshot=parent_policy_snapshot,
+            parent_policy_snapshot=effective_parent_policy,
         )
 
     correlation_id = spec.correlation_id
@@ -276,7 +279,7 @@ async def run_subagent(
             should_require_approval=should_require_approval,
             turn_budget=turn_budget,
             liveness=liveness,
-            parent_policy_snapshot=parent_policy_snapshot,
+            parent_policy_snapshot=effective_parent_policy,
         )
     except BaseException as exc:
         if not future.done():
@@ -307,6 +310,7 @@ async def _run_subagent_once(
     turn_budget: TurnBudget | None = None,
     liveness: LivenessConfig | None = None,
     parent_policy_snapshot: PolicySnapshot | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> str:
     """Roda `spec` uma única vez até completar (ou pausar em HITL) e
     devolve o texto final — instância nova e isolada do motor, sessão
