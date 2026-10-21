@@ -42,6 +42,7 @@ class CorrelationMiddleware(BaseHTTPMiddleware):
                 "Erro não tratado na requisição (correlation_id=%s, request_id=%s)",
                 correlation_id,
                 request_id,
+                extra={"correlation_id": correlation_id, "request_id": request_id},
             )
             response = JSONResponse(
                 status_code=500,
