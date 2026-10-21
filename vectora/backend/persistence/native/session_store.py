@@ -13,6 +13,7 @@ conversa nativo sobre ``aiosqlite``: schema append-only ``sessions`` +
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
@@ -50,6 +51,8 @@ if TYPE_CHECKING:
 # existe só pra um `parent_message_id` corrompido/cíclico não fazer a CTE
 # recursar sem fim.
 _CHAIN_DEPTH_CAP = 100_000
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -1405,10 +1408,15 @@ class SessionStore:
             async with self._pool.acquire() as conn:
                 await conn.execute("BEGIN IMMEDIATE")
                 try:
-                    await conn.execute(
-                        "DELETE FROM pending_approvals WHERE thread_id = ?",
-                        (thread_id,),
+                    cur_del = await conn.execute(
+                        "DELETE FROM pending_approvals "
+                        "WHERE thread_id = ? AND interrupt_id = ? "
+                        "AND expires_at IS NOT NULL AND expires_at <= ?",
+                        (thread_id, interrupt_id, agora),
                     )
+                    if cur_del.rowcount <= 0:
+                        await conn.rollback()
+                        return None
                     cur_max = await conn.execute(
                         "SELECT COALESCE(MAX(seq), 0) FROM thread_events WHERE thread_id = ?",
                         (thread_id,),
@@ -1444,6 +1452,10 @@ class SessionStore:
                     await conn.commit()
                 except Exception:
                     await conn.rollback()
+                    logger.exception(
+                        "session_store: falha ao expirar pending approval para thread %s",
+                        thread_id,
+                    )
             return None
         return {
             "interrupt_id": interrupt_id,
