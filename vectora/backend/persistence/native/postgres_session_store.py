@@ -1693,9 +1693,13 @@ class PostgresSessionStore:
             )
 
     async def get_latest_context_projection(
-        self, thread_id: str, *, policy_version: str | None = None
+        self,
+        thread_id: str,
+        *,
+        policy_version: str | None = None,
+        source_transcript_hash: str | None = None,
     ) -> dict[str, Any] | None:
-        """Carrega a última projeção da thread, opcionalmente por política."""
+        """Carrega projeção compatível com política e hash, se informados."""
         await self.setup()
         async with self._pool.acquire() as conn:
             query = (
@@ -1706,9 +1710,19 @@ class PostgresSessionStore:
                 "FROM vectora_native_context_projections WHERE thread_id = $1 "
             )
             params: list[Any] = [thread_id]
+            clauses = ["thread_id = $1"]
             if policy_version is not None:
-                query += "AND policy_version = $2 "
                 params.append(policy_version)
+                clauses.append(f"policy_version = ${len(params)}")
+            if source_transcript_hash is not None:
+                params.append(source_transcript_hash)
+                clauses.append(f"source_hash = ${len(params)}")
+            query = query.replace(
+                "FROM vectora_native_context_projections WHERE thread_id = $1 ",
+                "FROM vectora_native_context_projections WHERE "
+                + " AND ".join(clauses)
+                + " ",
+            )
             query += "ORDER BY covered_to_sequence DESC, created_at DESC LIMIT 1"
             row = await conn.fetchrow(query, *params)
         if row is None:

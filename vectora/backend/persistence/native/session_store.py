@@ -623,31 +623,33 @@ class SessionStore:
             await conn.commit()
 
     async def get_latest_context_projection(
-        self, thread_id: str, *, policy_version: str | None = None
+        self,
+        thread_id: str,
+        *,
+        policy_version: str | None = None,
+        source_transcript_hash: str | None = None,
     ) -> dict[str, Any] | None:
-        """Carrega a última projeção da thread, opcionalmente por política."""
+        """Carrega projeção compatível com política e hash, se informados."""
         await self.setup()
         async with self._pool.acquire() as conn:
-            if policy_version is None:
-                cur = await conn.execute(
-                    "SELECT projection_id, run_id, source_hash, covered_from_sequence, "
-                    "covered_to_sequence, model, policy_version, tokens_before, tokens_after, "
-                    "preserved_decisions_json, preserved_errors_json, preserved_approvals_json, "
-                    "pending_tool_calls_json, omitted_sequences_json, content_json, created_at "
-                    "FROM context_projections WHERE thread_id = ? "
-                    "ORDER BY covered_to_sequence DESC, created_at DESC LIMIT 1",
-                    (thread_id,),
-                )
-            else:
-                cur = await conn.execute(
-                    "SELECT projection_id, run_id, source_hash, covered_from_sequence, "
-                    "covered_to_sequence, model, policy_version, tokens_before, tokens_after, "
-                    "preserved_decisions_json, preserved_errors_json, preserved_approvals_json, "
-                    "pending_tool_calls_json, omitted_sequences_json, content_json, created_at "
-                    "FROM context_projections WHERE thread_id = ? AND policy_version = ? "
-                    "ORDER BY covered_to_sequence DESC, created_at DESC LIMIT 1",
-                    (thread_id, policy_version),
-                )
+            clauses = ["thread_id = ?"]
+            params: list[str] = [thread_id]
+            if policy_version is not None:
+                clauses.append("policy_version = ?")
+                params.append(policy_version)
+            if source_transcript_hash is not None:
+                clauses.append("source_hash = ?")
+                params.append(source_transcript_hash)
+            cur = await conn.execute(
+                "SELECT projection_id, run_id, source_hash, covered_from_sequence, "  # nosec B608
+                "covered_to_sequence, model, policy_version, tokens_before, tokens_after, "
+                "preserved_decisions_json, preserved_errors_json, preserved_approvals_json, "
+                "pending_tool_calls_json, omitted_sequences_json, content_json, created_at "
+                "FROM context_projections WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY covered_to_sequence DESC, created_at DESC LIMIT 1",
+                params,
+            )  # nosec B608 — clauses are fixed column names; values stay bound
             row = await cur.fetchone()
         if row is None:
             return None
