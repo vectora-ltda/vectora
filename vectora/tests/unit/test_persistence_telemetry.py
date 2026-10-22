@@ -55,6 +55,29 @@ def captured() -> Generator[_ListHandler]:
 
 
 class TestRecordToolCall:
+    async def test_retrieval_registra_hash_sem_persistir_consulta(
+        self, captured: _ListHandler
+    ) -> None:
+        telemetry = VectoraTelemetry()
+
+        await telemetry.record_retrieval(
+            query="segredo de usuário",
+            collections=["articles"],
+            result_count=2,
+            retrieval_method="hybrid_rrf",
+            reranker="CohereRerank",
+        )
+
+        record = captured.records[0]
+        assert _field(record, "telemetry_event") == "retrieval"
+        assert _field(record, "query_hash")
+        assert _field(record, "query_hash") != "segredo de usuário"
+        assert _field(record, "collection_count") == 1
+        assert _field(record, "result_count") == 2
+        assert _field(record, "retrieval_method") == "hybrid_rrf"
+        assert _field(record, "reranker") == "CohereRerank"
+        assert not hasattr(record, "query")
+
     def test_record_media_quota_descarta_payload_sensivel(
         self, captured: _ListHandler
     ) -> None:
