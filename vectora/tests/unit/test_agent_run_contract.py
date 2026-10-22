@@ -304,6 +304,11 @@ class TestAgentRunLifecycle:
         assert projection["projection_id"] == "projection-persisted"
         assert projection["covered_to_sequence"] == 8
         assert projection["omitted_sequences"] == [1, 2]
+        assert (
+            await store.get_latest_context_projection(
+                "thread-projection-store", source_transcript_hash="c" * 64
+            )
+        ) is None
 
         await store.delete_session("thread-projection-store")
         assert (
