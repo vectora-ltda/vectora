@@ -233,6 +233,7 @@ class SystemOneHarness:
         self._response_cache_max = 512
         self._response_cache_ttl_s = 300.0
         self._inflight: dict[tuple[Any, ...], asyncio.Future[SystemOneResponse]] = {}
+        self.last_rerank_status = "not_called"
 
     @property
     def registry(self) -> DecisionPatternRegistry:
@@ -931,10 +932,12 @@ class SystemOneHarness:
     ) -> list[dict[str, Any]]:
         """Ordena candidatos já autorizados via Score, preservando o ranking original em falha ou modo shadow."""
         if not candidates:
+            self.last_rerank_status = "not_called"
             return []
         limit = top_k if top_k is not None and top_k > 0 else len(candidates)
         mode = self.get_mode("rag_rerank_scoring", workspace_id=workspace_id)
         if not self._settings.enabled or mode == "off":
+            self.last_rerank_status = "fallback"
             return list(candidates[:limit])
 
         score_sem = asyncio.Semaphore(max(1, self._max_queue_size // 2))
@@ -978,11 +981,13 @@ class SystemOneHarness:
         for entry in results:
             if entry is None:
                 # Em shadow ou em qualquer falha/HITL, preserva integralmente o ranking original
+                self.last_rerank_status = "fallback"
                 return list(candidates[:limit])
             scored.append(entry)
 
         # Desempate determinístico: maior score primeiro, menor índice original, menor candidate_id
         scored.sort(key=lambda entry: (-entry[0], entry[1], entry[2]))
+        self.last_rerank_status = "applied"
         return [entry[3] for entry in scored[:limit]]
 
     async def evaluate_goal_progress(

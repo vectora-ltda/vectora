@@ -615,6 +615,7 @@ async def test_rag_systemone_reranker_deterministic_order_and_fallback_on_failur
     harness.set_mode("rag_rerank_scoring", "off", workspace_id="ws-1")
     fallback_docs = await reranker.acompress_documents(docs, "consulta")
     assert [d.metadata["id"] for d in fallback_docs] == ["doc-a", "doc-b", "doc-c"]
+    assert reranker.last_status == "fallback"
 
 
 @pytest.mark.asyncio
