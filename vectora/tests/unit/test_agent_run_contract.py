@@ -310,9 +310,36 @@ class TestAgentRunLifecycle:
             )
         ) is None
 
+        await store.save_context_checkpoint(
+            "thread-projection-store",
+            "run-projection",
+            {
+                "checkpoint_id": "checkpoint-persisted",
+                "last_sequence": 8,
+                "source_hash": "b" * 64,
+                "schema_version": "context.v1",
+                "state": {"step": "verify"},
+                "artifact_refs": ["artifact-1"],
+            },
+        )
+        checkpoint = await store.get_latest_context_checkpoint(
+            "thread-projection-store", source_hash="b" * 64
+        )
+        assert checkpoint is not None
+        assert checkpoint["checkpoint_id"] == "checkpoint-persisted"
+        assert checkpoint["state"] == {"step": "verify"}
+        assert (
+            await store.get_latest_context_checkpoint(
+                "thread-projection-store", source_hash="c" * 64
+            )
+        ) is None
+
         await store.delete_session("thread-projection-store")
         assert (
             await store.get_latest_context_projection("thread-projection-store")
+        ) is None
+        assert (
+            await store.get_latest_context_checkpoint("thread-projection-store")
         ) is None
 
     async def test_rehydrate_after_restart(self, tmp_path: Path) -> None:

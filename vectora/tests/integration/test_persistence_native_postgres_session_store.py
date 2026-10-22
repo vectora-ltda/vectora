@@ -67,6 +67,38 @@ class TestCreateSession:
         assert total == 1
 
 
+class TestContextCheckpoint:
+    @pytest.mark.asyncio
+    @pytest.mark.storage
+    async def test_checkpoint_round_trip_e_hash_compativel(self, pg_pool):
+        store = PostgresSessionStore(pg_pool)
+        thread_id = _thread_id()
+        await store.create_session(thread_id, user_id="alice")
+
+        await store.save_context_checkpoint(
+            thread_id,
+            "run-checkpoint",
+            {
+                "checkpoint_id": "checkpoint-pg",
+                "last_sequence": 12,
+                "source_hash": "d" * 64,
+                "schema_version": "context.v1",
+                "state": {"phase": "tool_running"},
+                "artifact_refs": ["artifact-pg"],
+            },
+        )
+
+        checkpoint = await store.get_latest_context_checkpoint(
+            thread_id, source_hash="d" * 64
+        )
+        assert checkpoint is not None
+        assert checkpoint["checkpoint_id"] == "checkpoint-pg"
+        assert checkpoint["state"] == {"phase": "tool_running"}
+        assert (
+            await store.get_latest_context_checkpoint(thread_id, source_hash="e" * 64)
+        ) is None
+
+
 class TestAppendMessageEGetHistory:
     @pytest.mark.asyncio
     @pytest.mark.storage

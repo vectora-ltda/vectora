@@ -363,7 +363,10 @@ async def run_conversation(
             if config.context_max_tokens is not None
             else _default_context_tokens()
         )
-        from backend.services.context_planner import plan_context
+        from backend.services.context_planner import (
+            compute_transcript_hash,
+            plan_context,
+        )
 
         persistent_memory_records = await _load_persistent_context_memories(ctx)
         planned_context = plan_context(
@@ -441,6 +444,39 @@ async def run_conversation(
                 logger.exception(
                     "conversation_loop: falha ao persistir manifesto de contexto como evidência",
                     extra={"run_id": config.run_id},
+                )
+
+        # O checkpoint nativo é um snapshot operacional independente do
+        # transcript e da evidência do AgentRun.  O id inclui a sequência
+        # observada para que retries sejam idempotentes e a retomada possa
+        # carregar somente os deltas posteriores.
+        if config.run_id and hasattr(session_store, "save_context_checkpoint"):
+            try:
+                source_hash = (
+                    planned_context.projection.source_transcript_hash
+                    if planned_context.projection is not None
+                    else compute_transcript_hash(raw_history)
+                )
+                await session_store.save_context_checkpoint(
+                    thread_id,
+                    config.run_id,
+                    {
+                        "checkpoint_id": f"{config.run_id}:seq:{len(raw_history)}",
+                        "last_sequence": len(raw_history),
+                        "source_hash": source_hash,
+                        "schema_version": "context.v1",
+                        "state": {
+                            "iteration": _iteracao,
+                            "phase": "provider_dispatch",
+                            "policy_version": getattr(policy_snapshot, "version", ""),
+                        },
+                        "artifact_refs": [],
+                    },
+                )
+            except Exception:
+                logger.exception(
+                    "conversation_loop: falha ao persistir checkpoint de contexto",
+                    extra={"run_id": config.run_id, "thread_id": thread_id},
                 )
 
         partes_texto: list[str] = []
