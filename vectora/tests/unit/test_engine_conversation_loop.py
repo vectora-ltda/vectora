@@ -13,6 +13,7 @@ import pytest
 
 from backend.engine.conversation_loop import (
     LoopConfig,
+    _load_persistent_context_memories,
     _preserve_latest_tool_result,
     resume_conversation,
     run_conversation,
@@ -114,6 +115,32 @@ def test_local_models_preserve_latest_tool_result(
 ) -> None:
     """Providers locais preservam a saída causal mais recente da ferramenta."""
     assert _preserve_latest_tool_result(model_id) is expected
+
+
+@pytest.mark.asyncio
+async def test_load_persistent_context_memories_uses_memory_tool_namespace() -> None:
+    class Store:
+        async def asearch(self, namespace, *, limit):
+            assert namespace == ("user", "workspace_ws-1", "memories")
+            assert limit == 5
+            return [
+                type(
+                    "Item",
+                    (),
+                    {
+                        "key": "rule",
+                        "value": {
+                            "content": "Use testes determinísticos",
+                            "metadata": {"domain": "project"},
+                        },
+                    },
+                )()
+            ]
+
+    context = ToolContext(user_id="local", workspace_id="ws-1", store=Store())
+    records = await _load_persistent_context_memories(context)
+
+    assert [record.id for record in records] == ["rule"]
 
 
 def _tool_call_chunk(*, index: int, id: str, name: str, args: str) -> VMessageChunk:  # noqa: A002

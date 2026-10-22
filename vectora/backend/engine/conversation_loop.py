@@ -64,6 +64,7 @@ from backend.persistence.native.ledger import (
     make_tool_started_key,
 )
 from backend.services.context_compaction import compact_messages
+from backend.services.memory_store import MemoryRecord
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import ContentBlock, MessageRole, ToolCall, VMessage
 
@@ -88,6 +89,38 @@ def _preserve_latest_tool_result(model_id: str) -> bool:
     """
     normalized = model_id.strip().casefold()
     return normalized.startswith(("ollama:", "llamacpp:", "dmr:"))
+
+
+async def _load_persistent_context_memories(ctx: ToolContext) -> list[MemoryRecord]:
+    """Carrega memórias persistidas para a projeção do turno atual.
+
+    A namespace é a mesma usada pelas memory tools. Falha de leitura degrada
+    apenas o enriquecimento do contexto e não impede a inferência do turno.
+    """
+    if ctx.store is None or not hasattr(ctx.store, "asearch"):
+        return []
+    if ctx.user_id and ctx.user_id != "local":
+        owner = ctx.user_id
+    elif ctx.workspace_id:
+        owner = f"workspace_{ctx.workspace_id}"
+    elif ctx.thread_id:
+        owner = f"session_{ctx.thread_id}"
+    else:
+        owner = "local"
+    try:
+        items = await ctx.store.asearch(("user", owner, "memories"), limit=5)
+        from backend.services.context_planner import memory_records_from_backend_items
+
+        return memory_records_from_backend_items(
+            items,
+            default_scope_id=ctx.workspace_id or ctx.thread_id or owner,
+        )
+    except Exception:
+        logger.exception(
+            "conversation_loop: falha ao carregar memórias persistentes",
+            extra={"workspace_id": ctx.workspace_id, "user_id": ctx.user_id},
+        )
+        return []
 
 
 if TYPE_CHECKING:
@@ -332,6 +365,7 @@ async def run_conversation(
         )
         from backend.services.context_planner import plan_context
 
+        persistent_memory_records = await _load_persistent_context_memories(ctx)
         planned_context = plan_context(
             raw_history,
             max_tokens=effective_max_tokens,
@@ -339,6 +373,7 @@ async def run_conversation(
             preserve_latest_tool_result=_preserve_latest_tool_result(str(ctx.model)),
             workspace_id=ctx.workspace_id or None,
             policy_snapshot=policy_snapshot,
+            persistent_memory_records=persistent_memory_records,
         )
         historico = planned_context.messages
 

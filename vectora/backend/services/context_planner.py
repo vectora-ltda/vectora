@@ -8,8 +8,9 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field
-from typing import Any
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field, replace
+from typing import cast
 
 from backend.services.context_compaction import (
     _bound_tool_results,
@@ -19,12 +20,99 @@ from backend.services.context_compaction import (
 )
 from backend.services.context_manifest import (
     ContextBlock,
+    ContextDomain,
     ContextManifest,
     ContextProjection,
 )
-from backend.services.memory_store import MemoryStore, get_memory_store
+from backend.services.memory_store import (
+    MemoryRecord,
+    MemoryStore,
+    MemoryTrustLevel,
+    get_memory_store,
+)
 from backend.services.policy_compiler import PolicySnapshot
+from backend.vtypes import JsonObject
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
+
+_MEMORY_DOMAINS = {
+    "system",
+    "short_term",
+    "session",
+    "project",
+    "vector_rag",
+    "structural_graph",
+}
+_MEMORY_TRUST_LEVELS = {"trusted", "verified", "untrusted"}
+
+
+def memory_records_from_backend_items(
+    items: Sequence[object],
+    *,
+    default_scope_id: str,
+    default_domain: str = "project",
+) -> list[MemoryRecord]:
+    """Converte itens do ``StoreBackend`` no contrato do planejador.
+
+    O store nativo entrega itens com ``key`` e ``value`` sem impor um modelo
+    de memória. A conversão valida os campos controlados pelo backend e aplica
+    escopo/domínio padrão, evitando que conteúdo persistido escolha uma
+    política diferente da solicitada pelo planejador.
+    """
+    domain = default_domain if default_domain in _MEMORY_DOMAINS else "project"
+    records: list[MemoryRecord] = []
+    for item in items:
+        key = getattr(item, "key", None)
+        raw_value = getattr(item, "value", None)
+        if not isinstance(key, str) or not key or not isinstance(raw_value, Mapping):
+            continue
+        content = raw_value.get("content")
+        if not isinstance(content, str) or not content.strip():
+            continue
+        raw_metadata = raw_value.get("metadata")
+        metadata: JsonObject = (
+            dict(raw_metadata) if isinstance(raw_metadata, Mapping) else {}
+        )
+        raw_domain = metadata.get("domain")
+        record_domain = (
+            raw_domain
+            if isinstance(raw_domain, str) and raw_domain in _MEMORY_DOMAINS
+            else domain
+        )
+        raw_scope = metadata.get("scope_id")
+        scope_id = (
+            str(raw_scope)
+            if isinstance(raw_scope, str) and raw_scope
+            else default_scope_id
+        )
+        raw_trust = metadata.get("trust_level")
+        trust_level = (
+            raw_trust
+            if isinstance(raw_trust, str) and raw_trust in _MEMORY_TRUST_LEVELS
+            else "trusted"
+        )
+        provenance = metadata.get("provenance") or metadata.get("source") or "store"
+        records.append(
+            MemoryRecord(
+                id=key,
+                domain=cast("ContextDomain", record_domain),
+                scope_id=scope_id,
+                content=content,
+                trust_level=cast("MemoryTrustLevel", trust_level),
+                provenance=str(provenance),
+                created_at=str(
+                    raw_value.get("created_at") or raw_value.get("updated_at") or ""
+                ),
+                accessed_at=str(raw_value.get("updated_at") or ""),
+                metadata=metadata,
+                confidence=float(raw_value.get("confidence", 1.0) or 1.0),
+                valid_until=(
+                    str(raw_value["valid_until"])
+                    if raw_value.get("valid_until") is not None
+                    else None
+                ),
+            )
+        )
+    return records
 
 
 def compute_transcript_hash(messages: list[VMessage]) -> str:
@@ -68,6 +156,54 @@ def _format_compacted_marker(
     )
 
 
+def _fit_required_message(message: VMessage, budget: int) -> VMessage:
+    """Mantém a mensagem obrigatória dentro do orçamento aproximado."""
+    if budget <= 0 or _message_tokens(message) <= budget:
+        return message
+    text_blocks = [block for block in message.content if block.kind == "text"]
+    if not text_blocks:
+        return message
+    # A estimativa do serviço de tokens varia por modelo; um limite de quatro
+    # caracteres por token evita enviar uma mensagem inteira que já estourou o
+    # orçamento, mantendo o início da solicitação para diagnóstico.
+    max_chars = max(8, budget * 4)
+    remaining = max_chars
+    bounded = []
+    for block in message.content:
+        if block.kind != "text" or not block.text:
+            bounded.append(block)
+            continue
+        excerpt = block.text[:remaining]
+        remaining -= len(excerpt)
+        bounded.append(replace(block, text=excerpt))
+        if remaining <= 0:
+            break
+    bounded.append(
+        ContentBlock(
+            kind="text", text="\n[mensagem truncada pelo orçamento de contexto]"
+        )
+    )
+    candidate = replace(message, content=bounded)
+    while _message_tokens(candidate) > budget and max_chars > 8:
+        max_chars = max(8, int(max_chars * 0.75))
+        remaining = max_chars
+        bounded = []
+        for block in message.content:
+            if block.kind != "text" or not block.text:
+                bounded.append(block)
+                continue
+            excerpt = block.text[:remaining]
+            remaining -= len(excerpt)
+            bounded.append(replace(block, text=excerpt))
+            if remaining <= 0:
+                break
+        bounded.append(
+            ContentBlock(kind="text", text="\n[truncado pelo orçamento de contexto]")
+        )
+        candidate = replace(message, content=bounded)
+    return candidate
+
+
 @dataclass
 class PlannedContext:
     """Resultado do planejamento de contexto para envio ao modelo."""
@@ -93,6 +229,7 @@ class ContextPlanner:
         preserve_latest_tool_result: bool = False,
         workspace_id: str | None = None,
         policy_snapshot: PolicySnapshot | None = None,
+        persistent_memory_records: Sequence[MemoryRecord] | None = None,
     ) -> PlannedContext:
         """Seleciona deterministicamente o contexto ideal respeitando orçamentos e prioridades."""
         transcript_hash = compute_transcript_hash(messages)
@@ -108,9 +245,19 @@ class ContextPlanner:
         )
 
         injected_system_messages: list[VMessage] = []
+        memory_scope = workspace_id or "global"
         trusted_records = [
-            r for r in project_memories.records if r.trust_level != "untrusted"
-        ]
+            r
+            for r in [
+                *(persistent_memory_records or ()),
+                *project_memories.records,
+            ]
+            if (
+                r.domain == "project"
+                and r.scope_id in (memory_scope, "global")
+                and r.trust_level != "untrusted"
+            )
+        ][:5]
         if trusted_records:
             memory_texts = [
                 f"- [{r.provenance or 'project'}]: {r.content}" for r in trusted_records
@@ -227,9 +374,16 @@ class ContextPlanner:
             cost = sum(_message_tokens(m) for m in unit)
             if used_tokens + cost > selection_budget:
                 if not selected_units:
-                    # A unidade mais recente é obrigatória.
-                    selected_units.append(unit)
-                    used_tokens += cost
+                    # A solicitação mais recente é obrigatória. Se ela sozinha
+                    # estourar o orçamento, preservamos sua forma causal e
+                    # truncamos apenas o conteúdo textual.
+                    if len(unit) == 1 and unit[0].role is not MessageRole.TOOL:
+                        available = max(1, selection_budget - used_tokens)
+                        bounded = _fit_required_message(unit[0], available)
+                        bounded_unit = [bounded]
+                        units[units.index(unit)] = bounded_unit
+                        selected_units.append(bounded_unit)
+                        used_tokens += _message_tokens(bounded)
                 break
             selected_units.append(unit)
             used_tokens += cost
@@ -374,6 +528,7 @@ def plan_context(
     preserve_latest_tool_result: bool = False,
     workspace_id: str | None = None,
     policy_snapshot: PolicySnapshot | None = None,
+    persistent_memory_records: Sequence[MemoryRecord] | None = None,
 ) -> PlannedContext:
     """Função conveniente para planejar o contexto de um turno."""
     return _DEFAULT_PLANNER.plan_context(
@@ -383,4 +538,5 @@ def plan_context(
         preserve_latest_tool_result=preserve_latest_tool_result,
         workspace_id=workspace_id,
         policy_snapshot=policy_snapshot,
+        persistent_memory_records=persistent_memory_records,
     )
