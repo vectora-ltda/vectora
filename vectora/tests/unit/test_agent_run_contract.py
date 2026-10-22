@@ -1,7 +1,7 @@
 """Testes unitários rigorosos do contrato persistente de AgentRun (Issue #368).
 
 Cobre:
-- Ciclo de vida e máquina de 8 estados (planned, running, waiting_approval, verifying, passed, degraded, failed, cancelled).
+- Ciclo de vida e estados de execução, espera de provider, tools e recuperação.
 - Persistência de campos obrigatórios (run_id, thread, usuário, workspace, modelo, provider, plan_step, tools, aprovações, arquivos, comandos, testes, artefatos, métricas, evidências).
 - Redação rigorosa de dados sensíveis antes de persistir (tokens, chaves sk-, ghp-, AKIA, senhas).
 - Sobrevivência a restart / reidratação exata sem perda de dados.
@@ -80,6 +80,23 @@ class TestRedaction:
 
 
 class TestAgentRunLifecycle:
+    @pytest.mark.parametrize(
+        "status", ["admitted", "waiting_provider", "tool_running", "recovery_required"]
+    )
+    async def test_extended_runtime_statuses_are_persisted(
+        self, store: SessionStore, status: str
+    ) -> None:
+        run = AgentRun(
+            run_id=f"run-{status}",
+            thread_id="thread-1",
+            status=cast("AgentRunStatus", status),
+        )
+        await store.create_session("thread-1", user_id="user-1")
+        await store.upsert_agent_run(run)
+        loaded = await store.get_agent_run(run.run_id)
+        assert loaded is not None
+        assert loaded.status == status
+
     async def test_create_and_read_agent_run(self, store: SessionStore) -> None:
         await store.create_session("thread-run-1", user_id="user-123")
         run = AgentRun(
