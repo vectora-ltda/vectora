@@ -8,35 +8,32 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
-from typing import Any, Literal, overload
+from typing import Any, overload
 
 from pydantic import BaseModel, Field, JsonValue
+
+from backend.contracts.models import HarnessRunStatus
 
 # ---------------------------------------------------------------------------
 # Estados Canônicos de AgentRun
 # ---------------------------------------------------------------------------
 
-AgentRunStatus = Literal[
-    "planned",
-    "running",
-    "waiting_approval",
-    "verifying",
-    "passed",
-    "degraded",
-    "failed",
-    "cancelled",
-]
+AgentRunStatus = HarnessRunStatus
 
 VALID_AGENT_RUN_STATUSES: frozenset[str] = frozenset(
     {
         "planned",
+        "admitted",
         "running",
         "waiting_approval",
+        "waiting_provider",
+        "tool_running",
         "verifying",
         "passed",
         "degraded",
         "failed",
         "cancelled",
+        "recovery_required",
     }
 )
 
