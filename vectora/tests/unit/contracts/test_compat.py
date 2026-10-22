@@ -195,3 +195,9 @@ def test_openapi_endpoint_and_request_schema_removal_detection() -> None:
     # Verifica detecção de remoção de request schema
     removed_req_schemas = _removed_request_schemas(baseline_openapi, new_openapi)
     assert removed_req_schemas == ["CreateUserRequest"]
+
+
+def test_python_union_type_to_ts_preserves_nullability() -> None:
+    from devtools.contracts.__main__ import _python_type_to_ts
+
+    assert _python_type_to_ts(str | None) == "string | null"

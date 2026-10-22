@@ -306,7 +306,7 @@ def export_harness(contracts_dir: Path) -> None:
     print("Exported execution runtime schema.")
 
 
-def _python_type_to_ts(annotation: Any) -> str:
+def _python_type_to_ts(annotation: Any) -> str:  # noqa: PLR0911
     import types
     import typing
 
@@ -321,8 +321,11 @@ def _python_type_to_ts(annotation: Any) -> str:
     if origin is dict:
         return "Record<string, unknown>"
     if origin is typing.Union or isinstance(annotation, types.UnionType):
+        has_none = any(a is type(None) for a in args)
         non_none = [a for a in args if a is not type(None)]
         ts_types = [_python_type_to_ts(a) for a in non_none]
+        if has_none:
+            ts_types.append("null")
         return " | ".join(ts_types)
     if annotation is str:
         return "string"
@@ -344,7 +347,7 @@ def _generate_ts_interface(
     opt_set = optional_override or set()
     for fname, finfo in model.model_fields.items():
         name = finfo.alias or fname
-        is_opt = not finfo.is_required() or name in ("$schema",) or fname in opt_set
+        is_opt = not finfo.is_required() or name == "$schema" or fname in opt_set
         tname = (
             "QualityGatePolicy"
             if fname == "policy"
@@ -383,7 +386,7 @@ def _classify_openapi_schemas(openapi: dict[str, Any]) -> tuple[set[str], set[st
 
     paths = openapi.get("paths", {})
     if isinstance(paths, dict):
-        for _path, path_item in paths.items():
+        for path_item in paths.values():
             if not isinstance(path_item, dict):
                 continue
             for method, op in path_item.items():
@@ -462,9 +465,11 @@ def _removed_request_schemas(
     old_req_schemas, _ = _classify_openapi_schemas(baseline)
     removed: list[str] = []
     if isinstance(old_schemas, dict):
-        for s_name in old_schemas:
-            if s_name not in new_schemas and s_name in old_req_schemas:
-                removed.append(s_name)
+        removed.extend(
+            s_name
+            for s_name in old_schemas
+            if s_name not in new_schemas and s_name in old_req_schemas
+        )
     return removed
 
 
@@ -648,6 +653,20 @@ def check_all(contracts_dir: Path) -> int:
             print("MISSING: frontend/lib/contracts/index.ts")
             has_diff = True
         elif generated_ts.exists():
+            frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
+            prettier = frontend_dir / "node_modules" / ".bin" / "prettier.cmd"
+            if not prettier.exists():
+                prettier = frontend_dir / "node_modules" / ".bin" / "prettier"
+            if prettier.exists():
+                subprocess.run(  # noqa: S603
+                    [str(prettier), str(generated_ts), "--write"],
+                    cwd=frontend_dir,
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+            else:
+                print("WARNING: Prettier não encontrado; comparação literal usada")
             if tracked_ts.read_text(encoding="utf-8") != generated_ts.read_text(
                 encoding="utf-8"
             ):
@@ -697,6 +716,12 @@ def check_all(contracts_dir: Path) -> int:
                 and isinstance(baseline_data, dict)
                 and isinstance(expected_data, dict)
             ):
+                old_schemas = baseline_data.get("components", {}).get("schemas", {})
+                new_schemas = expected_data.get("components", {}).get("schemas", {})
+                if not isinstance(old_schemas, dict):
+                    old_schemas = {}
+                if not isinstance(new_schemas, dict):
+                    new_schemas = {}
                 # 1. Identificar operações HTTP removidas em paths
                 for method_upper, path_str in _removed_operations(
                     baseline_data, expected_data

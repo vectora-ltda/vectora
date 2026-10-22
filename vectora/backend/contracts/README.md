@@ -25,16 +25,28 @@ Além dos artefatos JSON acima, os contratos são exportados como tipos TypeScri
 
 ## Contratos Operacionais
 
+Esta seção descreve as garantias observáveis que consumidores devem poder
+assumir ao integrar o backend. Os contratos de saúde, eventos e evolução são
+intencionais: uma mudança de implementação só é compatível quando preserva
+essas garantias ou altera explicitamente a versão do contrato.
+
 ### 1. Separação Estrita de Health Probes
 
 - `GET /health/live`: Liveness probe. Verifica apenas se o processo Python está vivo e respondendo requisições ASGI. Não depende de storage, banco de dados ou provedores externos. Retorna 200 sempre que o processo estiver responsivo.
 - `GET /health/ready`: Readiness probe. Avalia se as dependências obrigatórias para persistência de dados estão operacionais (`store` e `lancedb`). Retorna `200` com status `"ready"` se as dependências essenciais responderem, ou `503` com status `"not_ready"` quando houver degradação de persistência.
+
+Os dois endpoints têm propósitos deliberadamente diferentes: liveness mede o
+processo, enquanto readiness mede a capacidade de atender operações que exigem
+as dependências configuradas.
 
 ### 2. Contrato de Wire Format & Identidade de Eventos SSE
 
 - Todo evento emitido na rota de chat deve obedecer ao discriminador canônico `type` definido no catálogo `StreamChatEventPayload`.
 - Para deduplicação e rastreabilidade determinística, eventos que envolvem mutação ou delegação carregam `tool_call_id` / `run_id` estável.
 - Toda requisição HTTP e stream SSE carrega `X-Correlation-ID`, `X-Request-ID` e `X-Vectora-Contract-Version`.
+
+Esses identificadores permitem correlacionar uma resposta HTTP, os eventos SSE
+e os registros persistidos da mesma execução sem depender de texto livre.
 
 ### 3. Governança e Evolução dos Contratos na Stack
 
