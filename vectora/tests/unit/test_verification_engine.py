@@ -98,6 +98,7 @@ async def test_run_verification_profile_empty(test_workspace: Path) -> None:
     res = await run_verification("test_ws", test_workspace, profile=profile)
     assert res.passed is True
     assert res.status == "passed"
+    assert res.outcome == "not_run"
     assert len(res.snapshot_sha256) == 64
     assert res.gate_results == []
 
@@ -123,6 +124,7 @@ async def test_run_verification_dirty_git(
     res = await run_verification("test_ws", test_workspace, profile=profile)
     assert res.passed is False
     assert res.status == "failed"
+    assert res.outcome == "blocked"
     assert "Git working tree" in (res.failure_feedback or "")
 
 
@@ -144,6 +146,7 @@ async def test_run_verification_empty_command_fails(test_workspace: Path) -> Non
     res = await run_verification("test_ws", test_workspace, profile=profile)
     assert res.passed is False
     assert res.status == "failed"
+    assert res.outcome == "failed"
     assert len(res.gate_results) == 1
     assert res.gate_results[0].passed is False
 
@@ -164,6 +167,7 @@ async def test_run_verification_passing_gate(test_workspace: Path) -> None:
     res = await run_verification("test_ws", test_workspace, profile=profile)
     assert res.passed is True
     assert res.status == "passed"
+    assert res.outcome == "passed"
     assert len(res.gate_results) == 1
     assert res.gate_results[0].passed is True
     assert res.gate_results[0].exit_code == 0
@@ -195,6 +199,7 @@ async def test_run_verification_blocking_failure(test_workspace: Path) -> None:
     res = await run_verification("test_ws", test_workspace, profile=profile)
     assert res.passed is False
     assert res.status == "failed"
+    assert res.outcome == "failed"
     assert len(res.gate_results) == 1
     assert res.gate_results[0].passed is False
     assert "gate error" in (res.failure_feedback or "")
