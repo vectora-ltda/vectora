@@ -203,6 +203,8 @@ class AgentRun(BaseModel):
     run_id: str
     thread_id: str
     turn_id: str | None = None
+    parent_run_id: str | None = None
+    correlation_id: str | None = None
     user_id: str = ""
     workspace_id: str | None = None
     model: str = ""
@@ -218,6 +220,7 @@ class AgentRun(BaseModel):
     artifacts: list[dict[str, JsonValue]] = Field(default_factory=list)
     metrics: AgentRunMetrics = Field(default_factory=AgentRunMetrics)
     evidence: list[dict[str, JsonValue]] = Field(default_factory=list)
+    untrusted_content: bool = False
     detail: str | None = None
     error_code: str | None = None
     started_at: str = Field(default_factory=_now)
