@@ -152,6 +152,34 @@ def _tool_call_chunk(*, index: int, id: str, name: str, args: str) -> VMessageCh
 
 
 class TestParadaNormal:
+    async def test_checkpoint_de_tool_impede_reexecucao_cego(self, session_store, ctx):
+        await session_store.save_context_checkpoint(
+            "thread-1",
+            "run-recovery",
+            {
+                "checkpoint_id": "run-recovery:seq:0:tool_running",
+                "last_sequence": 0,
+                "source_hash": "hash",
+                "state": {
+                    "phase": "tool_running",
+                    "pending_tool_call_ids": ["tool-1"],
+                },
+            },
+        )
+        client = _ScriptedChatClient([[_texto_chunk("não deveria chamar")]])
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=ToolRegistry(),
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(run_id="run-recovery"),
+        )
+
+        assert resultado.stopped_reason == "recovery_required"
+        assert client.chamadas == 0
+
     async def test_sem_tool_calls_para_no_primeiro_turno(self, session_store, ctx):
         client = _ScriptedChatClient([[_texto_chunk("olá!")]])
         resultado = await run_conversation(

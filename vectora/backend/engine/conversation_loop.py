@@ -399,7 +399,7 @@ async def run_conversation(  # noqa: PLR0911
                 await _safe_update_agent_run_status(
                     session_store,
                     config.run_id,
-                    status=AgentRunStatus.RECOVERY_REQUIRED,
+                    status="recovery_required",
                     plan_step="checkpoint_recovery",
                     detail="Execução interrompida durante tools; reconciliação necessária.",
                     error_code="CHECKPOINT_TOOL_RECONCILIATION_REQUIRED",
