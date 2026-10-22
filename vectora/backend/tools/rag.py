@@ -420,6 +420,28 @@ async def _search_one_collection_text(
     ]
 
 
+def _attach_retrieval_provenance(
+    results: list[dict[str, Any]],
+    *,
+    backend_name: str,
+    retrieval_method: str,
+) -> list[dict[str, Any]]:
+    """Anexa proveniência mínima e estável a cada resultado de retrieval."""
+    enriched: list[dict[str, Any]] = []
+    for rank, result in enumerate(results, start=1):
+        item = dict(result)
+        item["provenance"] = {
+            "source": "rag",
+            "backend": backend_name,
+            "collection": str(result.get("collection", "")),
+            "method": retrieval_method,
+            "rank": rank,
+            "score": result.get("score"),
+        }
+        enriched.append(item)
+    return enriched
+
+
 _RRF_K = 60
 
 
@@ -511,6 +533,7 @@ async def vector_search(
         from backend.storage.factory import get_vector_store_backend
 
         backend = await get_vector_store_backend()
+        backend_name = type(backend).__name__
 
         # embed_query usa input_type="search_query" (Cohere v3 é assimétrico:
         # os documentos são indexados com embed_documents → "search_document").
@@ -545,8 +568,10 @@ async def vector_search(
                 reverse=True,
             )
             results = _reciprocal_rank_fusion(vector_results, text_results, limit)
+            retrieval_method = "hybrid_rrf"
         else:
             results = vector_results[:limit]
+            retrieval_method = "vector"
 
         if not results:
             return json.dumps(
@@ -557,9 +582,11 @@ async def vector_search(
             )
 
         # Reranking opcional — melhora precisão (Cohere ou VoyageAI)
+        reranker_name: str | None = None
         reranker = _build_reranker(workspace_id=ctx.workspace_id or "default")
         if results and reranker is not None:
             try:
+                reranker_name = type(reranker).__name__
                 docs_to_rerank = [
                     Document(page_content=str(r["content"]), metadata=r["metadata"])
                     for r in results
@@ -584,6 +611,24 @@ async def vector_search(
                 logger.warning(f"Reranking failed, using raw results: {rerank_err}")
                 for r in results:
                     r["reranking_status"] = "unavailable"
+
+        results = _attach_retrieval_provenance(
+            results,
+            backend_name=backend_name,
+            retrieval_method=retrieval_method,
+        )
+        try:
+            from backend.persistence.telemetry import telemetry
+
+            await telemetry.record_retrieval(
+                query=query,
+                collections=collections,
+                result_count=len(results),
+                retrieval_method=retrieval_method,
+                reranker=reranker_name,
+            )
+        except Exception:
+            logger.debug("vector_search: telemetry unavailable", exc_info=True)
 
         logger.info(
             "vector_search completed",
@@ -611,6 +656,12 @@ async def vector_search(
                 "results": results,
                 "query": query,
                 "collections": collections,
+                "retrieval": {
+                    "backend": backend_name,
+                    "method": retrieval_method,
+                    "reranker": reranker_name,
+                    "result_count": len(results),
+                },
             }
         )
 
