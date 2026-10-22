@@ -70,6 +70,16 @@ async def _search_browser(
     egress_policy: Any = None,
 ) -> list[dict]:
     """Busca no Chromium do Electron, reaproveitando os logins do usuário."""
+    if workspace_id:
+        # Search runs through the synchronous fallback adapter, while the
+        # canonical Browser Workbench session is established by the async
+        # session manager.  Claim the existing Electron target first so the
+        # adapter can resolve the same target through the process-wide
+        # ownership map; without this step readiness would see a page but the
+        # workspace would be rejected as unowned.
+        from backend.browser.session import get_browser_page
+
+        await get_browser_page(workspace_id)
     from backend.browser.search_fallback import browser_search
 
     return await __import__("asyncio").to_thread(

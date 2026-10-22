@@ -198,3 +198,27 @@ class TestExecucao:
         backend = resolve_backend()
         with pytest.raises(RuntimeError, match="rede fora"):
             await backend.search("q")
+
+    @pytest.mark.asyncio
+    async def test_browser_claims_workspace_before_sync_adapter(self, monkeypatch):
+        monkeypatch.setattr(
+            "backend.tools.search_registry._electron_is_ready", lambda: True
+        )
+        _escolhe(monkeypatch, "browser")
+        claimed = False
+
+        async def _claim(workspace_id):
+            nonlocal claimed
+            claimed = workspace_id == "workspace-a"
+            return object()
+
+        def _search(*args, **kwargs):
+            assert claimed
+            assert kwargs["workspace_id"] == "workspace-a"
+            return [{"url": "https://example.com", "provider": "browser"}]
+
+        monkeypatch.setattr("backend.browser.session.get_browser_page", _claim)
+        monkeypatch.setattr("backend.browser.search_fallback.browser_search", _search)
+
+        result = await resolve_backend().search("q", workspace_id="workspace-a")
+        assert result[0]["provider"] == "browser"
