@@ -39,6 +39,19 @@ def _ns_from_str(namespace: str) -> tuple[str, ...]:
     return tuple(namespace.split(_NS_SEP)) if namespace else ()
 
 
+def is_store_value_expired(
+    value: dict[str, Any], *, now: datetime | None = None
+) -> bool:
+    """Retorna se um item persistido passou do seu ``valid_until``."""
+    valid_until = value.get("valid_until")
+    if not isinstance(valid_until, str) or not valid_until:
+        return False
+    try:
+        return datetime.fromisoformat(valid_until) <= (now or datetime.now(UTC))
+    except ValueError:
+        return False
+
+
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b, strict=False))
     norm_a = math.sqrt(sum(x * x for x in a))
@@ -288,8 +301,11 @@ class VectoraStore:
         if row is None:
             return None
         value_json, created_at, updated_at = row
+        value = json.loads(value_json)
+        if is_store_value_expired(value):
+            return None
         return Item(
-            value=json.loads(value_json),
+            value=value,
             key=key,
             namespace=namespace,
             created_at=datetime.fromisoformat(created_at),
@@ -366,6 +382,8 @@ class VectoraStore:
         candidates: list[tuple[float | None, SearchItem]] = []
         for ns, key, value_json, embedding_json, created_at, updated_at in rows:
             value = json.loads(value_json)
+            if is_store_value_expired(value):
+                continue
             if not _matches_filter(value, filter):
                 continue
             score: float | None = None

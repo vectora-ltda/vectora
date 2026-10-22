@@ -20,6 +20,7 @@ from backend.persistence.native.store import (
     _ns_from_str,
     _ns_to_str,
     get_text_at_path,
+    is_store_value_expired,
 )
 
 if TYPE_CHECKING:
@@ -72,8 +73,11 @@ class VectoraPostgresStore:
         if row is None:
             return None
         value = row["value"]
+        value = json.loads(value) if isinstance(value, str) else value
+        if is_store_value_expired(value):
+            return None
         return Item(
-            value=json.loads(value) if isinstance(value, str) else value,
+            value=value,
             key=key,
             namespace=namespace,
             created_at=row["created_at"],
@@ -143,6 +147,8 @@ class VectoraPostgresStore:
         for row in rows:
             value = row["value"]
             value = json.loads(value) if isinstance(value, str) else value
+            if is_store_value_expired(value):
+                continue
             if not _matches_filter(value, filter):
                 continue
             embedding = row["embedding"]
