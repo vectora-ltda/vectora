@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from backend.tools.context import ToolContext
@@ -58,6 +58,17 @@ def _memory_namespace(ctx: ToolContext) -> tuple[str, ...]:
     """Retorna o namespace do store para as memórias do usuário."""
     user_id = _user_id_from_ctx(ctx)
     return ("user", user_id, "memories")
+
+
+def _is_memory_expired(value: dict[str, Any]) -> bool:
+    """Aplica expiração persistida sem confiar no contador informativo legado."""
+    valid_until = value.get("valid_until")
+    if not isinstance(valid_until, str) or not valid_until:
+        return False
+    try:
+        return datetime.fromisoformat(valid_until) <= datetime.now(UTC)
+    except ValueError:
+        return False
 
 
 async def list_fact_contents(user_id: str) -> list[str]:
@@ -129,7 +140,7 @@ async def save_memory(
         key: Chave única da memória (ex: 'user_preferences', 'project_context')
         content: Conteúdo da memória (string com informações a recordar)
         metadata: Metadados adicionais
-        ttl_days: Dias até expiração (informativo — store básico não garante TTL)
+        ttl_days: Dias até expiração; memórias expiradas são removidas ao ler
         category: Categoria do fato (gotcha/decision/preference/rule) — opcional,
             None quando não classificado
 
@@ -141,6 +152,11 @@ async def save_memory(
         ns = _memory_namespace(ctx)
         now = datetime.now(UTC).isoformat()
 
+        if ttl_days is not None and ttl_days <= 0:
+            return json.dumps(
+                {"status": "failed", "error": "ttl_days deve ser positivo", "key": key}
+            )
+
         value: dict[str, Any] = {
             "key": key,
             "content": content,
@@ -150,6 +166,9 @@ async def save_memory(
         }
         if ttl_days is not None:
             value["ttl_days"] = ttl_days
+            value["valid_until"] = (
+                datetime.now(UTC) + timedelta(days=ttl_days)
+            ).isoformat()
 
         await store.aput(ns, key, value)
 
@@ -204,6 +223,9 @@ async def get_memory(ctx: ToolContext, key: str | None = None) -> str:
                 return json.dumps({"status": "not_found", "key": key})
 
             val = item.value
+            if _is_memory_expired(val):
+                await store.adelete(ns, key)
+                return json.dumps({"status": "not_found", "key": key})
             logger.debug("memory_retrieved key=%s", key)
             return json.dumps(
                 {
@@ -218,6 +240,7 @@ async def get_memory(ctx: ToolContext, key: str | None = None) -> str:
 
         # Sem key: lista todas as memórias do namespace
         items = await store.asearch(ns)
+        items = [item for item in items if not _is_memory_expired(item.value)]
         memories = [
             {
                 "key": item.key,
@@ -269,6 +292,7 @@ async def search_memory(ctx: ToolContext, query: str, limit: int = 5) -> str:
         ns = _memory_namespace(ctx)
 
         items = await store.asearch(ns, query=query, limit=limit)
+        items = [item for item in items if not _is_memory_expired(item.value)]
         has_scores = any(getattr(item, "score", None) is not None for item in items)
 
         memories = [
