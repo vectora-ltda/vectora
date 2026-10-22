@@ -55,6 +55,14 @@ from backend.vtypes.safe_root import SafeRoot
 from backend.vtypes.session import SessionMetadata
 from backend.vtypes.shell import ShellState, TerminalCommand, TerminalResult
 from backend.vtypes.storage import HealthResult, QueueTask
+from backend.vtypes.web import (
+    CrawlRequest,
+    FetchedDocument,
+    MapRequest,
+    SearchDiagnostic,
+    SearchResponse,
+    SearchResult,
+)
 from backend.vtypes.workspace import Workspace
 
 __all__ = [
@@ -66,8 +74,10 @@ __all__ = [
     "BrowserTab",
     "ChangedFile",
     "ContentBlock",
+    "CrawlRequest",
     "DecompositionNode",
     "Document",
+    "FetchedDocument",
     "GitCommitSnapshot",
     "GitContract",
     "GitDiffSnapshot",
@@ -87,6 +97,7 @@ __all__ = [
     "KanbanCard",
     "KanbanStatus",
     "MemoryEntry",
+    "MapRequest",
     "MessageRole",
     "NetworkProfile",
     "NetworkProfileName",
@@ -97,6 +108,9 @@ __all__ = [
     "QueueTask",
     "SafeRoot",
     "SessionMetadata",
+    "SearchDiagnostic",
+    "SearchResponse",
+    "SearchResult",
     "ShellState",
     "StructuredQuestionRecord",
     "TerminalCommand",
