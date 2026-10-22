@@ -210,13 +210,13 @@ export interface MemoryRecord {
     "short_term" | "session" | "project" | "workspace" | "user" | "vector_rag";
   subject: string;
   content: string;
-  source_run_id?: string;
-  source_artifact_id?: string;
+  source_run_id?: string | null;
+  source_artifact_id?: string | null;
   provenance_hash: string;
   confidence?: number;
   importance?: number;
-  valid_until?: string;
-  invalidated_at?: string;
+  valid_until?: string | null;
+  invalidated_at?: string | null;
 }
 
 export interface ProviderCapability {
@@ -228,6 +228,6 @@ export interface ProviderCapability {
   streaming?: boolean;
   tool_calling?: boolean;
   vision?: boolean;
-  checked_at?: string;
-  diagnostic?: string;
+  checked_at?: string | null;
+  diagnostic?: string | null;
 }
