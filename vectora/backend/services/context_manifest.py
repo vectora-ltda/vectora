@@ -37,6 +37,9 @@ class ContextProjectionEvidence(TypedDict):
     preserved_decisions_count: int
     preserved_errors_count: int
     preserved_approvals_count: int
+    preserved_decisions: list[str]
+    preserved_errors: list[str]
+    preserved_approvals: list[str]
     excluded_items_count: int
     created_at: str
 
@@ -107,6 +110,9 @@ class ContextProjection:
             "preserved_decisions_count": len(self.preserved_decisions),
             "preserved_errors_count": len(self.preserved_errors),
             "preserved_approvals_count": len(self.preserved_approvals),
+            "preserved_decisions": list(self.preserved_decisions),
+            "preserved_errors": list(self.preserved_errors),
+            "preserved_approvals": list(self.preserved_approvals),
             "excluded_items_count": self.excluded_items_count,
             "created_at": self.created_at,
         }
