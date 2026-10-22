@@ -92,6 +92,21 @@ def _session_lock(workspace_id: str) -> asyncio.Lock:
     return lock
 
 
+def browser_profile_id(workspace_id: str, thread_id: str = "") -> str:
+    """Derive the same partition id used by the Browser Workbench UI.
+
+    Keeping this derivation shared across the backend bridge and the UI makes
+    agent-created tabs appear in the authenticated WebContentsView instead of
+    silently creating a second Chromium partition.
+    """
+    value = f"{workspace_id}:{thread_id}"
+    first, second = 2166136261, 2654435761
+    for byte in value.encode("utf-8"):
+        first = ((first ^ byte) * 16777619) & 0xFFFFFFFF
+        second = ((second ^ byte) * 2246822519) & 0xFFFFFFFF
+    return f"session-{first:08x}{second:08x}"
+
+
 def _electron_cdp_endpoint() -> str:
     """Resolve o endpoint CDP publicado pelo processo Electron."""
     from backend.browser.cdp import electron_cdp_endpoint
@@ -352,7 +367,9 @@ async def list_tabs(workspace_id: str) -> list[BrowserTab]:
     return tabs
 
 
-async def new_tab(workspace_id: str, url: str | None = None) -> str:
+async def new_tab(
+    workspace_id: str, url: str | None = None, *, profile_id: str | None = None
+) -> str:
     """Cria uma aba nova na sessão do workspace (lança o browser se ainda
     não existir sessão) e a torna a aba ativa. Retorna o `tab_id`."""
     async with _session_lock(workspace_id):
@@ -376,7 +393,10 @@ async def new_tab(workspace_id: str, url: str | None = None) -> str:
                 httpx.post,
                 electron_cdp_endpoint() + "/vectora/browser/create",
                 headers=electron_cdp_headers(),
-                json={"profileId": f"workspace-{workspace_id}", "kind": "tab"},
+                json={
+                    "profileId": profile_id or f"workspace-{workspace_id}",
+                    "kind": "tab",
+                },
                 timeout=5.0,
             )
             if response.is_success:

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.browser.session import (
+    browser_profile_id,
     close_tab,
     get_tab_state,
     has_browser_session,
@@ -120,7 +121,8 @@ async def browser_new_tab(ctx: ToolContext, url: str | None = None) -> str:
                 }
             )
     try:
-        tab_id = await new_tab(workspace_id, url=url)
+        profile_id = browser_profile_id(workspace_id, ctx.thread_id)
+        tab_id = await new_tab(workspace_id, url=url, profile_id=profile_id)
         logger.info(
             "browser_new_tab completed",
             extra={
