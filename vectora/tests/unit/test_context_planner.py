@@ -228,6 +228,24 @@ def test_backend_memories_are_converted_with_scope_and_trust() -> None:
     assert records[0].provenance == "AGENTS.md"
 
 
+def test_backend_memory_confidence_corrompida_e_clamped_sem_abort() -> None:
+    records = memory_records_from_backend_items(
+        [
+            SimpleNamespace(
+                key="invalid-confidence",
+                value={"content": "regra", "confidence": "nan"},
+            ),
+            SimpleNamespace(
+                key="out-of-range",
+                value={"content": "outra regra", "confidence": 9},
+            ),
+        ],
+        default_scope_id="ws-42",
+    )
+
+    assert [record.confidence for record in records] == [1.0, 1.0]
+
+
 def test_context_planner_injects_persistent_project_memory() -> None:
     persistent = memory_records_from_backend_items(
         [
