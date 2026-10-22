@@ -2066,14 +2066,12 @@ async def get_thread_history_paginated(
     recentes), em ordem cronológica. ``has_more=True`` quando existem mensagens
     mais antigas além das retornadas.
     """
-    await _assert_owns_thread(
-        thread_id,
-        request,
-        require_existing=_user_id(request) != "local",
-    )
     try:
         from backend.services import agent_factory
 
+        # ``get_thread`` is the source of truth for both existence and
+        # ownership.  Resolving it first also supports reconciliation windows
+        # where the native ledger exists before the UI metadata row.
         thread = await get_thread(
             GetThreadRequest(thread_id=thread_id), http_request=request
         )
