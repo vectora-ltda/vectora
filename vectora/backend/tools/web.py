@@ -33,6 +33,12 @@ _MAX_RESULTS = 5
 _MAX_TOOL_CONTENT = 120_000
 
 
+def _ctx_egress_policy(ctx: ToolContext | None) -> Any:
+    """Read the compiled egress policy carried by the current run context."""
+    extra = getattr(ctx, "_extra", {}) if ctx is not None else {}
+    return extra.get("egress_policy") if isinstance(extra, dict) else None
+
+
 def _tavily_client() -> Any:
     """Cliente Tavily novo por chamada — barato (só monta o httpx sob demanda)
     e evita segurar conexão entre turnos do agente."""
@@ -71,7 +77,10 @@ async def _invoke_backend(tool: Any, payload: dict[str, Any]) -> Any:
     elif "url" in payload and hasattr(tool, "extract"):
         result = tool.extract([payload["url"]], extract_depth="advanced")
     elif "query" in payload and hasattr(tool, "search"):
-        result = tool.search(payload["query"])
+        if getattr(tool, "name", "") == "browser" and payload.get("workspace_id"):
+            result = tool.search(payload["query"], workspace_id=payload["workspace_id"])
+        else:
+            result = tool.search(payload["query"])
     else:
         raise AttributeError("backend tool does not expose invoke/search/extract")
     if inspect.isawaitable(result):
@@ -116,7 +125,7 @@ async def _search_via_fallback(query: str) -> str:
         )
 
 
-async def _fetch_via_fallback(url: str) -> str:
+async def _fetch_via_fallback(url: str, ctx: ToolContext | None = None) -> str:
     """Fallback sem API key para `fetch_url`: Chromium do Electron via CDP.
     Mesmo contrato de `_search_via_fallback` — nunca propaga."""
     try:
@@ -126,7 +135,15 @@ async def _fetch_via_fallback(url: str) -> str:
             envelope_untrusted,
         )
 
-        content = await asyncio.to_thread(fetch_fallback, url)
+        kwargs = (
+            {"workspace_id": ctx.workspace_id}
+            if ctx is not None and ctx.workspace_id
+            else {}
+        )
+        policy = _ctx_egress_policy(ctx)
+        if policy is not None:
+            kwargs["egress_policy"] = policy
+        content = await asyncio.to_thread(fetch_fallback, url, **kwargs)
         logger.info(
             "fetch_url fallback completed",
             extra={"url": url, "content_length": len(content)},
@@ -247,6 +264,7 @@ async def web_search(
     time_range: Literal["day", "week", "month", "year"] | None = None,
     include_domains: list[str] | None = None,
     exclude_domains: list[str] | None = None,
+    ctx: ToolContext | None = None,
 ) -> str:
     """Busca a web por informações atuais usando Tavily (otimizado para agentes).
 
@@ -280,7 +298,10 @@ async def web_search(
     backend_name = getattr(backend, "name", "tavily")
     if backend_name != "tavily":
         try:
-            resultados = await _invoke_backend(backend, {"query": query})
+            payload: dict[str, Any] = {"query": query}
+            if ctx is not None and ctx.workspace_id:
+                payload["workspace_id"] = ctx.workspace_id
+            resultados = await _invoke_backend(backend, payload)
             logger.info(
                 "web_search via backend alternativo",
                 extra={"query": query, "backend": backend_name},
@@ -485,7 +506,7 @@ async def fetch_url(url: str, ctx: ToolContext | None = None) -> str:
                 "Tavily quota/rate limit atingido — usando fallback via Chromium",
                 extra={"url": url},
             )
-            return await _fetch_via_fallback(url)
+        return await _fetch_via_fallback(url, ctx)
         if "no extracted results" in err.lower():
             return f"No content found at {url}"
         return (
@@ -507,6 +528,7 @@ async def web_crawl(
     max_depth: int = 1,
     limit: int = 20,
     instructions: str | None = None,
+    ctx: ToolContext | None = None,
 ) -> str:
     """Varre um site a partir de uma URL, seguindo links internos.
 
@@ -542,13 +564,24 @@ async def web_crawl(
         queue: list[tuple[str, int]] = [(url, 0)]
         seen: set[str] = set()
         pages: list[dict[str, Any]] = []
+        errors: list[dict[str, str]] = []
         while queue and len(pages) < limit:
             current, depth = queue.pop(0)
             if current in seen or urlparse(current).netloc != origin:
                 continue
             seen.add(current)
             try:
-                content = await asyncio.to_thread(fetch_fallback, current)
+                fetch_kwargs = (
+                    {"workspace_id": ctx.workspace_id}
+                    if ctx is not None and ctx.workspace_id
+                    else {}
+                )
+                policy = _ctx_egress_policy(ctx)
+                if policy is not None:
+                    fetch_kwargs["egress_policy"] = policy
+                content = await asyncio.to_thread(
+                    fetch_fallback, current, **fetch_kwargs
+                )
                 pages.append(
                     {
                         "url": current,
@@ -558,8 +591,16 @@ async def web_crawl(
                     }
                 )
                 if depth < max_depth and len(pages) < limit:
+                    map_kwargs = (
+                        {"workspace_id": ctx.workspace_id}
+                        if ctx is not None and ctx.workspace_id
+                        else {}
+                    )
+                    policy = _ctx_egress_policy(ctx)
+                    if policy is not None:
+                        map_kwargs["egress_policy"] = policy
                     links = await asyncio.to_thread(
-                        browser_map, current, limit - len(pages)
+                        browser_map, current, limit - len(pages), **map_kwargs
                     )
                     queue.extend(
                         (link, depth + 1) for link in links if link not in seen
@@ -569,7 +610,16 @@ async def web_crawl(
                     "browser crawl page failed",
                     extra={"url": current, "error": str(exc)},
                 )
-        return json.dumps({"status": "ok", "provider": "browser", "results": pages})
+                errors.append({"url": current, "error": str(exc)})
+        status = "ok" if not errors else ("partial" if pages else "error")
+        result: dict[str, Any] = {
+            "status": status,
+            "provider": "browser",
+            "results": pages,
+        }
+        if errors:
+            result["errors"] = errors
+        return json.dumps(result)
 
     try:
         client = _tavily_client()
@@ -593,7 +643,7 @@ async def web_crawl(
         icon="globe",
     )
 )
-async def web_map(url: str, limit: int = 50) -> str:
+async def web_map(url: str, limit: int = 50, ctx: ToolContext | None = None) -> str:
     """Mapeia a estrutura de links de um site, sem extrair o conteúdo.
 
     Mais barato que `web_crawl` (não lê as páginas), mas ainda percorre o
@@ -612,7 +662,17 @@ async def web_map(url: str, limit: int = 50) -> str:
         from backend.browser.search_fallback import browser_map
 
         try:
-            links = await asyncio.to_thread(browser_map, url, max(1, min(limit, 200)))
+            map_kwargs = (
+                {"workspace_id": ctx.workspace_id}
+                if ctx is not None and ctx.workspace_id
+                else {}
+            )
+            policy = _ctx_egress_policy(ctx)
+            if policy is not None:
+                map_kwargs["egress_policy"] = policy
+            links = await asyncio.to_thread(
+                browser_map, url, max(1, min(limit, 200)), **map_kwargs
+            )
             return json.dumps({"status": "ok", "provider": "browser", "results": links})
         except Exception as exc:
             logger.exception("browser map failed", extra={"url": url})

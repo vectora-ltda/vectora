@@ -63,12 +63,17 @@ async def _search_ollama_web(query: str, max_results: int = 5) -> list[dict]:
     )
 
 
-async def _search_browser(query: str, max_results: int = 5) -> list[dict]:
+async def _search_browser(
+    query: str, max_results: int = 5, workspace_id: str | None = None
+) -> list[dict]:
     """Busca no Chromium do Electron, reaproveitando os logins do usuário."""
     from backend.browser.search_fallback import browser_search
 
     return await __import__("asyncio").to_thread(
-        browser_search, query, max_results=max_results
+        browser_search,
+        query,
+        max_results=max_results,
+        workspace_id=workspace_id,
     )
 
 
@@ -98,11 +103,26 @@ def _electron_is_ready() -> bool:
         from backend.browser.cdp import electron_cdp_endpoint, electron_cdp_headers
 
         response = httpx.get(
-            electron_cdp_endpoint() + "/json/version",
+            electron_cdp_endpoint() + "/json/list",
             headers=electron_cdp_headers(),
             timeout=0.2,
         )
-        return response.is_success
+        if not response.is_success:
+            return False
+        payload = response.json()
+        if not isinstance(payload, list):
+            return False
+        return any(
+            isinstance(target, dict)
+            and target.get("type") == "page"
+            and isinstance(target.get("url"), str)
+            and not target["url"].startswith(
+                ("file://", "devtools://", "vectora-app://", "vscode://")
+            )
+            and "127.0.0.1:8080" not in target["url"]
+            and "localhost:8080" not in target["url"]
+            for target in payload
+        )
     except Exception:
         return False
 

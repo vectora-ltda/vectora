@@ -107,6 +107,18 @@ async def browser_new_tab(ctx: ToolContext, url: str | None = None) -> str:
         JSON `{"status": "ok", "tab_id": "..."}` ou erro.
     """
     workspace_id = _workspace_id(ctx)
+    if url is not None:
+        from backend.tools.browser import _browser_url_allowed
+
+        allowed, reason = await _browser_url_allowed(ctx, url)
+        if not allowed:
+            return json.dumps(
+                {
+                    "status": "blocked",
+                    "error_code": "egress_denied",
+                    "error": reason,
+                }
+            )
     try:
         tab_id = await new_tab(workspace_id, url=url)
         logger.info(
@@ -372,7 +384,10 @@ async def browser_snapshot(ctx: ToolContext, tab_id: str | None = None) -> str:
     try:
         await tab.cdp.send("Accessibility.enable")
         data = await tab.cdp.send("Accessibility.getFullAXTree")
-        return _build_ax_outline(data.get("nodes", []))
+        return (
+            _build_ax_outline(data.get("nodes", []))
+            + f"\n[document_generation: {tab.navigation_generation}]"
+        )
     except Exception as exc:
         logger.exception("browser_snapshot failed")
         return json.dumps({"status": "error", "error": str(exc)})

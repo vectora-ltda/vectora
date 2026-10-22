@@ -1,6 +1,7 @@
 import type { BrowserViewKind, ViewBounds } from "./browser-view-manager.js";
 
-const PROFILE_ID = /^(?:default|session-[A-Za-z0-9_-]+)$/;
+const PROFILE_ID =
+  /^(?:default|session-[A-Za-z0-9_-]+|workspace-[A-Za-z0-9_-]+)$/;
 const MAX_PROFILE_ID_LENGTH = 256;
 const MAX_URL_LENGTH = 8192;
 

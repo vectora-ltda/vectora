@@ -72,3 +72,35 @@ async def test_map_reports_browser_error_without_fabricating_empty_results() -> 
     assert result["status"] == "error"
     assert result["provider"] == "browser"
     assert "Electron" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_crawl_reports_partial_failures_per_url() -> None:
+    from backend.tools.web import web_crawl
+
+    calls = 0
+
+    def _fetch(url: str) -> str:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return "root content"
+        raise RuntimeError("redirect recusado")
+
+    with (
+        patch("backend.tools.web.settings") as settings,
+        patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
+        patch("backend.browser.search_fallback.fetch_fallback", side_effect=_fetch),
+        patch(
+            "backend.browser.search_fallback.browser_map",
+            return_value=["https://example.com/child"],
+        ),
+    ):
+        settings.tavily_api_key = None
+        result = json.loads(
+            await web_crawl("https://example.com", max_depth=1, limit=2)
+        )
+
+    assert result["status"] == "partial"
+    assert len(result["results"]) == 1
+    assert result["errors"][0]["url"] == "https://example.com/child"

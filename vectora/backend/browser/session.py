@@ -66,6 +66,7 @@ class TabState:
         default_factory=lambda: deque(maxlen=_LOG_MAXLEN)
     )
     dialog_policy: dict[str, Any] | None = None
+    navigation_generation: int = 0
     _request_entries: dict[int, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -155,11 +156,16 @@ def _register_page_listeners(tab: TabState) -> None:
         except Exception:
             logger.debug("browser_session: falha ao aplicar política de dialog")
 
+    def _on_frame_navigated(frame: Any) -> None:
+        if frame is page.main_frame:
+            tab.navigation_generation += 1
+
     page.on("console", _on_console)
     page.on("request", _on_request)
     page.on("response", _on_response)
     page.on("requestfailed", _on_request_failed)
     page.on("dialog", _on_dialog)
+    page.on("framenavigated", _on_frame_navigated)
 
 
 async def _create_tab_state(page: Any) -> TabState:
@@ -324,6 +330,7 @@ async def list_tabs(workspace_id: str) -> list[BrowserTab]:
             "tab_id": tid,
             "url": tab.page.url,
             "active": tid == active,
+            "navigation_generation": tab.navigation_generation,
         }
         validate_browser_tab(entry)
         tabs.append(entry)
