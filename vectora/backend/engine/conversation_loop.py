@@ -253,6 +253,9 @@ async def run_conversation(
     emit = on_event or _noop_event
     tools = tool_registry.all()
     parent_id = await session_store.get_branch_head_id(thread_id)
+    # Uma identidade por invocação mantém retries correlacionados sem
+    # reutilizar IDs quando o runner não fornece run_id.
+    turn_identity = config.run_id or f"turn-{uuid4().hex}"
 
     if config.run_id:
         try:
@@ -374,7 +377,7 @@ async def run_conversation(
         tool_calls = [
             replace(
                 tc,
-                id=(tc.id or f"{config.run_id or thread_id}:tool:{_iteracao}:{index}"),
+                id=(tc.id or f"{turn_identity}:tool:{_iteracao}:{index}"),
             )
             for index, tc in enumerate(tool_calls)
         ]

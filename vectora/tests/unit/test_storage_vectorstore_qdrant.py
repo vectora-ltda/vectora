@@ -232,14 +232,16 @@ class TestQdrantBackendDelete:
         count = 1
 
         async def fake_count(*args, **kwargs):
+            await asyncio.sleep(0)
+            return CountResult(count=count)
+
+        async def fake_delete(*args, **kwargs):
             nonlocal count
             await asyncio.sleep(0)
-            if count:
-                count = 0
-                return CountResult(count=1)
-            return CountResult(count=0)
+            count = 0
 
         mock_client.count.side_effect = fake_count
+        mock_client.delete.side_effect = fake_delete
         results = await asyncio.gather(
             backend.delete("articles", ["p1"]),
             backend.delete("articles", ["p1"]),

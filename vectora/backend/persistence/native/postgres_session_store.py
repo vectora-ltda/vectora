@@ -1114,16 +1114,6 @@ class PostgresSessionStore:
             return []
         await self.setup()
         async with self._pool.acquire() as conn:
-            rows_cursors = await conn.fetch(
-                "SELECT thread_id, COALESCE(MAX(last_seen_seq), 0) as read_seq "
-                "FROM vectora_native_thread_event_cursors "
-                "WHERE user_id = $1 AND thread_id = ANY($2::text[]) "
-                "GROUP BY thread_id",
-                user_id,
-                thread_ids,
-            )
-            cursors = {r["thread_id"]: r["read_seq"] for r in rows_cursors}
-
             rows_max = await conn.fetch(
                 "SELECT thread_id, COALESCE(MAX(seq), 0) as last_seq "
                 "FROM vectora_native_thread_events "
@@ -1151,26 +1141,26 @@ class PostgresSessionStore:
                     "agent_turn_started",
                 ],
             )
-            unread_rows = await conn.fetch(
-                "WITH cursors AS ("
-                "  SELECT thread_id, COALESCE(MAX(last_seen_seq), 0) AS read_seq "
-                "  FROM vectora_native_thread_event_cursors WHERE user_id = $1 "
-                "  AND thread_id = ANY($2::text[]) GROUP BY thread_id"
-                ") SELECT e.thread_id, COUNT(*) AS unread_count "
-                "FROM vectora_native_thread_events e "
-                "LEFT JOIN cursors c ON c.thread_id = e.thread_id "
-                "WHERE e.thread_id = ANY($2::text[]) "
-                "AND e.seq > COALESCE(c.read_seq, 0) "
-                "AND (e.type = ANY($3::text[]) OR "
-                "(e.type = 'message_created' AND "
-                "e.payload_json::jsonb->>'role' = 'assistant')) "
-                "GROUP BY e.thread_id",
+            cursor_rows = await conn.fetch(
+                "WITH requested AS (SELECT UNNEST($2::text[]) AS thread_id), "
+                "cursors AS (SELECT thread_id, COALESCE(MAX(last_seen_seq), 0) AS read_seq "
+                "FROM vectora_native_thread_event_cursors WHERE user_id = $1 "
+                "AND thread_id = ANY($2::text[]) GROUP BY thread_id) "
+                "SELECT r.thread_id, COALESCE(c.read_seq, 0) AS read_seq, "
+                "COALESCE(SUM(CASE WHEN e.seq > COALESCE(c.read_seq, 0) AND "
+                "(e.type = ANY($3::text[]) OR (e.type = 'message_created' AND "
+                "e.payload_json::jsonb->>'role' = 'assistant')) THEN 1 ELSE 0 END), 0) "
+                "AS unread_count FROM requested r "
+                "LEFT JOIN cursors c ON c.thread_id = r.thread_id "
+                "LEFT JOIN vectora_native_thread_events e ON e.thread_id = r.thread_id "
+                "GROUP BY r.thread_id, c.read_seq",
                 user_id,
                 thread_ids,
                 ["approval_requested", "run_failed"],
             )
+            cursors = {r["thread_id"]: int(r["read_seq"]) for r in cursor_rows}
             unread_counts = {
-                str(r["thread_id"]): int(r["unread_count"]) for r in unread_rows
+                str(r["thread_id"]): int(r["unread_count"]) for r in cursor_rows
             }
 
             rows_last_msg = await conn.fetch(

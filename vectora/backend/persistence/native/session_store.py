@@ -1439,17 +1439,7 @@ class SessionStore:
         placeholders = ",".join("?" for _ in thread_ids)
 
         async with self._pool.acquire() as conn:
-            # 1. Obter maior cursor do usuário entre dispositivos para cada thread
-            cur_cursors = await conn.execute(
-                f"SELECT thread_id, COALESCE(MAX(last_seen_seq), 0) FROM thread_event_cursors "  # noqa: S608  # nosec B608
-                f"WHERE user_id = ? AND thread_id IN ({placeholders}) GROUP BY thread_id",
-                (user_id, *thread_ids),
-            )
-            cursors: dict[str, int] = {
-                str(r[0]): int(r[1]) for r in await cur_cursors.fetchall()
-            }
-
-            # 2. Obter max_seq por thread
+            # 1. Obter max_seq por thread
             cur_max = await conn.execute(
                 f"SELECT thread_id, COALESCE(MAX(seq), 0) FROM thread_events "  # noqa: S608  # nosec B608
                 f"WHERE thread_id IN ({placeholders}) GROUP BY thread_id",
@@ -1459,11 +1449,11 @@ class SessionStore:
                 str(r[0]): int(r[1]) for r in await cur_max.fetchall()
             }
 
-            # 3. Derivar status e badges no SQLite sem reconstruir o ledger.
+            # 2. Derivar status e badges no SQLite sem reconstruir o ledger.
             # O histórico completo só é necessário para a tela de conversa,
             # nunca para a sidebar.
             cur_status = await conn.execute(
-                f"SELECT thread_id, type, payload_json FROM ("  # nosec B608
+                f"SELECT thread_id, type, payload_json FROM ("  # noqa: S608  # nosec B608
                 f"  SELECT thread_id, type, payload_json, "
                 f"  ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY seq DESC) AS rn "
                 f"  FROM thread_events WHERE thread_id IN ({placeholders}) "
@@ -1474,21 +1464,23 @@ class SessionStore:
             )
             status_rows = await cur_status.fetchall()
             cur_unread = await conn.execute(
-                f"WITH cursors AS ("  # nosec B608
-                f"  SELECT thread_id, COALESCE(MAX(last_seen_seq), 0) AS read_seq "
-                f"  FROM thread_event_cursors WHERE user_id = ? "
-                f"  AND thread_id IN ({placeholders}) GROUP BY thread_id"
-                f") SELECT e.thread_id, COUNT(*) FROM thread_events e "
-                f"LEFT JOIN cursors c ON c.thread_id = e.thread_id "
-                f"WHERE e.thread_id IN ({placeholders}) "
-                f"AND e.seq > COALESCE(c.read_seq, 0) "
-                f"AND (e.type IN ('approval_requested','run_failed') OR "
-                f"(e.type = 'message_created' AND "
-                f"json_extract(e.payload_json, '$.role') = 'assistant')) "
-                f"GROUP BY e.thread_id",
-                (user_id, *thread_ids, *thread_ids),
+                f"WITH requested(thread_id) AS (VALUES {','.join('(?)' for _ in thread_ids)}), "  # noqa: S608
+                f"cursors AS (SELECT thread_id, COALESCE(MAX(last_seen_seq), 0) AS read_seq "
+                f"FROM thread_event_cursors WHERE user_id = ? "
+                f"AND thread_id IN ({placeholders}) GROUP BY thread_id) "
+                f"SELECT r.thread_id, COALESCE(c.read_seq, 0), "
+                f"COALESCE(SUM(CASE WHEN e.seq > COALESCE(c.read_seq, 0) AND "
+                f"(e.type IN ('approval_requested','run_failed') OR "
+                f"(e.type = 'message_created' AND json_extract(e.payload_json, '$.role') = 'assistant')) "
+                f"THEN 1 ELSE 0 END), 0) "
+                f"FROM requested r LEFT JOIN cursors c ON c.thread_id = r.thread_id "
+                f"LEFT JOIN thread_events e ON e.thread_id = r.thread_id "
+                f"GROUP BY r.thread_id, c.read_seq",  # nosec B608
+                (*thread_ids, user_id, *thread_ids),
             )
-            unread_counts = {str(r[0]): int(r[1]) for r in await cur_unread.fetchall()}
+            cursor_rows = await cur_unread.fetchall()
+            cursors = {str(r[0]): int(r[1]) for r in cursor_rows}
+            unread_counts = {str(r[0]): int(r[2]) for r in cursor_rows}
 
             # 4. Obter última mensagem persistida
             cur_last_msgs = await conn.execute(
