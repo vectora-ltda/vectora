@@ -11,6 +11,7 @@ a sintaxe SQL mudam (``$1``/``$2`` de placeholder, ``BIGSERIAL``,
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
@@ -103,6 +104,7 @@ class PostgresSessionStore:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
         self._is_setup = False
+        self._run_evidence_locks: dict[str, asyncio.Lock] = {}
 
     async def setup(self) -> None:
         if self._is_setup:
@@ -1437,7 +1439,7 @@ class PostgresSessionStore:
                 "metrics_json = COALESCE($5, metrics_json), "
                 "updated_at = $6, "
                 "terminal_at = COALESCE($7, terminal_at) "
-                "WHERE run_id = $8",
+                "WHERE run_id = $8 AND status NOT IN ('passed', 'degraded', 'failed', 'cancelled')",
                 status,
                 redacted_plan_step,
                 redacted_detail,
@@ -1461,25 +1463,27 @@ class PostgresSessionStore:
         file_touched: dict[str, Any] | None = None,
     ) -> None:
         """Registra evidências incrementais no AgentRun."""
-        await self.setup()
-        run = await self.get_agent_run(run_id)
-        if run is None:
-            return
-        if evidence:
-            run.evidence.append(redact_sensitive_data(evidence))
-        if artifact:
-            run.artifacts.append(redact_sensitive_data(artifact))
-        if command:
-            run.commands_run.append(redact_sensitive_data(command))
-        if test_result:
-            run.tests_run.append(redact_sensitive_data(test_result))
-        if tool_used and tool_used not in run.tools_used:
-            run.tools_used.append(tool_used)
-        if approval:
-            run.approvals.append(redact_sensitive_data(approval))
-        if file_touched:
-            run.files_touched.append(redact_sensitive_data(file_touched))
-        await self.upsert_agent_run(run)
+        lock = self._run_evidence_locks.setdefault(run_id, asyncio.Lock())
+        async with lock:
+            await self.setup()
+            run = await self.get_agent_run(run_id)
+            if run is None:
+                return
+            if evidence:
+                run.evidence.append(redact_sensitive_data(evidence))
+            if artifact:
+                run.artifacts.append(redact_sensitive_data(artifact))
+            if command:
+                run.commands_run.append(redact_sensitive_data(command))
+            if test_result:
+                run.tests_run.append(redact_sensitive_data(test_result))
+            if tool_used and tool_used not in run.tools_used:
+                run.tools_used.append(tool_used)
+            if approval:
+                run.approvals.append(redact_sensitive_data(approval))
+            if file_touched:
+                run.files_touched.append(redact_sensitive_data(file_touched))
+            await self.upsert_agent_run(run)
 
     async def get_agent_run(self, run_id: str) -> AgentRun | None:
         """Obtém uma execução persistida por run_id."""
