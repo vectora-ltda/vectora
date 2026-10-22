@@ -1,4 +1,4 @@
-"""Web tools: busca e extração de conteúdo da internet via Tavily.
+"""Web tools: busca e extração por providers tipados.
 
 Cliente HTTP nativo (`backend/tools/tavily/`), não o pacote de integração de
 terceiros: aquele cobria só `/search` e `/extract` e prendia
@@ -93,7 +93,7 @@ async def _invoke_backend(tool: Any, payload: dict[str, Any]) -> Any:
 
 
 def _is_quota_error(err: str) -> bool:
-    """Retorna True se a mensagem de erro indica quota/rate-limit do Tavily."""
+    """Retorna True se a mensagem de erro indica quota/rate-limit externo."""
     el = err.lower()
     return (
         "429" in err or "too many requests" in el or "quota" in el or "rate limit" in el
@@ -121,9 +121,9 @@ async def _search_via_fallback(query: str) -> str:
             {
                 "status": "error",
                 "error": (
-                    "TAVILY_API_KEY not configured and the fallback search "
-                    "failed (network error). Set TAVILY_API_KEY to retry via "
-                    "Tavily."
+                    "Nenhum provider de busca conseguiu atender à consulta; "
+                    "verifique o Browser Workbench/Electron, a rede ou a "
+                    "configuração do provider escolhido."
                 ),
             }
         )
@@ -161,8 +161,8 @@ async def _fetch_via_fallback(url: str, ctx: ToolContext | None = None) -> str:
     except Exception:
         logger.exception("fetch_url fallback failed", extra={"url": url})
         return (
-            "Error: TAVILY_API_KEY not configured and the Chromium fallback "
-            "failed. Set TAVILY_API_KEY and start the Electron Browser Workbench."
+            "Error: o Browser Workbench/Electron não está disponível para "
+            "extrair esta URL e nenhum provider alternativo foi configurado."
         )
 
 
@@ -437,7 +437,7 @@ async def fetch_url(url: str, ctx: ToolContext | None = None) -> str:
             logger.exception("fetch_url GitHub HTTP path failed", extra={"url": url})
 
     if not settings.tavily_api_key:
-        logger.warning("TAVILY_API_KEY not configured — usando fallback via Chromium")
+        logger.warning("provider externo não configurado — usando Browser Workbench")
         return await _fetch_via_fallback(url)
 
     logger.info("fetch_url tool called", extra={"url": url})
