@@ -1,8 +1,9 @@
 """Exercita o contrato OpenAI-compatible de um llama.cpp real.
 
 O teste não inicia servidor, não substitui ``httpx`` e não usa mocks. O
-workflow ``local-llm`` compila o ``llama-server``, baixa o modelo SmolLM2 e
-expõe ``VECTORA_LOCAL_LLM_BASE_URL`` antes de executar este módulo.
+workflow ``local-llm`` compila o ``llama-server``, baixa um modelo Qwen
+fixado por digest e expõe ``VECTORA_LOCAL_LLM_BASE_URL`` antes de executar
+este módulo.
 """
 
 from __future__ import annotations
