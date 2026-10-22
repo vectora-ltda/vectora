@@ -799,7 +799,6 @@ def create_app(serve_static: bool = True) -> FastAPI:
         return {"version": "1", "tool_count": len(tools_data), "tools": tools_data}
 
     # ── Health + Metrics ──────────────────────────────────────────────────────
-
     class HealthLiveResponse(BaseModel):
         """Contrato de resposta da sonda de liveness."""
 
@@ -818,7 +817,6 @@ def create_app(serve_static: bool = True) -> FastAPI:
         status: Literal["ready", "not_ready"]
         version: str
         checks: HealthReadyChecks
-
     @app.get("/health")
     async def health() -> dict:
         return {"status": "ok", "version": __version__}
