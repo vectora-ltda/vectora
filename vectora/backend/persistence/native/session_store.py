@@ -209,6 +209,17 @@ class SessionStore:
         await self.setup()
         now = _now()
         async with self._pool.acquire() as conn:
+            # Alguns consumidores nativos podem abrir um stream sintético
+            # antes de materializar os metadados da thread (por exemplo, um
+            # replay HITL). A execução continua subordinada à thread, então
+            # criamos somente o registro mínimo e de forma idempotente antes
+            # de satisfazer a FK de session_runs.
+            await conn.execute(
+                "INSERT INTO sessions (thread_id, user_id, mode, permission_mode, created_at, updated_at) "
+                "VALUES (?, 'local', 'chat', 'ask', ?, ?) "
+                "ON CONFLICT(thread_id) DO NOTHING",
+                (thread_id, now, now),
+            )
             if turn_id is not None:
                 existing_cur = await conn.execute(
                     "SELECT run_id FROM session_runs "
