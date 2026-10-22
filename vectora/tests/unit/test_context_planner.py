@@ -14,7 +14,7 @@ from backend.services.context_planner import (
     compute_transcript_hash,
     plan_context,
 )
-from backend.services.memory_store import MemoryStore
+from backend.services.memory_store import MemoryConflictError, MemoryStore
 from backend.services.policy_compiler import PolicySnapshot
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
@@ -81,6 +81,84 @@ def test_memory_store_domains_and_retrieval() -> None:
     res_sess = store.retrieve(domain="session", scope_id="ws-1")
     assert len(res_sess.records) == 1
     assert res_sess.records[0].id == "mem-2"
+
+
+def test_memory_store_writes_are_idempotent_and_conflicts_are_explicit() -> None:
+    store = MemoryStore()
+    first = store.store(
+        "decision-1",
+        domain="project",
+        scope_id="ws-1",
+        content="usar uv",
+        provenance="AGENTS.md",
+    )
+    assert (
+        store.store(
+            "decision-1",
+            domain="project",
+            scope_id="ws-1",
+            content="usar uv",
+            provenance="AGENTS.md",
+        )
+        is first
+    )
+    with pytest.raises(MemoryConflictError):
+        store.store(
+            "decision-1",
+            domain="project",
+            scope_id="ws-1",
+            content="usar poetry",
+            provenance="AGENTS.md",
+        )
+    assert store.metrics()["idempotent_writes"] == 1
+    assert store.metrics()["conflicts"] == 1
+
+
+def test_memory_store_ranks_query_and_honors_invalidation() -> None:
+    store = MemoryStore()
+    store.store(
+        "old",
+        domain="project",
+        scope_id="ws-1",
+        content="usar Python no backend",
+        importance=0.2,
+        confidence=0.5,
+    )
+    store.store(
+        "preferred",
+        domain="project",
+        scope_id="ws-1",
+        content="usar Python com uv no backend",
+        importance=0.9,
+        confidence=1.0,
+    )
+    result = store.retrieve(domain="project", scope_id="ws-1", query="Python uv")
+    assert [record.id for record in result.records] == ["preferred", "old"]
+    assert store.invalidate("preferred") is True
+    assert [record.id for record in store.retrieve(scope_id="ws-1").records] == ["old"]
+
+
+def test_memory_store_expiry_is_reversible_only_by_new_version() -> None:
+    store = MemoryStore()
+    store.store(
+        "temporary",
+        domain="session",
+        scope_id="thread-1",
+        content="contexto transitório",
+        valid_until="2020-01-01T00:00:00+00:00",
+    )
+    assert store.retrieve(scope_id="thread-1").records == []
+    assert store.expire(before="2021-01-01T00:00:00+00:00") == 0
+    assert (
+        store.store(
+            "temporary-v2",
+            domain="session",
+            scope_id="thread-1",
+            content="contexto atualizado",
+            supersedes_id="temporary",
+        ).supersedes_id
+        == "temporary"
+    )
 
 
 def test_context_planner_injects_project_memory_and_manifest() -> None:
