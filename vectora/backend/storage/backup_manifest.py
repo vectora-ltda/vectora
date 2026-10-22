@@ -30,6 +30,9 @@ _CATEGORY_PATHS: dict[str, tuple[str, ...]] = {
     "workspaces": ("workspaces.json",),
     "threads": ("sessions.db",),
     "memories": ("memories.json",),
+    # Artifact payloads are enumerated dynamically; validation accepts only
+    # the confined ``artifacts/`` prefix for this category.
+    "artifacts": (),
 }
 _CATEGORIES = frozenset(_CATEGORY_PATHS)
 
@@ -60,6 +63,27 @@ def _sessions_path(database: Path) -> Path:
     if database.parent.name == "data":
         return database.parent.parent / "sessions.db"
     return database.parent / "sessions.db"
+
+
+def _artifacts_root(database: Path) -> Path:
+    return (
+        database.parent.parent / "artifacts"
+        if database.parent.name == "data"
+        else database.parent / "artifacts"
+    )
+
+
+def _artifact_entries(database: Path) -> list[tuple[str, bytes]]:
+    root = _artifacts_root(database)
+    if not root.is_dir():
+        return []
+    entries: list[tuple[str, bytes]] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file() or path.is_symlink():
+            continue
+        relative = path.relative_to(root).as_posix()
+        entries.append((f"artifacts/{relative}", path.read_bytes()))
+    return entries
 
 
 _SENSITIVE_TABLES = {
@@ -140,6 +164,8 @@ def _count_category(category: str, data: bytes) -> int:  # noqa: PLR0911
             return len(parsed) if isinstance(parsed, (list, dict)) else 0
         except (TypeError, ValueError):
             return 0
+    if category == "artifacts":
+        return 1
     return 0
 
 
@@ -231,6 +257,9 @@ def create_backup(
                 else source.read_bytes()
             )
             sources[category] = [(archive_name, data)]
+    artifact_entries = _artifact_entries(database)
+    if artifact_entries:
+        sources["artifacts"] = artifact_entries
     manifest: dict[str, Any] = {
         "format_version": FORMAT_VERSION,
         "app_version": app_version,
@@ -291,11 +320,15 @@ def inspect_backup(archive_path: str | Path) -> BackupPreview:
         declared_paths = {MANIFEST}
         categories: dict[str, int] = {}
         for category, items in declared.items():
-            allowed = set(_CATEGORY_PATHS[category])
             count = 0
             for item in items:
                 path = item.get("path")
-                if not isinstance(path, str) or path not in allowed:
+                if not isinstance(path, str):
+                    raise ValueError("caminho de backup inválido")
+                if category == "artifacts":
+                    if not path.startswith("artifacts/"):
+                        raise ValueError("caminho de backup inválido")
+                elif path not in set(_CATEGORY_PATHS[category]):
                     raise ValueError("caminho de backup inválido")
                 _validate_relative(path)
                 if path in declared_paths or path not in names:
@@ -384,16 +417,25 @@ def restore_backup(
         "workspaces": _workspace_path(destination),
         "threads": _sessions_path(destination),
         "memories": destination.parent.parent / "memories.json",
+        "artifacts": _artifacts_root(destination),
     }
     snapshots = snapshot_targets(destination, selected)
+    staged: dict[Path, bytes] = {}
     try:
         with zipfile.ZipFile(archive_file) as archive:
             manifest = json.loads(archive.read(MANIFEST))
             declared = _manifest_files(manifest)
-            staged = {
-                targets[category]: archive.read(declared[category][0]["path"])
-                for category in selected
-            }
+            for category in selected:
+                if category == "artifacts":
+                    root = targets[category]
+                    for item in declared[category]:
+                        archive_path = Path(item["path"])
+                        relative = archive_path.relative_to("artifacts")
+                        staged[root / relative] = archive.read(item["path"])
+                else:
+                    staged[targets[category]] = archive.read(
+                        declared[category][0]["path"]
+                    )
         # Validação e migração do SQLite ocorrem no staging, antes de tocar no
         # banco ativo. O arquivo promovido é o staging migrado, nunca o payload
         # original do ZIP.
@@ -413,6 +455,13 @@ def restore_backup(
                     check.close()
                     staged_temp[path].unlink(missing_ok=True)
         skipped_counts: dict[str, int] = {}
+        if "artifacts" in selected:
+            artifact_root = targets["artifacts"]
+            staged_artifacts = set(staged)
+            if artifact_root.is_dir():
+                for existing in artifact_root.rglob("*"):
+                    if existing.is_file() and existing not in staged_artifacts:
+                        existing.unlink()
         for path, data in staged.items():
             if path.name == "workspaces.json":
                 parsed = json.loads(data)
@@ -444,6 +493,9 @@ def restore_backup(
                 staged_data = data
             _atomic_write(path, staged_data)
     except Exception:
+        for path in staged:
+            if path not in snapshots and path.is_file():
+                path.unlink(missing_ok=True)
         for path, previous in snapshots.items():
             if previous is None:
                 path.unlink(missing_ok=True)
@@ -482,12 +534,24 @@ def snapshot_targets(
         "workspaces": _workspace_path(destination),
         "threads": _sessions_path(destination),
         "memories": destination.parent.parent / "memories.json",
+        "artifacts": _artifacts_root(destination),
     }
-    return {
-        path: path.read_bytes() if path.is_file() else None
-        for category, path in targets.items()
-        if category in categories
-    }
+    snapshots: dict[Path, bytes | None] = {}
+    for category, path in targets.items():
+        if category not in categories:
+            continue
+        if category == "artifacts":
+            if path.is_dir():
+                snapshots.update(
+                    {
+                        item: item.read_bytes()
+                        for item in path.rglob("*")
+                        if item.is_file() and not item.is_symlink()
+                    }
+                )
+            continue
+        snapshots[path] = path.read_bytes() if path.is_file() else None
+    return snapshots
 
 
 def restore_snapshots(snapshots: dict[Path, bytes | None]) -> None:
