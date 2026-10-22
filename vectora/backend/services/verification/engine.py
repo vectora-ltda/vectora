@@ -16,6 +16,7 @@ from backend.contracts.models import (
     QualityGatePolicy,
     QualityGateRunResult,
     QualityGateSpec,
+    VerificationOutcome,
     WorkspaceVerificationProfile,
 )
 from backend.services.verification.profile_store import get_verification_profile
@@ -34,6 +35,7 @@ class VerificationResult:
     file_hashes: dict[str, str] = field(default_factory=dict)
     gate_results: list[QualityGateRunResult] = field(default_factory=list)
     failure_feedback: str | None = None
+    outcome: VerificationOutcome = "unverified"
 
     def to_evidence_entry(self) -> dict[str, Any]:
         """Formata o resultado da verificação como evidência persistível no AgentRun."""
@@ -41,6 +43,7 @@ class VerificationResult:
             "kind": "quality_gate_verification",
             "passed": self.passed,
             "status": self.status,
+            "outcome": self.outcome,
             "snapshot_sha256": self.snapshot_sha256,
             "gates_evaluated": len(self.gate_results),
             "gate_results": [g.model_dump() for g in self.gate_results],
@@ -251,10 +254,24 @@ async def run_verification(
         return VerificationResult(
             passed=True,
             status="passed",
+            outcome="not_run",
             snapshot_sha256=snapshot_sha256,
             file_hashes=file_hashes,
             gate_results=[],
         )
+
+    has_infra_error = any(
+        result.exit_code < 0 or result.output.startswith("Falha ao despachar")
+        for result in gate_results
+    )
+    if has_infra_error:
+        outcome: VerificationOutcome = "infra_error"
+    elif has_blocking_failure:
+        outcome = "blocked" if git_unclean_reason else "failed"
+    elif has_degrading_failure:
+        outcome = "degraded"
+    else:
+        outcome = "passed"
 
     if has_blocking_failure:
         status: Literal["passed", "degraded", "failed"] = "failed"
@@ -271,6 +288,7 @@ async def run_verification(
     return VerificationResult(
         passed=overall_passed,
         status=status,
+        outcome=outcome,
         snapshot_sha256=snapshot_sha256,
         file_hashes=file_hashes,
         gate_results=gate_results,
