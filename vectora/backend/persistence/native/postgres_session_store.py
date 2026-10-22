@@ -910,6 +910,10 @@ class PostgresSessionStore:
                 thread_id,
             )
             await conn.execute(
+                "DELETE FROM vectora_native_context_checkpoints WHERE thread_id = $1",
+                thread_id,
+            )
+            await conn.execute(
                 "DELETE FROM vectora_native_ledger_backfill WHERE thread_id = $1",
                 thread_id,
             )
@@ -1750,6 +1754,73 @@ class PostgresSessionStore:
             "content": json.loads(value("content_json"))
             if value("content_json")
             else None,
+            "created_at": value("created_at"),
+        }
+
+    async def save_context_checkpoint(
+        self, thread_id: str, run_id: str, checkpoint: dict[str, Any]
+    ) -> None:
+        """Persiste o estado mínimo para retomada por snapshot + deltas."""
+        await self.setup()
+        clean = {key: redact_sensitive_data(value) for key, value in checkpoint.items()}
+        if not clean.get("checkpoint_id"):
+            raise ValueError("checkpoint sem checkpoint_id")
+        async with self._pool.acquire() as conn, conn.transaction():
+            await conn.execute(
+                "INSERT INTO vectora_native_context_checkpoints ("
+                "checkpoint_id, thread_id, run_id, last_sequence, source_hash, "
+                "schema_version, state_json, artifact_refs_json, created_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) "
+                "ON CONFLICT (checkpoint_id) DO UPDATE SET "
+                "thread_id = EXCLUDED.thread_id, run_id = EXCLUDED.run_id, "
+                "last_sequence = EXCLUDED.last_sequence, source_hash = EXCLUDED.source_hash, "
+                "schema_version = EXCLUDED.schema_version, state_json = EXCLUDED.state_json, "
+                "artifact_refs_json = EXCLUDED.artifact_refs_json, created_at = EXCLUDED.created_at",
+                str(clean["checkpoint_id"]),
+                thread_id,
+                run_id,
+                int(clean.get("last_sequence", 0)),
+                str(clean.get("source_hash", "")),
+                str(clean.get("schema_version", "context.v1")),
+                json.dumps(clean.get("state", {}), ensure_ascii=False),
+                json.dumps(clean.get("artifact_refs", []), ensure_ascii=False),
+                str(clean.get("created_at", _now())),
+            )
+
+    async def get_latest_context_checkpoint(
+        self, thread_id: str, *, source_hash: str | None = None
+    ) -> dict[str, Any] | None:
+        """Carrega o checkpoint mais recente compatível com o transcript."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            if source_hash is None:
+                row = await conn.fetchrow(
+                    "SELECT checkpoint_id, run_id, last_sequence, source_hash, "
+                    "schema_version, state_json, artifact_refs_json, created_at "
+                    "FROM vectora_native_context_checkpoints WHERE thread_id = $1 "
+                    "ORDER BY last_sequence DESC, created_at DESC LIMIT 1",
+                    thread_id,
+                )
+            else:
+                row = await conn.fetchrow(
+                    "SELECT checkpoint_id, run_id, last_sequence, source_hash, "
+                    "schema_version, state_json, artifact_refs_json, created_at "
+                    "FROM vectora_native_context_checkpoints WHERE thread_id = $1 "
+                    "AND source_hash = $2 ORDER BY last_sequence DESC, created_at DESC LIMIT 1",
+                    thread_id,
+                    source_hash,
+                )
+        if row is None:
+            return None
+        value = row.get
+        return {
+            "checkpoint_id": value("checkpoint_id"),
+            "run_id": value("run_id"),
+            "last_sequence": value("last_sequence"),
+            "source_hash": value("source_hash"),
+            "schema_version": value("schema_version"),
+            "state": json.loads(value("state_json") or "{}"),
+            "artifact_refs": json.loads(value("artifact_refs_json") or "[]"),
             "created_at": value("created_at"),
         }
 

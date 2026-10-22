@@ -672,6 +672,73 @@ class SessionStore:
             "created_at": row[15],
         }
 
+    async def save_context_checkpoint(
+        self, thread_id: str, run_id: str, checkpoint: dict[str, Any]
+    ) -> None:
+        """Persiste o estado mínimo para retomada por snapshot + deltas."""
+        await self.setup()
+        clean = {key: redact_sensitive_data(value) for key, value in checkpoint.items()}
+        if not clean.get("checkpoint_id"):
+            raise ValueError("checkpoint sem checkpoint_id")
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "INSERT OR REPLACE INTO context_checkpoints ("
+                "checkpoint_id, thread_id, run_id, last_sequence, source_hash, "
+                "schema_version, state_json, artifact_refs_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    str(clean["checkpoint_id"]),
+                    thread_id,
+                    run_id,
+                    int(clean.get("last_sequence", 0)),
+                    str(clean.get("source_hash", "")),
+                    str(clean.get("schema_version", "context.v1")),
+                    json.dumps(clean.get("state", {}), ensure_ascii=False),
+                    json.dumps(clean.get("artifact_refs", []), ensure_ascii=False),
+                    str(clean.get("created_at", _now())),
+                ),
+            )
+            await conn.commit()
+
+    async def get_latest_context_checkpoint(
+        self,
+        thread_id: str,
+        *,
+        source_hash: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Carrega o checkpoint mais recente compatível com o transcript."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            if source_hash is None:
+                cur = await conn.execute(
+                    "SELECT checkpoint_id, run_id, last_sequence, source_hash, "
+                    "schema_version, state_json, artifact_refs_json, created_at "
+                    "FROM context_checkpoints WHERE thread_id = ? "
+                    "ORDER BY last_sequence DESC, created_at DESC LIMIT 1",
+                    (thread_id,),
+                )
+            else:
+                cur = await conn.execute(
+                    "SELECT checkpoint_id, run_id, last_sequence, source_hash, "
+                    "schema_version, state_json, artifact_refs_json, created_at "
+                    "FROM context_checkpoints WHERE thread_id = ? AND source_hash = ? "
+                    "ORDER BY last_sequence DESC, created_at DESC LIMIT 1",
+                    (thread_id, source_hash),
+                )
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        return {
+            "checkpoint_id": row[0],
+            "run_id": row[1],
+            "last_sequence": row[2],
+            "source_hash": row[3],
+            "schema_version": row[4],
+            "state": json.loads(row[5] or "{}"),
+            "artifact_refs": json.loads(row[6] or "[]"),
+            "created_at": row[7],
+        }
+
     async def _get_agent_run_on_conn(self, conn: Any, run_id: str) -> AgentRun | None:
         """Carrega e desserializa um AgentRun na conexão fornecida."""
         cur = await conn.execute(
@@ -1888,6 +1955,9 @@ class SessionStore:
                 )
                 await conn.execute(
                     "DELETE FROM context_projections WHERE thread_id = ?", (thread_id,)
+                )
+                await conn.execute(
+                    "DELETE FROM context_checkpoints WHERE thread_id = ?", (thread_id,)
                 )
                 await conn.execute(
                     "DELETE FROM ledger_backfill WHERE thread_id = ?", (thread_id,)

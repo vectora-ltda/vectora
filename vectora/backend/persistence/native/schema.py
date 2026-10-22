@@ -155,6 +155,21 @@ CREATE TABLE IF NOT EXISTS context_projections (
 );
 CREATE INDEX IF NOT EXISTS ix_context_projections_thread
     ON context_projections(thread_id, covered_to_sequence DESC, created_at DESC);
+CREATE TABLE IF NOT EXISTS context_checkpoints (
+    checkpoint_id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
+    run_id TEXT NOT NULL,
+    last_sequence INTEGER NOT NULL,
+    source_hash TEXT NOT NULL,
+    schema_version TEXT NOT NULL,
+    state_json TEXT NOT NULL DEFAULT '{}',
+    artifact_refs_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_context_checkpoints_thread_sequence
+    ON context_checkpoints(thread_id, last_sequence);
+CREATE INDEX IF NOT EXISTS ix_context_checkpoints_thread_created
+    ON context_checkpoints(thread_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS agent_runs (
     run_id TEXT PRIMARY KEY,
     thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
@@ -362,6 +377,21 @@ CREATE TABLE IF NOT EXISTS vectora_native_context_projections (
 );
 CREATE INDEX IF NOT EXISTS ix_vectora_native_context_projections_thread
     ON vectora_native_context_projections(thread_id, covered_to_sequence DESC, created_at DESC);
+CREATE TABLE IF NOT EXISTS vectora_native_context_checkpoints (
+    checkpoint_id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL REFERENCES vectora_native_sessions(thread_id),
+    run_id TEXT NOT NULL,
+    last_sequence BIGINT NOT NULL,
+    source_hash TEXT NOT NULL,
+    schema_version TEXT NOT NULL,
+    state_json TEXT NOT NULL DEFAULT '{}',
+    artifact_refs_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_vectora_native_context_checkpoints_thread_sequence
+    ON vectora_native_context_checkpoints(thread_id, last_sequence);
+CREATE INDEX IF NOT EXISTS ix_vectora_native_context_checkpoints_thread_created
+    ON vectora_native_context_checkpoints(thread_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS vectora_native_agent_runs (
     run_id TEXT PRIMARY KEY,
     thread_id TEXT NOT NULL REFERENCES vectora_native_sessions(thread_id),
