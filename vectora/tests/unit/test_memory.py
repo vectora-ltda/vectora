@@ -316,6 +316,20 @@ class TestListFactContents:
 
         assert result == []
 
+    async def test_nao_retorna_fatos_expirados(self, store):
+        from backend.tools.memory import list_fact_contents
+
+        await store.aput(
+            ("user", "u1", "memories"),
+            "old",
+            {"content": "Fato expirado", "valid_until": "2000-01-01T00:00:00"},
+        )
+        await store.aput(
+            ("user", "u1", "memories"), "live", {"content": "Fato vigente"}
+        )
+
+        assert await list_fact_contents("u1") == ["Fato vigente"]
+
     async def test_funciona_fora_do_contexto_de_execucao_do_grafo(self, monkeypatch):
         """Regressão: `_get_store()` levanta RuntimeError fora de uma
         execução do motor nativo em andamento — exatamente o cenário real

@@ -83,6 +83,34 @@ class TestMemoryList:
         assert resp.status_code == 200
         assert resp.json()["total"] == 0
 
+    def test_get_expired_item_returns_not_found(self, client, store):
+        import asyncio
+
+        asyncio.run(
+            store.aput(
+                ("user", "local", "memories"),
+                "old",
+                {"content": "expired", "valid_until": "2000-01-01T00:00:00"},
+            )
+        )
+        assert client.get("/memory/old").status_code == 404
+
+    def test_journey_hides_expired_fact(self, client, store):
+        import asyncio
+
+        asyncio.run(
+            store.aput(
+                ("user", "local", "memories"),
+                "old-fact",
+                {
+                    "content": "expired",
+                    "valid_until": "2000-01-01T00:00:00",
+                    "metadata": {"tag": "user_model"},
+                },
+            )
+        )
+        assert client.get("/memory/journey").json()["facts"] == []
+
 
 class TestMemoryCreate:
     def test_create_happy(self, client):
