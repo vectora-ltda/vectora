@@ -76,7 +76,16 @@ class TestDisponibilidade:
 
 
 class TestResolucaoAutomatica:
-    def test_com_tavily_configurado_ele_e_o_preferido(self, monkeypatch):
+    def test_com_electron_pronto_browser_e_preferido_mesmo_com_tavily(
+        self, monkeypatch
+    ):
+        _liga_tavily(monkeypatch)
+        monkeypatch.setattr(
+            "backend.tools.search_registry._electron_is_ready", lambda: True
+        )
+        assert resolve_backend().name == "browser"
+
+    def test_com_tavily_sem_electron_ele_e_o_preferido(self, monkeypatch):
         _liga_tavily(monkeypatch)
         assert resolve_backend().name == "tavily"
 

@@ -131,10 +131,18 @@ def _electron_is_ready() -> bool:
         return False
 
 
-#: Ordem de preferência quando o usuário não escolheu. Com Electron pronto,
-#: o Browser Workbench é a fonte canônica e reaproveita cookies/perfis. Em
-#: headless, o probe o pula e DuckDuckGo mantém o fallback sem credenciais.
+#: Ordem de preferência quando o usuário não escolheu. O Browser Workbench é
+#: a fonte canônica quando o Chromium do Electron está pronto: ele preserva
+#: cookies/perfis e não exige uma credencial paga. Providers externos só
+#: entram depois dele, ou quando o sidecar não está disponível.
 _BACKENDS: tuple[SearchBackend, ...] = (
+    SearchBackend(
+        name="browser",
+        label="Browser embutido",
+        is_available=lambda: True,
+        search=_search_browser,
+        keyless=True,
+    ),
     SearchBackend(
         name="tavily",
         label="Tavily",
@@ -146,13 +154,6 @@ _BACKENDS: tuple[SearchBackend, ...] = (
         label="Ollama Cloud",
         is_available=_tem_ollama_cloud,
         search=_search_ollama_web,
-    ),
-    SearchBackend(
-        name="browser",
-        label="Browser embutido",
-        is_available=lambda: True,
-        search=_search_browser,
-        keyless=True,
     ),
     SearchBackend(
         name="duckduckgo",

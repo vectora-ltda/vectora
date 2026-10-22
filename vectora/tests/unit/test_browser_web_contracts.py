@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any, cast
 from unittest.mock import patch
 
 import pytest
@@ -130,5 +131,6 @@ def test_browser_fallback_requires_explicit_workspace_page_ownership() -> None:
 
     with pytest.raises(RuntimeError, match="Nenhuma aba"):
         _find_workbench_page(
-            _Browser([unowned, other_workspace]), workspace_id="workspace-a"
+            cast(Any, _Browser([unowned, other_workspace])),
+            workspace_id="workspace-a",
         )
