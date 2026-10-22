@@ -730,6 +730,10 @@ for _t in [
     # Planejamento (checklist de progresso, todo agente)
     write_todos,
     ask_structured_question,
+    # SystemOne — decisões e transições determinísticas do workspace
+    systemone_list_patterns,
+    systemone_evaluate_pattern,
+    systemone_propose_kanban_transition,
 ]:
     _all[_t.name] = _t
 
