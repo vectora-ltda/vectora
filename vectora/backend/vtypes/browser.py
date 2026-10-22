@@ -8,6 +8,22 @@ from pydantic import TypeAdapter
 from typing_extensions import TypedDict
 
 NetworkProfileName = Literal["offline", "slow-3g", "fast-3g"]
+BrowserProfileKind = Literal["research", "authenticated"]
+
+
+class BrowserTarget(TypedDict):
+    """Identidade imutável do alvo Browser compartilhado por uma execução.
+
+    ``view_id`` identifica a WebContentsView criada pelo Electron e
+    ``navigation_generation`` invalida referências DOM obtidas antes de uma
+    navegação. O perfil autenticado só deve ser usado após aprovação explícita.
+    """
+
+    workspace_id: str
+    profile_id: str
+    profile_kind: BrowserProfileKind
+    view_id: str
+    navigation_generation: int
 
 
 class NetworkProfile(TypedDict):
@@ -47,6 +63,7 @@ class BrowserNetworkEntry(TypedDict):
 
 
 _BROWSER_TAB_ADAPTER = TypeAdapter(BrowserTab)
+_BROWSER_TARGET_ADAPTER = TypeAdapter(BrowserTarget)
 _BROWSER_CONSOLE_ENTRY_ADAPTER = TypeAdapter(BrowserConsoleEntry)
 _BROWSER_NETWORK_ENTRY_ADAPTER = TypeAdapter(BrowserNetworkEntry)
 
@@ -54,6 +71,11 @@ _BROWSER_NETWORK_ENTRY_ADAPTER = TypeAdapter(BrowserNetworkEntry)
 def validate_browser_tab(value: BrowserTab) -> None:
     """Validate a tab payload before exposing it to a caller."""
     _BROWSER_TAB_ADAPTER.validate_python(value)
+
+
+def validate_browser_target(value: BrowserTarget) -> None:
+    """Validate the target identity before it crosses a tool boundary."""
+    _BROWSER_TARGET_ADAPTER.validate_python(value)
 
 
 def validate_browser_console_entry(value: BrowserConsoleEntry) -> None:
