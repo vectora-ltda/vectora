@@ -64,6 +64,9 @@ _API_PREFIXES: tuple[str, ...] = (
     "/favicon",
     "/api/updates",
     "/provider-routing",
+    "/runs",
+    "/models",
+    "/smart-approval",
     "/settings",
 )
 
