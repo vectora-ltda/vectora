@@ -89,6 +89,7 @@ _SENSITIVE_KEY_NAMES: frozenset[str] = frozenset(
         "authorization",
         "privatekey",
         "key",
+        "openaikey",
     }
 )
 
@@ -109,6 +110,7 @@ def _is_sensitive_key(key: str) -> bool:
             "accesstoken",
             "refreshtoken",
             "privatekey",
+            "authorization",
         )
     )
 

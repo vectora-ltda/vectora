@@ -223,12 +223,8 @@ class SessionStore:
             )
             await conn.commit()
 
-    async def upsert_agent_run(
-        self,
-        run: AgentRun,
-    ) -> None:
-        """Cria ou atualiza uma execução do agente com redação de dados sensíveis."""
-        await self.setup()
+    async def _upsert_agent_run_on_conn(self, conn: Any, run: AgentRun) -> None:
+        """Persiste ou atualiza uma execução do agente na conexão fornecida."""
         now = _now()
         terminal_at = (
             (run.terminal_at or now)
@@ -272,120 +268,119 @@ class SessionStore:
             for e in evidence_list
         ):
             evidence_list.append({"kind": "provenance", "untrusted_content": True})
-
-        async with self._pool.acquire() as conn:
-            await conn.execute("BEGIN IMMEDIATE")
-            try:
-                # Preserva proveniência de conteúdo não confiável já registrada
-                if not any(
+        if not any(
+            isinstance(e, dict) and e.get("untrusted_content") is True
+            for e in evidence_list
+        ):
+            # Preserva proveniência de conteúdo não confiável já registrada
+            cur_prev = await conn.execute(
+                "SELECT evidence_json FROM agent_runs WHERE run_id = ?",
+                (run.run_id,),
+            )
+            prev_row = await cur_prev.fetchone()
+            if prev_row and prev_row[0]:
+                try:
+                    prev_evidence = json.loads(prev_row[0])
+                except ValueError:
+                    prev_evidence = []
+                if any(
                     isinstance(e, dict) and e.get("untrusted_content") is True
-                    for e in evidence_list
+                    for e in prev_evidence
                 ):
-                    cur_prev = await conn.execute(
-                        "SELECT evidence_json FROM agent_runs WHERE run_id = ?",
-                        (run.run_id,),
+                    evidence_list.append(
+                        {"kind": "provenance", "untrusted_content": True}
                     )
-                    prev_row = await cur_prev.fetchone()
-                    if prev_row and prev_row[0]:
-                        try:
-                            prev_evidence = json.loads(prev_row[0])
-                            if any(
-                                isinstance(e, dict)
-                                and e.get("untrusted_content") is True
-                                for e in prev_evidence
-                            ):
-                                evidence_list.append(
-                                    {"kind": "provenance", "untrusted_content": True}
-                                )
-                        except Exception:
-                            pass
-                evidence = json.dumps(
-                    redact_sensitive_data(evidence_list), ensure_ascii=False
-                )
+        evidence = json.dumps(redact_sensitive_data(evidence_list), ensure_ascii=False)
 
-                # Mantém paridade com session_runs legado
-                mapped_status = _map_legacy_session_run_status(run.status)
-                provider_model = (
-                    f"{run.provider}:{run.model}"
-                    if run.provider and run.model
-                    else (run.model or None)
-                )
-                await conn.execute(
-                    "INSERT INTO session_runs "
-                    "(run_id, thread_id, turn_id, status, detail, provider_model, started_at, updated_at, terminal_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                    "ON CONFLICT(run_id) DO UPDATE SET "
-                    "status=excluded.status, "
-                    "detail=COALESCE(excluded.detail, session_runs.detail), "
-                    "provider_model=COALESCE(excluded.provider_model, session_runs.provider_model), "
-                    "updated_at=excluded.updated_at, "
-                    "terminal_at=COALESCE(excluded.terminal_at, session_runs.terminal_at)",
-                    (
-                        run.run_id,
-                        run.thread_id,
-                        run.turn_id,
-                        mapped_status,
-                        run.detail,
-                        provider_model,
-                        run.started_at,
-                        now,
-                        terminal_at,
-                    ),
-                )
-                # Insere/atualiza na tabela canônica agent_runs
-                await conn.execute(
-                    "INSERT INTO agent_runs ("
-                    "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
-                    "status, plan_step, tools_available_json, tools_used_json, approvals_json, "
-                    "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
-                    "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                    "ON CONFLICT(run_id) DO UPDATE SET "
-                    "status=excluded.status, "
-                    "plan_step=COALESCE(excluded.plan_step, agent_runs.plan_step), "
-                    "tools_available_json=excluded.tools_available_json, "
-                    "tools_used_json=excluded.tools_used_json, "
-                    "approvals_json=excluded.approvals_json, "
-                    "files_touched_json=excluded.files_touched_json, "
-                    "commands_run_json=excluded.commands_run_json, "
-                    "tests_run_json=excluded.tests_run_json, "
-                    "artifacts_json=excluded.artifacts_json, "
-                    "metrics_json=excluded.metrics_json, "
-                    "evidence_json=excluded.evidence_json, "
-                    "detail=COALESCE(excluded.detail, agent_runs.detail), "
-                    "error_code=COALESCE(excluded.error_code, agent_runs.error_code), "
-                    "updated_at=excluded.updated_at, "
-                    "terminal_at=COALESCE(excluded.terminal_at, agent_runs.terminal_at)",
-                    (
-                        run.run_id,
-                        run.thread_id,
-                        run.turn_id,
-                        run.user_id,
-                        run.workspace_id,
-                        run.model,
-                        run.provider,
-                        run.status,
-                        redacted_plan_step,
-                        tools_available,
-                        tools_used,
-                        approvals,
-                        files_touched,
-                        commands_run,
-                        tests_run,
-                        artifacts,
-                        metrics,
-                        evidence,
-                        redacted_detail,
-                        redacted_error_code,
-                        run.started_at,
-                        now,
-                        terminal_at,
-                    ),
-                )
-                await conn.commit()
-            except Exception:
-                await conn.rollback()
-                raise
+        # Mantém paridade com session_runs legado
+        mapped_status = _map_legacy_session_run_status(run.status)
+        provider_model = (
+            f"{run.provider}:{run.model}"
+            if run.provider and run.model
+            else (run.model or None)
+        )
+        await conn.execute(
+            "INSERT INTO session_runs "
+            "(run_id, thread_id, turn_id, status, detail, provider_model, started_at, updated_at, terminal_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(run_id) DO UPDATE SET "
+            "status=excluded.status, "
+            "detail=COALESCE(excluded.detail, session_runs.detail), "
+            "provider_model=COALESCE(excluded.provider_model, session_runs.provider_model), "
+            "updated_at=excluded.updated_at, "
+            "terminal_at=COALESCE(session_runs.terminal_at, excluded.terminal_at)",
+            (
+                run.run_id,
+                run.thread_id,
+                run.turn_id,
+                mapped_status,
+                run.detail,
+                provider_model,
+                run.started_at,
+                now,
+                terminal_at,
+            ),
+        )
+        # Insere/atualiza na tabela canônica agent_runs
+        await conn.execute(
+            "INSERT INTO agent_runs ("
+            "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
+            "status, plan_step, tools_available_json, tools_used_json, approvals_json, "
+            "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
+            "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(run_id) DO UPDATE SET "
+            "status=excluded.status, "
+            "plan_step=COALESCE(excluded.plan_step, agent_runs.plan_step), "
+            "tools_available_json=excluded.tools_available_json, "
+            "tools_used_json=excluded.tools_used_json, "
+            "approvals_json=excluded.approvals_json, "
+            "files_touched_json=excluded.files_touched_json, "
+            "commands_run_json=excluded.commands_run_json, "
+            "tests_run_json=excluded.tests_run_json, "
+            "artifacts_json=excluded.artifacts_json, "
+            "metrics_json=excluded.metrics_json, "
+            "evidence_json=excluded.evidence_json, "
+            "detail=COALESCE(excluded.detail, agent_runs.detail), "
+            "error_code=COALESCE(excluded.error_code, agent_runs.error_code), "
+            "updated_at=excluded.updated_at, "
+            "terminal_at=COALESCE(agent_runs.terminal_at, excluded.terminal_at)",
+            (
+                run.run_id,
+                run.thread_id,
+                run.turn_id,
+                run.user_id,
+                run.workspace_id,
+                run.model,
+                run.provider,
+                run.status,
+                redacted_plan_step,
+                tools_available,
+                tools_used,
+                approvals,
+                files_touched,
+                commands_run,
+                tests_run,
+                artifacts,
+                metrics,
+                evidence,
+                redacted_detail,
+                redacted_error_code,
+                run.started_at,
+                now,
+                terminal_at,
+            ),
+        )
+
+    async def upsert_agent_run(
+        self,
+        run: AgentRun,
+    ) -> None:
+        """Cria ou atualiza uma execução do agente com redação de dados sensíveis."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            await self._upsert_agent_run_on_conn(conn, run)
+            await conn.commit()
 
     async def update_agent_run_status(
         self,
@@ -423,6 +418,14 @@ class SessionStore:
         )
 
         async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT status FROM agent_runs WHERE run_id = ?",
+                (run_id,),
+            )
+            row = await cur.fetchone()
+            if row is not None and row[0] in TERMINAL_AGENT_RUN_STATUSES:
+                return
+
             await conn.execute(
                 "UPDATE agent_runs SET "
                 "status = ?, "
@@ -431,7 +434,7 @@ class SessionStore:
                 "error_code = COALESCE(?, error_code), "
                 "metrics_json = COALESCE(?, metrics_json), "
                 "updated_at = ?, "
-                "terminal_at = COALESCE(?, terminal_at) "
+                "terminal_at = COALESCE(terminal_at, ?) "
                 "WHERE run_id = ?",
                 (
                     status,
@@ -452,7 +455,7 @@ class SessionStore:
                 "detail = COALESCE(?, detail), "
                 "error_code = COALESCE(?, error_code), "
                 "updated_at = ?, "
-                "terminal_at = COALESCE(?, terminal_at) "
+                "terminal_at = COALESCE(terminal_at, ?) "
                 "WHERE run_id = ?",
                 (
                     mapped_status,
@@ -477,108 +480,120 @@ class SessionStore:
         approval: dict[str, Any] | None = None,
         file_touched: dict[str, Any] | None = None,
     ) -> None:
-        """Registra evidências incrementais em um AgentRun com sanitização de segredos."""
+        """Registra evidências incrementais em um AgentRun com sanitização de segredos de forma atômica."""
         await self.setup()
-        run = await self.get_agent_run(run_id)
-        if run is None:
-            return
-        if evidence:
-            run.evidence.append(redact_sensitive_data(evidence))
-        if artifact:
-            run.artifacts.append(redact_sensitive_data(artifact))
-        if command:
-            run.commands_run.append(redact_sensitive_data(command))
-        if test_result:
-            run.tests_run.append(redact_sensitive_data(test_result))
-        if tool_used and tool_used not in run.tools_used:
-            run.tools_used.append(tool_used)
-        if approval:
-            run.approvals.append(redact_sensitive_data(approval))
-        if file_touched:
-            run.files_touched.append(redact_sensitive_data(file_touched))
-        await self.upsert_agent_run(run)
+        async with self._pool.acquire() as conn:
+            await conn.execute("BEGIN IMMEDIATE")
+            try:
+                run = await self._get_agent_run_on_conn(conn, run_id)
+                if run is None:
+                    await conn.commit()
+                    return
+                if evidence:
+                    run.evidence.append(redact_sensitive_data(evidence))
+                if artifact:
+                    run.artifacts.append(redact_sensitive_data(artifact))
+                if command:
+                    run.commands_run.append(redact_sensitive_data(command))
+                if test_result:
+                    run.tests_run.append(redact_sensitive_data(test_result))
+                if tool_used and tool_used not in run.tools_used:
+                    run.tools_used.append(tool_used)
+                if approval:
+                    run.approvals.append(redact_sensitive_data(approval))
+                if file_touched:
+                    run.files_touched.append(redact_sensitive_data(file_touched))
+                await self._upsert_agent_run_on_conn(conn, run)
+                await conn.commit()
+            except Exception:
+                await conn.execute("ROLLBACK")
+                raise
+
+    async def _get_agent_run_on_conn(self, conn: Any, run_id: str) -> AgentRun | None:
+        """Carrega e desserializa um AgentRun na conexão fornecida."""
+        cur = await conn.execute(
+            "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
+            "model, provider, status, plan_step, tools_available_json, "
+            "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
+            "tests_run_json, artifacts_json, metrics_json, evidence_json, "
+            "detail, error_code, started_at, updated_at, terminal_at "
+            "FROM agent_runs WHERE run_id = ?",
+            (run_id,),
+        )
+        row = await cur.fetchone()
+        if row is None:
+            # Fallback para session_runs se tiver sido registrado antes da migração
+            cur_legacy = await conn.execute(
+                "SELECT run_id, thread_id, turn_id, status, detail, error_code, "
+                "provider_model, started_at, updated_at, terminal_at "
+                "FROM session_runs WHERE run_id = ?",
+                (run_id,),
+            )
+            leg = await cur_legacy.fetchone()
+            if leg is None:
+                return None
+            st = leg[3]
+            canonical_st: AgentRunStatus = (
+                "passed"
+                if st == "completed"
+                else cast(
+                    "AgentRunStatus",
+                    st if st in VALID_AGENT_RUN_STATUSES else "running",
+                )
+            )
+            prov_model = str(leg[6] or "")
+            prov, _, mod = prov_model.partition(":")
+            return AgentRun(
+                run_id=str(leg[0]),
+                thread_id=str(leg[1]),
+                turn_id=str(leg[2]) if leg[2] else None,
+                status=canonical_st,
+                detail=str(leg[4]) if leg[4] else None,
+                error_code=str(leg[5]) if leg[5] else None,
+                provider=prov if mod else "",
+                model=mod or prov,
+                started_at=str(leg[7]),
+                updated_at=str(leg[8]),
+                terminal_at=str(leg[9]) if leg[9] else None,
+            )
+
+        evidence_data = json.loads(row[17] or "[]")
+        is_untrusted = any(
+            isinstance(e, dict) and e.get("untrusted_content") is True
+            for e in evidence_data
+        )
+        return AgentRun(
+            run_id=str(row[0]),
+            thread_id=str(row[1]),
+            turn_id=str(row[2]) if row[2] else None,
+            user_id=str(row[3] or ""),
+            workspace_id=str(row[4]) if row[4] else None,
+            model=str(row[5] or ""),
+            provider=str(row[6] or ""),
+            status=cast("AgentRunStatus", row[7]),
+            plan_step=str(row[8]) if row[8] else None,
+            tools_available=json.loads(row[9] or "[]"),
+            tools_used=json.loads(row[10] or "[]"),
+            approvals=json.loads(row[11] or "[]"),
+            files_touched=json.loads(row[12] or "[]"),
+            commands_run=json.loads(row[13] or "[]"),
+            tests_run=json.loads(row[14] or "[]"),
+            artifacts=json.loads(row[15] or "[]"),
+            metrics=AgentRunMetrics(**json.loads(row[16] or "{}")),
+            evidence=evidence_data,
+            untrusted_content=is_untrusted,
+            detail=str(row[18]) if row[18] else None,
+            error_code=str(row[19]) if row[19] else None,
+            started_at=str(row[20]),
+            updated_at=str(row[21]),
+            terminal_at=str(row[22]) if row[22] else None,
+        )
 
     async def get_agent_run(self, run_id: str) -> AgentRun | None:
         """Obtém uma execução persistida por run_id."""
         await self.setup()
         async with self._pool.acquire() as conn:
-            cur = await conn.execute(
-                "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
-                "model, provider, status, plan_step, tools_available_json, "
-                "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
-                "tests_run_json, artifacts_json, metrics_json, evidence_json, "
-                "detail, error_code, started_at, updated_at, terminal_at "
-                "FROM agent_runs WHERE run_id = ?",
-                (run_id,),
-            )
-            row = await cur.fetchone()
-            if row is None:
-                # Fallback para session_runs se tiver sido registrado antes da migração
-                cur_legacy = await conn.execute(
-                    "SELECT run_id, thread_id, turn_id, status, detail, error_code, "
-                    "provider_model, started_at, updated_at, terminal_at "
-                    "FROM session_runs WHERE run_id = ?",
-                    (run_id,),
-                )
-                leg = await cur_legacy.fetchone()
-                if leg is None:
-                    return None
-                st = leg[3]
-                canonical_st: AgentRunStatus = (
-                    "passed"
-                    if st == "completed"
-                    else cast(
-                        "AgentRunStatus",
-                        st if st in VALID_AGENT_RUN_STATUSES else "running",
-                    )
-                )
-                prov_model = str(leg[6] or "")
-                prov, _, mod = prov_model.partition(":")
-                return AgentRun(
-                    run_id=str(leg[0]),
-                    thread_id=str(leg[1]),
-                    turn_id=str(leg[2]) if leg[2] else None,
-                    status=canonical_st,
-                    detail=str(leg[4]) if leg[4] else None,
-                    error_code=str(leg[5]) if leg[5] else None,
-                    provider=prov if mod else "",
-                    model=mod or prov,
-                    started_at=str(leg[7]),
-                    updated_at=str(leg[8]),
-                    terminal_at=str(leg[9]) if leg[9] else None,
-                )
-
-            evidence_data = json.loads(row[17] or "[]")
-            is_untrusted = any(
-                isinstance(e, dict) and e.get("untrusted_content") is True
-                for e in evidence_data
-            )
-            return AgentRun(
-                run_id=str(row[0]),
-                thread_id=str(row[1]),
-                turn_id=str(row[2]) if row[2] else None,
-                user_id=str(row[3] or ""),
-                workspace_id=str(row[4]) if row[4] else None,
-                model=str(row[5] or ""),
-                provider=str(row[6] or ""),
-                status=cast("AgentRunStatus", row[7]),
-                plan_step=str(row[8]) if row[8] else None,
-                tools_available=json.loads(row[9] or "[]"),
-                tools_used=json.loads(row[10] or "[]"),
-                approvals=json.loads(row[11] or "[]"),
-                files_touched=json.loads(row[12] or "[]"),
-                commands_run=json.loads(row[13] or "[]"),
-                tests_run=json.loads(row[14] or "[]"),
-                artifacts=json.loads(row[15] or "[]"),
-                metrics=AgentRunMetrics(**json.loads(row[16] or "{}")),
-                evidence=evidence_data,
-                untrusted_content=is_untrusted,
-                detail=str(row[18]) if row[18] else None,
-                error_code=str(row[19]) if row[19] else None,
-                started_at=str(row[20]),
-                updated_at=str(row[21]),
-                terminal_at=str(row[22]) if row[22] else None,
-            )
+            return await self._get_agent_run_on_conn(conn, run_id)
 
     async def list_agent_runs(
         self, thread_id: str, *, limit: int = 50

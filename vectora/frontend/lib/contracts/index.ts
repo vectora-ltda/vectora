@@ -35,78 +35,78 @@ export interface CanonicalErrorSpec {
 // ============================================================================
 
 export interface LocaleSettings {
-  language: string;
-  timezone: string;
+  language?: string;
+  timezone?: string;
 }
 
 export interface AppearanceSettings {
-  theme: "dark" | "light" | "system";
-  sidebarPosition: "left" | "right";
+  theme?: "dark" | "light" | "system";
+  sidebarPosition?: "left" | "right";
 }
 
 export interface SuggestionsSettings {
-  enabled: boolean;
-  aiEnabled: boolean;
+  enabled?: boolean;
+  aiEnabled?: boolean;
 }
 
 export interface LintSettings {
-  enabled: boolean;
-  showDiagnostics: boolean;
+  enabled?: boolean;
+  showDiagnostics?: boolean;
 }
 
 export interface EditorSettings {
-  fontFamily: string;
-  fontSize: number;
-  lineHeight: number;
-  fontLigatures: boolean;
-  wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
-  minimap: boolean;
-  smoothScrolling: boolean;
-  formatOnSave: boolean;
-  formatOnPaste: boolean;
-  suggestions: SuggestionsSettings;
-  lint: LintSettings;
+  fontFamily?: string;
+  fontSize?: number;
+  lineHeight?: number;
+  fontLigatures?: boolean;
+  wordWrap?: "off" | "on" | "wordWrapColumn" | "bounded";
+  minimap?: boolean;
+  smoothScrolling?: boolean;
+  formatOnSave?: boolean;
+  formatOnPaste?: boolean;
+  suggestions?: SuggestionsSettings;
+  lint?: LintSettings;
 }
 
 export interface WatcherSettings {
-  enabled: boolean;
-  exclude: string[];
+  enabled?: boolean;
+  exclude?: string[];
 }
 
 export interface FileSettings {
-  autoSave: "off" | "afterDelay" | "onFocusChange" | "onWindowChange";
-  autoSaveDelayMs: number;
-  encoding: string;
-  eol: "lf" | "crlf" | "auto";
-  trimTrailingWhitespace: boolean;
-  insertFinalNewline: boolean;
-  watcher: WatcherSettings;
+  autoSave?: "off" | "afterDelay" | "onFocusChange" | "onWindowChange";
+  autoSaveDelayMs?: number;
+  encoding?: string;
+  eol?: "lf" | "crlf" | "auto";
+  trimTrailingWhitespace?: boolean;
+  insertFinalNewline?: boolean;
+  watcher?: WatcherSettings;
 }
 
 export interface WorkbenchesSettings {
-  git: Record<string, unknown>;
-  plan: Record<string, unknown>;
-  tasks: Record<string, unknown>;
-  browser: Record<string, unknown>;
-  storage: Record<string, unknown>;
-  contextGraph: Record<string, unknown>;
-  library: Record<string, unknown>;
-  terminal: Record<string, unknown>;
+  git?: Record<string, unknown>;
+  plan?: Record<string, unknown>;
+  tasks?: Record<string, unknown>;
+  browser?: Record<string, unknown>;
+  storage?: Record<string, unknown>;
+  contextGraph?: Record<string, unknown>;
+  library?: Record<string, unknown>;
+  terminal?: Record<string, unknown>;
 }
 
 export interface UpdatesSettings {
-  autoUpdateEnabled: boolean;
+  autoUpdateEnabled?: boolean;
 }
 
 export interface UserSettingsV1 {
   $schema?: string;
-  version: number;
-  locale: LocaleSettings;
-  appearance: AppearanceSettings;
-  editor: EditorSettings;
-  files: FileSettings;
-  workbenches: WorkbenchesSettings;
-  updates: UpdatesSettings;
+  version?: number;
+  locale?: LocaleSettings;
+  appearance?: AppearanceSettings;
+  editor?: EditorSettings;
+  files?: FileSettings;
+  workbenches?: WorkbenchesSettings;
+  updates?: UpdatesSettings;
 }
 
 // ============================================================================
@@ -119,15 +119,15 @@ export interface QualityGateSpec {
   id: string;
   name: string;
   command: string[];
-  policy: QualityGatePolicy;
+  policy?: QualityGatePolicy;
   file_patterns?: string[];
   timeout_seconds?: number;
 }
 
 export interface WorkspaceVerificationProfile {
   workspace_id: string;
-  enabled: boolean;
-  gates: QualityGateSpec[];
+  enabled?: boolean;
+  gates?: QualityGateSpec[];
   require_clean_git?: boolean;
   inject_stack_trace_on_failure?: boolean;
 }

@@ -308,7 +308,7 @@ def _generate_ts_interface(
     opt_set = optional_override or set()
     for fname, finfo in model.model_fields.items():
         name = finfo.alias or fname
-        is_opt = name in ("$schema",) or fname in opt_set
+        is_opt = not finfo.is_required() or name in ("$schema",) or fname in opt_set
         tname = (
             "QualityGatePolicy"
             if fname == "policy"
@@ -384,6 +384,54 @@ def _classify_openapi_schemas(openapi: dict[str, Any]) -> tuple[set[str], set[st
     return _expand_transitive(request_roots), _expand_transitive(response_roots)
 
 
+def _removed_operations(
+    baseline: dict[str, Any], new: dict[str, Any]
+) -> list[tuple[str, str]]:
+    """Identifica operações HTTP removidas em paths entre baseline e new."""
+    old_paths = baseline.get("paths", {})
+    new_paths = new.get("paths", {})
+    http_methods = {
+        "get",
+        "post",
+        "put",
+        "delete",
+        "patch",
+        "options",
+        "head",
+        "trace",
+    }
+    removed: list[tuple[str, str]] = []
+    if isinstance(old_paths, dict) and isinstance(new_paths, dict):
+        for path_str, old_item in old_paths.items():
+            if not isinstance(old_item, dict):
+                continue
+            new_item = new_paths.get(path_str, {})
+            if not isinstance(new_item, dict):
+                new_item = {}
+            for method in old_item:
+                method_lower = method.lower()
+                if method_lower in http_methods and method_lower not in [
+                    m.lower() for m in new_item
+                ]:
+                    removed.append((method.upper(), path_str))
+    return removed
+
+
+def _removed_request_schemas(
+    baseline: dict[str, Any], new: dict[str, Any]
+) -> list[str]:
+    """Identifica schemas de request presentes no baseline mas removidos em new."""
+    old_schemas = baseline.get("components", {}).get("schemas", {})
+    new_schemas = new.get("components", {}).get("schemas", {})
+    old_req_schemas, _ = _classify_openapi_schemas(baseline)
+    removed: list[str] = []
+    if isinstance(old_schemas, dict):
+        for s_name in old_schemas:
+            if s_name not in new_schemas and s_name in old_req_schemas:
+                removed.append(s_name)
+    return removed
+
+
 def export_typescript(contracts_dir: Path, target_dir: Path | None = None) -> None:
     """Exporta definições de tipos TypeScript sincronizadas com os contratos canônicos."""
     from backend.contracts.models import (
@@ -443,31 +491,15 @@ def export_typescript(contracts_dir: Path, target_dir: Path | None = None) -> No
         UserSettingsV1,
     ]
     settings_interfaces = "\n\n".join(
-        _generate_ts_interface(
-            m,
-            optional_override={"schema_url"},
-        )
-        for m in settings_models
+        _generate_ts_interface(m) for m in settings_models
     )
 
     quality_gate_interfaces = "\n\n".join(
         [
             'export type QualityGatePolicy = "block" | "degrade" | "inform";',
-            _generate_ts_interface(
-                QualityGateSpec,
-                optional_override={"file_patterns", "timeout_seconds"},
-            ),
-            _generate_ts_interface(
-                WorkspaceVerificationProfile,
-                optional_override={
-                    "require_clean_git",
-                    "inject_stack_trace_on_failure",
-                },
-            ),
-            _generate_ts_interface(
-                QualityGateRunResult,
-                optional_override={"output", "duration_ms", "artifacts_collected"},
-            ),
+            _generate_ts_interface(QualityGateSpec),
+            _generate_ts_interface(WorkspaceVerificationProfile),
+            _generate_ts_interface(QualityGateRunResult),
         ]
     )
 
@@ -605,45 +637,20 @@ def check_all(contracts_dir: Path) -> int:
                 and isinstance(expected_data, dict)
             ):
                 # 1. Identificar operações HTTP removidas em paths
-                old_paths = baseline_data.get("paths", {})
-                new_paths = expected_data.get("paths", {})
-                http_methods = {
-                    "get",
-                    "post",
-                    "put",
-                    "delete",
-                    "patch",
-                    "options",
-                    "head",
-                    "trace",
-                }
-                if isinstance(old_paths, dict) and isinstance(new_paths, dict):
-                    for path_str, old_item in old_paths.items():
-                        if not isinstance(old_item, dict):
-                            continue
-                        new_item = new_paths.get(path_str, {})
-                        if not isinstance(new_item, dict):
-                            new_item = {}
-                        for method in old_item:
-                            method_lower = method.lower()
-                            if method_lower in http_methods and method_lower not in [
-                                m.lower() for m in new_item
-                            ]:
-                                print(
-                                    f"BREAKING API CHANGE in openapi.json: Removed endpoint {method.upper()} {path_str}"
-                                )
-                                has_diff = True
+                for method_upper, path_str in _removed_operations(
+                    baseline_data, expected_data
+                ):
+                    print(
+                        f"BREAKING API CHANGE in openapi.json: Removed endpoint {method_upper} {path_str}"
+                    )
+                    has_diff = True
 
                 # 2. Identificar schemas de request removidos de components.schemas
-                old_schemas = baseline_data.get("components", {}).get("schemas", {})
-                new_schemas = expected_data.get("components", {}).get("schemas", {})
-                old_req_schemas, _ = _classify_openapi_schemas(baseline_data)
-                for s_name in old_schemas:
-                    if s_name not in new_schemas and s_name in old_req_schemas:
-                        print(
-                            f"BREAKING SCHEMA CHANGE in openapi.json: Removed request schema components.schemas.{s_name}"
-                        )
-                        has_diff = True
+                for s_name in _removed_request_schemas(baseline_data, expected_data):
+                    print(
+                        f"BREAKING SCHEMA CHANGE in openapi.json: Removed request schema components.schemas.{s_name}"
+                    )
+                    has_diff = True
 
                 # 3. Comparação de schemas existentes em ambas as versões
                 req_schemas, resp_schemas = _classify_openapi_schemas(expected_data)
