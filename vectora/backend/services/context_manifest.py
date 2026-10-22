@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal, TypedDict
@@ -27,6 +28,7 @@ class ContextBlockDict(TypedDict):
 
 class ContextProjectionEvidence(TypedDict):
     kind: Literal["context_projection"]
+    projection_id: str
     start_seq: int
     end_seq: int
     source_transcript_hash: str
@@ -85,6 +87,7 @@ class ContextProjection:
     source_transcript_hash: str
     tokens_before: int
     tokens_after: int
+    projection_id: str = ""
     model: str = ""
     policy_version: str = "v1"
     preserved_decisions: list[str] = field(default_factory=list)
@@ -93,6 +96,14 @@ class ContextProjection:
     excluded_items_count: int = 0
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
+    def __post_init__(self) -> None:
+        if not self.projection_id:
+            identity = (
+                f"{self.source_transcript_hash}:{self.start_seq}:{self.end_seq}:"
+                f"{self.policy_version}"
+            )
+            self.projection_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
     def is_valid_for(self, current_transcript_hash: str) -> bool:
         """Verifica se a projeção é compatível com o hash atual do transcript."""
         return self.source_transcript_hash == current_transcript_hash
@@ -100,6 +111,7 @@ class ContextProjection:
     def to_evidence_entry(self) -> ContextProjectionEvidence:
         return {
             "kind": "context_projection",
+            "projection_id": self.projection_id,
             "start_seq": self.start_seq,
             "end_seq": self.end_seq,
             "source_transcript_hash": self.source_transcript_hash,
