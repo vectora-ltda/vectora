@@ -35,7 +35,7 @@ class SystemOneSettings(BaseModel):
 
     # Clef API
     clef_account_id: str = Field(
-        default="systemone",
+        default="",
         description="Account ID da Cloudflare para Workers AI Clef.",
     )
     clef_api_base_url: str = Field(
@@ -97,9 +97,11 @@ def get_systemone_provider(
         key = clef_api_key or os.getenv("CLEF_API_KEY", "")
         account_id = (
             settings.clef_account_id
-            or os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
-            or os.getenv("CLEF_ACCOUNT_ID", "systemone")
+            or os.getenv("CLOUDFLARE_ACCOUNT_ID")
+            or os.getenv("CLEF_ACCOUNT_ID", "")
         )
+        if not account_id:
+            raise ValueError("CLOUDFLARE_ACCOUNT_ID ou CLEF_ACCOUNT_ID é obrigatório")
         return ClefApiAdapter(
             api_key=key,
             account_id=account_id,

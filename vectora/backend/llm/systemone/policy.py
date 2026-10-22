@@ -61,7 +61,7 @@ class DecisionPolicyEngine:
             return self._settings.jev_api_model
         return None
 
-    def evaluate_response(
+    def evaluate_response(  # noqa: PLR0911 - each policy violation has a distinct terminal reason
         self,
         response: SystemOneResponse,
         *,
@@ -84,6 +84,14 @@ class DecisionPolicyEngine:
                 requires_hitl=True,
                 reason="Operação classificada como de alto impacto exige confirmação humana obrigatória.",
                 answers=response.answers,
+                response=response,
+            )
+
+        if not response.answers:
+            return PolicyEvaluationResult(
+                outcome="requires_hitl",
+                requires_hitl=True,
+                reason="systemone_empty_answers",
                 response=response,
             )
 

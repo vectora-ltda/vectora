@@ -949,7 +949,11 @@ async def _verify_apikey(integration_id: str, token: str) -> tuple[bool, str]:  
 
         if integration_id == "llamacpp":
             # Validação no servidor local configurado ou loopback padrão via endpoint protegido
-            base = os.environ.get("LLAMACPP_BASE_URL", "http://127.0.0.1:8080")
+            base = os.environ.get("LLAMACPP_BASE_URL", "http://127.0.0.1:8080").rstrip(
+                "/"
+            )
+            if base.endswith("/v1"):
+                base = base[:-3].rstrip("/")
             try:
                 r = await client.get(
                     f"{base}/props",

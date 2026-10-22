@@ -73,7 +73,7 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
         except Exception:
             return False
 
-    def _decide_endpoint(self) -> str:
+    def _decide_endpoint(self, model: str) -> str:
         return f"{self._base_url}/v1/systemone"
 
     async def decide(self, request: SystemOneRequest) -> SystemOneResponse:
@@ -90,7 +90,7 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
                 provider=self.provider_id,
             )
 
-        endpoint = self._decide_endpoint()
+        endpoint = self._decide_endpoint(request.model)
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self._api_key}",
@@ -218,11 +218,26 @@ class ClefApiAdapter(BaseSystemOneApiAdapter):
             client=client,
         )
 
-    def _decide_endpoint(self) -> str:
+    async def health(self) -> bool:
+        if not self._api_key:
+            return False
+        url = "https://api.cloudflare.com/client/v4/user/tokens/verify"
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+        try:
+            if self._external_client is not None:
+                return (
+                    await self._external_client.get(url, headers=headers)
+                ).status_code == 200
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                return (await client.get(url, headers=headers)).status_code == 200
+        except Exception:
+            return False
+
+    def _decide_endpoint(self, model: str) -> str:
         suffix = f"/{self._account_id}"
         if self._base_url.endswith(suffix):
-            return f"{self._base_url}/ai/run/@cf/cloudflare/clef"
-        return f"{self._base_url}/{self._account_id}/ai/run/@cf/cloudflare/clef"
+            return f"{self._base_url}/ai/run/{model}"
+        return f"{self._base_url}/{self._account_id}/ai/run/{model}"
 
     async def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(

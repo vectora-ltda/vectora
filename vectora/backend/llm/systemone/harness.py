@@ -17,6 +17,7 @@ import json
 import logging
 import time
 import uuid
+from collections import OrderedDict
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
@@ -226,7 +227,11 @@ class SystemOneHarness:
         self._circuit_breakers: dict[str, _CircuitBreakerState] = {}
 
         self._mode_overrides: dict[tuple[str | None, str], PatternOperationMode] = {}
-        self._response_cache: dict[tuple[Any, ...], SystemOneResponse] = {}
+        self._response_cache: OrderedDict[
+            tuple[Any, ...], tuple[float, SystemOneResponse]
+        ] = OrderedDict()
+        self._response_cache_max = 512
+        self._response_cache_ttl_s = 300.0
         self._inflight: dict[tuple[Any, ...], asyncio.Future[SystemOneResponse]] = {}
 
     @property
@@ -697,7 +702,15 @@ class SystemOneHarness:
             questions_fp,
         )
 
-        cached_resp = self._response_cache.get(cache_key)
+        cached_entry = self._response_cache.get(cache_key)
+        cached_resp = None
+        if cached_entry is not None:
+            cached_at, cached_resp = cached_entry
+            if self._clock() - cached_at > self._response_cache_ttl_s:
+                self._response_cache.pop(cache_key, None)
+                cached_resp = None
+            else:
+                self._response_cache.move_to_end(cache_key)
         if cached_resp is not None:
             return self._build_governed_result(
                 spec=spec,
@@ -831,7 +844,10 @@ class SystemOneHarness:
             resp.metadata.usage.total_tokens,
         )
         if not used_fallback:
-            self._response_cache[cache_key] = resp
+            self._response_cache[cache_key] = (self._clock(), resp)
+            self._response_cache.move_to_end(cache_key)
+            while len(self._response_cache) > self._response_cache_max:
+                self._response_cache.popitem(last=False)
 
         return self._build_governed_result(
             spec=spec,
@@ -921,21 +937,24 @@ class SystemOneHarness:
         if not self._settings.enabled or mode == "off":
             return list(candidates[:limit])
 
+        score_sem = asyncio.Semaphore(max(1, self._max_queue_size // 2))
+
         async def _score_one(
             idx: int, item: dict[str, Any]
         ) -> tuple[float, int, str, dict[str, Any]] | None:
             cand_id = str(item.get("id", f"cand_{idx}"))
             snippet = str(item.get("snippet") or item.get("text") or "")[:2000]
-            res = await self.decide_pattern(
-                "rag_rerank_scoring",
-                {
-                    "query": query[:1000],
-                    "candidate_id": cand_id,
-                    "snippet": snippet,
-                },
-                workspace_id=workspace_id,
-                correlation_id=correlation_id,
-            )
+            async with score_sem:
+                res = await self.decide_pattern(
+                    "rag_rerank_scoring",
+                    {
+                        "query": query[:1000],
+                        "candidate_id": cand_id,
+                        "snippet": snippet,
+                    },
+                    workspace_id=workspace_id,
+                    correlation_id=correlation_id,
+                )
             if not res.is_usable_recommendation or res.response is None:
                 return None
             ans = res.response.answers.get("relevance")
