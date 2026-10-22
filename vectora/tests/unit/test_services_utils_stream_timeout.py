@@ -84,3 +84,20 @@ def test_ollama_usa_cliente_nativo_e_nao_init_chat_model(monkeypatch):
 
     assert isinstance(modelo, OllamaChatClient)
     assert modelo.client.base_url == "http://127.0.0.1:11434"
+
+
+def test_llamacpp_usa_projecao_compacta_para_modelos_locais(monkeypatch):
+    """O provider local deve preservar as regras essenciais sem enviar ao
+    modelo pequeno todo o catálogo de ferramentas e o contexto operacional."""
+    from backend.llm.openrouter.chat_client import OpenRouterChatClient
+    from backend.settings import settings
+
+    monkeypatch.setenv("LLAMACPP_MODE", "external")
+    monkeypatch.setattr(settings, "llamacpp_base_url", "http://127.0.0.1:18080/v1")
+    monkeypatch.setattr(settings, "llamacpp_api_key", None)
+
+    modelo = load_chat_client("llamacpp:qwen2.5-0.5b-instruct-q2-k")
+
+    assert isinstance(modelo, OpenRouterChatClient)
+    assert modelo.compact_system_prompt is True
+    assert modelo.client._base_url == "http://127.0.0.1:18080/v1"
