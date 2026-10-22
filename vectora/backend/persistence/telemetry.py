@@ -23,6 +23,7 @@ Uso:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 from pathlib import Path
@@ -56,6 +57,11 @@ _RECORD_FIELDS = (
     "new_state",
     "result",
     "idempotency_key",
+    "query_hash",
+    "collection_count",
+    "result_count",
+    "retrieval_method",
+    "reranker",
 )
 
 
@@ -239,6 +245,32 @@ class VectoraTelemetry:
             logging.INFO,
             f"media_quota.{event}",
             **{key: value for key, value in fields.items() if key in allowed},
+        )
+
+    async def record_retrieval(
+        self,
+        *,
+        query: str,
+        collections: list[str],
+        result_count: int,
+        retrieval_method: str,
+        reranker: str | None = None,
+    ) -> None:
+        """Registra uma busca sem persistir o texto da consulta.
+
+        O hash permite correlacionar uma busca com logs posteriores sem expor
+        prompts potencialmente sensíveis no arquivo de telemetria.
+        """
+        query_hash = hashlib.sha256(query.encode("utf-8")).hexdigest()
+        self._emit(
+            logging.INFO,
+            "retrieval",
+            query_hash=query_hash,
+            collection_count=len(collections),
+            result_count=result_count,
+            retrieval_method=retrieval_method,
+            reranker=reranker,
+            operation="vector_search",
         )
 
 

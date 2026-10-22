@@ -60,6 +60,8 @@ class TestVectorSearch:
         data = json.loads(result)
         assert "results" in data
         assert len(data["results"]) == 1
+        assert data["results"][0]["provenance"]["source"] == "rag"
+        assert data["retrieval"]["backend"] == "AsyncMock"
 
     @pytest.mark.asyncio
     async def test_vector_search_table_not_found(self):
@@ -178,6 +180,27 @@ class TestReciprocalRankFusion:
         fused = _reciprocal_rank_fusion(vector_results, [], limit=3)
 
         assert len(fused) == 3
+
+
+class TestRetrievalProvenance:
+    def test_attach_preserva_resultado_e_registra_rank(self):
+        from backend.tools.rag import _attach_retrieval_provenance
+
+        result = _attach_retrieval_provenance(
+            [{"id": "a", "collection": "docs", "score": 0.2}],
+            backend_name="QdrantBackend",
+            retrieval_method="hybrid_rrf",
+        )
+
+        assert result[0]["id"] == "a"
+        assert result[0]["provenance"] == {
+            "source": "rag",
+            "backend": "QdrantBackend",
+            "collection": "docs",
+            "method": "hybrid_rrf",
+            "rank": 1,
+            "score": 0.2,
+        }
 
 
 class TestVectorSearchHybrid:
