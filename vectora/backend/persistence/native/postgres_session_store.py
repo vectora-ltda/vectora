@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -53,6 +55,35 @@ if TYPE_CHECKING:
 _CHAIN_DEPTH_CAP = 100_000
 
 logger = logging.getLogger(__name__)
+
+
+class _RunEvidenceLockRegistry:
+    """Retém locks somente enquanto há writers ou waiters ativos."""
+
+    def __init__(self) -> None:
+        self._entries: dict[str, tuple[asyncio.Lock, int]] = {}
+
+    @asynccontextmanager
+    async def acquire(self, run_id: str) -> AsyncGenerator[None]:
+        entry = self._entries.get(run_id)
+        if entry is None:
+            entry = (asyncio.Lock(), 0)
+        lock, users = entry
+        self._entries[run_id] = (lock, users + 1)
+        try:
+            async with lock:
+                yield
+        finally:
+            current = self._entries.get(run_id)
+            if current is not None and current[0] is lock:
+                remaining = current[1] - 1
+                if remaining <= 0 and not lock.locked():
+                    self._entries.pop(run_id, None)
+                else:
+                    self._entries[run_id] = (lock, remaining)
+
+    def __len__(self) -> int:
+        return len(self._entries)
 
 
 def _now() -> str:
@@ -107,7 +138,7 @@ class PostgresSessionStore:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
         self._is_setup = False
-        self._run_evidence_locks: dict[str, asyncio.Lock] = {}
+        self._run_evidence_locks = _RunEvidenceLockRegistry()
 
     async def setup(self) -> None:
         if self._is_setup:
@@ -1594,54 +1625,57 @@ class PostgresSessionStore:
     ) -> None:
         """Registra evidências incrementais no AgentRun de forma atômica."""
         await self.setup()
-        async with self._pool.acquire() as conn:
-            async with conn.transaction():
-                run = await self._get_agent_run_on_conn(conn, run_id, for_update=True)
-                if run is None:
-                    return
-                if evidence:
-                    clean_evidence = redact_sensitive_data(evidence)
-                    projection_id = (
-                        clean_evidence.get("projection_id")
-                        if isinstance(clean_evidence, dict)
-                        else None
+        async with self._run_evidence_locks.acquire(run_id):
+            async with self._pool.acquire() as conn:
+                async with conn.transaction():
+                    run = await self._get_agent_run_on_conn(
+                        conn, run_id, for_update=True
                     )
-                    if not (
-                        projection_id
-                        and any(
-                            isinstance(item, dict)
-                            and item.get("projection_id") == projection_id
-                            for item in run.evidence
+                    if run is None:
+                        return
+                    if evidence:
+                        clean_evidence = redact_sensitive_data(evidence)
+                        projection_id = (
+                            clean_evidence.get("projection_id")
+                            if isinstance(clean_evidence, dict)
+                            else None
                         )
-                    ):
-                        run.evidence.append(clean_evidence)
-                if artifact:
-                    clean_artifact = redact_sensitive_data(artifact)
-                    artifact_id = (
-                        clean_artifact.get("artifact_id")
-                        if isinstance(clean_artifact, dict)
-                        else None
-                    )
-                    if not (
-                        artifact_id
-                        and any(
-                            isinstance(item, dict)
-                            and item.get("artifact_id") == artifact_id
-                            for item in run.artifacts
+                        if not (
+                            projection_id
+                            and any(
+                                isinstance(item, dict)
+                                and item.get("projection_id") == projection_id
+                                for item in run.evidence
+                            )
+                        ):
+                            run.evidence.append(clean_evidence)
+                    if artifact:
+                        clean_artifact = redact_sensitive_data(artifact)
+                        artifact_id = (
+                            clean_artifact.get("artifact_id")
+                            if isinstance(clean_artifact, dict)
+                            else None
                         )
-                    ):
-                        run.artifacts.append(clean_artifact)
-                if command:
-                    run.commands_run.append(redact_sensitive_data(command))
-                if test_result:
-                    run.tests_run.append(redact_sensitive_data(test_result))
-                if tool_used and tool_used not in run.tools_used:
-                    run.tools_used.append(tool_used)
-                if approval:
-                    run.approvals.append(redact_sensitive_data(approval))
-                if file_touched:
-                    run.files_touched.append(redact_sensitive_data(file_touched))
-                await self._upsert_agent_run_on_conn(conn, run)
+                        if not (
+                            artifact_id
+                            and any(
+                                isinstance(item, dict)
+                                and item.get("artifact_id") == artifact_id
+                                for item in run.artifacts
+                            )
+                        ):
+                            run.artifacts.append(clean_artifact)
+                    if command:
+                        run.commands_run.append(redact_sensitive_data(command))
+                    if test_result:
+                        run.tests_run.append(redact_sensitive_data(test_result))
+                    if tool_used and tool_used not in run.tools_used:
+                        run.tools_used.append(tool_used)
+                    if approval:
+                        run.approvals.append(redact_sensitive_data(approval))
+                    if file_touched:
+                        run.files_touched.append(redact_sensitive_data(file_touched))
+                        await self._upsert_agent_run_on_conn(conn, run)
 
     async def save_context_projection(
         self, thread_id: str, run_id: str, projection: dict[str, Any]
