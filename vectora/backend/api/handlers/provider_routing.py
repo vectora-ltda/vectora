@@ -4209,6 +4209,9 @@ class SystemOneStatusResponse(BaseModel):
     provider: DecisionProviderType
     local_base_url: str
     local_model: str
+    laya_base_url: str
+    laya_model: str
+    laya_api_key_configured: bool
     clef_api_base_url: str
     clef_api_model: str
     clef_api_key_configured: bool
@@ -4228,6 +4231,9 @@ class UpdateSystemOneConfigRequest(BaseModel):
     provider: DecisionProviderType | None = None
     local_base_url: str | None = None
     local_model: str | None = None
+    laya_base_url: str | None = None
+    laya_model: str | None = None
+    laya_api_key: str | None = None
     clef_api_base_url: str | None = None
     clef_api_model: str | None = None
     clef_api_key: str | None = None
@@ -4250,6 +4256,9 @@ async def get_decision_models_status(
         provider=settings.systemone_provider,  # type: ignore[arg-type]
         local_base_url=settings.systemone_local_base_url,
         local_model=settings.systemone_local_model,
+        laya_base_url=settings.systemone_laya_base_url,
+        laya_model=settings.systemone_laya_model,
+        laya_api_key=settings.systemone_laya_api_key,
         clef_api_base_url=settings.systemone_clef_api_base_url,
         clef_api_model=settings.systemone_clef_api_model,
         jev_api_base_url=settings.systemone_jev_api_base_url,
@@ -4279,6 +4288,9 @@ async def get_decision_models_status(
         provider=settings.systemone_provider,
         local_base_url=settings.systemone_local_base_url,
         local_model=settings.systemone_local_model,
+        laya_base_url=settings.systemone_laya_base_url,
+        laya_model=settings.systemone_laya_model,
+        laya_api_key_configured=bool(settings.systemone_laya_api_key),
         clef_api_base_url=settings.systemone_clef_api_base_url,
         clef_api_model=settings.systemone_clef_api_model,
         clef_api_key_configured=bool(settings.clef_api_key),
@@ -4309,6 +4321,14 @@ async def update_decision_models_config(
         settings.systemone_local_base_url = body.local_base_url
     if body.local_model is not None:
         settings.systemone_local_model = body.local_model
+    if body.laya_base_url is not None:
+        settings.systemone_laya_base_url = body.laya_base_url
+    if body.laya_model is not None:
+        settings.systemone_laya_model = body.laya_model
+    if body.laya_api_key is not None:
+        settings.systemone_laya_api_key = (
+            body.laya_api_key if body.laya_api_key.strip() else None
+        )
     if body.clef_api_base_url is not None:
         settings.systemone_clef_api_base_url = body.clef_api_base_url
     if body.clef_api_model is not None:

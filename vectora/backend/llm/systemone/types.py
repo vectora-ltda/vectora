@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, TypeAdapter, ValidationError, model_valid
 from backend.llm.systemone.errors import SystemOneValidationError
 
 QuestionType = Literal["noul", "choice", "score"]
-DecisionProviderType = Literal["clef-local", "clef-api", "jev-api"]
+DecisionProviderType = Literal["clef-local", "laya-local", "clef-api", "jev-api"]
 CapabilityEvidenceLevel = Literal["documented", "observed", "unverified"]
 
 
@@ -41,6 +41,16 @@ class NoulQuestion(BaseQuestion):
         min_length=1,
         description="Critério ou hipótese a ser avaliada em termos de probabilidade.",
     )
+    criteria: dict[str, str] | None = Field(
+        default=None,
+        description="Critérios opcionais true/false usados por runtimes como Laya.",
+    )
+
+    @model_validator(mode="after")
+    def validate_criteria(self) -> NoulQuestion:
+        if self.criteria is not None and set(self.criteria) != {"true", "false"}:
+            raise ValueError("Critérios Noul devem conter exatamente true e false.")
+        return self
 
 
 class ChoiceQuestion(BaseQuestion):
@@ -52,6 +62,10 @@ class ChoiceQuestion(BaseQuestion):
         min_length=2,
         description="Lista de alternativas descritas para seleção categórica.",
     )
+    criteria: dict[str, str] | None = Field(
+        default=None,
+        description="Descrições semânticas opcionais para cada opção.",
+    )
 
     @model_validator(mode="after")
     def validate_options_unique(self) -> ChoiceQuestion:
@@ -60,6 +74,8 @@ class ChoiceQuestion(BaseQuestion):
         for opt in self.options:
             if not opt.strip():
                 raise ValueError("Opções vazias não são permitidas em ChoiceQuestion.")
+        if self.criteria is not None and set(self.criteria) != set(self.options):
+            raise ValueError("Critérios Choice devem corresponder às opções.")
         return self
 
 
@@ -73,6 +89,11 @@ class ScoreQuestion(BaseQuestion):
         ...,
         description="Critério ou rubrica a ser pontuado na escala definida.",
     )
+    levels: list[str] | None = Field(
+        default=None,
+        min_length=2,
+        description="Níveis ordinais opcionais para runtimes de decisão tipada.",
+    )
 
     @model_validator(mode="after")
     def validate_score_bounds(self) -> ScoreQuestion:
@@ -80,6 +101,8 @@ class ScoreQuestion(BaseQuestion):
             raise ValueError("Limites de score devem ser números finitos.")
         if self.min_score >= self.max_score:
             raise ValueError("min_score deve ser estritamente menor que max_score.")
+        if self.levels is not None and len(set(self.levels)) != len(self.levels):
+            raise ValueError("Níveis Score devem ser únicos.")
         return self
 
 

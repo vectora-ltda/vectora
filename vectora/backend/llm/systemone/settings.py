@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from backend.llm.systemone.api_adapters import ClefApiAdapter, JevApiAdapter
 from backend.llm.systemone.clef_local import ClefLocalAdapter
+from backend.llm.systemone.laya_local import LayaLocalAdapter
 from backend.llm.systemone.protocol import SystemOneProvider
 from backend.llm.systemone.types import DecisionProviderType
 
@@ -21,7 +22,7 @@ class SystemOneSettings(BaseModel):
     )
     provider: DecisionProviderType = Field(
         default="clef-local",
-        description="Provedor ativo: 'clef-local', 'clef-api' ou 'jev-api'.",
+        description="Provedor ativo: 'clef-local', 'laya-local', 'clef-api' ou 'jev-api'.",
     )
     # Clef local
     local_base_url: str = Field(
@@ -32,6 +33,11 @@ class SystemOneSettings(BaseModel):
         default="clef-flash",
         description="Nome ou caminho do modelo Clef servido no llama.cpp.",
     )
+
+    # Laya local (servidor laya-serve, separado do llama.cpp)
+    laya_base_url: str = Field(default="http://127.0.0.1:8000")
+    laya_model: str = Field(default="convaiinnovations/laya")
+    laya_api_key: str | None = Field(default=None)
 
     # Clef API
     clef_account_id: str = Field(
@@ -92,6 +98,12 @@ def get_systemone_provider(
         return ClefLocalAdapter(
             base_url=settings.local_base_url,
             api_key=local_api_key or os.getenv("LLAMACPP_API_KEY"),
+        )
+    if provider_type == "laya-local":
+        return LayaLocalAdapter(
+            base_url=settings.laya_base_url,
+            model=settings.laya_model,
+            api_key=settings.laya_api_key or os.getenv("LAYA_API_KEY"),
         )
     if provider_type == "clef-api":
         key = clef_api_key or os.getenv("CLEF_API_KEY", "")
