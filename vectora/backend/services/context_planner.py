@@ -42,6 +42,32 @@ def compute_transcript_hash(messages: list[VMessage]) -> str:
     return h.hexdigest()
 
 
+def _format_compacted_marker(
+    omitted_count: int,
+    *,
+    preserved_errors: list[str] | None = None,
+    preserved_approvals: list[str] | None = None,
+    preserved_decisions: list[str] | None = None,
+) -> VMessage:
+    """Gera marcador de compactação com decisões, aprovações e erros estruturados preservados."""
+    lines = [
+        f"[{omitted_count} mensagens anteriores compactadas para manter o limite de contexto operacional]"
+    ]
+    if preserved_decisions:
+        lines.append("Decisões anteriores preservadas:")
+        lines.extend(f"- {d}" for d in preserved_decisions[:5])
+    if preserved_approvals:
+        lines.append("Aprovações anteriores preservadas:")
+        lines.extend(f"- {a}" for a in preserved_approvals[:5])
+    if preserved_errors:
+        lines.append("Erros/falhas anteriores preservados:")
+        lines.extend(f"- {e}" for e in preserved_errors[:5])
+    return VMessage(
+        role=MessageRole.SYSTEM,
+        content=[ContentBlock(kind="text", text="\n".join(lines))],
+    )
+
+
 @dataclass
 class PlannedContext:
     """Resultado do planejamento de contexto para envio ao modelo."""
@@ -179,24 +205,11 @@ class ContextPlanner:
         non_system = [m for m in bounded if m.role != MessageRole.SYSTEM]
         units = _conversation_units(non_system)
 
-        preserved_decisions: list[str] = []
-        preserved_errors: list[str] = []
-        preserved_approvals: list[str] = []
-
-        # Extrai decisões e erros estruturados
-        for u in units:
-            for m in u:
-                txt = m.text()
-                if "error" in txt.lower() or "falha" in txt.lower():
-                    preserved_errors.append(txt[:100])
-                if "aprovad" in txt.lower():
-                    preserved_approvals.append(txt[:100])
-
         used_tokens = sum(_message_tokens(m) for m in systems)
         selected_units: list[list[VMessage]] = []
 
-        marker_msg = _marker(len(non_system))
-        marker_cost = _message_tokens(marker_msg)
+        baseline_marker = _marker(len(non_system))
+        marker_cost = _message_tokens(baseline_marker)
         selection_budget = max_tokens - marker_cost
 
         latest_tool_unit = None
@@ -234,10 +247,74 @@ class ContextPlanner:
         selected_non_system = [m for unit in selected_units for m in unit]
         omitted = len(non_system) - len(selected_non_system)
 
-        final_messages = [*systems]
+        preserved_decisions: list[str] = []
+        preserved_errors: list[str] = []
+        preserved_approvals: list[str] = []
+
         if omitted > 0:
-            final_messages.append(marker_msg)
-        final_messages.extend(selected_non_system)
+            selected_ids = {id(u) for u in selected_units}
+            omitted_units = [u for u in units if id(u) not in selected_ids]
+            for u in omitted_units:
+                for m in u:
+                    if m.role is MessageRole.ASSISTANT:
+                        if m.tool_calls:
+                            tool_names = ", ".join(
+                                tc.name for tc in m.tool_calls if tc.name
+                            )
+                            if tool_names:
+                                preserved_decisions.append(
+                                    f"Chamada de ferramentas: {tool_names}"
+                                )
+                        elif m.finish_reason == "stop" and m.text().strip():
+                            first_line = m.text().strip().splitlines()[0][:100]
+                            if first_line:
+                                preserved_decisions.append(first_line)
+                    elif m.role is MessageRole.TOOL:
+                        is_err = bool(
+                            m.is_error
+                            or m.finish_reason in {"tool_error", "failed"}
+                            or any(getattr(b, "is_error", False) for b in m.content)
+                        )
+                        if is_err:
+                            err_text = (
+                                m.text().strip()[:100]
+                                or "Falha na execução da ferramenta"
+                            )
+                            preserved_errors.append(
+                                f"Tool {m.tool_call_id or ''}: {err_text}"
+                            )
+                    elif m.finish_reason in {"failed", "tool_error"}:
+                        preserved_errors.append(
+                            f"{m.role.value}: {m.text().strip()[:100]}"
+                        )
+
+                    extra_val = getattr(m, "extra", None)
+                    extra_approval = (
+                        extra_val.get("approval")
+                        if isinstance(extra_val, dict)
+                        else None
+                    )
+                    if extra_approval and isinstance(extra_approval, dict):
+                        t_name = str(extra_approval.get("tool_name") or "ação")
+                        dec = str(extra_approval.get("decision") or "aprovado")
+                        preserved_approvals.append(f"Aprovação de {t_name}: {dec}")
+                    elif (
+                        m.role is MessageRole.TOOL
+                        and "approval" in (m.tool_call_id or "").lower()
+                    ):
+                        preserved_approvals.append(
+                            f"Aprovação registrada: {m.text().strip()[:100]}"
+                        )
+
+            marker_msg = _format_compacted_marker(
+                omitted,
+                preserved_errors=preserved_errors,
+                preserved_approvals=preserved_approvals,
+                preserved_decisions=preserved_decisions,
+            )
+            final_messages = [*systems, marker_msg, *selected_non_system]
+        else:
+            final_messages = [*systems, *selected_non_system]
 
         tokens_after = sum(_message_tokens(m) for m in final_messages)
 
