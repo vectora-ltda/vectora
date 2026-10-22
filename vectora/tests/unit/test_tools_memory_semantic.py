@@ -114,6 +114,39 @@ class TestSearchMemoryTool:
         )
 
     @pytest.mark.asyncio
+    async def test_search_expande_janela_quando_primeira_pagina_expira(self):
+        from backend.tools.memory import search_memory
+
+        ctx = ToolContext(thread_id="t6")
+        expired = [
+            _FakeStoreItem(
+                f"old-{index}",
+                "expirada",
+                score=1.0,
+                valid_until="2000-01-01T00:00:00",
+            )
+            for index in range(1000)
+        ]
+        live = _FakeStoreItem("live", "válida", score=0.5)
+        store = AsyncMock()
+
+        async def paged_search(_namespace, *, query, limit):
+            assert query == "x"
+            return [*expired, live][:limit]
+
+        store.asearch.side_effect = paged_search
+
+        with patch("backend.tools.memory._get_store", return_value=store):
+            data = json.loads(await search_memory(ctx=ctx, query="x", limit=1))
+
+        assert data["count"] == 1
+        assert data["memories"][0]["key"] == "live"
+        assert [call.kwargs["limit"] for call in store.asearch.await_args_list] == [
+            1000,
+            2000,
+        ]
+
+    @pytest.mark.asyncio
     async def test_error_returns_failed(self):
         """Exceção ao obter o store retorna status failed com a mensagem."""
         from backend.tools.memory import search_memory
