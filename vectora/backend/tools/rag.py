@@ -121,13 +121,16 @@ class SystemOneRerank:
         self.harness = harness
         self.top_n = max(1, int(top_n))
         self.workspace_id = workspace_id
+        self.last_status = "not_called"
 
     async def acompress_documents(
         self, documents: Any, query: str, callbacks: Any = None
     ) -> list[Document]:
         docs = list(documents)
         if not docs:
+            self.last_status = "not_called"
             return []
+        self.last_status = "applied"
         limit = min(self.top_n, len(docs))
         candidates = [
             {
@@ -150,12 +153,17 @@ class SystemOneRerank:
                 candidates=candidates,
                 top_k=limit,
             )
+            self.last_status = str(
+                getattr(self.harness, "last_rerank_status", "applied")
+            )
             if not ranked:
+                self.last_status = "fallback"
                 return docs[:limit]
             return [item["doc"] for item in ranked[:limit] if "doc" in item] or docs[
                 :limit
             ]
         except Exception:
+            self.last_status = "fallback"
             logger.warning(
                 "rag: falha no reranking SystemOne — preservando ranking original",
                 exc_info=True,
@@ -630,8 +638,9 @@ async def vector_search(
                     }
                     for doc in reranked_docs
                 ]
-                reranker_name = reranker_attempted
-                reranker_status = "applied"
+                reranker_status = str(getattr(reranker, "last_status", "applied"))
+                if reranker_status == "applied":
+                    reranker_name = reranker_attempted
                 logger.info("vector_search_reranked", extra={"top_k": len(results)})
             except Exception as rerank_err:
                 logger.warning(f"Reranking failed, using raw results: {rerank_err}")
