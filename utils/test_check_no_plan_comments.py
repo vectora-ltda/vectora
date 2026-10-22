@@ -1,5 +1,5 @@
-"""Testes de `check_no_plan_comments.py` — hook de pre-commit que barra
-proveniência de processo (plano ou ferramenta de IA) em código-fonte.
+"""Testes de `check_no_plan_comments.py` â€” hook de pre-commit que barra
+proveniÃªncia de processo (plano ou ferramenta de IA) em cÃ³digo-fonte.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ class TestPlanoDeteccao:
         assert _find_violations(path) == []
 
     def test_bloqueia_bloco_com_letra_maiuscula(self, tmp_path: Path) -> None:
-        path = _write(tmp_path, "a.ts", "// Bloco T10.4 concluído\nconst x = 1;\n")
+        path = _write(tmp_path, "a.ts", "// Bloco T10.4 concluÃ­do\nconst x = 1;\n")
         assert len(_find_violations(path)) == 1
 
     def test_bloqueia_fase_com_sufixo(self, tmp_path: Path) -> None:
@@ -42,7 +42,7 @@ class TestPlanoDeteccao:
         assert len(_find_violations(path)) == 1
 
     def test_erro_borda_bloco_minusculo_nao_bloqueia(self, tmp_path: Path) -> None:
-        path = _write(tmp_path, "a.py", "# separa em um bloco de código só\nx = 1\n")
+        path = _write(tmp_path, "a.py", "# separa em um bloco de cÃ³digo sÃ³\nx = 1\n")
         assert _find_violations(path) == []
 
 
@@ -56,7 +56,7 @@ class TestFerramentaIaDeteccao:
         assert len(_find_violations(path)) == 1
 
     def test_bloqueia_copilot(self, tmp_path: Path) -> None:
-        path = _write(tmp_path, "a.js", "// sugestão do copilot\nconst x = 1;\n")
+        path = _write(tmp_path, "a.js", "// sugestÃ£o do copilot\nconst x = 1;\n")
         assert len(_find_violations(path)) == 1
 
     def test_erro_borda_comentario_dentro_de_interpolacao_de_template_bloqueia(
@@ -69,7 +69,7 @@ class TestFerramentaIaDeteccao:
         self, tmp_path: Path
     ) -> None:
         path = _write(
-            tmp_path, "a.py", "# nenhuma referência de ferramenta aqui\nx = 1\n"
+            tmp_path, "a.py", "# nenhuma referÃªncia de ferramenta aqui\nx = 1\n"
         )
         assert _find_violations(path) == []
 
@@ -88,7 +88,7 @@ class TestFerramentaIaDeteccao:
     def test_erro_borda_referencia_a_claude_md_nao_bloqueia(
         self, tmp_path: Path
     ) -> None:
-        path = _write(tmp_path, "a.py", "# regra vem de CLAUDE.md §1\nx = 1\n")
+        path = _write(tmp_path, "a.py", "# regra vem de CLAUDE.md Â§1\nx = 1\n")
         assert _find_violations(path) == []
 
 
@@ -114,6 +114,20 @@ class TestTrackerDeteccao:
     def test_bloqueia_pull_request_sem_numero(self, tmp_path: Path) -> None:
         path = _write(tmp_path, "a.py", "# acompanhamento no pull request\nx = 1\n")
         assert len(_find_violations(path)) == 1
+
+    def test_bloqueia_urls_github_de_issue_e_pull(self, tmp_path: Path) -> None:
+        issue = _write(
+            tmp_path,
+            "issue.py",
+            "# https://github.com/vectora-ltda/vectora/issues/367\nx = 1\n",
+        )
+        pull = _write(
+            tmp_path,
+            "pull.py",
+            "# https://github.com/vectora-ltda/vectora/pull/385\nx = 1\n",
+        )
+        assert len(_find_violations(issue)) == 1
+        assert len(_find_violations(pull)) == 1
 
     def test_bloqueia_gha_e_github_actions(self, tmp_path: Path) -> None:
         path1 = _write(tmp_path, "b.py", "# rodado no GHA\nx = 1\n")
