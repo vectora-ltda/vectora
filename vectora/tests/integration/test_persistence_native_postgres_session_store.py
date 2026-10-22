@@ -79,7 +79,7 @@ class TestContextCheckpoint:
             thread_id,
             "run-checkpoint",
             {
-                "checkpoint_id": "checkpoint-pg",
+                "checkpoint_id": f"checkpoint-pg-{thread_id}",
                 "last_sequence": 12,
                 "source_hash": "d" * 64,
                 "schema_version": "context.v1",
@@ -92,7 +92,7 @@ class TestContextCheckpoint:
             thread_id, source_hash="d" * 64
         )
         assert checkpoint is not None
-        assert checkpoint["checkpoint_id"] == "checkpoint-pg"
+        assert checkpoint["checkpoint_id"] == f"checkpoint-pg-{thread_id}"
         assert checkpoint["state"] == {"phase": "tool_running"}
         assert (
             await store.get_latest_context_checkpoint(thread_id, source_hash="e" * 64)

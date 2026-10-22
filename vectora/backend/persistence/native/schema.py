@@ -167,19 +167,21 @@ CREATE TABLE IF NOT EXISTS context_checkpoints (
     created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ix_context_checkpoints_thread_sequence
-    ON context_checkpoints(thread_id, last_sequence);
+    ON context_checkpoints(thread_id, last_sequence, source_hash);
 CREATE INDEX IF NOT EXISTS ix_context_checkpoints_thread_created
     ON context_checkpoints(thread_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS agent_runs (
     run_id TEXT PRIMARY KEY,
     thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
     turn_id TEXT,
+    parent_run_id TEXT,
+    correlation_id TEXT,
     user_id TEXT NOT NULL DEFAULT '',
     workspace_id TEXT,
     model TEXT NOT NULL DEFAULT '',
     provider TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL CHECK(status IN
-        ('planned', 'running', 'waiting_approval', 'verifying', 'passed', 'degraded', 'failed', 'cancelled')),
+        ('planned', 'admitted', 'running', 'waiting_approval', 'waiting_provider', 'tool_running', 'verifying', 'passed', 'degraded', 'failed', 'cancelled', 'recovery_required')),
     plan_step TEXT,
     tools_available_json TEXT NOT NULL DEFAULT '[]',
     tools_used_json TEXT NOT NULL DEFAULT '[]',
@@ -207,6 +209,77 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
     """Cria e migra todas as tabelas e índices necessários no SQLite (sessions.db)."""
     async with pool.acquire() as conn:
         await conn.executescript(SQLITE_SESSIONS_SCHEMA)
+        # Migrate the original uniqueness policy. A thread may have multiple
+        # branches at one sequence when their transcript hashes differ.
+        await conn.execute(
+            "DROP INDEX IF EXISTS ix_context_checkpoints_thread_sequence"
+        )
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_context_checkpoints_thread_sequence "
+            "ON context_checkpoints(thread_id, last_sequence, source_hash)"
+        )
+        # Expande a constraint de status sem perder AgentRuns já persistidos.
+        # SQLite não suporta ALTER CONSTRAINT; a reconstrução é idempotente e
+        # mantém a mesma ordem de colunas usada pelo store.
+        cursor = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_runs'"
+        )
+        agent_runs_sql = await cursor.fetchone()
+        if agent_runs_sql and "waiting_provider" not in str(agent_runs_sql[0]):
+            await conn.execute("DROP INDEX IF EXISTS ix_agent_runs_thread_turn")
+            await conn.execute("DROP INDEX IF EXISTS ix_agent_runs_thread_status")
+            await conn.execute("ALTER TABLE agent_runs RENAME TO agent_runs_legacy")
+            await conn.execute(
+                """CREATE TABLE agent_runs (
+                    run_id TEXT PRIMARY KEY,
+                    thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
+                    turn_id TEXT,
+                    user_id TEXT NOT NULL DEFAULT '',
+                    workspace_id TEXT,
+                    model TEXT NOT NULL DEFAULT '',
+                    provider TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL CHECK(status IN
+                        ('planned', 'admitted', 'running', 'waiting_approval', 'waiting_provider', 'tool_running', 'verifying', 'passed', 'degraded', 'failed', 'cancelled', 'recovery_required')),
+                    plan_step TEXT,
+                    tools_available_json TEXT NOT NULL DEFAULT '[]',
+                    tools_used_json TEXT NOT NULL DEFAULT '[]',
+                    approvals_json TEXT NOT NULL DEFAULT '[]',
+                    files_touched_json TEXT NOT NULL DEFAULT '[]',
+                    commands_run_json TEXT NOT NULL DEFAULT '[]',
+                    tests_run_json TEXT NOT NULL DEFAULT '[]',
+                    artifacts_json TEXT NOT NULL DEFAULT '[]',
+                    metrics_json TEXT NOT NULL DEFAULT '{}',
+                    evidence_json TEXT NOT NULL DEFAULT '[]',
+                    detail TEXT,
+                    error_code TEXT,
+                    started_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    terminal_at TEXT
+                )"""
+            )
+            await conn.execute(
+                """INSERT INTO agent_runs (
+                    run_id, thread_id, turn_id, user_id, workspace_id, model, provider,
+                    status, plan_step, tools_available_json, tools_used_json,
+                    approvals_json, files_touched_json, commands_run_json,
+                    tests_run_json, artifacts_json, metrics_json, evidence_json,
+                    detail, error_code, started_at, updated_at, terminal_at
+                ) SELECT run_id, thread_id, turn_id, user_id, workspace_id, model,
+                    provider, status, plan_step, tools_available_json, tools_used_json,
+                    approvals_json, files_touched_json, commands_run_json,
+                    tests_run_json, artifacts_json, metrics_json, evidence_json,
+                    detail, error_code, started_at, updated_at, terminal_at
+                    FROM agent_runs_legacy"""
+            )
+            await conn.execute("DROP TABLE agent_runs_legacy")
+            await conn.execute(
+                "CREATE UNIQUE INDEX ix_agent_runs_thread_turn "
+                "ON agent_runs(thread_id, turn_id) WHERE turn_id IS NOT NULL"
+            )
+            await conn.execute(
+                "CREATE INDEX ix_agent_runs_thread_status "
+                "ON agent_runs(thread_id, status, updated_at)"
+            )
         # Upgrade de bancos criados antes de decisões estruturadas de HITL
         for statement in (
             "ALTER TABLE pending_approvals ADD COLUMN options_json TEXT NOT NULL DEFAULT '[]'",
@@ -232,6 +305,12 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
             await conn.execute("ALTER TABLE messages ADD COLUMN run_id TEXT")
         if not any(str(column[1]) == "edited_files_json" for column in columns):
             await conn.execute("ALTER TABLE messages ADD COLUMN edited_files_json TEXT")
+        run_cols = await conn.execute_fetchall("PRAGMA table_info(agent_runs)")
+        run_col_names = {str(col[1]) for col in run_cols}
+        if "parent_run_id" not in run_col_names:
+            await conn.execute("ALTER TABLE agent_runs ADD COLUMN parent_run_id TEXT")
+        if "correlation_id" not in run_col_names:
+            await conn.execute("ALTER TABLE agent_runs ADD COLUMN correlation_id TEXT")
         await conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_messages_thread_turn "
             "ON messages(thread_id, turn_id) WHERE turn_id IS NOT NULL"
@@ -389,19 +468,21 @@ CREATE TABLE IF NOT EXISTS vectora_native_context_checkpoints (
     created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ix_vectora_native_context_checkpoints_thread_sequence
-    ON vectora_native_context_checkpoints(thread_id, last_sequence);
+    ON vectora_native_context_checkpoints(thread_id, last_sequence, source_hash);
 CREATE INDEX IF NOT EXISTS ix_vectora_native_context_checkpoints_thread_created
     ON vectora_native_context_checkpoints(thread_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS vectora_native_agent_runs (
     run_id TEXT PRIMARY KEY,
     thread_id TEXT NOT NULL REFERENCES vectora_native_sessions(thread_id),
     turn_id TEXT,
+    parent_run_id TEXT,
+    correlation_id TEXT,
     user_id TEXT NOT NULL DEFAULT '',
     workspace_id TEXT,
     model TEXT NOT NULL DEFAULT '',
     provider TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL CHECK(status IN
-        ('planned', 'running', 'waiting_approval', 'verifying', 'passed', 'degraded', 'failed', 'cancelled')),
+        ('planned', 'admitted', 'running', 'waiting_approval', 'waiting_provider', 'tool_running', 'verifying', 'passed', 'degraded', 'failed', 'cancelled', 'recovery_required')),
     plan_step TEXT,
     tools_available_json TEXT NOT NULL DEFAULT '[]',
     tools_used_json TEXT NOT NULL DEFAULT '[]',
@@ -429,6 +510,14 @@ async def setup_postgres_session_schema(pool: asyncpg.Pool) -> None:
     """Cria e migra todas as tabelas e índices necessários no PostgreSQL."""
     async with pool.acquire() as conn:
         await conn.execute(POSTGRES_SESSIONS_SCHEMA)
+        await conn.execute(
+            "DROP INDEX IF EXISTS ix_vectora_native_context_checkpoints_thread_sequence"
+        )
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS "
+            "ix_vectora_native_context_checkpoints_thread_sequence "
+            "ON vectora_native_context_checkpoints(thread_id, last_sequence, source_hash)"
+        )
         for statement in (
             (
                 "ALTER TABLE vectora_native_pending_approvals "
@@ -457,4 +546,10 @@ async def setup_postgres_session_schema(pool: asyncpg.Pool) -> None:
         await conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_vectora_native_messages_thread_turn "
             "ON vectora_native_messages(thread_id, turn_id) WHERE turn_id IS NOT NULL"
+        )
+        await conn.execute(
+            "ALTER TABLE vectora_native_agent_runs ADD COLUMN IF NOT EXISTS parent_run_id TEXT"
+        )
+        await conn.execute(
+            "ALTER TABLE vectora_native_agent_runs ADD COLUMN IF NOT EXISTS correlation_id TEXT"
         )

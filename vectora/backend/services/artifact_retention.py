@@ -9,6 +9,8 @@ run to make maintenance observable before it becomes destructive.
 from __future__ import annotations
 
 import json
+import threading
+import time
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -30,6 +32,7 @@ class ArtifactGcResult:
     failed: int = 0
     bytes_freed: int = 0
     errors: tuple[str, ...] = field(default_factory=tuple)
+    stopped: bool = False
 
 
 def _normalise_reference(value: str | Path) -> str:
@@ -53,10 +56,16 @@ def _retention_class(sidecar: Path) -> str:
     return value if isinstance(value, str) and value else "run"
 
 
-def _iter_payloads(root: Path) -> Iterable[Path]:
+def _iter_payloads(
+    root: Path, stop_event: threading.Event | None = None
+) -> Iterable[Path]:
     # Markdown artifacts are the canonical payload.  Sidecars are metadata,
     # never independent payloads, and therefore are handled with their file.
-    yield from (path for path in root.rglob("*.md") if path.is_file())
+    for path in root.rglob("*.md"):
+        if stop_event is not None and stop_event.is_set():
+            return
+        if path.is_file():
+            yield path
 
 
 def collect_artifacts(
@@ -67,6 +76,8 @@ def collect_artifacts(
     retention_classes: Mapping[str, timedelta] | None = None,
     now: datetime | None = None,
     dry_run: bool = True,
+    stop_event: threading.Event | None = None,
+    max_scan_seconds: float | None = 30.0,
 ) -> ArtifactGcResult:
     """Collect unreferenced artifacts according to retention policy.
 
@@ -88,8 +99,18 @@ def collect_artifacts(
     scanned = eligible = deleted = skipped_referenced = skipped_recent = 0
     skipped_policy = skipped_symlink = failed = bytes_freed = 0
     errors: list[str] = []
+    stopped = False
+    deadline = (
+        time.monotonic() + max_scan_seconds if max_scan_seconds is not None else None
+    )
 
-    for path in _iter_payloads(root):
+    for path in _iter_payloads(root, stop_event):
+        if stop_event is not None and stop_event.is_set():
+            stopped = True
+            break
+        if deadline is not None and time.monotonic() >= deadline:
+            stopped = True
+            break
         scanned += 1
         if path.is_symlink():
             skipped_symlink += 1
@@ -143,4 +164,5 @@ def collect_artifacts(
         failed=failed,
         bytes_freed=bytes_freed,
         errors=tuple(errors),
+        stopped=stopped,
     )
