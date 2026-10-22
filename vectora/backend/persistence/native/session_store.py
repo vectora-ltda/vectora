@@ -64,7 +64,16 @@ def _map_legacy_session_run_status(status: str) -> str:
 
     session_runs CHECK: ('queued', 'running', 'streaming', 'completed', 'failed', 'cancelled')
     """
-    if status in ("planned", "running", "waiting_approval", "verifying"):
+    if status in (
+        "planned",
+        "admitted",
+        "running",
+        "waiting_approval",
+        "waiting_provider",
+        "tool_running",
+        "verifying",
+        "recovery_required",
+    ):
         return "running"
     if status in ("passed", "degraded"):
         return "completed"

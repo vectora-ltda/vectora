@@ -143,7 +143,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     model TEXT NOT NULL DEFAULT '',
     provider TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL CHECK(status IN
-        ('planned', 'running', 'waiting_approval', 'verifying', 'passed', 'degraded', 'failed', 'cancelled')),
+        ('planned', 'admitted', 'running', 'waiting_approval', 'waiting_provider', 'tool_running', 'verifying', 'passed', 'degraded', 'failed', 'cancelled', 'recovery_required')),
     plan_step TEXT,
     tools_available_json TEXT NOT NULL DEFAULT '[]',
     tools_used_json TEXT NOT NULL DEFAULT '[]',
@@ -171,6 +171,68 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
     """Cria e migra todas as tabelas e índices necessários no SQLite (sessions.db)."""
     async with pool.acquire() as conn:
         await conn.executescript(SQLITE_SESSIONS_SCHEMA)
+        # Expande a constraint de status sem perder AgentRuns já persistidos.
+        # SQLite não suporta ALTER CONSTRAINT; a reconstrução é idempotente e
+        # mantém a mesma ordem de colunas usada pelo store.
+        cursor = await conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='agent_runs'"
+        )
+        agent_runs_sql = await cursor.fetchone()
+        if agent_runs_sql and "waiting_provider" not in str(agent_runs_sql[0]):
+            await conn.execute("DROP INDEX IF EXISTS ix_agent_runs_thread_turn")
+            await conn.execute("DROP INDEX IF EXISTS ix_agent_runs_thread_status")
+            await conn.execute("ALTER TABLE agent_runs RENAME TO agent_runs_legacy")
+            await conn.execute(
+                """CREATE TABLE agent_runs (
+                    run_id TEXT PRIMARY KEY,
+                    thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
+                    turn_id TEXT,
+                    user_id TEXT NOT NULL DEFAULT '',
+                    workspace_id TEXT,
+                    model TEXT NOT NULL DEFAULT '',
+                    provider TEXT NOT NULL DEFAULT '',
+                    status TEXT NOT NULL CHECK(status IN
+                        ('planned', 'admitted', 'running', 'waiting_approval', 'waiting_provider', 'tool_running', 'verifying', 'passed', 'degraded', 'failed', 'cancelled', 'recovery_required')),
+                    plan_step TEXT,
+                    tools_available_json TEXT NOT NULL DEFAULT '[]',
+                    tools_used_json TEXT NOT NULL DEFAULT '[]',
+                    approvals_json TEXT NOT NULL DEFAULT '[]',
+                    files_touched_json TEXT NOT NULL DEFAULT '[]',
+                    commands_run_json TEXT NOT NULL DEFAULT '[]',
+                    tests_run_json TEXT NOT NULL DEFAULT '[]',
+                    artifacts_json TEXT NOT NULL DEFAULT '[]',
+                    metrics_json TEXT NOT NULL DEFAULT '{}',
+                    evidence_json TEXT NOT NULL DEFAULT '[]',
+                    detail TEXT,
+                    error_code TEXT,
+                    started_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    terminal_at TEXT
+                )"""
+            )
+            await conn.execute(
+                """INSERT INTO agent_runs (
+                    run_id, thread_id, turn_id, user_id, workspace_id, model, provider,
+                    status, plan_step, tools_available_json, tools_used_json,
+                    approvals_json, files_touched_json, commands_run_json,
+                    tests_run_json, artifacts_json, metrics_json, evidence_json,
+                    detail, error_code, started_at, updated_at, terminal_at
+                ) SELECT run_id, thread_id, turn_id, user_id, workspace_id, model,
+                    provider, status, plan_step, tools_available_json, tools_used_json,
+                    approvals_json, files_touched_json, commands_run_json,
+                    tests_run_json, artifacts_json, metrics_json, evidence_json,
+                    detail, error_code, started_at, updated_at, terminal_at
+                    FROM agent_runs_legacy"""
+            )
+            await conn.execute("DROP TABLE agent_runs_legacy")
+            await conn.execute(
+                "CREATE UNIQUE INDEX ix_agent_runs_thread_turn "
+                "ON agent_runs(thread_id, turn_id) WHERE turn_id IS NOT NULL"
+            )
+            await conn.execute(
+                "CREATE INDEX ix_agent_runs_thread_status "
+                "ON agent_runs(thread_id, status, updated_at)"
+            )
         # Upgrade de bancos criados antes de decisões estruturadas de HITL
         for statement in (
             "ALTER TABLE pending_approvals ADD COLUMN options_json TEXT NOT NULL DEFAULT '[]'",
@@ -329,7 +391,7 @@ CREATE TABLE IF NOT EXISTS vectora_native_agent_runs (
     model TEXT NOT NULL DEFAULT '',
     provider TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL CHECK(status IN
-        ('planned', 'running', 'waiting_approval', 'verifying', 'passed', 'degraded', 'failed', 'cancelled')),
+        ('planned', 'admitted', 'running', 'waiting_approval', 'waiting_provider', 'tool_running', 'verifying', 'passed', 'degraded', 'failed', 'cancelled', 'recovery_required')),
     plan_step TEXT,
     tools_available_json TEXT NOT NULL DEFAULT '[]',
     tools_used_json TEXT NOT NULL DEFAULT '[]',
