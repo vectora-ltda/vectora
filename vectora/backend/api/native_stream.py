@@ -20,7 +20,7 @@ import logging
 import time
 import uuid
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from backend.api.adapters import (
     _mark_thread_has_content,
@@ -133,7 +133,7 @@ async def _persist_terminal_outcome(
     thread_id: str,
     run_id: str,
     *,
-    status: str,
+    status: Literal["failed", "cancelled"],
     detail: str,
 ) -> None:
     """Make provider failures/cancellations visible in the durable history.
@@ -161,7 +161,7 @@ async def _persist_terminal_outcome(
         if hasattr(store, "update_agent_run_status"):
             await store.update_agent_run_status(
                 run_id,
-                status=status,  # type: ignore
+                status=status,
                 detail=detail,
             )
         turn_id = f"{run_id}:terminal"
@@ -442,7 +442,6 @@ def stream_engine_events(
                         await _update_persisted_run(
                             resolved_run_id,
                             status="completed",
-                            detail="Execução concluída.",
                         )
                 await queue.put(_SENTINEL)
 
@@ -632,7 +631,6 @@ def stream_engine_events(
                     await _update_persisted_run(
                         resolved_run_id,
                         status="completed",
-                        detail="Execução concluída.",
                         partial_text=accumulated_partial_content,
                     )
                     t = asyncio.ensure_future(_clear_partial(thread_id))
