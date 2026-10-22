@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from typing import cast
@@ -43,6 +44,19 @@ _MEMORY_DOMAINS = {
     "structural_graph",
 }
 _MEMORY_TRUST_LEVELS = {"trusted", "verified", "untrusted"}
+
+
+def _persisted_confidence(value: object) -> float:
+    """Normaliza confiança externa sem deixar um item corrompido abortar o loop."""
+    if not isinstance(value, (int, float, str)):
+        return 1.0
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    if not math.isfinite(confidence):
+        return 1.0
+    return min(1.0, max(0.0, confidence))
 
 
 def memory_records_from_backend_items(
@@ -104,7 +118,7 @@ def memory_records_from_backend_items(
                 ),
                 accessed_at=str(raw_value.get("updated_at") or ""),
                 metadata=metadata,
-                confidence=float(raw_value.get("confidence", 1.0) or 1.0),
+                confidence=_persisted_confidence(raw_value.get("confidence", 1.0)),
                 valid_until=(
                     str(raw_value["valid_until"])
                     if raw_value.get("valid_until") is not None
