@@ -67,6 +67,11 @@ class ArtifactMetadata(BaseModel):
     content_preview: str | None = Field(
         default=None, description="Preview dos primeiros 200 caracteres."
     )
+    byte_size: int = Field(default=0, ge=0, description="Tamanho do payload em bytes.")
+    sha256: str = Field(default="", description="Checksum SHA-256 do payload.")
+    retention_class: str = Field(
+        default="run", description="Política de retenção aplicada ao artifact."
+    )
 
     def __getitem__(self, item: str) -> Any:
         return getattr(self, item)
