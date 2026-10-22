@@ -54,10 +54,20 @@ def test_context_projection_validity() -> None:
 
     evidence = proj.to_evidence_entry()
     assert evidence["kind"] == "context_projection"
+    assert len(evidence["projection_id"]) == 64
     assert evidence["source_transcript_hash"] == "hash123"
     assert evidence["preserved_decisions"] == []
     assert evidence["preserved_errors"] == []
     assert evidence["preserved_approvals"] == []
+
+    equivalent = ContextProjection(
+        start_seq=0,
+        end_seq=5,
+        source_transcript_hash="hash123",
+        tokens_before=200,
+        tokens_after=100,
+    )
+    assert equivalent.projection_id == proj.projection_id
 
 
 def test_memory_store_domains_and_retrieval() -> None:
