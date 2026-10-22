@@ -962,9 +962,18 @@ class SystemOneHarness:
                 return None
             return (ans.score, idx, cand_id, item)
 
-        results = await asyncio.gather(
-            *(_score_one(idx, item) for idx, item in enumerate(candidates))
+        rerank_deadline_s = (
+            self._registry.get("rag_rerank_scoring").operation_spec.deadline_ms / 1000.0
         )
+        try:
+            async with asyncio.timeout(rerank_deadline_s):
+                results = await asyncio.gather(
+                    *(_score_one(idx, item) for idx, item in enumerate(candidates))
+                )
+        except TimeoutError:
+            # A single deadline covers queue admission, provider calls and semaphore
+            # waits. Preserve the source order when the aggregate budget expires.
+            return list(candidates[:limit])
         scored: list[tuple[float, int, str, dict[str, Any]]] = []
         for entry in results:
             if entry is None:
