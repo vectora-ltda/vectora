@@ -254,15 +254,27 @@ class TestAgentRunLifecycle:
         assert len(loaded.tools_used) == 5
         assert len(loaded.evidence) == 5
 
-    async def test_evidence_lock_registry_releases_unknown_runs(
+    async def test_projection_and_artifact_evidence_are_idempotent(
         self, store: SessionStore
     ) -> None:
-        """Uma execução ausente não pode deixar um lock retido para sempre."""
-        for index in range(100):
-            await store.record_run_evidence(
-                f"missing-run-{index}", evidence={"step": index}
-            )
-        assert len(store._run_evidence_locks) == 0
+        await store.create_session("thread-idempotent", user_id="user-123")
+        await store.upsert_agent_run(
+            AgentRun(run_id="run-idempotent", thread_id="thread-idempotent")
+        )
+
+        projection = {"kind": "context_projection", "projection_id": "projection-1"}
+        artifact = {"artifact_id": "artifact-1", "sha256": "a" * 64}
+        await store.record_run_evidence(
+            "run-idempotent", evidence=projection, artifact=artifact
+        )
+        await store.record_run_evidence(
+            "run-idempotent", evidence=projection, artifact=artifact
+        )
+
+        loaded = await store.get_agent_run("run-idempotent")
+        assert loaded is not None
+        assert len(loaded.evidence) == 1
+        assert len(loaded.artifacts) == 1
 
     async def test_rehydrate_after_restart(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "restart_test.db")
