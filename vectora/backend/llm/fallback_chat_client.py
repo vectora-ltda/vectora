@@ -251,6 +251,11 @@ def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
                     require_api_key=False,
                     include_attribution=False,
                 ),
+                # Modelos locais pequenos não conseguem seguir o prompt
+                # completo de identidade, ferramentas e contexto. O DMR já
+                # usa a projeção compacta; llama.cpp precisa do mesmo
+                # contrato para evitar respostas degeneradas e repetitivas.
+                compact_system_prompt=True,
             )
         case "dmr":
             from backend.llm.openrouter.chat_client import OpenRouterChatClient
