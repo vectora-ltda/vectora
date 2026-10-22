@@ -66,6 +66,7 @@ class TestRecordToolCall:
             result_count=2,
             retrieval_method="hybrid_rrf",
             reranker="CohereRerank",
+            reranker_status="applied",
         )
 
         record = captured.records[0]
@@ -77,6 +78,7 @@ class TestRecordToolCall:
         assert _field(record, "retrieval_method") == "hybrid_rrf"
         assert _field(record, "reranker") == "CohereRerank"
         assert not hasattr(record, "query")
+        assert _field(record, "reranker_status") == "applied"
 
     def test_record_media_quota_descarta_payload_sensivel(
         self, captured: _ListHandler
