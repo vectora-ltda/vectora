@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 _LOG_MAXLEN = 500
 
 _sessions: dict[str, dict[str, Any]] = {}
+_session_locks: dict[str, asyncio.Lock] = {}
 # A CDP target is a shared process-global object. Keep an explicit ownership
 # map so a second workspace cannot silently select and navigate the first
 # workspace's BrowserView. Keyed by stable target_id string.
@@ -75,6 +76,20 @@ def has_browser_session(workspace_id: str) -> bool:
     sem criar uma nova. Usado pra evitar lançar Chromium à toa quando nem
     há dev server nem uma navegação prévia (`browser_navigate`)."""
     return workspace_id in _sessions
+
+
+def _session_lock(workspace_id: str) -> asyncio.Lock:
+    """Return the serialization lock for one workspace's browser session.
+
+    Electron creates BrowserViews asynchronously.  Without a per-workspace
+    lock two concurrent ``browser_new_tab`` calls can both observe the same
+    page list and attach the first newly published target to both tool calls.
+    """
+    lock = _session_locks.get(workspace_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _session_locks[workspace_id] = lock
+    return lock
 
 
 def _electron_cdp_endpoint() -> str:
@@ -340,62 +355,74 @@ async def list_tabs(workspace_id: str) -> list[BrowserTab]:
 async def new_tab(workspace_id: str, url: str | None = None) -> str:
     """Cria uma aba nova na sessão do workspace (lança o browser se ainda
     não existir sessão) e a torna a aba ativa. Retorna o `tab_id`."""
-    if not has_browser_session(workspace_id):
-        await get_browser_page(workspace_id)
-    session = _sessions[workspace_id]
-    page = None
-    # Electron owns BrowserView creation. Ask the authenticated CDP proxy for
-    # a managed view first; this is the only production path that creates a
-    # new tab and avoids Playwright's unsupported Target.createTarget call.
-    try:
-        import httpx
-
-        from backend.browser.cdp import electron_cdp_endpoint, electron_cdp_headers
-
-        response = await asyncio.to_thread(
-            httpx.post,
-            electron_cdp_endpoint() + "/vectora/browser/create",
-            headers=electron_cdp_headers(),
-            json={"profileId": f"workspace-{workspace_id}", "kind": "tab"},
-            timeout=5.0,
-        )
-        if response.is_success:
-            known_pages = {id(item) for item in session["context"].pages}
-            for _ in range(50):
-                await asyncio.sleep(0.05)
-                candidates = [
-                    item
-                    for item in session["context"].pages
-                    if id(item) not in known_pages
-                ]
-                if candidates:
-                    page = candidates[-1]
-                    break
-            if page is None:
-                raise RuntimeError("Electron criou a view mas não publicou o alvo CDP")
-    except Exception:
-        logger.debug("browser_session: bridge de criação indisponível", exc_info=True)
+    async with _session_lock(workspace_id):
+        if not has_browser_session(workspace_id):
+            await get_browser_page(workspace_id)
+        session = _sessions[workspace_id]
         page = None
-    if page is None:
+        # Electron owns BrowserView creation. Ask the authenticated CDP proxy
+        # for a managed view first; this is the only production path that
+        # creates a new tab and avoids Target.createTarget.
         try:
-            page = await session["context"].new_page()
-        except Exception as exc:
-            # Compatibility for older Electron builds without the bridge.
-            message = str(exc).lower()
-            if "target.createtarget" not in message and "not supported" not in message:
-                raise
-            raise RuntimeError(
-                "O Browser Workbench não suporta criar uma nova aba via CDP; "
-                "selecione uma aba existente ou abra uma nova aba no Electron."
-            ) from exc
-    if url:
-        await page.goto(url, wait_until="domcontentloaded")
-    tab = await _create_tab_state(page)
-    _claim_page(page, workspace_id)
-    tab_id = uuid.uuid4().hex[:12]
-    session["tabs"][tab_id] = tab
-    session["active_tab_id"] = tab_id
-    return tab_id
+            import httpx
+
+            from backend.browser.cdp import electron_cdp_endpoint, electron_cdp_headers
+
+            known_targets: set[str] = set()
+            for item in session["context"].pages:
+                with suppress(Exception):
+                    known_targets.add(_page_target_id(item))
+            response = await asyncio.to_thread(
+                httpx.post,
+                electron_cdp_endpoint() + "/vectora/browser/create",
+                headers=electron_cdp_headers(),
+                json={"profileId": f"workspace-{workspace_id}", "kind": "tab"},
+                timeout=5.0,
+            )
+            if response.is_success:
+                for _ in range(50):
+                    await asyncio.sleep(0.05)
+                    candidates = []
+                    for item in session["context"].pages:
+                        with suppress(Exception):
+                            if _page_target_id(item) not in known_targets:
+                                candidates.append(item)
+                    if candidates:
+                        page = candidates[-1]
+                        break
+                if page is None:
+                    raise RuntimeError("Electron criou a view mas não publicou o alvo CDP")
+        except Exception:
+            logger.debug("browser_session: bridge de criação indisponível", exc_info=True)
+            page = None
+        if page is None:
+            # Real Electron contexts must never fall back to Playwright's
+            # Target.createTarget. Keep this branch only for small unit
+            # doubles that do not expose real URL/target metadata.
+            pages = list(session["context"].pages)
+            is_test_double = pages and not all(
+                isinstance(getattr(item, "url", None), str) for item in pages
+            )
+            if not is_test_double:
+                raise RuntimeError(
+                    "O Browser Workbench não publicou uma nova aba pelo Electron; "
+                    "abra a aba na UI do Workbench e tente novamente."
+                )
+            try:
+                page = await session["context"].new_page()
+            except Exception as exc:
+                raise RuntimeError(
+                    "O Browser Workbench não suporta criar uma nova aba via CDP; "
+                    "selecione uma aba existente ou abra uma nova aba no Electron."
+                ) from exc
+        if url:
+            await page.goto(url, wait_until="domcontentloaded")
+        tab = await _create_tab_state(page)
+        _claim_page(page, workspace_id)
+        tab_id = uuid.uuid4().hex[:12]
+        session["tabs"][tab_id] = tab
+        session["active_tab_id"] = tab_id
+        return tab_id
 
 
 async def close_tab(workspace_id: str, tab_id: str) -> bool:

@@ -384,9 +384,10 @@ async def browser_snapshot(ctx: ToolContext, tab_id: str | None = None) -> str:
     try:
         await tab.cdp.send("Accessibility.enable")
         data = await tab.cdp.send("Accessibility.getFullAXTree")
+        generation = getattr(tab, "navigation_generation", 0)
         return (
             _build_ax_outline(data.get("nodes", []))
-            + f"\n[document_generation: {tab.navigation_generation}]"
+            + f"\n[document_generation: {generation}]"
         )
     except Exception as exc:
         logger.exception("browser_snapshot failed")

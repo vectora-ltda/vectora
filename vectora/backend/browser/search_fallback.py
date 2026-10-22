@@ -166,7 +166,11 @@ def _remove_ssrf_route(page: Page, handler: Any) -> None:
 
 
 def browser_search(
-    query: str, max_results: int = 5, *, workspace_id: str | None = None
+    query: str,
+    max_results: int = 5,
+    *,
+    workspace_id: str | None = None,
+    egress_policy: Any = None,
 ) -> list[dict[str, str]]:
     """Search through the Electron Chromium session.
 
@@ -181,33 +185,37 @@ def browser_search(
     with _BROWSER_LOCK:
         browser = _get_browser()
         page = _find_workbench_page(browser, workspace_id=workspace_id)
+        route = _install_ssrf_route(page, egress_policy)
         page.set_default_timeout(_NAV_TIMEOUT_MS)
-        page.goto(
-            "https://www.bing.com/search?q=" + quote_plus(query),
-            wait_until="domcontentloaded",
-        )
-        rows = page.locator("li.b_algo")
-        results: list[dict[str, str]] = []
-        for index in range(min(rows.count(), max_results)):
-            row = rows.nth(index)
-            anchor = row.locator("h2 a").first
-            if anchor.count() == 0:
-                continue
-            title = anchor.inner_text().strip()
-            url = anchor.get_attribute("href") or ""
-            content = ""
-            snippet = row.locator(".b_caption p").first
-            if snippet.count():
-                content = snippet.inner_text().strip()
-            if url:
-                results.append(
-                    {
-                        "title": title,
-                        "content": content,
-                        "url": url,
-                        "provider": "browser",
-                    }
-                )
+        try:
+            page.goto(
+                "https://www.bing.com/search?q=" + quote_plus(query),
+                wait_until="domcontentloaded",
+            )
+            rows = page.locator("li.b_algo")
+            results: list[dict[str, str]] = []
+            for index in range(min(rows.count(), max_results)):
+                row = rows.nth(index)
+                anchor = row.locator("h2 a").first
+                if anchor.count() == 0:
+                    continue
+                title = anchor.inner_text().strip()
+                url = anchor.get_attribute("href") or ""
+                content = ""
+                snippet = row.locator(".b_caption p").first
+                if snippet.count():
+                    content = snippet.inner_text().strip()
+                if url:
+                    results.append(
+                        {
+                            "title": title,
+                            "content": content,
+                            "url": url,
+                            "provider": "browser",
+                        }
+                    )
+        finally:
+            _remove_ssrf_route(page, route)
     logger.info(
         "browser_search_completed",
         extra={"query": query, "num_results": len(results)},

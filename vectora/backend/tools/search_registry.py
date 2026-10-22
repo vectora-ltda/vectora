@@ -64,7 +64,10 @@ async def _search_ollama_web(query: str, max_results: int = 5) -> list[dict]:
 
 
 async def _search_browser(
-    query: str, max_results: int = 5, workspace_id: str | None = None
+    query: str,
+    max_results: int = 5,
+    workspace_id: str | None = None,
+    egress_policy: Any = None,
 ) -> list[dict]:
     """Busca no Chromium do Electron, reaproveitando os logins do usuário."""
     from backend.browser.search_fallback import browser_search
@@ -74,6 +77,7 @@ async def _search_browser(
         query,
         max_results=max_results,
         workspace_id=workspace_id,
+        egress_policy=egress_policy,
     )
 
 

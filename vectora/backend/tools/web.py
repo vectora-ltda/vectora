@@ -78,7 +78,11 @@ async def _invoke_backend(tool: Any, payload: dict[str, Any]) -> Any:
         result = tool.extract([payload["url"]], extract_depth="advanced")
     elif "query" in payload and hasattr(tool, "search"):
         if getattr(tool, "name", "") == "browser" and payload.get("workspace_id"):
-            result = tool.search(payload["query"], workspace_id=payload["workspace_id"])
+            result = tool.search(
+                payload["query"],
+                workspace_id=payload["workspace_id"],
+                egress_policy=payload.get("egress_policy"),
+            )
         else:
             result = tool.search(payload["query"])
     else:
@@ -301,6 +305,9 @@ async def web_search(
             payload: dict[str, Any] = {"query": query}
             if ctx is not None and ctx.workspace_id:
                 payload["workspace_id"] = ctx.workspace_id
+            policy = _ctx_egress_policy(ctx)
+            if policy is not None:
+                payload["egress_policy"] = policy
             resultados = await _invoke_backend(backend, payload)
             logger.info(
                 "web_search via backend alternativo",
