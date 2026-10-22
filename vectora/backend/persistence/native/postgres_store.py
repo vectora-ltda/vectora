@@ -9,6 +9,7 @@ Mesma lógica de ``backend/persistence/native/store.py::VectoraStore``
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -22,6 +23,7 @@ from backend.persistence.native.store import (
     get_text_at_path,
     is_store_value_expired,
 )
+from backend.persistence.telemetry import telemetry
 
 if TYPE_CHECKING:
     import asyncpg
@@ -62,6 +64,7 @@ class VectoraPostgresStore:
         self._is_setup = True
 
     async def aget(self, namespace: tuple[str, ...], key: str) -> Item | None:
+        started = time.perf_counter()
         await self.setup()
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -71,11 +74,32 @@ class VectoraPostgresStore:
                 key,
             )
         if row is None:
+            await telemetry.record_storage_operation(
+                backend="postgres",
+                operation="get",
+                namespace=namespace,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                result_count=0,
+            )
             return None
         value = row["value"]
         value = json.loads(value) if isinstance(value, str) else value
         if is_store_value_expired(value):
+            await telemetry.record_storage_operation(
+                backend="postgres",
+                operation="get",
+                namespace=namespace,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                result_count=0,
+            )
             return None
+        await telemetry.record_storage_operation(
+            backend="postgres",
+            operation="get",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            result_count=1,
+        )
         return Item(
             value=value,
             key=key,
@@ -87,6 +111,7 @@ class VectoraPostgresStore:
     async def aput(
         self, namespace: tuple[str, ...], key: str, value: dict[str, Any]
     ) -> None:
+        started = time.perf_counter()
         await self.setup()
         namespace_str = _ns_to_str(namespace)
         async with self._pool.acquire() as conn:
@@ -106,8 +131,16 @@ class VectoraPostgresStore:
                 embedding_json,
                 now,
             )
+        await telemetry.record_storage_operation(
+            backend="postgres",
+            operation="put",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            bytes_written=len(json.dumps(value, ensure_ascii=False).encode()),
+        )
 
     async def adelete(self, namespace: tuple[str, ...], key: str) -> None:
+        started = time.perf_counter()
         await self.setup()
         async with self._pool.acquire() as conn:
             await conn.execute(
@@ -115,6 +148,12 @@ class VectoraPostgresStore:
                 _ns_to_str(namespace),
                 key,
             )
+        await telemetry.record_storage_operation(
+            backend="postgres",
+            operation="delete",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+        )
 
     async def asearch(
         self,
@@ -125,6 +164,7 @@ class VectoraPostgresStore:
         filter: dict[str, Any] | None = None,  # noqa: A002 — mesmo nome do protocolo
         offset: int = 0,
     ) -> list[SearchItem]:
+        started = time.perf_counter()
         await self.setup()
         prefix = _ns_to_str(namespace)
         async with self._pool.acquire() as conn:
@@ -178,7 +218,15 @@ class VectoraPostgresStore:
             candidates.sort(key=lambda pair: pair[0] or 0.0, reverse=True)
 
         page = candidates[offset : offset + limit]
-        return [item for _, item in page]
+        result = [item for _, item in page]
+        await telemetry.record_storage_operation(
+            backend="postgres",
+            operation="search",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            result_count=len(result),
+        )
+        return result
 
     async def health(self) -> HealthResult:
         from backend.storage.protocols import _err, _ok

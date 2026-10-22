@@ -63,6 +63,9 @@ _RECORD_FIELDS = (
     "retrieval_method",
     "reranker",
     "reranker_status",
+    "storage_backend",
+    "namespace_hash",
+    "bytes_written",
 )
 
 
@@ -274,6 +277,33 @@ class VectoraTelemetry:
             reranker=reranker,
             reranker_status=reranker_status,
             operation="vector_search",
+        )
+
+    async def record_storage_operation(
+        self,
+        *,
+        backend: str,
+        operation: str,
+        namespace: tuple[str, ...],
+        duration_ms: float,
+        bytes_written: int = 0,
+        result_count: int | None = None,
+    ) -> None:
+        """Registra custo agregado de uma operação do store.
+
+        O namespace é reduzido a hash para permitir correlação sem gravar
+        nomes de workspace ou conteúdo potencialmente sensível.
+        """
+        namespace_hash = hashlib.sha256("\x1e".join(namespace).encode()).hexdigest()
+        self._emit(
+            logging.INFO,
+            "storage_operation",
+            operation=operation,
+            storage_backend=backend,
+            namespace_hash=namespace_hash,
+            duration_ms=round(duration_ms, 2),
+            bytes_written=max(0, bytes_written),
+            result_count=result_count,
         )
 
 
