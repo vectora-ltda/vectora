@@ -65,9 +65,11 @@ async def _search_ollama_web(query: str, max_results: int = 5) -> list[dict]:
 
 async def _search_browser(query: str, max_results: int = 5) -> list[dict]:
     """Busca no Chromium do Electron, reaproveitando os logins do usuário."""
-    from backend.browser.search_fallback import search_fallback
+    from backend.browser.search_fallback import browser_search
 
-    return search_fallback(query, max_results=max_results)
+    return await __import__("asyncio").to_thread(
+        browser_search, query, max_results=max_results
+    )
 
 
 async def _search_duckduckgo(query: str, max_results: int = 5) -> list[dict]:
@@ -88,11 +90,26 @@ def _tem_ollama_cloud() -> bool:
     return web_search_available()
 
 
-#: Ordem de preferência quando o usuário não escolheu. Backends com
-#: credencial vêm primeiro (quem configurou uma chave espera usá-la), e entre
-#: os sem credencial o DuckDuckGo vem antes do browser: é o default histórico
-#: e não conecta ao Electron só pra buscar. O browser é escolha explícita — é o
-#: caso em que os logins da sessão importam.
+def _electron_is_ready() -> bool:
+    """Fast readiness probe used only for automatic provider selection."""
+    try:
+        import httpx
+
+        from backend.browser.cdp import electron_cdp_endpoint, electron_cdp_headers
+
+        response = httpx.get(
+            electron_cdp_endpoint() + "/json/version",
+            headers=electron_cdp_headers(),
+            timeout=0.2,
+        )
+        return response.is_success
+    except Exception:
+        return False
+
+
+#: Ordem de preferência quando o usuário não escolheu. Com Electron pronto,
+#: o Browser Workbench é a fonte canônica e reaproveita cookies/perfis. Em
+#: headless, o probe o pula e DuckDuckGo mantém o fallback sem credenciais.
 _BACKENDS: tuple[SearchBackend, ...] = (
     SearchBackend(
         name="tavily",
@@ -107,17 +124,17 @@ _BACKENDS: tuple[SearchBackend, ...] = (
         search=_search_ollama_web,
     ),
     SearchBackend(
-        name="duckduckgo",
-        label="DuckDuckGo",
-        is_available=lambda: True,
-        search=_search_duckduckgo,
-        keyless=True,
-    ),
-    SearchBackend(
         name="browser",
         label="Browser embutido",
         is_available=lambda: True,
         search=_search_browser,
+        keyless=True,
+    ),
+    SearchBackend(
+        name="duckduckgo",
+        label="DuckDuckGo",
+        is_available=lambda: True,
+        search=_search_duckduckgo,
         keyless=True,
     ),
 )
@@ -167,6 +184,10 @@ def resolve_backend() -> SearchBackend:
         return backend
 
     for backend in _BACKENDS:
+        # Browser is preferred when Electron is actually ready, but an
+        # unavailable sidecar must not make headless/server startup unusable.
+        if backend.name == "browser" and not _electron_is_ready():
+            continue
         if backend.is_available():
             return backend
 

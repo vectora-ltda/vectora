@@ -87,6 +87,12 @@ class TestResolucaoAutomatica:
         _liga_ollama_cloud(monkeypatch)
         assert resolve_backend().name == "ollama-web"
 
+    def test_browser_electron_pronto_entra_antes_do_duckduckgo(self, monkeypatch):
+        monkeypatch.setattr(
+            "backend.tools.search_registry._electron_is_ready", lambda: True
+        )
+        assert resolve_backend().name == "browser"
+
 
 class TestEscolhaExplicita:
     def test_escolha_do_usuario_vence_a_ordem_de_preferencia(self, monkeypatch):

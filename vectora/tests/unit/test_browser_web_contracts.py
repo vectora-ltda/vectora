@@ -1,0 +1,74 @@
+from __future__ import annotations
+
+import json
+from unittest.mock import patch
+
+import pytest
+
+from backend.vtypes.web import (
+    CrawlRequest,
+    FetchedDocument,
+    MapRequest,
+    SearchDiagnostic,
+    SearchResponse,
+    SearchResult,
+)
+
+
+def test_web_contracts_validate_provider_independent_payloads() -> None:
+    response = SearchResponse(
+        results=[SearchResult(title="Vectora", url="https://example.com")],
+        diagnostic=SearchDiagnostic(status="ok", provider="browser", query="vectora"),
+    )
+    assert response.results[0].provider == "browser"
+    assert CrawlRequest(url="https://example.com", max_depth=2).max_depth == 2
+    assert MapRequest(url="https://example.com", limit=10).limit == 10
+    assert (
+        FetchedDocument(
+            url="https://example.com", final_url="https://example.com", content="ok"
+        ).provider
+        == "browser"
+    )
+
+
+@pytest.mark.asyncio
+async def test_crawl_uses_browser_without_tavily() -> None:
+    from backend.tools.web import web_crawl
+
+    with (
+        patch("backend.tools.web.settings") as settings,
+        patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
+        patch(
+            "backend.browser.search_fallback.fetch_fallback",
+            return_value="root content",
+        ),
+        patch(
+            "backend.browser.search_fallback.browser_map",
+            return_value=[],
+        ),
+    ):
+        settings.tavily_api_key = None
+        result = json.loads(await web_crawl("https://example.com", limit=1))
+
+    assert result["status"] == "ok"
+    assert result["provider"] == "browser"
+    assert result["results"][0]["content"] == "root content"
+
+
+@pytest.mark.asyncio
+async def test_map_reports_browser_error_without_fabricating_empty_results() -> None:
+    from backend.tools.web import web_map
+
+    with (
+        patch("backend.tools.web.settings") as settings,
+        patch(
+            "backend.browser.search_fallback.browser_map",
+            side_effect=RuntimeError("Electron indisponível"),
+        ),
+    ):
+        settings.tavily_api_key = None
+        result = json.loads(await web_map("https://example.com"))
+
+    assert result["status"] == "error"
+    assert result["provider"] == "browser"
+    assert "Electron" in result["error"]

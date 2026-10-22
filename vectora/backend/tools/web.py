@@ -525,9 +525,51 @@ async def web_crawl(
     if not url.startswith(("http://", "https://")):
         return json.dumps({"error": "URL deve começar com http:// ou https://"})
     if not settings.tavily_api_key:
-        return json.dumps(
-            {"error": "web_crawl exige TAVILY_API_KEY — sem fallback para varredura"}
-        )
+        from backend.browser.search_fallback import browser_map, fetch_fallback
+        from backend.browser.ssrf_guard import is_url_ssrf_safe
+
+        if not is_url_ssrf_safe(url):
+            return json.dumps(
+                {
+                    "status": "blocked",
+                    "provider": "browser",
+                    "error": "URL recusada pelo SSRF guard; TAVILY_API_KEY não é necessária",
+                }
+            )
+        max_depth = max(0, min(max_depth, 5))
+        limit = max(1, min(limit, 100))
+        origin = urlparse(url).netloc
+        queue: list[tuple[str, int]] = [(url, 0)]
+        seen: set[str] = set()
+        pages: list[dict[str, Any]] = []
+        while queue and len(pages) < limit:
+            current, depth = queue.pop(0)
+            if current in seen or urlparse(current).netloc != origin:
+                continue
+            seen.add(current)
+            try:
+                content = await asyncio.to_thread(fetch_fallback, current)
+                pages.append(
+                    {
+                        "url": current,
+                        "content": content,
+                        "depth": depth,
+                        "provider": "browser",
+                    }
+                )
+                if depth < max_depth and len(pages) < limit:
+                    links = await asyncio.to_thread(
+                        browser_map, current, limit - len(pages)
+                    )
+                    queue.extend(
+                        (link, depth + 1) for link in links if link not in seen
+                    )
+            except Exception as exc:
+                logger.warning(
+                    "browser crawl page failed",
+                    extra={"url": current, "error": str(exc)},
+                )
+        return json.dumps({"status": "ok", "provider": "browser", "results": pages})
 
     try:
         client = _tavily_client()
@@ -567,9 +609,16 @@ async def web_map(url: str, limit: int = 50) -> str:
     if not url.startswith(("http://", "https://")):
         return json.dumps({"error": "URL deve começar com http:// ou https://"})
     if not settings.tavily_api_key:
-        return json.dumps(
-            {"error": "web_map exige TAVILY_API_KEY — sem fallback para mapeamento"}
-        )
+        from backend.browser.search_fallback import browser_map
+
+        try:
+            links = await asyncio.to_thread(browser_map, url, max(1, min(limit, 200)))
+            return json.dumps({"status": "ok", "provider": "browser", "results": links})
+        except Exception as exc:
+            logger.exception("browser map failed", extra={"url": url})
+            return json.dumps(
+                {"status": "error", "provider": "browser", "error": str(exc)}
+            )
 
     try:
         client = _tavily_client()
