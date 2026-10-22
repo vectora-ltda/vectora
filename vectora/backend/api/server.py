@@ -25,6 +25,7 @@ import asyncio
 import logging
 import os
 import sys
+import threading
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Literal
@@ -463,11 +464,13 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
         logger.warning("api/server: falha ao iniciar cleanup de threads: %s", exc)
 
     # Maintenance is deliberately outside the request path.  It uses the
-    # shared storage gate, so backup/restore and ordinary writes cannot race
-    # with WAL/optimizer work; artifact collection remains dry-run until an
+    # shared storage gate coordinates maintenance with backup/restore and
+    # state-file operations; artifact collection remains dry-run until an
     # explicit retention policy opts into deletion.
     try:
         from backend.services.storage_maintenance import run_storage_maintenance
+
+        storage_maintenance_stop = threading.Event()
 
         async def _storage_maintenance_loop() -> None:
             from backend.settings import get_settings as _get_settings
@@ -478,6 +481,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
                     result = await run_storage_maintenance(
                         settings.vectora_home / "sessions.db",
                         artifact_root=settings.vectora_home / "artifacts",
+                        stop_event=storage_maintenance_stop,
                     )
                     logger.info(
                         "api/server: storage maintenance concluída wal=%s "
@@ -540,6 +544,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
         if reconcile_runs_task is not None:
             reconcile_runs_task.cancel()
         if storage_maintenance_task is not None:
+            storage_maintenance_stop.set()
             storage_maintenance_task.cancel()
         for task in (
             thread_cleanup_task,

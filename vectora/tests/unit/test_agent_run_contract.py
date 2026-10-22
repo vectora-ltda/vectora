@@ -342,6 +342,37 @@ class TestAgentRunLifecycle:
             await store.get_latest_context_checkpoint("thread-projection-store")
         ) is None
 
+    async def test_context_checkpoints_allow_distinct_transcript_branches(
+        self, store: SessionStore
+    ) -> None:
+        thread_id = "thread-checkpoint-branches"
+        await store.create_session(thread_id, user_id="user-123")
+        for checkpoint_id, run_id, source_hash in (
+            ("checkpoint-a", "run-a", "hash-a"),
+            ("checkpoint-b", "run-b", "hash-b"),
+        ):
+            await store.save_context_checkpoint(
+                thread_id,
+                run_id,
+                {
+                    "checkpoint_id": checkpoint_id,
+                    "last_sequence": 3,
+                    "source_hash": source_hash,
+                    "state": {"phase": run_id},
+                },
+            )
+
+        checkpoint_a = await store.get_latest_context_checkpoint(
+            thread_id, source_hash="hash-a"
+        )
+        checkpoint_b = await store.get_latest_context_checkpoint(
+            thread_id, source_hash="hash-b"
+        )
+        assert checkpoint_a is not None
+        assert checkpoint_b is not None
+        assert checkpoint_a["checkpoint_id"] == "checkpoint-a"
+        assert checkpoint_b["checkpoint_id"] == "checkpoint-b"
+
     async def test_rehydrate_after_restart(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "restart_test.db")
         # 1. Abre pool, cria e encerra

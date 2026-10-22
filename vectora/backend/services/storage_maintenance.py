@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -28,13 +29,13 @@ async def run_storage_maintenance(
     artifact_root: str | Path | None = None,
     referenced_artifacts: tuple[str | Path, ...] = (),
     artifact_dry_run: bool = True,
+    stop_event: threading.Event | None = None,
 ) -> StorageMaintenanceResult:
     """Run one bounded maintenance batch.
 
-    The shared ``storage_operation`` gate makes backup/restore wait until the
-    SQLite maintenance transaction and artifact scan have completed.  The GC
-    remains dry-run by default and therefore cannot delete user data unless a
-    caller opts in explicitly.
+    The shared ``storage_operation`` gate keeps maintenance coordinated with
+    backup/restore and other state-file operations. The GC remains dry-run by
+    default and therefore cannot delete user data unless explicitly enabled.
     """
     db = Path(db_path)
     wal_checkpoint = ""
@@ -60,12 +61,24 @@ async def run_storage_maintenance(
             else db.parent.parent / "artifacts"
         )
         if root.is_dir():
-            artifact_gc = await asyncio.to_thread(
-                collect_artifacts,
-                root,
-                referenced=referenced_artifacts,
-                dry_run=artifact_dry_run,
+            worker = asyncio.create_task(
+                asyncio.to_thread(
+                    collect_artifacts,
+                    root,
+                    referenced=referenced_artifacts,
+                    dry_run=artifact_dry_run,
+                    stop_event=stop_event,
+                )
             )
+            try:
+                artifact_gc = await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                if stop_event is not None:
+                    stop_event.set()
+                # Keep the storage gate held until the worker has observed the
+                # cancellation request and returned its bounded result.
+                await asyncio.shield(worker)
+                raise
         else:
             artifact_gc = ArtifactGcResult()
     return StorageMaintenanceResult(
