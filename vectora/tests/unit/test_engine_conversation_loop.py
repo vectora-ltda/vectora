@@ -13,6 +13,7 @@ import pytest
 
 from backend.engine.conversation_loop import (
     LoopConfig,
+    _preserve_latest_tool_result,
     resume_conversation,
     run_conversation,
 )
@@ -96,6 +97,23 @@ def ctx() -> ToolContext:
 
 def _texto_chunk(texto: str) -> VMessageChunk:
     return VMessageChunk(delta_text=texto)
+
+
+@pytest.mark.parametrize(
+    ("model_id", "expected"),
+    [
+        ("ollama:qwen3", True),
+        ("llamacpp:qwen2.5-0.5b", True),
+        ("dmr:hf.co/Qwen/Qwen3-0.6B", True),
+        ("openrouter:openai/gpt-4.1-mini", False),
+        ("", False),
+    ],
+)
+def test_local_models_preserve_latest_tool_result(
+    model_id: str, expected: bool
+) -> None:
+    """Providers locais preservam a saída causal mais recente da ferramenta."""
+    assert _preserve_latest_tool_result(model_id) is expected
 
 
 def _tool_call_chunk(*, index: int, id: str, name: str, args: str) -> VMessageChunk:  # noqa: A002

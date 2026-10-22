@@ -78,6 +78,18 @@ _REPEATED_CALL_HARD_LIMIT = 6
 
 logger = logging.getLogger(__name__)
 
+
+def _preserve_latest_tool_result(model_id: str) -> bool:
+    """Indica se o provider local deve manter o último resultado de tool.
+
+    Os providers locais usam janelas menores e a projeção compacta do system
+    prompt. Remover o resultado mais recente antes da próxima iteração quebra
+    a causalidade do loop e pode fazer o modelo repetir a mesma chamada.
+    """
+    normalized = model_id.strip().casefold()
+    return normalized.startswith(("ollama:", "llamacpp:", "dmr:"))
+
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -324,7 +336,7 @@ async def run_conversation(
             raw_history,
             max_tokens=effective_max_tokens,
             enabled=config.context_compaction_enabled,
-            preserve_latest_tool_result=str(ctx.model).startswith("ollama:"),
+            preserve_latest_tool_result=_preserve_latest_tool_result(str(ctx.model)),
             workspace_id=ctx.workspace_id or None,
             policy_snapshot=policy_snapshot,
         )
