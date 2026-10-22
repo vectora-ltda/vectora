@@ -109,7 +109,19 @@ class TestMemoryList:
                 },
             )
         )
-        assert client.get("/memory/journey").json()["facts"] == []
+        asyncio.run(
+            store.aput(
+                ("user", "local", "memories"),
+                "live-fact",
+                {
+                    "content": "vigente",
+                    "metadata": {"tag": "user_model", "source": "test"},
+                },
+            )
+        )
+        response = client.get("/memory/journey")
+        assert response.status_code == 200
+        assert [fact["key"] for fact in response.json()["facts"]] == ["live-fact"]
 
 
 class TestMemoryCreate:
