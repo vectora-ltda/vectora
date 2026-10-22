@@ -25,7 +25,7 @@ class RetrievalEvalResult(TypedDict):
 
     cases: int
     recall_at_k: float
-    mean_reciprocal_rank: float
+    mean_reciprocal_rank_at_k: float
 
 
 def recall_at_k(
@@ -60,7 +60,7 @@ def evaluate_retrieval(
     if k <= 0:
         raise ValueError("k must be positive")
     if not cases:
-        return {"cases": 0, "recall_at_k": 0.0, "mean_reciprocal_rank": 0.0}
+        return {"cases": 0, "recall_at_k": 0.0, "mean_reciprocal_rank_at_k": 0.0}
 
     recall_total = 0.0
     rank_total = 0.0
@@ -71,7 +71,7 @@ def evaluate_retrieval(
     return {
         "cases": count,
         "recall_at_k": recall_total / count,
-        "mean_reciprocal_rank": rank_total / count,
+        "mean_reciprocal_rank_at_k": rank_total / count,
     }
 
 
