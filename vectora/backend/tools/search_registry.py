@@ -71,15 +71,17 @@ async def _search_browser(
 ) -> list[dict]:
     """Busca no Chromium do Electron, reaproveitando os logins do usuário."""
     if workspace_id:
-        # Search runs through the synchronous fallback adapter, while the
-        # canonical Browser Workbench session is established by the async
-        # session manager.  Claim the existing Electron target first so the
-        # adapter can resolve the same target through the process-wide
-        # ownership map; without this step readiness would see a page but the
-        # workspace would be rejected as unowned.
-        from backend.browser.session import get_browser_page
+        # Readiness only proves that Electron exposes a page. It cannot prove
+        # which workspace/profile owns that target. Never claim an unknown
+        # page here: ownership must have been established by the managed
+        # Browser Workbench session before Search/Fetch can reuse it.
+        from backend.browser.session import has_browser_session
 
-        await get_browser_page(workspace_id)
+        if not has_browser_session(workspace_id):
+            raise RuntimeError(
+                "Nenhuma sessão Browser Workbench registrada para este workspace; "
+                "abra uma aba pelo Workbench antes de usar a busca Browser."
+            )
     from backend.browser.search_fallback import browser_search
 
     return await __import__("asyncio").to_thread(
