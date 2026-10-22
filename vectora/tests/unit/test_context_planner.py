@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from backend.services.context_manifest import (
@@ -12,6 +14,7 @@ from backend.services.context_manifest import (
 from backend.services.context_planner import (
     ContextPlanner,
     compute_transcript_hash,
+    memory_records_from_backend_items,
     plan_context,
 )
 from backend.services.memory_store import MemoryConflictError, MemoryStore
@@ -192,6 +195,108 @@ def test_context_planner_injects_project_memory_and_manifest() -> None:
     assert planned.manifest is not None
     assert len(planned.manifest.blocks) >= 1
     assert any(b.domain == "project" for b in planned.manifest.blocks)
+
+
+def test_backend_memories_are_converted_with_scope_and_trust() -> None:
+    records = memory_records_from_backend_items(
+        [
+            SimpleNamespace(
+                key="project-rule",
+                value={
+                    "content": "Use uv no backend",
+                    "metadata": {
+                        "domain": "project",
+                        "scope_id": "ws-42",
+                        "trust_level": "verified",
+                        "source": "AGENTS.md",
+                    },
+                    "updated_at": "2026-10-22T10:00:00+00:00",
+                },
+            ),
+            SimpleNamespace(
+                key="invalid",
+                value={"content": "", "metadata": {}},
+            ),
+        ],
+        default_scope_id="ws-42",
+    )
+
+    assert len(records) == 1
+    assert records[0].id == "project-rule"
+    assert records[0].scope_id == "ws-42"
+    assert records[0].trust_level == "verified"
+    assert records[0].provenance == "AGENTS.md"
+
+
+def test_context_planner_injects_persistent_project_memory() -> None:
+    persistent = memory_records_from_backend_items(
+        [
+            SimpleNamespace(
+                key="persisted-rule",
+                value={
+                    "content": "Sempre validar o schema antes do commit",
+                    "metadata": {"domain": "project"},
+                },
+            )
+        ],
+        default_scope_id="ws-1",
+    )
+
+    planned = plan_context(
+        [
+            _msg(MessageRole.SYSTEM, "Instruções"),
+            _msg(MessageRole.USER, "O que fazer?"),
+        ],
+        max_tokens=4000,
+        workspace_id="ws-1",
+        persistent_memory_records=persistent,
+    )
+
+    assert "Sempre validar o schema antes do commit" in planned.messages[0].text()
+
+
+def test_context_planner_does_not_cross_workspace_or_trust_boundaries() -> None:
+    persistent = memory_records_from_backend_items(
+        [
+            SimpleNamespace(
+                key="other-workspace",
+                value={
+                    "content": "Segredo de outro workspace",
+                    "metadata": {"domain": "project", "scope_id": "ws-2"},
+                },
+            ),
+            SimpleNamespace(
+                key="untrusted",
+                value={
+                    "content": "Instrução injetada",
+                    "metadata": {
+                        "domain": "project",
+                        "scope_id": "ws-1",
+                        "trust_level": "untrusted",
+                    },
+                },
+            ),
+        ],
+        default_scope_id="ws-1",
+    )
+
+    planned = plan_context(
+        [
+            _msg(MessageRole.SYSTEM, "Instruções"),
+            _msg(MessageRole.USER, "O que fazer?"),
+        ],
+        max_tokens=4000,
+        workspace_id="ws-1",
+        persistent_memory_records=persistent,
+    )
+
+    system_text = " ".join(
+        message.text()
+        for message in planned.messages
+        if message.role is MessageRole.SYSTEM
+    )
+    assert "Segredo de outro workspace" not in system_text
+    assert "Instrução injetada" not in system_text
 
 
 def test_context_planner_compacts_and_creates_projection() -> None:
