@@ -52,6 +52,9 @@ def test_context_projection_validity() -> None:
     evidence = proj.to_evidence_entry()
     assert evidence["kind"] == "context_projection"
     assert evidence["source_transcript_hash"] == "hash123"
+    assert evidence["preserved_decisions"] == []
+    assert evidence["preserved_errors"] == []
+    assert evidence["preserved_approvals"] == []
 
 
 def test_memory_store_domains_and_retrieval() -> None:
@@ -375,3 +378,23 @@ def test_context_planner_collects_preserved_items_only_from_omitted_units() -> N
     assert "Decisões anteriores preservadas:" in marker_text
     assert "run_build" in marker_text
     assert "Erros/falhas anteriores preservados:" in marker_text
+
+
+def test_context_projection_evidence_keeps_preserved_items() -> None:
+    projection = ContextProjection(
+        start_seq=2,
+        end_seq=8,
+        source_transcript_hash="hash",
+        tokens_before=100,
+        tokens_after=40,
+        preserved_decisions=["Chamada de ferramentas: run_build"],
+        preserved_errors=["Tool call_build: Build falhou"],
+        preserved_approvals=["Aprovação de run_build: aprovado"],
+        excluded_items_count=4,
+    )
+
+    evidence = projection.to_evidence_entry()
+
+    assert evidence["preserved_decisions"] == ["Chamada de ferramentas: run_build"]
+    assert evidence["preserved_errors"] == ["Tool call_build: Build falhou"]
+    assert evidence["preserved_approvals"] == ["Aprovação de run_build: aprovado"]
