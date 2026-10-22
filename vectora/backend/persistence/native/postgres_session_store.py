@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -37,6 +38,38 @@ from backend.persistence.native.ledger import (
     make_approval_resolved_key,
     make_message_created_key,
 )
+
+
+class _RunEvidenceLockRegistry:
+    """Retém locks somente enquanto há escritores ou waiters ativos."""
+
+    def __init__(self) -> None:
+        self._entries: dict[str, tuple[asyncio.Lock, int]] = {}
+
+    @asynccontextmanager
+    async def acquire(self, run_id: str):
+        entry = self._entries.get(run_id)
+        if entry is None:
+            entry = (asyncio.Lock(), 0)
+        lock, users = entry
+        self._entries[run_id] = (lock, users + 1)
+        try:
+            async with lock:
+                yield
+        finally:
+            current = self._entries.get(run_id)
+            if current is None or current[0] is not lock:
+                return
+            remaining = current[1] - 1
+            if remaining <= 0 and not lock.locked():
+                self._entries.pop(run_id, None)
+            else:
+                self._entries[run_id] = (lock, remaining)
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+
 from backend.persistence.native.schema import setup_postgres_session_schema
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import VMessage
@@ -104,7 +137,7 @@ class PostgresSessionStore:
     def __init__(self, pool: asyncpg.Pool) -> None:
         self._pool = pool
         self._is_setup = False
-        self._run_evidence_locks: dict[str, asyncio.Lock] = {}
+        self._run_evidence_locks = _RunEvidenceLockRegistry()
 
     async def setup(self) -> None:
         if self._is_setup:
@@ -1463,8 +1496,7 @@ class PostgresSessionStore:
         file_touched: dict[str, Any] | None = None,
     ) -> None:
         """Registra evidências incrementais no AgentRun."""
-        lock = self._run_evidence_locks.setdefault(run_id, asyncio.Lock())
-        async with lock:
+        async with self._run_evidence_locks.acquire(run_id):
             await self.setup()
             run = await self.get_agent_run(run_id)
             if run is None:
