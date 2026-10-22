@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 #: Literal nunca chega ao corpo da função (rejeitado na camada de parsing
 #: da tool, ver `tests/unit/test_memory.py`).
 FactCategory = Literal["gotcha", "decision", "preference", "rule"]
+_MAX_MEMORY_SEARCH = 100_000
 
 
 # ---------------------------------------------------------------------------
@@ -112,10 +113,14 @@ async def _search_unexpired(
     não estar mais cheia ou até o limite de segurança, evitando que registros
     expirados escondam memórias válidas.
     """
-    wanted = max(1, int(limit))
+    requested = int(limit)
+    if requested <= 0:
+        return []
+    wanted = min(requested, _MAX_MEMORY_SEARCH)
     scan_limit = max(wanted, 1000)
     previous_count = -1
-    while scan_limit <= 100_000:
+    valid: list[Any] = []
+    while scan_limit <= _MAX_MEMORY_SEARCH:
         candidates = await store.asearch(namespace, query=query, limit=scan_limit)
         valid = [item for item in candidates if not _is_memory_expired(item.value)]
         if len(valid) >= wanted or len(candidates) < scan_limit:
