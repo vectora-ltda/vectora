@@ -190,7 +190,6 @@ def _build_systemone_reranker(
         if not settings.systemone_enabled:
             return None
         harness = _build_default_harness()
-        harness.set_mode("rag_rerank_scoring", "enforced", workspace_id=workspace_id)
         top_k = int(_rag_runtime().get("reranker_top_k", settings.reranker_top_k))
         return SystemOneRerank(harness, top_n=top_k, workspace_id=workspace_id)
     except Exception:
