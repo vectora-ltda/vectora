@@ -13,6 +13,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import unquote, urlparse
 
 
 @dataclass(frozen=True)
@@ -24,13 +25,23 @@ class ArtifactGcResult:
     deleted: int = 0
     skipped_referenced: int = 0
     skipped_recent: int = 0
+    skipped_policy: int = 0
+    skipped_symlink: int = 0
     failed: int = 0
     bytes_freed: int = 0
     errors: tuple[str, ...] = field(default_factory=tuple)
 
 
 def _normalise_reference(value: str | Path) -> str:
-    return str(Path(value).absolute()).casefold()
+    text = str(value)
+    parsed = urlparse(text)
+    if parsed.scheme == "file":
+        text = unquote(parsed.path)
+        if len(text) >= 3 and text[0] == "/" and text[2] == ":":
+            text = text[1:]
+        if parsed.netloc:
+            text = f"//{parsed.netloc}{text}"
+    return str(Path(text).absolute()).casefold()
 
 
 def _retention_class(sidecar: Path) -> str:
@@ -74,20 +85,28 @@ def collect_artifacts(
         "session": timedelta(days=90),
     }
     protected = {_normalise_reference(value) for value in referenced}
-    scanned = eligible = deleted = skipped_referenced = skipped_recent = failed = (
-        bytes_freed
-    ) = 0
+    scanned = eligible = deleted = skipped_referenced = skipped_recent = 0
+    skipped_policy = skipped_symlink = failed = bytes_freed = 0
     errors: list[str] = []
 
     for path in _iter_payloads(root):
         scanned += 1
+        if path.is_symlink():
+            skipped_symlink += 1
+            continue
         normalised = _normalise_reference(path)
         if normalised in protected:
             skipped_referenced += 1
             continue
         sidecar = path.with_suffix(".artifact.json")
         retention = _retention_class(sidecar)
+        if retention in {"pinned", "permanent", "audit"}:
+            skipped_policy += 1
+            continue
         cutoff = default_cutoff
+        if older_than is None and retention not in policies:
+            skipped_policy += 1
+            continue
         if older_than is None and retention in policies:
             cutoff = current - policies[retention]
         try:
@@ -119,6 +138,8 @@ def collect_artifacts(
         deleted=deleted,
         skipped_referenced=skipped_referenced,
         skipped_recent=skipped_recent,
+        skipped_policy=skipped_policy,
+        skipped_symlink=skipped_symlink,
         failed=failed,
         bytes_freed=bytes_freed,
         errors=tuple(errors),

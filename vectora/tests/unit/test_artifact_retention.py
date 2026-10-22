@@ -67,3 +67,32 @@ def test_gc_keeps_recent_artifacts(tmp_path: Path) -> None:
     assert result.skipped_recent == 1
     assert result.deleted == 0
     assert artifact.exists()
+
+
+def test_gc_preserves_pinned_artifact_and_understands_file_uri(tmp_path: Path) -> None:
+    artifact = tmp_path / "pinned.md"
+    _artifact(artifact, retention_class="pinned")
+    referenced = tmp_path / "referenced.md"
+    _artifact(referenced)
+
+    result = collect_artifacts(
+        tmp_path,
+        referenced=[referenced.as_uri()],
+        dry_run=False,
+    )
+
+    assert result.skipped_referenced == 1
+    assert result.skipped_policy == 1
+    assert artifact.exists()
+    assert referenced.exists()
+
+
+def test_gc_skips_unknown_retention_class(tmp_path: Path) -> None:
+    artifact = tmp_path / "unknown.md"
+    _artifact(artifact, retention_class="future-policy")
+
+    result = collect_artifacts(tmp_path, dry_run=False)
+
+    assert result.skipped_policy == 1
+    assert result.deleted == 0
+    assert artifact.exists()
