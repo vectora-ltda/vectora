@@ -2066,6 +2066,11 @@ async def get_thread_history_paginated(
     recentes), em ordem cronológica. ``has_more=True`` quando existem mensagens
     mais antigas além das retornadas.
     """
+    # Validate ownership when a native session is already present, but do not
+    # require that row before reconciliation.  ``get_thread`` below remains
+    # the canonical existence check.
+    await _assert_owns_thread(thread_id, request)
+
     try:
         from backend.services import agent_factory
 
