@@ -94,6 +94,7 @@ from backend.api.schemas import (
 )
 from backend.persistence.native.ledger import (
     ThreadLedgerEvent,
+    ThreadSummary,
     ensure_thread_backfilled,
 )
 from backend.persistence.thread_activity import get_remote_activity
@@ -1035,7 +1036,7 @@ async def list_threads(
         else {}
     )
     thread_ids = [r[0] for r in rows]
-    summaries_by_id: dict[str, Any] = {}
+    summaries_by_id: dict[str, ThreadSummary] = {}
     if hasattr(session_store, "get_thread_summaries"):
         if hasattr(session_store, "_pool") and thread_ids:
             # Buscar contagens legadas de thread_read_cursors para preservar no backfill
@@ -1103,7 +1104,17 @@ async def mark_thread_read(
     body: MarkThreadReadRequest | None = None,
 ) -> dict[str, int | str]:
     """Confirma a leitura da thread de modo idempotente e por usuário/dispositivo."""
-    await _assert_owns_thread(thread_id, request)
+    try:
+        await _assert_existing_thread_ownership(thread_id, request)
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "thread_not_found",
+                "thread_id": thread_id,
+                "deleted": True,
+            },
+        ) from exc
     user_id = _user_id(request)
     db = await _get_db()
     if body and body.device_id is not None:

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import tempfile
-from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
+from starlette.responses import StreamingResponse
 
 from backend.api.server import create_app
 from backend.persistence.native.ledger import ThreadLedgerEvent
@@ -73,7 +73,7 @@ async def test_lancedb_delete_exact_count():
 
 
 @pytest.mark.asyncio
-async def test_lancedb_health():
+async def test_lancedb_health() -> None:
     """Testa o método health() do LanceDBBackend."""
     with tempfile.TemporaryDirectory() as td:
         backend = LanceDBBackend(td)
@@ -84,7 +84,9 @@ async def test_lancedb_health():
 
 
 @pytest.mark.asyncio
-async def test_thread_events_sse_stream_and_read(monkeypatch: pytest.MonkeyPatch):
+async def test_thread_events_sse_stream_and_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Testa o streaming SSE de eventos do ledger e mark_thread_read com seen_seq (#352, #367)."""
     from unittest.mock import AsyncMock, MagicMock
 
@@ -149,7 +151,7 @@ async def test_thread_events_sse_stream_and_read(monkeypatch: pytest.MonkeyPatch
             from_seq=0,
         )
 
-        async def _read_frames(resp: Any, n: int) -> list[str]:
+        async def _read_frames(resp: StreamingResponse, n: int) -> list[str]:
             buf = ""
             frames: list[str] = []
             it = resp.body_iterator

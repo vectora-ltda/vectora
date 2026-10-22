@@ -368,6 +368,16 @@ async def run_conversation(
 
         texto_final = "".join(partes_texto)
         tool_calls = _resolve_tool_calls(tool_call_chunks_por_indice)
+        # Alguns providers omitem o id no streaming. O ledger e o retorno de
+        # tools exigem uma correlação única e estável; derive-a do run/turn e
+        # do índice, preservando ids fornecidos pelo provider.
+        tool_calls = [
+            replace(
+                tc,
+                id=(tc.id or f"{config.run_id or thread_id}:tool:{_iteracao}:{index}"),
+            )
+            for index, tc in enumerate(tool_calls)
+        ]
         observed_tools.update(tc.name for tc in tool_calls if tc.name)
 
         logger.info(

@@ -59,6 +59,14 @@ class LanceDBBackend:
     async def _db(self) -> Any:
         return await lancedb.connect_async(self._path)
 
+    async def _list_table_names(self, db: Any) -> list[str]:
+        """Compatibilidade entre versões do cliente LanceDB."""
+        try:
+            response = await db.list_tables()
+            return [str(name) for name in response.tables]
+        except Exception:
+            return [str(name) for name in await db.table_names()]
+
     async def search(
         self, collection: str, query_vector: list[float], limit: int
     ) -> list[VectorHit]:
@@ -227,10 +235,10 @@ class LanceDBBackend:
     async def list_collections(self) -> list[str]:
         db = await self._db()
         try:
-            names = (await db.list_tables()).tables
+            return await self._list_table_names(db)
         except Exception:
-            names = await db.table_names()
-        return [str(name) for name in names]
+            logger.exception("LanceDBBackend.list_collections: falha ao listar tabelas")
+            return []
 
     async def count(self, collection: str) -> int | None:
         db = await self._db()
@@ -243,7 +251,8 @@ class LanceDBBackend:
     async def health(self) -> VectorStoreHealth:
         """Verifica se o LanceDB está acessível e lista tabelas."""
         try:
-            tables = await self.list_collections()
+            db = await self._db()
+            tables = await self._list_table_names(db)
             return VectorStoreHealth(ok=True, error=None, tables=tables, internal=True)
         except Exception as exc:
             return VectorStoreHealth(ok=False, error=str(exc), internal=True)

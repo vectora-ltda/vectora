@@ -229,7 +229,17 @@ class TestQdrantBackendDelete:
     async def test_delete_concorrente_coordena_exclusoes(
         self, backend: QdrantBackend, mock_client: AsyncMock
     ) -> None:
-        mock_client.count.side_effect = [1, 0]
+        count = 1
+
+        async def fake_count(*args, **kwargs):
+            nonlocal count
+            await asyncio.sleep(0)
+            if count:
+                count = 0
+                return CountResult(count=1)
+            return CountResult(count=0)
+
+        mock_client.count.side_effect = fake_count
         results = await asyncio.gather(
             backend.delete("articles", ["p1"]),
             backend.delete("articles", ["p1"]),

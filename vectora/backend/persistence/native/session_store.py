@@ -23,7 +23,6 @@ from backend.persistence.native.ledger import (
     ThreadLastMessage,
     ThreadLedgerEvent,
     ThreadSummary,
-    is_event_notifiable,
     make_approval_requested_key,
     make_approval_resolved_key,
     make_message_created_key,
@@ -1460,14 +1459,36 @@ class SessionStore:
                 str(r[0]): int(r[1]) for r in await cur_max.fetchall()
             }
 
-            # 3. Obter todos os eventos notificáveis com seq > read_seq para cada thread
-            cur_events = await conn.execute(
-                f"SELECT thread_id, seq, event_key, type, turn_id, run_id, "  # noqa: S608  # nosec B608
-                f"message_id, tool_call_id, interrupt_id, payload_json, created_at "
-                f"FROM thread_events WHERE thread_id IN ({placeholders}) ORDER BY seq ASC",
+            # 3. Derivar status e badges no SQLite sem reconstruir o ledger.
+            # O histórico completo só é necessário para a tela de conversa,
+            # nunca para a sidebar.
+            cur_status = await conn.execute(
+                f"SELECT thread_id, type, payload_json FROM ("  # nosec B608
+                f"  SELECT thread_id, type, payload_json, "
+                f"  ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY seq DESC) AS rn "
+                f"  FROM thread_events WHERE thread_id IN ({placeholders}) "
+                f"  AND type IN ('run_completed','agent_turn_finished','run_failed',"
+                f"'approval_resolved','approval_requested','agent_turn_started')"
+                f") WHERE rn = 1",
                 tuple(thread_ids),
             )
-            all_events = await cur_events.fetchall()
+            status_rows = await cur_status.fetchall()
+            cur_unread = await conn.execute(
+                f"WITH cursors AS ("  # nosec B608
+                f"  SELECT thread_id, COALESCE(MAX(last_seen_seq), 0) AS read_seq "
+                f"  FROM thread_event_cursors WHERE user_id = ? "
+                f"  AND thread_id IN ({placeholders}) GROUP BY thread_id"
+                f") SELECT e.thread_id, COUNT(*) FROM thread_events e "
+                f"LEFT JOIN cursors c ON c.thread_id = e.thread_id "
+                f"WHERE e.thread_id IN ({placeholders}) "
+                f"AND e.seq > COALESCE(c.read_seq, 0) "
+                f"AND (e.type IN ('approval_requested','run_failed') OR "
+                f"(e.type = 'message_created' AND "
+                f"json_extract(e.payload_json, '$.role') = 'assistant')) "
+                f"GROUP BY e.thread_id",
+                (user_id, *thread_ids, *thread_ids),
+            )
+            unread_counts = {str(r[0]): int(r[1]) for r in await cur_unread.fetchall()}
 
             # 4. Obter última mensagem persistida
             cur_last_msgs = await conn.execute(
@@ -1496,56 +1517,27 @@ class SessionStore:
                     created_at=c_at,
                 )
 
-        # Agrupar eventos por thread
-        thread_events_map: dict[str, list[ThreadLedgerEvent]] = {
-            t: [] for t in thread_ids
-        }
-        for r in all_events:
-            ev = ThreadLedgerEvent(
-                thread_id=r[0],
-                seq=r[1],
-                event_key=r[2],
-                type=r[3],
-                turn_id=r[4],
-                run_id=r[5],
-                message_id=r[6],
-                tool_call_id=r[7],
-                interrupt_id=r[8],
-                payload=json.loads(r[9] or "{}"),
-                created_at=r[10],
-            )
-            thread_events_map[r[0]].append(ev)
+        status_by_thread = {str(r[0]): (str(r[1]), r[2]) for r in status_rows}
 
         summaries: list[ThreadSummary] = []
         for tid in thread_ids:
             read_seq = int(cursors.get(tid, 0))
             last_seq = int(max_seqs.get(tid, 0))
-            events = thread_events_map.get(tid, [])
-
-            # Calcular status derivado do último evento de execução
             status = "idle"
-            for ev in reversed(events):
-                if ev.type in ("run_completed", "agent_turn_finished"):
-                    status = "idle"
-                    break
-                if ev.type == "run_failed":
+            status_row = status_by_thread.get(tid)
+            if status_row:
+                event_type, payload_json = status_row
+                if event_type == "run_failed":
                     status = "failed"
-                    break
-                if ev.type == "approval_resolved":
-                    is_exp = bool(ev.payload.get("expired", False))
-                    status = "idle" if is_exp else "running"
-                    break
-                if ev.type == "approval_requested":
+                elif event_type == "approval_requested":
                     status = "awaiting_approval"
-                    break
-                if ev.type == "agent_turn_started":
+                elif event_type == "agent_turn_started":
                     status = "running"
-                    break
+                elif event_type == "approval_resolved":
+                    payload = json.loads(payload_json or "{}")
+                    status = "idle" if payload.get("expired", False) else "running"
 
-            # Calcular unread_count (notificáveis onde seq > read_seq)
-            unread_count = sum(
-                1 for ev in events if ev.seq > read_seq and is_event_notifiable(ev)
-            )
+            unread_count = unread_counts.get(tid, 0)
 
             summaries.append(
                 ThreadSummary(

@@ -12,12 +12,15 @@ uma das chamadas é a arriscada.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from backend.engine.guardrails import TurnBudget
@@ -94,7 +97,14 @@ async def _run_one(
             )
 
     if on_tool_started is not None:
-        await on_tool_started(tool_call)
+        try:
+            await on_tool_started(tool_call)
+        except Exception:
+            # Telemetria/streaming não pode cancelar a execução da tool nem
+            # interromper o gather de chamadas independentes.
+            logger.exception(
+                "Falha ao publicar TOOL_STARTED para tool_call %s", tool_call.id
+            )
 
     if spec is None:
         texto = f"Error: tool '{tool_call.name}' não encontrada no registry"

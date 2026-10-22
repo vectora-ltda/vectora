@@ -22,7 +22,6 @@ from backend.persistence.native.ledger import (
     ThreadLastMessage,
     ThreadLedgerEvent,
     ThreadSummary,
-    is_event_notifiable,
     make_approval_requested_key,
     make_approval_resolved_key,
     make_message_created_key,
@@ -288,7 +287,7 @@ class PostgresSessionStore:
             msg_payload = {
                 "role": role,
                 "content": msg.text(),
-                "is_error": False,
+                "is_error": bool(msg.is_error),
             }
             await conn.execute(
                 "INSERT INTO vectora_native_thread_events (thread_id, seq, event_key, type, "
@@ -1134,13 +1133,45 @@ class PostgresSessionStore:
             )
             max_seqs = {r["thread_id"]: r["last_seq"] for r in rows_max}
 
-            all_events = await conn.fetch(
-                "SELECT thread_id, seq, event_key, type, turn_id, run_id, "
-                "message_id, tool_call_id, interrupt_id, payload_json, created_at "
-                "FROM vectora_native_thread_events "
-                "WHERE thread_id = ANY($1::text[]) ORDER BY seq ASC",
+            status_rows = await conn.fetch(
+                "SELECT thread_id, type, payload_json FROM ("
+                "  SELECT thread_id, type, payload_json, "
+                "  ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY seq DESC) AS rn "
+                "  FROM vectora_native_thread_events "
+                "  WHERE thread_id = ANY($1::text[]) "
+                "  AND type = ANY($2::text[])"
+                ") latest WHERE rn = 1",
                 thread_ids,
+                [
+                    "run_completed",
+                    "agent_turn_finished",
+                    "run_failed",
+                    "approval_resolved",
+                    "approval_requested",
+                    "agent_turn_started",
+                ],
             )
+            unread_rows = await conn.fetch(
+                "WITH cursors AS ("
+                "  SELECT thread_id, COALESCE(MAX(last_seen_seq), 0) AS read_seq "
+                "  FROM vectora_native_thread_event_cursors WHERE user_id = $1 "
+                "  AND thread_id = ANY($2::text[]) GROUP BY thread_id"
+                ") SELECT e.thread_id, COUNT(*) AS unread_count "
+                "FROM vectora_native_thread_events e "
+                "LEFT JOIN cursors c ON c.thread_id = e.thread_id "
+                "WHERE e.thread_id = ANY($2::text[]) "
+                "AND e.seq > COALESCE(c.read_seq, 0) "
+                "AND (e.type = ANY($3::text[]) OR "
+                "(e.type = 'message_created' AND "
+                "e.payload_json::jsonb->>'role' = 'assistant')) "
+                "GROUP BY e.thread_id",
+                user_id,
+                thread_ids,
+                ["approval_requested", "run_failed"],
+            )
+            unread_counts = {
+                str(r["thread_id"]): int(r["unread_count"]) for r in unread_rows
+            }
 
             rows_last_msg = await conn.fetch(
                 "SELECT m.thread_id, m.id, m.role, m.content_json, m.created_at "
@@ -1167,53 +1198,30 @@ class PostgresSessionStore:
                     created_at=r["created_at"],
                 )
 
-        thread_events_map: dict[str, list[ThreadLedgerEvent]] = {
-            t: [] for t in thread_ids
+        status_by_thread = {
+            str(r["thread_id"]): (str(r["type"]), r["payload_json"])
+            for r in status_rows
         }
-        for r in all_events:
-            ev = ThreadLedgerEvent(
-                thread_id=r["thread_id"],
-                seq=r["seq"],
-                event_key=r["event_key"],
-                type=r["type"],
-                turn_id=r["turn_id"],
-                run_id=r["run_id"],
-                message_id=r["message_id"],
-                tool_call_id=r["tool_call_id"],
-                interrupt_id=r["interrupt_id"],
-                payload=json.loads(r["payload_json"] or "{}"),
-                created_at=r["created_at"],
-            )
-            thread_events_map[r["thread_id"]].append(ev)
 
         summaries: list[ThreadSummary] = []
         for tid in thread_ids:
             read_seq = int(cursors.get(tid, 0))
             last_seq = int(max_seqs.get(tid, 0))
-            events = thread_events_map.get(tid, [])
-
             status = "idle"
-            for ev in reversed(events):
-                if ev.type in ("run_completed", "agent_turn_finished"):
-                    status = "idle"
-                    break
-                if ev.type == "run_failed":
+            status_row = status_by_thread.get(tid)
+            if status_row:
+                event_type, payload_json = status_row
+                if event_type == "run_failed":
                     status = "failed"
-                    break
-                if ev.type == "approval_resolved":
-                    is_exp = bool(ev.payload.get("expired", False))
-                    status = "idle" if is_exp else "running"
-                    break
-                if ev.type == "approval_requested":
+                elif event_type == "approval_requested":
                     status = "awaiting_approval"
-                    break
-                if ev.type == "agent_turn_started":
+                elif event_type == "agent_turn_started":
                     status = "running"
-                    break
+                elif event_type == "approval_resolved":
+                    payload = json.loads(payload_json or "{}")
+                    status = "idle" if payload.get("expired", False) else "running"
 
-            unread_count = sum(
-                1 for ev in events if ev.seq > read_seq and is_event_notifiable(ev)
-            )
+            unread_count = unread_counts.get(tid, 0)
 
             summaries.append(
                 ThreadSummary(
