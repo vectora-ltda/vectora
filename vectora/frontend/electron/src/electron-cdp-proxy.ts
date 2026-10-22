@@ -98,11 +98,51 @@ export async function startElectronCdpProxy(
   targetPort: number,
   listenPort: number,
   token: string,
+  bridge: {
+    createBrowserView?: (
+      options: Record<string, unknown>,
+    ) => Promise<number> | number;
+  } = {},
 ): Promise<Server> {
   const server = createServer((incoming, outgoing) => {
     if (!authorized(incoming, token)) {
       outgoing.writeHead(401, { "content-type": "application/json" });
       outgoing.end('{"error":"unauthorized"}');
+      return;
+    }
+    if (
+      incoming.url === "/vectora/browser/create" &&
+      incoming.method === "POST"
+    ) {
+      const chunks: Buffer[] = [];
+      incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
+      incoming.on("end", async () => {
+        try {
+          if (!bridge.createBrowserView) throw new Error("bridge indisponível");
+          const value = JSON.parse(
+            Buffer.concat(chunks).toString("utf8"),
+          ) as unknown;
+          if (!value || typeof value !== "object" || Array.isArray(value)) {
+            throw new Error("opções inválidas");
+          }
+          const viewId = await bridge.createBrowserView(
+            value as Record<string, unknown>,
+          );
+          const body = Buffer.from(JSON.stringify({ view_id: viewId }));
+          outgoing.writeHead(201, {
+            "content-type": "application/json",
+            "content-length": body.length,
+          });
+          outgoing.end(body);
+        } catch (error) {
+          const body = Buffer.from(JSON.stringify({ error: String(error) }));
+          outgoing.writeHead(400, {
+            "content-type": "application/json",
+            "content-length": body.length,
+          });
+          outgoing.end(body);
+        }
+      });
       return;
     }
     const upstream = request(

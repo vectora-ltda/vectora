@@ -135,6 +135,29 @@ void app.whenReady().then(async () => {
       Number(electronCdpPort),
       Number(electronCdpProxyPort),
       electronCdpAuthToken,
+      {
+        createBrowserView: (options) => {
+          const profileId = options.profileId;
+          if (typeof profileId !== "string" || !isValidProfileId(profileId)) {
+            throw new Error("profileId inválido");
+          }
+          const allowPopups = options.allowPopups;
+          const zoomPercent = options.zoomPercent;
+          if (allowPopups !== undefined && typeof allowPopups !== "boolean") {
+            throw new Error("allowPopups inválido");
+          }
+          if (
+            zoomPercent !== undefined &&
+            (typeof zoomPercent !== "number" || !Number.isFinite(zoomPercent))
+          ) {
+            throw new Error("zoomPercent inválido");
+          }
+          return getBrowserViewManager().createView(profileId, "tab", null, {
+            allowPopups,
+            zoomPercent,
+          });
+        },
+      },
     );
   } catch (error) {
     console.error("Falha ao validar o alvo CDP do Electron", error);
