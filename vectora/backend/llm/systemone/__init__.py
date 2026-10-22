@@ -18,6 +18,7 @@ from backend.llm.systemone.harness import (
     SystemOneHarness,
     WorkspaceBudgetTracker,
 )
+from backend.llm.systemone.laya_local import LayaLocalAdapter
 from backend.llm.systemone.patterns import (
     DEFAULT_PATTERN_REGISTRY,
     DecisionPatternRegistry,
@@ -71,6 +72,7 @@ __all__ = [
     "DecisionProviderType",
     "HarnessDecisionResult",
     "JevApiAdapter",
+    "LayaLocalAdapter",
     "NoulAnswer",
     "NoulQuestion",
     "PatternEvaluationSpec",

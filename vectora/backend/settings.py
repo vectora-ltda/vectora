@@ -433,7 +433,9 @@ class Settings(BaseSettings):
     systemone_enabled: bool = False
     """Habilita ou desabilita o uso de Decision Models no Vectora."""
 
-    systemone_provider: Literal["clef-local", "clef-api", "jev-api"] = "clef-local"
+    systemone_provider: Literal["clef-local", "laya-local", "clef-api", "jev-api"] = (
+        "clef-local"
+    )
     """Provedor ativo de Decision Models."""
 
     systemone_local_base_url: str = "http://127.0.0.1:8080"
@@ -441,6 +443,15 @@ class Settings(BaseSettings):
 
     systemone_local_model: str = "clef-flash"
     """Nome do modelo Clef servido no llama.cpp local."""
+
+    systemone_laya_base_url: str = "http://127.0.0.1:8000"
+    """Endpoint do servidor local laya-serve."""
+
+    systemone_laya_model: str = "convaiinnovations/laya"
+    """Checkpoint ou alias do modelo Laya servido localmente."""
+
+    systemone_laya_api_key: str | None = None
+    """Bearer opcional do servidor laya-serve."""
 
     systemone_clef_api_base_url: str = (
         "https://api.cloudflare.com/client/v4/accounts/systemone"
