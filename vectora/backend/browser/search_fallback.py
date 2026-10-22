@@ -245,9 +245,9 @@ def _find_workbench_page(browser: Browser, *, workspace_id: str | None = None) -
         owned = []
         for page in candidates:
             try:
-                owner = _page_owners.get(_page_target_id(page), workspace_id)
+                owner = _page_owners.get(_page_target_id(page))
             except Exception:
-                owner = workspace_id
+                owner = None
             if owner == workspace_id:
                 owned.append(page)
         candidates = owned

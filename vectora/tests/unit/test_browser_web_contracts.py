@@ -104,3 +104,31 @@ async def test_crawl_reports_partial_failures_per_url() -> None:
     assert result["status"] == "partial"
     assert len(result["results"]) == 1
     assert result["errors"][0]["url"] == "https://example.com/child"
+
+
+def test_browser_fallback_requires_explicit_workspace_page_ownership() -> None:
+    from backend.browser import session
+    from backend.browser.search_fallback import _find_workbench_page
+
+    class _Page:
+        def __init__(self, target_id: str, url: str = "https://example.com") -> None:
+            self.target_id = target_id
+            self.url = url
+
+    class _Context:
+        def __init__(self, pages: list[_Page]) -> None:
+            self.pages = pages
+
+    class _Browser:
+        def __init__(self, pages: list[_Page]) -> None:
+            self.contexts = [_Context(pages)]
+
+    unowned = _Page("unowned")
+    other_workspace = _Page("owned-by-other")
+    session._page_owners.clear()
+    session._page_owners["owned-by-other"] = "workspace-b"
+
+    with pytest.raises(RuntimeError, match="Nenhuma aba"):
+        _find_workbench_page(
+            _Browser([unowned, other_workspace]), workspace_id="workspace-a"
+        )
