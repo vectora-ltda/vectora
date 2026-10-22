@@ -140,3 +140,94 @@ export interface QualityGateRunResult {
   duration_ms?: number;
   artifacts_collected?: string[];
 }
+
+// ============================================================================
+// Execution runtime contracts (vectora/backend/contracts/harness/schema.json)
+// ============================================================================
+
+export type HarnessRunStatus =
+  | "planned"
+  | "admitted"
+  | "running"
+  | "waiting_approval"
+  | "waiting_provider"
+  | "tool_running"
+  | "verifying"
+  | "passed"
+  | "degraded"
+  | "failed"
+  | "cancelled"
+  | "recovery_required";
+
+export type VerificationOutcome =
+  | "passed"
+  | "failed"
+  | "infra_error"
+  | "not_run"
+  | "blocked"
+  | "degraded"
+  | "unverified";
+
+export interface ArtifactRef {
+  artifact_id: string;
+  media_type?: string;
+  byte_size?: number;
+  sha256: string;
+  storage_uri: string;
+  retention_class?: string;
+  encrypted?: boolean;
+}
+
+export interface CheckpointRef {
+  checkpoint_id: string;
+  run_id: string;
+  thread_id: string;
+  last_sequence: number;
+  source_hash: string;
+  schema_version: string;
+  artifact_refs?: ArtifactRef[];
+}
+
+export interface ContextProjection {
+  projection_id: string;
+  thread_id: string;
+  run_id: string;
+  source_hash: string;
+  covered_from_sequence: number;
+  covered_to_sequence: number;
+  tokens_before?: number;
+  tokens_after?: number;
+  preserved_decisions?: string[];
+  preserved_errors?: string[];
+  preserved_approvals?: string[];
+  pending_tool_calls?: string[];
+  omitted_sequences?: number[];
+}
+
+export interface MemoryRecord {
+  memory_id: string;
+  scope:
+    "short_term" | "session" | "project" | "workspace" | "user" | "vector_rag";
+  subject: string;
+  content: string;
+  source_run_id?: string;
+  source_artifact_id?: string;
+  provenance_hash: string;
+  confidence?: number;
+  importance?: number;
+  valid_until?: string;
+  invalidated_at?: string;
+}
+
+export interface ProviderCapability {
+  provider: string;
+  model: string;
+  discovered?: boolean;
+  ready?: boolean;
+  text_generation?: boolean;
+  streaming?: boolean;
+  tool_calling?: boolean;
+  vision?: boolean;
+  checked_at?: string;
+  diagnostic?: string;
+}
