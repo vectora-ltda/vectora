@@ -290,7 +290,7 @@ def _resolve_tool_calls(acumulado: dict[int, dict[str, Any]]) -> list[ToolCall]:
     return chamadas
 
 
-async def run_conversation(
+async def run_conversation(  # noqa: PLR0911
     *,
     session_store: SessionStore,
     chat_client: ChatClient,
@@ -355,6 +355,61 @@ async def run_conversation(
     executed_step_gates: set[tuple[str, str]] = set()
     manifest_recorded = False
     projection_recorded = False
+
+    async def _persist_context_checkpoint(
+        raw_history: list[VMessage],
+        *,
+        phase: str,
+        iteration: int,
+        source_hash: str,
+        pending_tool_call_ids: tuple[str, ...] = (),
+        completed_tool_call_ids: tuple[str, ...] = (),
+    ) -> None:
+        if not config.run_id or not hasattr(session_store, "save_context_checkpoint"):
+            return
+        await session_store.save_context_checkpoint(
+            thread_id,
+            config.run_id,
+            {
+                "checkpoint_id": f"{config.run_id}:seq:{len(raw_history)}:{phase}",
+                "last_sequence": len(raw_history),
+                "source_hash": source_hash,
+                "schema_version": "context.v1",
+                "state": {
+                    "iteration": iteration,
+                    "phase": phase,
+                    "policy_version": getattr(policy_snapshot, "version", ""),
+                    "pending_tool_call_ids": list(pending_tool_call_ids),
+                    "completed_tool_call_ids": list(completed_tool_call_ids),
+                },
+                "artifact_refs": [],
+            },
+        )
+
+    if config.run_id and hasattr(session_store, "get_latest_context_checkpoint"):
+        try:
+            checkpoint = await session_store.get_latest_context_checkpoint(thread_id)
+            state = checkpoint.get("state", {}) if checkpoint else {}
+            if (
+                checkpoint
+                and checkpoint.get("run_id") == config.run_id
+                and state.get("phase") == "tool_running"
+                and state.get("pending_tool_call_ids")
+            ):
+                await _safe_update_agent_run_status(
+                    session_store,
+                    config.run_id,
+                    status=AgentRunStatus.RECOVERY_REQUIRED,
+                    plan_step="checkpoint_recovery",
+                    detail="Execução interrompida durante tools; reconciliação necessária.",
+                    error_code="CHECKPOINT_TOOL_RECONCILIATION_REQUIRED",
+                )
+                return LoopResult(stopped_reason="recovery_required")
+        except Exception:
+            logger.exception(
+                "conversation_loop: falha ao carregar checkpoint de retomada",
+                extra={"run_id": config.run_id, "thread_id": thread_id},
+            )
 
     for _iteracao in range(config.max_iterations):
         raw_history = await session_store.get_history(thread_id)
@@ -446,38 +501,23 @@ async def run_conversation(
                     extra={"run_id": config.run_id},
                 )
 
-        # O checkpoint nativo é um snapshot operacional independente do
-        # transcript e da evidência do AgentRun.  O id inclui a sequência
-        # observada para que retries sejam idempotentes e a retomada possa
-        # carregar somente os deltas posteriores.
-        if config.run_id and hasattr(session_store, "save_context_checkpoint"):
-            try:
-                source_hash = (
-                    planned_context.projection.source_transcript_hash
-                    if planned_context.projection is not None
-                    else compute_transcript_hash(raw_history)
-                )
-                await session_store.save_context_checkpoint(
-                    thread_id,
-                    config.run_id,
-                    {
-                        "checkpoint_id": f"{config.run_id}:seq:{len(raw_history)}",
-                        "last_sequence": len(raw_history),
-                        "source_hash": source_hash,
-                        "schema_version": "context.v1",
-                        "state": {
-                            "iteration": _iteracao,
-                            "phase": "provider_dispatch",
-                            "policy_version": getattr(policy_snapshot, "version", ""),
-                        },
-                        "artifact_refs": [],
-                    },
-                )
-            except Exception:
-                logger.exception(
-                    "conversation_loop: falha ao persistir checkpoint de contexto",
-                    extra={"run_id": config.run_id, "thread_id": thread_id},
-                )
+        source_hash = (
+            planned_context.projection.source_transcript_hash
+            if planned_context.projection is not None
+            else compute_transcript_hash(raw_history)
+        )
+        try:
+            await _persist_context_checkpoint(
+                raw_history,
+                phase="provider_dispatch",
+                iteration=_iteracao,
+                source_hash=source_hash,
+            )
+        except Exception:
+            logger.exception(
+                "conversation_loop: falha ao persistir checkpoint de contexto",
+                extra={"run_id": config.run_id, "thread_id": thread_id},
+            )
 
         partes_texto: list[str] = []
         tool_call_chunks_por_indice: dict[int, dict[str, Any]] = {}
@@ -972,6 +1012,20 @@ async def run_conversation(
                 )
             )
 
+        try:
+            await _persist_context_checkpoint(
+                raw_history,
+                phase="tool_running",
+                iteration=_iteracao,
+                source_hash=source_hash,
+                pending_tool_call_ids=tuple(call.id for call in tool_calls if call.id),
+            )
+        except Exception:
+            logger.exception(
+                "conversation_loop: falha ao persistir checkpoint de tools",
+                extra={"run_id": config.run_id, "thread_id": thread_id},
+            )
+
         resultados = await execute_tool_batch(
             tool_calls,
             tool_registry=tool_registry,
@@ -1224,6 +1278,22 @@ async def run_conversation(
                                 "Erro inesperado ao processar plano e quality gates para run_id %s",
                                 config.run_id,
                             )
+
+        try:
+            await _persist_context_checkpoint(
+                raw_history,
+                phase="provider_dispatch",
+                iteration=_iteracao,
+                source_hash=source_hash,
+                completed_tool_call_ids=tuple(
+                    result.tool_call_id for result in resultados if result.tool_call_id
+                ),
+            )
+        except Exception:
+            logger.exception(
+                "conversation_loop: falha ao persistir checkpoint pós-tools",
+                extra={"run_id": config.run_id, "thread_id": thread_id},
+            )
 
         if turn_budget.exceeded is not None:
             if config.run_id:
