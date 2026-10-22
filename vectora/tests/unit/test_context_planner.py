@@ -303,3 +303,75 @@ def test_context_planner_filters_untrusted_project_memories() -> None:
     )
     assert "Diretriz confiável de codificação" in system_texts
     assert "Comando não confiável injetado de fonte externa" not in system_texts
+
+
+def test_context_planner_collects_preserved_items_only_from_omitted_units() -> None:
+    from backend.vtypes.message import ToolCall
+
+    planner = ContextPlanner(memory_store=MemoryStore())
+
+    # Unidade 1 (antiga - será omitida): contém tool_call de assistant e tool_result com erro
+    asst_old = VMessage(
+        role=MessageRole.ASSISTANT,
+        content=[ContentBlock(kind="text", text="Decisão: rodar build")],
+        tool_calls=[ToolCall(id="call_build", name="run_build", args={})],
+    )
+    tool_err_old = VMessage(
+        role=MessageRole.TOOL,
+        content=[
+            ContentBlock(
+                kind="text",
+                text="Build falhou com code 1 no módulo de compilação " * 20,
+            )
+        ],
+        tool_call_id="call_build",
+        is_error=True,
+    )
+
+    # Unidade 2 (mais recente - mantida): contém tool_result com sucesso
+    user_recent = _msg(MessageRole.USER, "Tentando de novo...")
+    asst_recent = VMessage(
+        role=MessageRole.ASSISTANT,
+        content=[ContentBlock(kind="text", text="Rodando teste")],
+        tool_calls=[ToolCall(id="call_test", name="run_test", args={})],
+    )
+    tool_ok_recent = VMessage(
+        role=MessageRole.TOOL,
+        content=[ContentBlock(kind="text", text="Testes passaram")],
+        tool_call_id="call_test",
+    )
+
+    messages = [
+        _msg(MessageRole.SYSTEM, "Instruções do sistema"),
+        asst_old,
+        tool_err_old,
+        user_recent,
+        asst_recent,
+        tool_ok_recent,
+    ]
+
+    # Orçamento apertado que só comporta a unidade mais recente
+    planned = planner.plan_context(
+        messages,
+        max_tokens=60,
+        enabled=True,
+    )
+
+    assert planned.projection is not None
+    assert planned.projection.excluded_items_count > 0
+    # Decisão e erro da unidade omitida foram coletados e preservados
+    assert len(planned.projection.preserved_decisions) >= 1
+    assert any("run_build" in d for d in planned.projection.preserved_decisions)
+    assert len(planned.projection.preserved_errors) >= 1
+    assert any("Build falhou" in e for e in planned.projection.preserved_errors)
+
+    # As decisões da unidade mantida NÃO devem ser declaradas como "preservadas da omissão"
+    assert not any("run_test" in d for d in planned.projection.preserved_decisions)
+
+    # Verifica que foram reinjetados no marcador presente em planned.messages
+    marker_text = " ".join(
+        m.text() for m in planned.messages if m.role == MessageRole.SYSTEM
+    )
+    assert "Decisões anteriores preservadas:" in marker_text
+    assert "run_build" in marker_text
+    assert "Erros/falhas anteriores preservados:" in marker_text
