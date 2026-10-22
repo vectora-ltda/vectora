@@ -80,6 +80,29 @@ class TestRecordToolCall:
         assert not hasattr(record, "query")
         assert _field(record, "reranker_status") == "applied"
 
+    async def test_storage_operation_registra_custo_sem_namespace_plano(
+        self, captured: _ListHandler
+    ) -> None:
+        telemetry = VectoraTelemetry()
+
+        await telemetry.record_storage_operation(
+            backend="sqlite",
+            operation="put",
+            namespace=("workspace-secreto", "memory"),
+            duration_ms=12.345,
+            bytes_written=128,
+            result_count=1,
+        )
+
+        record = captured.records[0]
+        assert _field(record, "telemetry_event") == "storage_operation"
+        assert _field(record, "storage_backend") == "sqlite"
+        assert _field(record, "operation") == "put"
+        assert _field(record, "bytes_written") == 128
+        assert _field(record, "result_count") == 1
+        assert _field(record, "namespace_hash")
+        assert "workspace-secreto" not in record.getMessage()
+
     def test_record_media_quota_descarta_payload_sensivel(
         self, captured: _ListHandler
     ) -> None:

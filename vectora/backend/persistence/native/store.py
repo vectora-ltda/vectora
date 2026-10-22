@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+
+from backend.persistence.telemetry import telemetry
 
 if TYPE_CHECKING:
     from backend.storage.protocols import HealthResult
@@ -296,6 +299,7 @@ class VectoraStore:
         self._is_setup = True
 
     async def aget(self, namespace: tuple[str, ...], key: str) -> Item | None:
+        started = time.perf_counter()
         await self.setup()
         async with self._pool.acquire() as conn:
             cur = await conn.execute(
@@ -305,11 +309,32 @@ class VectoraStore:
             )
             row = await cur.fetchone()
         if row is None:
+            await telemetry.record_storage_operation(
+                backend="sqlite",
+                operation="get",
+                namespace=namespace,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                result_count=0,
+            )
             return None
         value_json, created_at, updated_at = row
         value = json.loads(value_json)
         if is_store_value_expired(value):
+            await telemetry.record_storage_operation(
+                backend="sqlite",
+                operation="get",
+                namespace=namespace,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                result_count=0,
+            )
             return None
+        await telemetry.record_storage_operation(
+            backend="sqlite",
+            operation="get",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            result_count=1,
+        )
         return Item(
             value=value,
             key=key,
@@ -321,6 +346,7 @@ class VectoraStore:
     async def aput(
         self, namespace: tuple[str, ...], key: str, value: dict[str, Any]
     ) -> None:
+        started = time.perf_counter()
         await self.setup()
         namespace_str = _ns_to_str(namespace)
         async with self._pool.acquire() as conn:
@@ -348,8 +374,16 @@ class VectoraStore:
                 ),
             )
             await conn.commit()
+        await telemetry.record_storage_operation(
+            backend="sqlite",
+            operation="put",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            bytes_written=len(json.dumps(value, ensure_ascii=False).encode()),
+        )
 
     async def adelete(self, namespace: tuple[str, ...], key: str) -> None:
+        started = time.perf_counter()
         await self.setup()
         async with self._pool.acquire() as conn:
             await conn.execute(
@@ -357,6 +391,12 @@ class VectoraStore:
                 (_ns_to_str(namespace), key),
             )
             await conn.commit()
+        await telemetry.record_storage_operation(
+            backend="sqlite",
+            operation="delete",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+        )
 
     async def asearch(
         self,
@@ -367,6 +407,7 @@ class VectoraStore:
         filter: dict[str, Any] | None = None,  # noqa: A002 — mesmo nome do protocolo
         offset: int = 0,
     ) -> list[SearchItem]:
+        started = time.perf_counter()
         await self.setup()
         prefix = _ns_to_str(namespace)
         async with self._pool.acquire() as conn:
@@ -415,7 +456,15 @@ class VectoraStore:
             candidates.sort(key=lambda pair: pair[0] or 0.0, reverse=True)
 
         page = candidates[offset : offset + limit]
-        return [item for _, item in page]
+        result = [item for _, item in page]
+        await telemetry.record_storage_operation(
+            backend="sqlite",
+            operation="search",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            result_count=len(result),
+        )
+        return result
 
     async def health(self) -> HealthResult:
         from backend.storage.protocols import _err, _ok
