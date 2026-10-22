@@ -29,7 +29,7 @@ def test_evaluate_retrieval_agrega_casos() -> None:
     assert result == {
         "cases": 2,
         "recall_at_k": 1.0,
-        "mean_reciprocal_rank": 0.75,
+        "mean_reciprocal_rank_at_k": 0.75,
     }
 
 
