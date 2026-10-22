@@ -62,6 +62,7 @@ _RECORD_FIELDS = (
     "result_count",
     "retrieval_method",
     "reranker",
+    "reranker_status",
 )
 
 
@@ -255,6 +256,7 @@ class VectoraTelemetry:
         result_count: int,
         retrieval_method: str,
         reranker: str | None = None,
+        reranker_status: str = "not_configured",
     ) -> None:
         """Registra uma busca sem persistir o texto da consulta.
 
@@ -270,6 +272,7 @@ class VectoraTelemetry:
             result_count=result_count,
             retrieval_method=retrieval_method,
             reranker=reranker,
+            reranker_status=reranker_status,
             operation="vector_search",
         )
 

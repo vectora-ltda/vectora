@@ -574,6 +574,17 @@ async def vector_search(
             retrieval_method = "vector"
 
         if not results:
+            try:
+                from backend.persistence.telemetry import telemetry
+
+                await telemetry.record_retrieval(
+                    query=query,
+                    collections=collections,
+                    result_count=0,
+                    retrieval_method=retrieval_method,
+                )
+            except Exception:
+                logger.debug("vector_search: telemetry unavailable", exc_info=True)
             return json.dumps(
                 {
                     "status": "no_results",
@@ -582,13 +593,23 @@ async def vector_search(
             )
 
         # Reranking opcional — melhora precisão (Cohere ou VoyageAI)
+        reranker_attempted: str | None = None
         reranker_name: str | None = None
+        reranker_status = "not_configured"
         reranker = _build_reranker(workspace_id=ctx.workspace_id or "default")
         if results and reranker is not None:
+            reranker_attempted = type(reranker).__name__
             try:
-                reranker_name = type(reranker).__name__
                 docs_to_rerank = [
-                    Document(page_content=str(r["content"]), metadata=r["metadata"])
+                    Document(
+                        page_content=str(r["content"]),
+                        metadata={
+                            **r["metadata"],
+                            "_retrieval_id": r["id"],
+                            "_retrieval_collection": r["collection"],
+                            "_retrieval_score": r["score"],
+                        },
+                    )
                     for r in results
                 ]
                 acompress = getattr(reranker, "acompress_documents", None)
@@ -600,15 +621,21 @@ async def vector_search(
                     )
                 results = [
                     {
+                        "id": doc.metadata.get("_retrieval_id", ""),
                         "content": doc.page_content,
                         "metadata": doc.metadata,
+                        "collection": doc.metadata.get("_retrieval_collection", ""),
+                        "score": doc.metadata.get("_retrieval_score"),
                         "relevance_score": doc.metadata.get("relevance_score"),
                     }
                     for doc in reranked_docs
                 ]
+                reranker_name = reranker_attempted
+                reranker_status = "applied"
                 logger.info("vector_search_reranked", extra={"top_k": len(results)})
             except Exception as rerank_err:
                 logger.warning(f"Reranking failed, using raw results: {rerank_err}")
+                reranker_status = "failed"
                 for r in results:
                     r["reranking_status"] = "unavailable"
 
@@ -626,6 +653,7 @@ async def vector_search(
                 result_count=len(results),
                 retrieval_method=retrieval_method,
                 reranker=reranker_name,
+                reranker_status=reranker_status,
             )
         except Exception:
             logger.debug("vector_search: telemetry unavailable", exc_info=True)
@@ -660,6 +688,8 @@ async def vector_search(
                     "backend": backend_name,
                     "method": retrieval_method,
                     "reranker": reranker_name,
+                    "reranker_attempted": reranker_attempted,
+                    "reranker_status": reranker_status,
                     "result_count": len(results),
                 },
             }

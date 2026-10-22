@@ -123,6 +123,90 @@ class TestVectorSearch:
         data = json.loads(result)
         assert data.get("status") in ("failed", "error")
 
+    @pytest.mark.asyncio
+    async def test_rerank_preserva_id_colecao_e_score_de_retrieval(self):
+        from backend.storage.vectorstore.base import VectorHit
+        from backend.tools.rag import vector_search
+
+        backend = AsyncMock()
+        backend.search = AsyncMock(
+            return_value=[
+                VectorHit("first", 0.1, "one", {}, "articles"),
+                VectorHit("second", 0.2, "two", {}, "docs"),
+            ]
+        )
+
+        class _ReverseReranker:
+            async def acompress_documents(self, documents, query):
+                return list(reversed(documents))
+
+        embeddings = MagicMock()
+        embeddings.return_value.embed_query.return_value = [0.1]
+        with patch("backend.tools.rag.settings") as ms:
+            ms.get_cohere_api_key.return_value = "test-key"
+            ms.embedding_model = "embed"
+            ms.rag_hybrid_enabled = False
+            with (
+                patch("backend.tools.rag.lancedb", MagicMock()),
+                patch("backend.storage.factory._build_lc_embeddings", embeddings),
+                patch(
+                    "backend.storage.factory.get_vector_store_backend",
+                    AsyncMock(return_value=backend),
+                ),
+                patch(
+                    "backend.tools.rag._build_reranker", return_value=_ReverseReranker()
+                ),
+            ):
+                data = json.loads(
+                    await vector_search(
+                        ctx=ToolContext(), query="q", collection="articles", limit=2
+                    )
+                )
+
+        assert [item["id"] for item in data["results"]] == ["second", "first"]
+        assert data["results"][0]["collection"] == "docs"
+        assert data["results"][0]["score"] == 0.2
+        assert data["retrieval"]["reranker_status"] == "applied"
+
+    @pytest.mark.asyncio
+    async def test_no_results_emite_telemetria_com_contagem_zero(self):
+        from backend.tools.rag import vector_search
+
+        backend = AsyncMock()
+        backend.search = AsyncMock(return_value=[])
+        embeddings = MagicMock()
+        embeddings.return_value.embed_query.return_value = [0.1]
+        telemetry_mock = AsyncMock()
+        with patch("backend.tools.rag.settings") as ms:
+            ms.get_cohere_api_key.return_value = "test-key"
+            ms.embedding_model = "embed"
+            ms.rag_hybrid_enabled = False
+            with (
+                patch("backend.tools.rag.lancedb", MagicMock()),
+                patch("backend.storage.factory._build_lc_embeddings", embeddings),
+                patch(
+                    "backend.storage.factory.get_vector_store_backend",
+                    AsyncMock(return_value=backend),
+                ),
+                patch("backend.persistence.telemetry.telemetry", telemetry_mock),
+            ):
+                data = json.loads(
+                    await vector_search(
+                        ctx=ToolContext(),
+                        query="missing",
+                        collection="articles",
+                        limit=2,
+                    )
+                )
+
+        assert data["status"] == "no_results"
+        telemetry_mock.record_retrieval.assert_awaited_once_with(
+            query="missing",
+            collections=["articles"],
+            result_count=0,
+            retrieval_method="vector",
+        )
+
 
 class TestReciprocalRankFusion:
     """`_reciprocal_rank_fusion` funde ranking vetorial (distância) com
@@ -201,6 +285,32 @@ class TestRetrievalProvenance:
             "rank": 1,
             "score": 0.2,
         }
+
+    def test_attach_preserva_identidade_depois_de_reordenar(self) -> None:
+        from backend.tools.rag import _attach_retrieval_provenance
+
+        result = _attach_retrieval_provenance(
+            [
+                {
+                    "id": "b",
+                    "collection": "qdrant_docs",
+                    "score": 0.8,
+                    "content": "b",
+                },
+                {
+                    "id": "a",
+                    "collection": "articles",
+                    "score": 0.2,
+                    "content": "a",
+                },
+            ],
+            backend_name="QdrantBackend",
+            retrieval_method="hybrid_rrf",
+        )
+        assert [(item["id"], item["provenance"]["collection"]) for item in result] == [
+            ("b", "qdrant_docs"),
+            ("a", "articles"),
+        ]
 
 
 class TestVectorSearchHybrid:
