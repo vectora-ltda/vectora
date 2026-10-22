@@ -1439,13 +1439,6 @@ class PostgresSessionStore:
         )
 
         async with self._pool.acquire() as conn:
-            row = await conn.fetchrow(
-                "SELECT status FROM vectora_native_agent_runs WHERE run_id = $1",
-                run_id,
-            )
-            if row is not None and row["status"] in TERMINAL_AGENT_RUN_STATUSES:
-                return
-
             await conn.execute(
                 "UPDATE vectora_native_agent_runs SET "
                 "status = $1, "
@@ -1455,7 +1448,8 @@ class PostgresSessionStore:
                 "metrics_json = COALESCE($5, metrics_json), "
                 "updated_at = $6, "
                 "terminal_at = COALESCE(terminal_at, $7) "
-                "WHERE run_id = $8",
+                "WHERE run_id = $8 "
+                "AND status NOT IN ('passed', 'degraded', 'failed', 'cancelled')",
                 status,
                 redacted_plan_step,
                 redacted_detail,

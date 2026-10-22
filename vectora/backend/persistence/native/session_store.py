@@ -390,14 +390,6 @@ class SessionStore:
         )
 
         async with self._pool.acquire() as conn:
-            cur = await conn.execute(
-                "SELECT status FROM agent_runs WHERE run_id = ?",
-                (run_id,),
-            )
-            row = await cur.fetchone()
-            if row is not None and row[0] in TERMINAL_AGENT_RUN_STATUSES:
-                return
-
             await conn.execute(
                 "UPDATE agent_runs SET "
                 "status = ?, "
@@ -407,7 +399,7 @@ class SessionStore:
                 "metrics_json = COALESCE(?, metrics_json), "
                 "updated_at = ?, "
                 "terminal_at = COALESCE(terminal_at, ?) "
-                "WHERE run_id = ?",
+                "WHERE run_id = ? AND status NOT IN ('passed', 'degraded', 'failed', 'cancelled')",
                 (
                     status,
                     redacted_plan_step,
@@ -428,7 +420,7 @@ class SessionStore:
                 "error_code = COALESCE(?, error_code), "
                 "updated_at = ?, "
                 "terminal_at = COALESCE(terminal_at, ?) "
-                "WHERE run_id = ?",
+                "WHERE run_id = ? AND status NOT IN ('completed', 'failed', 'cancelled')",
                 (
                     mapped_status,
                     redacted_detail,

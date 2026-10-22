@@ -111,6 +111,7 @@ def _is_sensitive_key(key: str) -> bool:
             "refreshtoken",
             "privatekey",
             "authorization",
+            "openaikey",
         )
     )
 
