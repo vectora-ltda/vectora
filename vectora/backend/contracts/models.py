@@ -165,6 +165,112 @@ class UserSettingsV1(BaseModel):
 
 QualityGatePolicy = Literal["block", "degrade", "inform"]
 
+# ============================================================================
+# Contratos canônicos do runtime de execução
+# ============================================================================
+
+HarnessRunStatus = Literal[
+    "planned",
+    "admitted",
+    "running",
+    "waiting_approval",
+    "waiting_provider",
+    "tool_running",
+    "verifying",
+    "passed",
+    "degraded",
+    "failed",
+    "cancelled",
+    "recovery_required",
+]
+
+VerificationOutcome = Literal[
+    "passed",
+    "failed",
+    "infra_error",
+    "not_run",
+    "blocked",
+    "degraded",
+    "unverified",
+]
+
+MemoryScope = Literal[
+    "short_term", "session", "project", "workspace", "user", "vector_rag"
+]
+
+
+class ArtifactRef(BaseModel):
+    """Referência imutável a payload persistido fora do transcript quente."""
+
+    artifact_id: str = Field(..., min_length=1)
+    media_type: str = Field(default="application/octet-stream", min_length=1)
+    byte_size: int = Field(default=0, ge=0)
+    sha256: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    storage_uri: str = Field(..., min_length=1)
+    retention_class: str = Field(default="run")
+    encrypted: bool = False
+
+
+class CheckpointRef(BaseModel):
+    """Estado mínimo necessário para retomar um run sem reprocessar o transcript."""
+
+    checkpoint_id: str = Field(..., min_length=1)
+    run_id: str = Field(..., min_length=1)
+    thread_id: str = Field(..., min_length=1)
+    last_sequence: int = Field(..., ge=0)
+    source_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    schema_version: str = Field(..., min_length=1)
+    artifact_refs: list[ArtifactRef] = Field(default_factory=list)
+
+
+class ContextProjection(BaseModel):
+    """Projeção versionada do contexto; nunca substitui o transcript canônico."""
+
+    projection_id: str = Field(..., min_length=1)
+    thread_id: str = Field(..., min_length=1)
+    run_id: str = Field(..., min_length=1)
+    source_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    covered_from_sequence: int = Field(..., ge=0)
+    covered_to_sequence: int = Field(..., ge=0)
+    tokens_before: int = Field(default=0, ge=0)
+    tokens_after: int = Field(default=0, ge=0)
+    preserved_decisions: list[str] = Field(default_factory=list)
+    preserved_errors: list[str] = Field(default_factory=list)
+    preserved_approvals: list[str] = Field(default_factory=list)
+    pending_tool_calls: list[str] = Field(default_factory=list)
+    omitted_sequences: list[int] = Field(default_factory=list)
+
+
+class MemoryRecord(BaseModel):
+    """Fato recuperável com escopo e proveniência explícitos."""
+
+    memory_id: str = Field(..., min_length=1)
+    scope: MemoryScope
+    subject: str = Field(..., min_length=1)
+    content: str = Field(..., min_length=1)
+    source_run_id: str | None = None
+    source_artifact_id: str | None = None
+    provenance_hash: str = Field(..., pattern=r"^[0-9a-f]{64}$")
+    confidence: float = Field(default=0.5, ge=0.0, le=1.0)
+    importance: float = Field(default=0.5, ge=0.0, le=1.0)
+    valid_until: str | None = None
+    invalidated_at: str | None = None
+
+
+class ProviderCapability(BaseModel):
+    """Resultado negociado de capacidade; readiness não implica capability."""
+
+    provider: str = Field(..., min_length=1)
+    model: str = Field(..., min_length=1)
+    discovered: bool = False
+    ready: bool = False
+    text_generation: bool = False
+    streaming: bool = False
+    tool_calling: bool = False
+    vision: bool = False
+    checked_at: str | None = None
+    diagnostic: str | None = None
+
 
 class QualityGateSpec(BaseModel):
     """Definição de um gate de qualidade a ser executado pós-turno do agente."""
