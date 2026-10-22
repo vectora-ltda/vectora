@@ -906,6 +906,10 @@ class PostgresSessionStore:
                 thread_id,
             )
             await conn.execute(
+                "DELETE FROM vectora_native_context_projections WHERE thread_id = $1",
+                thread_id,
+            )
+            await conn.execute(
                 "DELETE FROM vectora_native_ledger_backfill WHERE thread_id = $1",
                 thread_id,
             )
@@ -1634,6 +1638,106 @@ class PostgresSessionStore:
                 if file_touched:
                     run.files_touched.append(redact_sensitive_data(file_touched))
                 await self._upsert_agent_run_on_conn(conn, run)
+
+    async def save_context_projection(
+        self, thread_id: str, run_id: str, projection: dict[str, Any]
+    ) -> None:
+        """Persiste a projeção versionada fora do transcript canônico."""
+        await self.setup()
+        # Preserve numeric sequence/token metadata; the generic redactor marks
+        # any key containing ``token`` as sensitive, which would corrupt the
+        # projection budget counters.
+        clean = {
+            key: value
+            if key
+            in {
+                "start_seq",
+                "end_seq",
+                "tokens_before",
+                "tokens_after",
+            }
+            else redact_sensitive_data(value)
+            for key, value in projection.items()
+        }
+        if not isinstance(clean, dict) or not clean.get("projection_id"):
+            raise ValueError("projeção sem projection_id")
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO vectora_native_context_projections ("
+                "projection_id, thread_id, run_id, source_hash, covered_from_sequence, "
+                "covered_to_sequence, model, policy_version, tokens_before, tokens_after, "
+                "preserved_decisions_json, preserved_errors_json, preserved_approvals_json, "
+                "pending_tool_calls_json, omitted_sequences_json, content_json, created_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) "
+                "ON CONFLICT (projection_id) DO UPDATE SET content_json = EXCLUDED.content_json, "
+                "tokens_before = EXCLUDED.tokens_before, tokens_after = EXCLUDED.tokens_after",
+                str(clean["projection_id"]),
+                thread_id,
+                run_id,
+                str(clean.get("source_transcript_hash", "")),
+                int(clean.get("start_seq", 0)),
+                int(clean.get("end_seq", 0)),
+                str(clean.get("model", "")),
+                str(clean.get("policy_version", "")),
+                int(clean.get("tokens_before", 0)),
+                int(clean.get("tokens_after", 0)),
+                json.dumps(clean.get("preserved_decisions", []), ensure_ascii=False),
+                json.dumps(clean.get("preserved_errors", []), ensure_ascii=False),
+                json.dumps(clean.get("preserved_approvals", []), ensure_ascii=False),
+                json.dumps(clean.get("pending_tool_calls", []), ensure_ascii=False),
+                json.dumps(clean.get("omitted_sequences", []), ensure_ascii=False),
+                json.dumps(clean.get("content"), ensure_ascii=False)
+                if clean.get("content") is not None
+                else None,
+                str(clean.get("created_at", _now())),
+            )
+
+    async def get_latest_context_projection(
+        self, thread_id: str, *, policy_version: str | None = None
+    ) -> dict[str, Any] | None:
+        """Carrega a última projeção da thread, opcionalmente por política."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            query = (
+                "SELECT projection_id, run_id, source_hash, covered_from_sequence, "
+                "covered_to_sequence, model, policy_version, tokens_before, tokens_after, "
+                "preserved_decisions_json, preserved_errors_json, preserved_approvals_json, "
+                "pending_tool_calls_json, omitted_sequences_json, content_json, created_at "
+                "FROM vectora_native_context_projections WHERE thread_id = $1 "
+            )
+            params: list[Any] = [thread_id]
+            if policy_version is not None:
+                query += "AND policy_version = $2 "
+                params.append(policy_version)
+            query += "ORDER BY covered_to_sequence DESC, created_at DESC LIMIT 1"
+            row = await conn.fetchrow(query, *params)
+        if row is None:
+            return None
+        value = row.get
+        return {
+            "projection_id": value("projection_id"),
+            "run_id": value("run_id"),
+            "source_hash": value("source_hash"),
+            "covered_from_sequence": value("covered_from_sequence"),
+            "covered_to_sequence": value("covered_to_sequence"),
+            "model": value("model"),
+            "policy_version": value("policy_version"),
+            "tokens_before": value("tokens_before"),
+            "tokens_after": value("tokens_after"),
+            "preserved_decisions": json.loads(
+                value("preserved_decisions_json") or "[]"
+            ),
+            "preserved_errors": json.loads(value("preserved_errors_json") or "[]"),
+            "preserved_approvals": json.loads(
+                value("preserved_approvals_json") or "[]"
+            ),
+            "pending_tool_calls": json.loads(value("pending_tool_calls_json") or "[]"),
+            "omitted_sequences": json.loads(value("omitted_sequences_json") or "[]"),
+            "content": json.loads(value("content_json"))
+            if value("content_json")
+            else None,
+            "created_at": value("created_at"),
+        }
 
     async def get_agent_run(self, run_id: str) -> AgentRun | None:
         """Obtém uma execução persistida por run_id."""

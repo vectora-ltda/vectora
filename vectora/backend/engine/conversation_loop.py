@@ -407,6 +407,16 @@ async def run_conversation(
                         await session_store.record_run_evidence(
                             config.run_id, evidence=entry
                         )
+                        if (
+                            kind == "projection"
+                            and planned_context.projection is not None
+                            and hasattr(session_store, "save_context_projection")
+                        ):
+                            await session_store.save_context_projection(
+                                thread_id,
+                                config.run_id,
+                                dict(planned_context.projection.to_evidence_entry()),
+                            )
                         if kind == "manifest":
                             manifest_recorded = True
                         else:

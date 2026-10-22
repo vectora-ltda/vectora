@@ -276,6 +276,40 @@ class TestAgentRunLifecycle:
         assert len(loaded.evidence) == 1
         assert len(loaded.artifacts) == 1
 
+    async def test_projection_store_is_separate_from_agent_evidence(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session("thread-projection-store", user_id="user-123")
+        await store.save_context_projection(
+            "thread-projection-store",
+            "run-projection",
+            {
+                "projection_id": "projection-persisted",
+                "source_transcript_hash": "b" * 64,
+                "start_seq": 3,
+                "end_seq": 8,
+                "model": "qwen",
+                "policy_version": "context.v1",
+                "tokens_before": 100,
+                "tokens_after": 40,
+                "preserved_decisions": ["d1"],
+                "omitted_sequences": [1, 2],
+            },
+        )
+
+        projection = await store.get_latest_context_projection(
+            "thread-projection-store", policy_version="context.v1"
+        )
+        assert projection is not None
+        assert projection["projection_id"] == "projection-persisted"
+        assert projection["covered_to_sequence"] == 8
+        assert projection["omitted_sequences"] == [1, 2]
+
+        await store.delete_session("thread-projection-store")
+        assert (
+            await store.get_latest_context_projection("thread-projection-store")
+        ) is None
+
     async def test_rehydrate_after_restart(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "restart_test.db")
         # 1. Abre pool, cria e encerra
