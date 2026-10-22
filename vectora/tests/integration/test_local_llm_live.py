@@ -7,6 +7,7 @@ expõe ``VECTORA_LOCAL_LLM_BASE_URL`` antes de executar este módulo.
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Final
 
@@ -100,3 +101,34 @@ async def test_llamacpp_systemone_endpoint_or_clef_adapter() -> None:
         else:
             # Em servidores com build sem endpoint /v1/systemone ativado ou não implementado, o retorno é 404, 405 ou 501 (Not Implemented)
             assert res.status_code in {200, 404, 405, 501}
+
+
+@pytest.mark.skipif(
+    not os.environ.get("VECTORA_LOCAL_LLM_BASE_URL"), reason="llama.cpp local ausente"
+)
+async def test_llamacpp_structured_decision_contract() -> None:
+    """Valida decisão estruturada no endpoint usado pelo Jev/Clef."""
+    async with httpx.AsyncClient(base_url=_BASE_URL, timeout=_TIMEOUT) as client:
+        models_response = await client.get("/models")
+        assert models_response.status_code == 200, models_response.text
+        model_id = models_response.json()["data"][0]["id"]
+        completion = await client.post(
+            "/chat/completions",
+            json={
+                "model": model_id,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "Classifique como technical ou billing: API indisponível e cliente pede reembolso. Retorne JSON com decision e confidence.",
+                    }
+                ],
+                "max_tokens": 96,
+                "temperature": 0,
+                "stream": False,
+                "response_format": {"type": "json_object"},
+            },
+        )
+        assert completion.status_code == 200, completion.text
+        decision = json.loads(completion.json()["choices"][0]["message"]["content"])
+        assert decision["decision"] in {"technical", "billing"}
+        assert 0 <= float(decision["confidence"]) <= 1
