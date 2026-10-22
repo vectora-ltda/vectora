@@ -206,6 +206,8 @@ class AgentRun(BaseModel):
     run_id: str
     thread_id: str
     turn_id: str | None = None
+    parent_run_id: str | None = None
+    correlation_id: str | None = None
     user_id: str = ""
     workspace_id: str | None = None
     model: str = ""
