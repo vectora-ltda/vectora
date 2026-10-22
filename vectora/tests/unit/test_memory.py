@@ -192,6 +192,44 @@ def store(monkeypatch):
 
 
 class TestSaveMemoryCategory:
+    async def test_ttl_persiste_valid_until_e_rejeita_valor_invalido(self, store):
+        from backend.tools.memory import get_memory, save_memory
+
+        ctx = ToolContext(user_id="u1")
+        saved = json.loads(
+            await save_memory(ctx=ctx, key="temporary", content="x", ttl_days=2)
+        )
+        assert saved["status"] == "saved"
+        item = await store.aget(("user", "u1", "memories"), "temporary")
+        assert item is not None
+        assert "valid_until" in item.value
+        assert (
+            json.loads(
+                await save_memory(ctx=ctx, key="invalid", content="x", ttl_days=0)
+            )["status"]
+            == "failed"
+        )
+
+        assert (
+            json.loads(await get_memory(ctx=ctx, key="temporary"))["status"] == "found"
+        )
+
+    async def test_memoria_expirada_nao_aparece_e_e_removida(self, store):
+        from backend.tools.memory import get_memory
+
+        ctx = ToolContext(user_id="u1")
+        await store.aput(
+            ("user", "u1", "memories"),
+            "expired",
+            {"content": "x", "valid_until": "2000-01-01T00:00:00+00:00"},
+        )
+
+        assert (
+            json.loads(await get_memory(ctx=ctx, key="expired"))["status"]
+            == "not_found"
+        )
+        assert await store.aget(("user", "u1", "memories"), "expired") is None
+
     async def test_category_e_persistida_e_volta_no_get(self, store):
         from backend.tools.memory import get_memory, save_memory
 
