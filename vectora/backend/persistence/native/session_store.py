@@ -12,7 +12,9 @@ conversa nativo sobre ``aiosqlite``: schema append-only ``sessions`` +
 
 from __future__ import annotations
 
+import asyncio
 import json
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
@@ -37,6 +39,45 @@ from backend.persistence.native.ledger import (
     make_approval_resolved_key,
     make_message_created_key,
 )
+
+
+class _RunEvidenceLockRegistry:
+    """Locks por run com retenção limitada à concorrência ativa.
+
+    ``record_run_evidence`` precisa serializar escritores dentro de uma
+    instância do store, mas um dicionário simples por ``run_id`` reteria uma
+    entrada para cada execução histórica. O contador de usuários é
+    incrementado antes do primeiro await e impede remover uma entrada que
+    ainda tem waiter; a entrada só sai quando o último contexto termina.
+    """
+
+    def __init__(self) -> None:
+        self._entries: dict[str, tuple[asyncio.Lock, int]] = {}
+
+    @asynccontextmanager
+    async def acquire(self, run_id: str):
+        entry = self._entries.get(run_id)
+        if entry is None:
+            entry = (asyncio.Lock(), 0)
+        lock, users = entry
+        self._entries[run_id] = (lock, users + 1)
+        try:
+            async with lock:
+                yield
+        finally:
+            current = self._entries.get(run_id)
+            if current is None or current[0] is not lock:
+                return
+            remaining = current[1] - 1
+            if remaining <= 0 and not lock.locked():
+                self._entries.pop(run_id, None)
+            else:
+                self._entries[run_id] = (lock, remaining)
+
+    def __len__(self) -> int:
+        return len(self._entries)
+
+
 from backend.persistence.native.schema import setup_sqlite_session_schema
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import VMessage
@@ -131,6 +172,7 @@ class SessionStore:
     def __init__(self, pool: AsyncConnectionPool) -> None:
         self._pool = pool
         self._is_setup = False
+        self._run_evidence_locks = _RunEvidenceLockRegistry()
 
     async def setup(self) -> None:
         """Cria as tabelas se não existirem. Idempotente — chamado
@@ -429,7 +471,7 @@ class SessionStore:
                 "metrics_json = COALESCE(?, metrics_json), "
                 "updated_at = ?, "
                 "terminal_at = COALESCE(?, terminal_at) "
-                "WHERE run_id = ?",
+                "WHERE run_id = ? AND status NOT IN ('passed', 'degraded', 'failed', 'cancelled')",
                 (
                     status,
                     redacted_plan_step,
@@ -450,7 +492,7 @@ class SessionStore:
                 "error_code = COALESCE(?, error_code), "
                 "updated_at = ?, "
                 "terminal_at = COALESCE(?, terminal_at) "
-                "WHERE run_id = ?",
+                "WHERE run_id = ? AND status NOT IN ('completed', 'failed', 'cancelled')",
                 (
                     mapped_status,
                     redacted_detail,
@@ -475,25 +517,26 @@ class SessionStore:
         file_touched: dict[str, Any] | None = None,
     ) -> None:
         """Registra evidências incrementais em um AgentRun com sanitização de segredos."""
-        await self.setup()
-        run = await self.get_agent_run(run_id)
-        if run is None:
-            return
-        if evidence:
-            run.evidence.append(redact_sensitive_data(evidence))
-        if artifact:
-            run.artifacts.append(redact_sensitive_data(artifact))
-        if command:
-            run.commands_run.append(redact_sensitive_data(command))
-        if test_result:
-            run.tests_run.append(redact_sensitive_data(test_result))
-        if tool_used and tool_used not in run.tools_used:
-            run.tools_used.append(tool_used)
-        if approval:
-            run.approvals.append(redact_sensitive_data(approval))
-        if file_touched:
-            run.files_touched.append(redact_sensitive_data(file_touched))
-        await self.upsert_agent_run(run)
+        async with self._run_evidence_locks.acquire(run_id):
+            await self.setup()
+            run = await self.get_agent_run(run_id)
+            if run is None:
+                return
+            if evidence:
+                run.evidence.append(redact_sensitive_data(evidence))
+            if artifact:
+                run.artifacts.append(redact_sensitive_data(artifact))
+            if command:
+                run.commands_run.append(redact_sensitive_data(command))
+            if test_result:
+                run.tests_run.append(redact_sensitive_data(test_result))
+            if tool_used and tool_used not in run.tools_used:
+                run.tools_used.append(tool_used)
+            if approval:
+                run.approvals.append(redact_sensitive_data(approval))
+            if file_touched:
+                run.files_touched.append(redact_sensitive_data(file_touched))
+            await self.upsert_agent_run(run)
 
     async def get_agent_run(self, run_id: str) -> AgentRun | None:
         """Obtém uma execução persistida por run_id."""
