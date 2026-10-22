@@ -98,6 +98,35 @@ async def list_fact_contents(user_id: str) -> list[str]:
     ]
 
 
+async def _search_unexpired(
+    store: Any,
+    namespace: tuple[str, ...],
+    *,
+    query: str,
+    limit: int,
+) -> list[Any]:
+    """Busca candidatos até reunir ``limit`` itens válidos.
+
+    Backends nativos filtram expiração antes da paginação. Implementações
+    externas podem paginar primeiro; nesse caso aumentamos a janela até ela
+    não estar mais cheia ou até o limite de segurança, evitando que registros
+    expirados escondam memórias válidas.
+    """
+    wanted = max(1, int(limit))
+    scan_limit = max(wanted, 1000)
+    previous_count = -1
+    while scan_limit <= 100_000:
+        candidates = await store.asearch(namespace, query=query, limit=scan_limit)
+        valid = [item for item in candidates if not _is_memory_expired(item.value)]
+        if len(valid) >= wanted or len(candidates) < scan_limit:
+            return valid[:wanted]
+        if len(candidates) <= previous_count:
+            return valid[:wanted]
+        previous_count = len(candidates)
+        scan_limit *= 2
+    return valid[:wanted]
+
+
 def _get_store(ctx: ToolContext) -> Any:
     """Obtém o store persistente da execução atual — via ``ctx.store``.
 
@@ -298,11 +327,7 @@ async def search_memory(ctx: ToolContext, query: str, limit: int = 5) -> str:
         store = _get_store(ctx)
         ns = _memory_namespace(ctx)
 
-        # Ask generic StoreBackend implementations for a wider candidate set;
-        # some backends paginate before applying their expiration policy.
-        items = await store.asearch(ns, query=query, limit=max(limit, 1000))
-        items = [item for item in items if not _is_memory_expired(item.value)]
-        items = items[:limit]
+        items = await _search_unexpired(store, ns, query=query, limit=limit)
         has_scores = any(getattr(item, "score", None) is not None for item in items)
 
         memories = [
