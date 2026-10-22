@@ -1464,6 +1464,8 @@ class TestLlamaCppAndHuggingFace:
         }
         assert result["confirmed"] is True
         assert result["model_tag"] == "weights.gguf"
+        assert os.environ["LLAMACPP_MODE"] == "managed"
+        assert "LLAMACPP_MODE=managed" in (tmp_path / ".env").read_text()
 
     def test_llamacpp_install_rejects_non_official_url(self, client):
         response = client.post(
