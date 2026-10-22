@@ -407,7 +407,16 @@ async def build_workspace_graph(
             graph_data = json.loads(graph_json.read_text(encoding="utf-8"))
             if not update:
                 await purge_graph_index(workspace_id)
-            await index_graph_nodes(workspace_id, graph_data)
+            nodes_count = len(graph_data.get("nodes") or [])
+            indexed_count = await index_graph_nodes(workspace_id, graph_data)
+            if nodes_count > 0 and indexed_count == 0:
+                result.indexing_degraded = True
+                result.indexing_error = f"Falha na indexação: {nodes_count} nós para indexar, mas 0 foram indexados no LanceDB"
+                logger.error(
+                    "context_graph: falha na indexação de nós no LanceDB — %d nós esperados, 0 indexados",
+                    nodes_count,
+                    extra={"workspace_id": workspace_id},
+                )
         except Exception as exc:
             logger.exception(
                 "context_graph: falha ao indexar nós no LanceDB",

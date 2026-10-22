@@ -308,6 +308,8 @@ async def run_conversation(
     observed_tools: set[str] = set()
     files_touched: list[str] = []
     executed_step_gates: set[tuple[str, str]] = set()
+    manifest_recorded = False
+    projection_recorded = False
 
     for _iteracao in range(config.max_iterations):
         raw_history = await session_store.get_history(thread_id)
@@ -328,33 +330,43 @@ async def run_conversation(
         )
         historico = planned_context.messages
 
+        should_record_manifest = bool(
+            not manifest_recorded and planned_context.manifest
+        )
+        should_record_projection = bool(
+            not projection_recorded and planned_context.projection is not None
+        )
         if (
             config.run_id
-            and planned_context.manifest
+            and (should_record_manifest or should_record_projection)
             and hasattr(session_store, "get_agent_run")
             and hasattr(session_store, "upsert_agent_run")
         ):
             try:
                 agent_run = await session_store.get_agent_run(config.run_id)
                 if agent_run is not None:
-                    if not any(
-                        isinstance(e, dict) and e.get("kind") == "context_manifest"
-                        for e in agent_run.evidence
-                    ):
+                    if should_record_manifest and planned_context.manifest:
                         agent_run.evidence.append(
                             cast(
                                 "JsonObject",
                                 planned_context.manifest.to_evidence_entry(),
                             )
                         )
-                        if planned_context.projection is not None:
-                            agent_run.evidence.append(
-                                cast(
-                                    "JsonObject",
-                                    planned_context.projection.to_evidence_entry(),
-                                )
+                    if (
+                        should_record_projection
+                        and planned_context.projection is not None
+                    ):
+                        agent_run.evidence.append(
+                            cast(
+                                "JsonObject",
+                                planned_context.projection.to_evidence_entry(),
                             )
-                        await session_store.upsert_agent_run(agent_run)
+                        )
+                    await session_store.upsert_agent_run(agent_run)
+                    if should_record_manifest:
+                        manifest_recorded = True
+                    if should_record_projection:
+                        projection_recorded = True
             except Exception:
                 logger.exception(
                     "conversation_loop: falha ao persistir manifesto de contexto como evidência",

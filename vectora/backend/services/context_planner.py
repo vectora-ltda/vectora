@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any
 
 from backend.services.context_compaction import (
@@ -66,54 +66,6 @@ def _format_compacted_marker(
         role=MessageRole.SYSTEM,
         content=[ContentBlock(kind="text", text="\n".join(lines))],
     )
-
-
-def _fit_required_message(message: VMessage, budget: int) -> VMessage:
-    """Mantém a mensagem obrigatória dentro do orçamento aproximado."""
-    if budget <= 0 or _message_tokens(message) <= budget:
-        return message
-    text_blocks = [block for block in message.content if block.kind == "text"]
-    if not text_blocks:
-        return message
-    # A estimativa do serviço de tokens varia por modelo; um limite de quatro
-    # caracteres por token evita enviar uma mensagem inteira que já estourou o
-    # orçamento, mantendo o início da solicitação para diagnóstico.
-    max_chars = max(8, budget * 4)
-    remaining = max_chars
-    bounded = []
-    for block in message.content:
-        if block.kind != "text" or not block.text:
-            bounded.append(block)
-            continue
-        excerpt = block.text[:remaining]
-        remaining -= len(excerpt)
-        bounded.append(replace(block, text=excerpt))
-        if remaining <= 0:
-            break
-    bounded.append(
-        ContentBlock(
-            kind="text", text="\n[mensagem truncada pelo orçamento de contexto]"
-        )
-    )
-    candidate = replace(message, content=bounded)
-    while _message_tokens(candidate) > budget and max_chars > 8:
-        max_chars = max(8, int(max_chars * 0.75))
-        remaining = max_chars
-        bounded = []
-        for block in message.content:
-            if block.kind != "text" or not block.text:
-                bounded.append(block)
-                continue
-            excerpt = block.text[:remaining]
-            remaining -= len(excerpt)
-            bounded.append(replace(block, text=excerpt))
-            if remaining <= 0:
-                break
-        bounded.append(
-            ContentBlock(kind="text", text="\n[truncado pelo orçamento de contexto]")
-        )
-        candidate = replace(message, content=bounded)
-    return candidate
 
 
 @dataclass
@@ -275,16 +227,9 @@ class ContextPlanner:
             cost = sum(_message_tokens(m) for m in unit)
             if used_tokens + cost > selection_budget:
                 if not selected_units:
-                    # A solicitação mais recente é obrigatória. Se ela sozinha
-                    # estourar o orçamento, preservamos sua forma causal e
-                    # truncamos apenas o conteúdo textual.
-                    if len(unit) == 1 and unit[0].role is not MessageRole.TOOL:
-                        available = max(1, selection_budget - used_tokens)
-                        bounded = _fit_required_message(unit[0], available)
-                        bounded_unit = [bounded]
-                        units[units.index(unit)] = bounded_unit
-                        selected_units.append(bounded_unit)
-                        used_tokens += _message_tokens(bounded)
+                    # A unidade mais recente é obrigatória.
+                    selected_units.append(unit)
+                    used_tokens += cost
                 break
             selected_units.append(unit)
             used_tokens += cost
