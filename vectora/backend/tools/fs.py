@@ -1325,6 +1325,9 @@ def _rotate_artifact_history(artifact_dir: Path, slug: str, content: str) -> Pat
         while (artifact_dir / f"{slug}-{n}.md").exists():
             n += 1
         current.rename(artifact_dir / f"{slug}-{n}.md")
+        integrity = artifact_dir / f"{slug}.artifact.json"
+        if integrity.exists():
+            integrity.rename(artifact_dir / f"{slug}-{n}.artifact.json")
     current.write_text(content, encoding="utf-8")
     return current
 
