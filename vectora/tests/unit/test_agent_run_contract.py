@@ -339,3 +339,34 @@ class TestAgentRunLifecycle:
         assert timeline[0].type == "agent_turn_started"
         assert timeline[1].type == "tool_started"
         assert timeline[1].payload.get("tool_name") == "bash"
+
+    async def test_upsert_preserves_untrusted_content_provenance(
+        self, store: SessionStore
+    ):
+        await store.create_session("thread-untrusted-preservation", user_id="user-xyz")
+        run_id = "run-untrusted-1"
+        await store.upsert_agent_run(
+            AgentRun(
+                run_id=run_id,
+                thread_id="thread-untrusted-preservation",
+                status="waiting_approval",
+                untrusted_content=True,
+            )
+        )
+        saved = await store.get_agent_run(run_id)
+        assert saved is not None
+        assert saved.untrusted_content is True
+
+        # Atualização subsequente com run sem flag explícita
+        await store.upsert_agent_run(
+            AgentRun(
+                run_id=run_id,
+                thread_id="thread-untrusted-preservation",
+                status="passed",
+                untrusted_content=False,
+            )
+        )
+        updated = await store.get_agent_run(run_id)
+        assert updated is not None
+        assert updated.status == "passed"
+        assert updated.untrusted_content is True

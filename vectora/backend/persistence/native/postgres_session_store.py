@@ -1346,16 +1346,56 @@ class PostgresSessionStore:
         tests_run = json.dumps(redact_sensitive_data(run.tests_run), ensure_ascii=False)
         artifacts = json.dumps(redact_sensitive_data(run.artifacts), ensure_ascii=False)
         metrics = json.dumps(run.metrics.model_dump(), ensure_ascii=False)
-        evidence = json.dumps(redact_sensitive_data(run.evidence), ensure_ascii=False)
+        evidence_list = list(run.evidence)
+        if run.untrusted_content and not any(
+            isinstance(e, dict) and e.get("untrusted_content") is True
+            for e in evidence_list
+        ):
+            evidence_list.append({"kind": "provenance", "untrusted_content": True})
+        if not any(
+            isinstance(e, dict) and e.get("untrusted_content") is True
+            for e in evidence_list
+        ):
+            # Preserva proveniência de conteúdo não confiável já registrada
+            previous = await conn.fetchrow(
+                "SELECT evidence_json FROM vectora_native_agent_runs "
+                "WHERE run_id = $1 FOR UPDATE",
+                run.run_id,
+            )
+            prev_json = previous["evidence_json"] if previous else None
+            if prev_json:
+                try:
+                    prev_evidence = json.loads(prev_json)
+                except ValueError:
+                    prev_evidence = []
+                has_untrusted = isinstance(prev_evidence, list) and any(
+                    isinstance(e, dict)
+                    and str(e.get("untrusted_content", "")).lower() == "true"
+                    for e in prev_evidence
+                )
+                if not has_untrusted and isinstance(prev_json, str):
+                    # Some PostgreSQL drivers return JSON text with a custom
+                    # decoder; retain the provenance marker even then.
+                    has_untrusted = (
+                        "untrusted_content" in prev_json.lower()
+                        and "true" in prev_json.lower()
+                    )
+                if has_untrusted:
+                    evidence_list.append(
+                        {"kind": "provenance", "untrusted_content": True}
+                    )
+        evidence = json.dumps(redact_sensitive_data(evidence_list), ensure_ascii=False)
 
         await conn.execute(
             "INSERT INTO vectora_native_agent_runs ("
-            "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
+            "run_id, thread_id, turn_id, parent_run_id, correlation_id, user_id, workspace_id, model, provider, "
             "status, plan_step, tools_available_json, tools_used_json, approvals_json, "
             "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
-            "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) "
+            "evidence_json, metrics_json, detail, error_code, started_at, updated_at, terminal_at) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25) "
             "ON CONFLICT(run_id) DO UPDATE SET "
+            "parent_run_id = COALESCE(EXCLUDED.parent_run_id, vectora_native_agent_runs.parent_run_id), "
+            "correlation_id = COALESCE(EXCLUDED.correlation_id, vectora_native_agent_runs.correlation_id), "
             "status = EXCLUDED.status, "
             "plan_step = COALESCE(EXCLUDED.plan_step, vectora_native_agent_runs.plan_step), "
             "tools_available_json = EXCLUDED.tools_available_json, "
@@ -1374,6 +1414,8 @@ class PostgresSessionStore:
             run.run_id,
             run.thread_id,
             run.turn_id,
+            run.parent_run_id,
+            run.correlation_id,
             run.user_id,
             run.workspace_id,
             run.model,
@@ -1387,8 +1429,8 @@ class PostgresSessionStore:
             commands_run,
             tests_run,
             artifacts,
-            metrics,
             evidence,
+            metrics,
             redacted_detail,
             redacted_error_code,
             run.started_at,
@@ -1473,7 +1515,7 @@ class PostgresSessionStore:
     ) -> AgentRun | None:
         """Carrega e desserializa um AgentRun na conexão fornecida."""
         query = (
-            "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
+            "SELECT run_id, thread_id, turn_id, parent_run_id, correlation_id, user_id, workspace_id, "
             "model, provider, status, plan_step, tools_available_json, "
             "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
             "tests_run_json, artifacts_json, metrics_json, evidence_json, "
@@ -1485,10 +1527,26 @@ class PostgresSessionStore:
         row = await conn.fetchrow(query, run_id)
         if row is None:
             return None
+        evidence_data = json.loads(row["evidence_json"] or "[]")
+        is_untrusted = any(
+            isinstance(e, dict) and e.get("untrusted_content") is True
+            for e in evidence_data
+        )
+        # Records created before the run contract gained correlation and
+        # parent fields remain readable.  asyncpg.Record supports ``get``;
+        # the fallback also keeps lightweight test doubles and old snapshots
+        # compatible with the current schema.
+        value = row.get
         return AgentRun(
             run_id=str(row["run_id"]),
             thread_id=str(row["thread_id"]),
-            turn_id=str(row["turn_id"]) if row["turn_id"] else None,
+            turn_id=str(value("turn_id")) if value("turn_id") else None,
+            parent_run_id=str(value("parent_run_id"))
+            if value("parent_run_id")
+            else None,
+            correlation_id=str(value("correlation_id"))
+            if value("correlation_id")
+            else None,
             user_id=str(row["user_id"] or ""),
             workspace_id=str(row["workspace_id"]) if row["workspace_id"] else None,
             model=str(row["model"] or ""),
@@ -1503,7 +1561,8 @@ class PostgresSessionStore:
             tests_run=json.loads(row["tests_run_json"] or "[]"),
             artifacts=json.loads(row["artifacts_json"] or "[]"),
             metrics=AgentRunMetrics(**json.loads(row["metrics_json"] or "{}")),
-            evidence=json.loads(row["evidence_json"] or "[]"),
+            evidence=evidence_data,
+            untrusted_content=is_untrusted,
             detail=str(row["detail"]) if row["detail"] else None,
             error_code=str(row["error_code"]) if row["error_code"] else None,
             started_at=str(row["started_at"]),
@@ -1560,7 +1619,7 @@ class PostgresSessionStore:
         safe_limit = max(1, min(500, int(limit)))
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
+                "SELECT run_id, thread_id, turn_id, parent_run_id, correlation_id, user_id, workspace_id, "
                 "model, provider, status, plan_step, tools_available_json, "
                 "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
                 "tests_run_json, artifacts_json, metrics_json, evidence_json, "
@@ -1570,34 +1629,53 @@ class PostgresSessionStore:
                 thread_id,
                 safe_limit,
             )
-            return [
-                AgentRun(
-                    run_id=str(r["run_id"]),
-                    thread_id=str(r["thread_id"]),
-                    turn_id=str(r["turn_id"]) if r["turn_id"] else None,
-                    user_id=str(r["user_id"] or ""),
-                    workspace_id=str(r["workspace_id"]) if r["workspace_id"] else None,
-                    model=str(r["model"] or ""),
-                    provider=str(r["provider"] or ""),
-                    status=cast("AgentRunStatus", r["status"]),
-                    plan_step=str(r["plan_step"]) if r["plan_step"] else None,
-                    tools_available=json.loads(r["tools_available_json"] or "[]"),
-                    tools_used=json.loads(r["tools_used_json"] or "[]"),
-                    approvals=json.loads(r["approvals_json"] or "[]"),
-                    files_touched=json.loads(r["files_touched_json"] or "[]"),
-                    commands_run=json.loads(r["commands_run_json"] or "[]"),
-                    tests_run=json.loads(r["tests_run_json"] or "[]"),
-                    artifacts=json.loads(r["artifacts_json"] or "[]"),
-                    metrics=AgentRunMetrics(**json.loads(r["metrics_json"] or "{}")),
-                    evidence=json.loads(r["evidence_json"] or "[]"),
-                    detail=str(r["detail"]) if r["detail"] else None,
-                    error_code=str(r["error_code"]) if r["error_code"] else None,
-                    started_at=str(r["started_at"]),
-                    updated_at=str(r["updated_at"]),
-                    terminal_at=str(r["terminal_at"]) if r["terminal_at"] else None,
+            runs: list[AgentRun] = []
+            for r in rows:
+                value = r.get
+                evidence_data = json.loads(value("evidence_json") or "[]")
+                is_untrusted = any(
+                    isinstance(e, dict) and e.get("untrusted_content") is True
+                    for e in evidence_data
                 )
-                for r in rows
-            ]
+                runs.append(
+                    AgentRun(
+                        run_id=str(r["run_id"]),
+                        thread_id=str(r["thread_id"]),
+                        turn_id=str(value("turn_id")) if value("turn_id") else None,
+                        parent_run_id=str(value("parent_run_id"))
+                        if value("parent_run_id")
+                        else None,
+                        correlation_id=str(value("correlation_id"))
+                        if value("correlation_id")
+                        else None,
+                        user_id=str(r["user_id"] or ""),
+                        workspace_id=str(r["workspace_id"])
+                        if r["workspace_id"]
+                        else None,
+                        model=str(r["model"] or ""),
+                        provider=str(r["provider"] or ""),
+                        status=cast("AgentRunStatus", r["status"]),
+                        plan_step=str(r["plan_step"]) if r["plan_step"] else None,
+                        tools_available=json.loads(r["tools_available_json"] or "[]"),
+                        tools_used=json.loads(r["tools_used_json"] or "[]"),
+                        approvals=json.loads(r["approvals_json"] or "[]"),
+                        files_touched=json.loads(r["files_touched_json"] or "[]"),
+                        commands_run=json.loads(r["commands_run_json"] or "[]"),
+                        tests_run=json.loads(r["tests_run_json"] or "[]"),
+                        artifacts=json.loads(r["artifacts_json"] or "[]"),
+                        metrics=AgentRunMetrics(
+                            **json.loads(r["metrics_json"] or "{}")
+                        ),
+                        evidence=evidence_data,
+                        untrusted_content=is_untrusted,
+                        detail=str(r["detail"]) if r["detail"] else None,
+                        error_code=str(r["error_code"]) if r["error_code"] else None,
+                        started_at=str(r["started_at"]),
+                        updated_at=str(r["updated_at"]),
+                        terminal_at=str(r["terminal_at"]) if r["terminal_at"] else None,
+                    )
+                )
+            return runs
 
     async def get_agent_run_timeline(self, run_id: str) -> list[AgentRunTimelineEntry]:
         """Recupera eventos do ledger correlacionados a um run_id."""
