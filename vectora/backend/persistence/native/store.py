@@ -47,8 +47,14 @@ def is_store_value_expired(
     if not isinstance(valid_until, str) or not valid_until:
         return False
     try:
-        return datetime.fromisoformat(valid_until) <= (now or datetime.now(UTC))
-    except ValueError:
+        expires_at = datetime.fromisoformat(valid_until)
+        # Older callers could persist ISO timestamps without an offset. Treat
+        # those values as UTC so one malformed legacy record cannot abort a
+        # namespace-wide read or search.
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        return expires_at <= (now or datetime.now(UTC))
+    except (TypeError, ValueError):
         return False
 
 

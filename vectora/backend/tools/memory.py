@@ -66,8 +66,11 @@ def _is_memory_expired(value: dict[str, Any]) -> bool:
     if not isinstance(valid_until, str) or not valid_until:
         return False
     try:
-        return datetime.fromisoformat(valid_until) <= datetime.now(UTC)
-    except ValueError:
+        expires_at = datetime.fromisoformat(valid_until)
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        return expires_at <= datetime.now(UTC)
+    except (TypeError, ValueError):
         return False
 
 
@@ -88,7 +91,11 @@ async def list_fact_contents(user_id: str) -> list[str]:
     store = await get_agent_store()
     ns = _memory_namespace(ToolContext(user_id=user_id))
     items = await store.asearch(ns)
-    return [item.value.get("content", "") for item in items]
+    return [
+        item.value.get("content", "")
+        for item in items
+        if not _is_memory_expired(item.value)
+    ]
 
 
 def _get_store(ctx: ToolContext) -> Any:
@@ -291,8 +298,11 @@ async def search_memory(ctx: ToolContext, query: str, limit: int = 5) -> str:
         store = _get_store(ctx)
         ns = _memory_namespace(ctx)
 
-        items = await store.asearch(ns, query=query, limit=limit)
+        # Ask generic StoreBackend implementations for a wider candidate set;
+        # some backends paginate before applying their expiration policy.
+        items = await store.asearch(ns, query=query, limit=max(limit, 1000))
         items = [item for item in items if not _is_memory_expired(item.value)]
+        items = items[:limit]
         has_scores = any(getattr(item, "score", None) is not None for item in items)
 
         memories = [

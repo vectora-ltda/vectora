@@ -388,14 +388,15 @@ async def run_conversation(
                 evidence_entries: list[tuple[str, JsonObject]] = []
                 if should_record_manifest and planned_context.manifest:
                     manifest_entry = cast(
-                        JsonObject, dict(planned_context.manifest.to_evidence_entry())
+                        "JsonObject", dict(planned_context.manifest.to_evidence_entry())
                     )
                     manifest_entry["run_id"] = config.run_id
                     manifest_entry["thread_id"] = thread_id
                     evidence_entries.append(("manifest", manifest_entry))
                 if should_record_projection and planned_context.projection is not None:
                     projection_entry = cast(
-                        JsonObject, dict(planned_context.projection.to_evidence_entry())
+                        "JsonObject",
+                        dict(planned_context.projection.to_evidence_entry()),
                     )
                     projection_entry["run_id"] = config.run_id
                     projection_entry["thread_id"] = thread_id

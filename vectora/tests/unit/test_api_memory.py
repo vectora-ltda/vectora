@@ -69,6 +69,20 @@ class TestMemoryList:
         assert len(data["memories"]) >= 1
         assert any(m["key"] == "test1" for m in data["memories"])
 
+    def test_list_hides_expired_items(self, client, store):
+        import asyncio
+
+        asyncio.run(
+            store.aput(
+                ("user", "local", "memories"),
+                "old",
+                {"content": "expired", "valid_until": "2000-01-01T00:00:00"},
+            )
+        )
+        resp = client.get("/memory")
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 0
+
 
 class TestMemoryCreate:
     def test_create_happy(self, client):
