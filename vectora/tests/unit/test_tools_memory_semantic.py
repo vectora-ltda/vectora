@@ -162,3 +162,32 @@ class TestSearchMemoryTool:
         data = json.loads(raw)
         assert data["status"] == "failed"
         assert "db error" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_search_limit_zero_nao_retorna_memorias(self):
+        from backend.tools.memory import search_memory
+
+        ctx = ToolContext(thread_id="t7")
+        store = AsyncMock()
+        with patch("backend.tools.memory._get_store", return_value=store):
+            data = json.loads(await search_memory(ctx=ctx, query="x", limit=0))
+
+        assert data["status"] == "success"
+        assert data["count"] == 0
+        store.asearch.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_search_limit_muito_alto_tem_teto_deterministico(self):
+        from backend.tools.memory import search_memory
+
+        ctx = ToolContext(thread_id="t8")
+        store = AsyncMock()
+        store.asearch = AsyncMock(return_value=[])
+        with patch("backend.tools.memory._get_store", return_value=store):
+            data = json.loads(await search_memory(ctx=ctx, query="x", limit=200_000))
+
+        assert data["status"] == "success"
+        assert data["count"] == 0
+        store.asearch.assert_awaited_once_with(
+            ("user", "session_t8", "memories"), query="x", limit=100_000
+        )
