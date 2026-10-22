@@ -440,6 +440,9 @@ class TestCreateArtifact:
         assert Path(data["path"]).exists()
         content = Path(data["path"]).read_text(encoding="utf-8")
         assert "Auth" in content
+        assert data["byte_size"] == Path(data["path"]).stat().st_size
+        assert len(data["sha256"]) == 64
+        assert Path(data["path"]).with_suffix(".artifact.json").exists()
 
     async def test_saved_under_session_dir(self, tmp_path, monkeypatch):
         from backend.tools.fs import create_artifact
