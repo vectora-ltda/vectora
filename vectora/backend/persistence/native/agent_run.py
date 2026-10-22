@@ -8,35 +8,32 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Any, overload
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, JsonValue
+
+from backend.contracts.models import HarnessRunStatus
 
 # ---------------------------------------------------------------------------
 # Estados Canônicos de AgentRun
 # ---------------------------------------------------------------------------
 
-AgentRunStatus = Literal[
-    "planned",
-    "running",
-    "waiting_approval",
-    "verifying",
-    "passed",
-    "degraded",
-    "failed",
-    "cancelled",
-]
+AgentRunStatus = HarnessRunStatus
 
 VALID_AGENT_RUN_STATUSES: frozenset[str] = frozenset(
     {
         "planned",
+        "admitted",
         "running",
         "waiting_approval",
+        "waiting_provider",
+        "tool_running",
         "verifying",
         "passed",
         "degraded",
         "failed",
         "cancelled",
+        "recovery_required",
     }
 )
 
@@ -58,35 +55,106 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"ghp_[A-Za-z0-9]{36}"),  # GitHub PATs
     re.compile(r"AKIA[0-9A-Z]{16}"),  # AWS access keys
     re.compile(r"(?i)bearer\s+[a-zA-Z0-9_\-\.]{20,}"),  # Bearer tokens
+    # KEY="value with spaces" ou KEY='value' ou KEY=value
+    re.compile(
+        r"""(?ix)
+        \b(?P<key>[a-z0-9_]*(?:api[_-]?key|secret|password|passwd|token|auth(?:orization)?|key)[a-z0-9_]*)
+        \s*=\s*
+        (?P<quote>["'])(?P<val>[^"'\r\n]+)(?P=quote)
+        """
+    ),
+    re.compile(
+        r"""(?ix)
+        \b(?P<key>[a-z0-9_]*(?:api[_-]?key|secret|password|passwd|token|auth(?:orization)?|key)[a-z0-9_]*)
+        \s*=\s*
+        (?P<val>[^\s"';&|]+)
+        """
+    ),
 )
 
 _SENSITIVE_KEY_NAMES: frozenset[str] = frozenset(
     {
-        "api_key",
         "apikey",
         "secret",
-        "secret_key",
+        "secretkey",
         "password",
+        "passwd",
         "token",
-        "access_token",
-        "refresh_token",
+        "authtoken",
+        "accesstoken",
+        "refreshtoken",
         "authorization",
-        "private_key",
+        "privatekey",
+        "key",
+        "openaikey",
     }
 )
 
 
+def _is_sensitive_key(key: str) -> bool:
+    """Verifica se o nome da chave é sensível após normalização (remoção de hífens, underlines e prefixos)."""
+    normalized = re.sub(r"[^a-z0-9]", "", key.lower())
+    if normalized in _SENSITIVE_KEY_NAMES:
+        return True
+    return any(
+        target in normalized
+        for target in (
+            "apikey",
+            "secret",
+            "password",
+            "passwd",
+            "token",
+            "accesstoken",
+            "refreshtoken",
+            "privatekey",
+            "authorization",
+        )
+    )
+
+
+@overload
+def redact_sensitive_data(value: str) -> str: ...
+
+
+@overload
+def redact_sensitive_data(value: dict[str, JsonValue]) -> dict[str, JsonValue]: ...
+
+
+@overload
+def redact_sensitive_data(value: list[JsonValue]) -> list[JsonValue]: ...
+
+
+@overload
+def redact_sensitive_data(value: tuple[JsonValue, ...]) -> tuple[JsonValue, ...]: ...
+
+
+@overload
+def redact_sensitive_data(value: Any) -> Any: ...
+
+
 def redact_sensitive_data(value: Any) -> Any:
-    """Aplica redação recursiva a segredos, tokens e chaves conhecidas."""
+    """Aplica redação recursiva a segredos, tokens e chaves conhecidas.
+
+    Usa `Any` justificadamente na implementação interna para acomodar estruturas
+    heterogêneas, árvores arbitrárias de evidências e payloads de logs.
+    """
     if isinstance(value, str):
         redacted = value
         for pattern in _SECRET_PATTERNS:
-            redacted = pattern.sub("[REDACTED]", redacted)
+            if "quote" in pattern.groupindex and "key" in pattern.groupindex:
+                # Substitui apenas o valor mantendo a chave e aspas
+                redacted = pattern.sub(
+                    r"\g<key>=\g<quote>[REDACTED]\g<quote>", redacted
+                )
+            elif "val" in pattern.groupindex and "key" in pattern.groupindex:
+                redacted = pattern.sub(r"\g<key>=[REDACTED]", redacted)
+            else:
+                redacted = pattern.sub("[REDACTED]", redacted)
         return redacted
     if isinstance(value, dict):
         result: dict[str, Any] = {}
         for k, v in value.items():
-            if str(k).lower() in _SENSITIVE_KEY_NAMES:
+            if _is_sensitive_key(str(k)):
                 result[k] = "[REDACTED]"
             else:
                 result[k] = redact_sensitive_data(v)
@@ -126,7 +194,7 @@ class AgentRunTimelineEntry(BaseModel):
     event_key: str = ""
     type: str
     created_at: str = Field(default_factory=_now)
-    payload: dict[str, Any] = Field(default_factory=dict)
+    payload: dict[str, JsonValue] = Field(default_factory=dict)
 
 
 class AgentRun(BaseModel):
@@ -143,13 +211,13 @@ class AgentRun(BaseModel):
     plan_step: str | None = None
     tools_available: list[str] = Field(default_factory=list)
     tools_used: list[str] = Field(default_factory=list)
-    approvals: list[dict[str, Any]] = Field(default_factory=list)
-    files_touched: list[dict[str, Any]] = Field(default_factory=list)
-    commands_run: list[dict[str, Any]] = Field(default_factory=list)
-    tests_run: list[dict[str, Any]] = Field(default_factory=list)
-    artifacts: list[dict[str, Any]] = Field(default_factory=list)
+    approvals: list[dict[str, JsonValue]] = Field(default_factory=list)
+    files_touched: list[dict[str, JsonValue]] = Field(default_factory=list)
+    commands_run: list[dict[str, JsonValue]] = Field(default_factory=list)
+    tests_run: list[dict[str, JsonValue]] = Field(default_factory=list)
+    artifacts: list[dict[str, JsonValue]] = Field(default_factory=list)
     metrics: AgentRunMetrics = Field(default_factory=AgentRunMetrics)
-    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    evidence: list[dict[str, JsonValue]] = Field(default_factory=list)
     detail: str | None = None
     error_code: str | None = None
     started_at: str = Field(default_factory=_now)
