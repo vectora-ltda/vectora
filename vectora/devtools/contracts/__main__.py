@@ -270,6 +270,42 @@ def export_quality_gates(contracts_dir: Path) -> None:
     print("Exported Quality Gates schema.")
 
 
+def export_harness(contracts_dir: Path) -> None:
+    """Exporta os contratos compartilhados do runtime de execução."""
+    from pydantic.json_schema import models_json_schema
+
+    from backend.contracts.models import (
+        ArtifactRef,
+        CheckpointRef,
+        ContextProjection,
+        MemoryRecord,
+        ProviderCapability,
+    )
+    from devtools.contracts.normalize import dumps_normalized
+
+    harness_dir = contracts_dir / "harness"
+    harness_dir.mkdir(parents=True, exist_ok=True)
+    _, top = models_json_schema(
+        [
+            (ArtifactRef, "validation"),
+            (CheckpointRef, "validation"),
+            (ContextProjection, "validation"),
+            (MemoryRecord, "validation"),
+            (ProviderCapability, "validation"),
+        ],
+        ref_template="#/definitions/{model}",
+    )
+    definitions = top.get("$defs", {})
+    bundle = {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "HarnessRuntimeContractBundle",
+        "description": "Contratos canônicos de artifacts, checkpoints, projections, memória e providers.",
+        "definitions": definitions,
+    }
+    (harness_dir / "schema.json").write_text(dumps_normalized(bundle), encoding="utf-8")
+    print("Exported execution runtime schema.")
+
+
 def _python_type_to_ts(annotation: Any) -> str:
     import types
     import typing
@@ -436,10 +472,15 @@ def export_typescript(contracts_dir: Path, target_dir: Path | None = None) -> No
     """Exporta definições de tipos TypeScript sincronizadas com os contratos canônicos."""
     from backend.contracts.models import (
         AppearanceSettings,
+        ArtifactRef,
+        CheckpointRef,
+        ContextProjection,
         EditorSettings,
         FileSettings,
         LintSettings,
         LocaleSettings,
+        MemoryRecord,
+        ProviderCapability,
         QualityGateRunResult,
         QualityGateSpec,
         SuggestionsSettings,
@@ -503,6 +544,18 @@ def export_typescript(contracts_dir: Path, target_dir: Path | None = None) -> No
         ]
     )
 
+    harness_interfaces = "\n\n".join(
+        [
+            'export type HarnessRunStatus = "planned" | "admitted" | "running" | "waiting_approval" | "waiting_provider" | "tool_running" | "verifying" | "passed" | "degraded" | "failed" | "cancelled" | "recovery_required";',
+            'export type VerificationOutcome = "passed" | "failed" | "infra_error" | "not_run" | "blocked" | "degraded" | "unverified";',
+            _generate_ts_interface(ArtifactRef),
+            _generate_ts_interface(CheckpointRef),
+            _generate_ts_interface(ContextProjection),
+            _generate_ts_interface(MemoryRecord),
+            _generate_ts_interface(ProviderCapability),
+        ]
+    )
+
     ts_content = f"""/**
  * CANONICAL TYPESCRIPT CONTRACTS (AUTO-GENERATED)
  *
@@ -535,6 +588,12 @@ export interface CanonicalErrorSpec {{
 // ============================================================================
 
 {quality_gate_interfaces}
+
+// ============================================================================
+// Execution runtime contracts (vectora/backend/contracts/harness/schema.json)
+// ============================================================================
+
+{harness_interfaces}
 """
     (out_dir / "index.ts").write_text(ts_content, encoding="utf-8")
     print("Exported TypeScript contracts.")
@@ -557,6 +616,8 @@ def export_all(
         export_settings(contracts_dir)
     if only in (None, "quality_gates"):
         export_quality_gates(contracts_dir)
+    if only in (None, "harness"):
+        export_harness(contracts_dir)
     if only in (None, "typescript"):
         export_typescript(contracts_dir, target_dir=ts_target_dir)
 
@@ -728,6 +789,7 @@ def main() -> None:
             "errors",
             "settings",
             "quality_gates",
+            "harness",
             "typescript",
         ],
         help="Exporta apenas uma área",
