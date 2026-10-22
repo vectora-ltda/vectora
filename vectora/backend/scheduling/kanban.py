@@ -98,6 +98,21 @@ async def _get_db() -> Any:
     return await _tasks_db()
 
 
+async def _ensure_version_column(db: Any) -> None:
+    """Upgrade legacy task connections before a fenced mutation/read."""
+    try:
+        async with db.execute("PRAGMA table_info(vectora_background_tasks)") as cur:
+            columns = {str(row[1]) for row in await cur.fetchall()}
+        if columns and "version" not in columns:
+            await db.execute(
+                "ALTER TABLE vectora_background_tasks "
+                "ADD COLUMN version INTEGER NOT NULL DEFAULT 1"
+            )
+            await db.commit()
+    except Exception:
+        logger.debug("kanban: falha ao atualizar coluna version", exc_info=True)
+
+
 def _agora() -> datetime:
     return datetime.now(UTC)
 
@@ -128,6 +143,7 @@ async def _emit_kanban_event(
         board_id = None
         try:
             db = await _get_db()
+            await _ensure_version_column(db)
             async with db.execute(
                 "SELECT board_id FROM vectora_background_tasks WHERE id = ?",
                 (task_id,),
@@ -171,6 +187,7 @@ async def _record_task_event(
     """
     try:
         db = await _get_db()
+        await _ensure_version_column(db)
         await db.execute(
             "INSERT INTO vectora_task_events "
             "(id, task_id, from_status, to_status, block_kind, block_reason) "
@@ -191,6 +208,7 @@ async def _record_task_event(
 
 async def get_task_status(task_id: str) -> dict[str, Any]:
     db = await _get_db()
+    await _ensure_version_column(db)
     async with db.execute(
         "SELECT status, block_kind, block_reason, claim_lock, claim_expires_at, updated_at, version "
         "FROM vectora_background_tasks WHERE id = ?",
@@ -213,6 +231,7 @@ async def authorize_task_session(task_id: str, session_id: str) -> None:
     session differs from ``session_id``.
     """
     db = await _get_db()
+    await _ensure_version_column(db)
     async with db.execute(
         "SELECT session_id FROM vectora_background_tasks WHERE id = ?", (task_id,)
     ) as cur:
@@ -247,6 +266,7 @@ async def set_status(
         )
         raise ValueError(msg)
     db = await _get_db()
+    await _ensure_version_column(db)
     async with db.execute(
         "SELECT status, trigger_type, trigger_config "
         "FROM vectora_background_tasks WHERE id = ?",
@@ -439,6 +459,7 @@ async def complete_run_and_set_status(
         raise ValueError(f"status inválido: {target_status!r}")
 
     db = await _get_db()
+    await _ensure_version_column(db)
     async with db.execute(
         "SELECT status, trigger_type, trigger_config, claim_lock "
         "FROM vectora_background_tasks WHERE id = ?",
@@ -532,6 +553,7 @@ async def manual_transition(
     estado = await get_task_status(task_id)
     if authorized_session_id is not None:
         db = await _get_db()
+        await _ensure_version_column(db)
         async with db.execute(
             "SELECT session_id FROM vectora_background_tasks WHERE id = ?",
             (task_id,),
@@ -593,6 +615,7 @@ async def claim_task(
     """
     expira = (_agora() + timedelta(seconds=ttl_s)).isoformat()
     db = await _get_db()
+    await _ensure_version_column(db)
     cur = await db.execute(
         """
         UPDATE vectora_background_tasks
@@ -624,6 +647,7 @@ async def ensure_task_claim(
         return False
     expira = (_agora() + timedelta(seconds=ttl_s)).isoformat()
     db = await _get_db()
+    await _ensure_version_column(db)
     async with db.execute(
         "SELECT claim_lock, claim_expires_at FROM vectora_background_tasks "
         "WHERE id = ?",
@@ -653,6 +677,7 @@ async def authorize_task_claim(task_id: str, run_id: str) -> None:
     if not run_id:
         raise ValueError("run_id ausente no contexto da execução")
     db = await _get_db()
+    await _ensure_version_column(db)
     async with db.execute(
         "SELECT claim_lock, claim_expires_at FROM vectora_background_tasks "
         "WHERE id = ?",
@@ -681,6 +706,7 @@ async def heartbeat_claim(
     """
     expira = (_agora() + timedelta(seconds=ttl_s)).isoformat()
     db = await _get_db()
+    await _ensure_version_column(db)
     cur = await db.execute(
         "UPDATE vectora_background_tasks SET claim_expires_at = ? "
         "WHERE id = ? AND claim_lock = ?",
@@ -694,6 +720,7 @@ async def release_stale_claims() -> int:
     """Devolve pra `ready` os claims expirados. Roda no tick do scheduler."""
     agora = _agora().isoformat()
     db = await _get_db()
+    await _ensure_version_column(db)
     cur = await db.execute(
         """
         UPDATE vectora_background_tasks
@@ -737,6 +764,7 @@ async def block_task(
         raise ValueError(msg)
 
     db = await _get_db()
+    await _ensure_version_column(db)
 
     if kind == "dependency":
         async with db.execute(
@@ -857,6 +885,7 @@ async def cancel_run_and_block(
         raise ValueError(f"tipo de bloqueio inválido: {kind!r}")
 
     db = await _get_db()
+    await _ensure_version_column(db)
     async with db.execute(
         "SELECT status FROM vectora_background_runs WHERE id = ?", (run_id,)
     ) as cur:
@@ -949,6 +978,7 @@ async def unblock_task(
     aplica CAS na mutação e levanta ``ValueError`` se houver conflito de concorrência.
     """
     db = await _get_db()
+    await _ensure_version_column(db)
     async with db.execute(
         "SELECT status FROM vectora_background_tasks WHERE id = ?", (task_id,)
     ) as cur:
@@ -1013,6 +1043,7 @@ async def get_dependencies(task_id: str) -> list[dict[str, Any]]:
     substituindo o campo que hoje o frontend declara mas o backend nunca
     populava."""
     db = await _get_db()
+    await _ensure_version_column(db)
     async with db.execute(
         """
         SELECT t.id, t.name, t.status
@@ -1036,6 +1067,7 @@ async def get_progress(task_id: str) -> dict[str, int] | None:
     pra toda task folha (a maioria delas).
     """
     db = await _get_db()
+    await _ensure_version_column(db)
     async with db.execute(
         """
         SELECT COUNT(*) AS total,
@@ -1061,6 +1093,7 @@ async def get_progress_batch(task_ids: list[str]) -> dict[str, dict[str, int]]:
     if not task_ids:
         return {}
     db = await _get_db()
+    await _ensure_version_column(db)
     placeholders = ",".join("?" for _ in task_ids)
     query = f"SELECT l.parent_id AS task_id, COUNT(*) AS total, COUNT(*) FILTER (WHERE t.status IN ('done', 'archived')) AS done FROM vectora_task_links l JOIN vectora_background_tasks t ON t.id = l.child_id WHERE l.parent_id IN ({placeholders}) GROUP BY l.parent_id"  # noqa: S608  # nosec B608
     async with db.execute(query, task_ids) as cur:
@@ -1074,6 +1107,7 @@ async def get_comment_counts_batch(task_ids: list[str]) -> dict[str, int]:
     if not task_ids:
         return {}
     db = await _get_db()
+    await _ensure_version_column(db)
     placeholders = ",".join("?" for _ in task_ids)
     query = f"SELECT task_id, COUNT(*) AS n FROM vectora_task_comments WHERE task_id IN ({placeholders}) GROUP BY task_id"  # noqa: S608  # nosec B608
     async with db.execute(query, task_ids) as cur:
@@ -1088,6 +1122,7 @@ async def get_dependencies_batch(
     if not task_ids:
         return {}
     db = await _get_db()
+    await _ensure_version_column(db)
     placeholders = ",".join("?" for _ in task_ids)
     query = f"SELECT l.child_id AS task_id, t.id, t.name, t.status FROM vectora_task_links l JOIN vectora_background_tasks t ON t.id = l.parent_id WHERE l.child_id IN ({placeholders}) ORDER BY t.created_at"  # noqa: S608  # nosec B608
     async with db.execute(query, task_ids) as cur:
@@ -1104,6 +1139,7 @@ async def _depende_de(task_id: str, db: Any = None) -> set[str]:
     """Ancestrais de `task_id` — usado pra detectar ciclo."""
     if db is None:
         db = await _get_db()
+        await _ensure_version_column(db)
     vistos: set[str] = set()
     fila = [task_id]
     while fila:
@@ -1126,6 +1162,7 @@ async def add_dependency(parent_id: str, child_id: str) -> None:
         raise ValueError(msg)
 
     db = await _get_db()
+    await _ensure_version_column(db)
     try:
         await db.execute("BEGIN IMMEDIATE")
         deps = await _depende_de(parent_id, db=db)
@@ -1153,6 +1190,7 @@ async def remove_dependency(parent_id: str, child_id: str) -> bool:
     handler) decide se isso é 404 ou um no-op silencioso; aqui é só o fato.
     """
     db = await _get_db()
+    await _ensure_version_column(db)
     cur = await db.execute(
         "DELETE FROM vectora_task_links WHERE parent_id = ? AND child_id = ?",
         (parent_id, child_id),
@@ -1168,6 +1206,7 @@ async def recompute_ready() -> int:
     os dois — promover com um só o faria rodar sem o resultado do outro.
     """
     db = await _get_db()
+    await _ensure_version_column(db)
     try:
         await db.execute("BEGIN IMMEDIATE")
         async with db.execute(
@@ -1215,6 +1254,7 @@ async def approve_review(task_id: str, user_id: str) -> None:
     caminho genérico normalmente.
     """
     db = await _get_db()
+    await _ensure_version_column(db)
     try:
         await db.execute("BEGIN IMMEDIATE")
         async with db.execute(
@@ -1260,6 +1300,7 @@ async def add_comment(task_id: str, user_id: str, body: str) -> dict[str, Any]:
 
     comment_id = str(uuid.uuid4())
     db = await _get_db()
+    await _ensure_version_column(db)
     await db.execute(
         "INSERT INTO vectora_task_comments (id, task_id, user_id, body) "
         "VALUES (?, ?, ?, ?)",
@@ -1278,6 +1319,7 @@ async def add_comment(task_id: str, user_id: str, body: str) -> dict[str, Any]:
 async def list_comments(task_id: str) -> list[dict[str, Any]]:
     """Comentários do card em ordem cronológica."""
     db = await _get_db()
+    await _ensure_version_column(db)
     async with db.execute(
         "SELECT id, task_id, user_id, body, created_at "
         "FROM vectora_task_comments WHERE task_id = ? ORDER BY created_at ASC",
@@ -1292,6 +1334,7 @@ async def list_events(task_id: str) -> list[dict[str, Any]]:
     gravada por `_record_task_event` a cada `set_status`/`block_task`/
     `unblock_task`."""
     db = await _get_db()
+    await _ensure_version_column(db)
     async with db.execute(
         "SELECT id, task_id, from_status, to_status, block_kind, block_reason, "
         "created_at FROM vectora_task_events WHERE task_id = ? "
@@ -1305,6 +1348,7 @@ async def list_events(task_id: str) -> list[dict[str, Any]]:
 async def get_card_version_snapshot(task_id: str) -> dict[str, Any]:
     """Lê um snapshot curto do card fora de qualquer inferência e calcula `card_version`."""
     db = await _get_db()
+    await _ensure_version_column(db)
     async with db.execute(
         "SELECT id, status, block_kind, block_reason, block_count, "
         "claim_lock, claim_expires_at, updated_at, session_id "
