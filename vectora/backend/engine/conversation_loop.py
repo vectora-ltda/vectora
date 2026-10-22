@@ -166,6 +166,31 @@ class LoopResult:
     tool_names: tuple[str, ...] = ()
 
 
+async def _safe_update_agent_run_status(
+    session_store: Any,
+    run_id: str,
+    *,
+    status: str,
+    plan_step: str | None = None,
+    detail: str | None = None,
+    error_code: str | None = None,
+) -> None:
+    """Persist a recovery status when the storage adapter supports AgentRun."""
+    updater = getattr(session_store, "update_agent_run_status", None)
+    if updater is None:
+        return
+    try:
+        await updater(
+            run_id,
+            status=status,
+            plan_step=plan_step,
+            detail=detail,
+            error_code=error_code,
+        )
+    except Exception:
+        logger.exception("conversation_loop: falha ao persistir status da run")
+
+
 async def _noop_event(_event: object) -> None:
     return None
 
