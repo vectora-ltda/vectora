@@ -383,37 +383,49 @@ async def run_conversation(
         should_record_projection = bool(
             not projection_recorded and planned_context.projection is not None
         )
-        if (
-            config.run_id
-            and (should_record_manifest or should_record_projection)
-            and hasattr(session_store, "get_agent_run")
-            and hasattr(session_store, "upsert_agent_run")
-        ):
+        if config.run_id and (should_record_manifest or should_record_projection):
             try:
-                agent_run = await session_store.get_agent_run(config.run_id)
-                if agent_run is not None:
-                    if should_record_manifest and planned_context.manifest:
-                        agent_run.evidence.append(
-                            cast(
-                                "JsonObject",
-                                planned_context.manifest.to_evidence_entry(),
-                            )
+                evidence_entries: list[tuple[str, JsonObject]] = []
+                if should_record_manifest and planned_context.manifest:
+                    manifest_entry = cast(
+                        JsonObject, dict(planned_context.manifest.to_evidence_entry())
+                    )
+                    manifest_entry["run_id"] = config.run_id
+                    manifest_entry["thread_id"] = thread_id
+                    evidence_entries.append(("manifest", manifest_entry))
+                if should_record_projection and planned_context.projection is not None:
+                    projection_entry = cast(
+                        JsonObject, dict(planned_context.projection.to_evidence_entry())
+                    )
+                    projection_entry["run_id"] = config.run_id
+                    projection_entry["thread_id"] = thread_id
+                    evidence_entries.append(("projection", projection_entry))
+
+                if hasattr(session_store, "record_run_evidence"):
+                    for kind, entry in evidence_entries:
+                        await session_store.record_run_evidence(
+                            config.run_id, evidence=entry
                         )
-                    if (
-                        should_record_projection
-                        and planned_context.projection is not None
-                    ):
-                        agent_run.evidence.append(
-                            cast(
-                                "JsonObject",
-                                planned_context.projection.to_evidence_entry(),
-                            )
+                        if kind == "manifest":
+                            manifest_recorded = True
+                        else:
+                            projection_recorded = True
+                elif hasattr(session_store, "get_agent_run") and hasattr(
+                    session_store, "upsert_agent_run"
+                ):
+                    # Compatibility path for lightweight stores used by older integrations.
+                    agent_run = await session_store.get_agent_run(config.run_id)
+                    if agent_run is not None:
+                        agent_run.evidence.extend(
+                            entry for _, entry in evidence_entries
                         )
-                    await session_store.upsert_agent_run(agent_run)
-                    if should_record_manifest:
-                        manifest_recorded = True
-                    if should_record_projection:
-                        projection_recorded = True
+                        await session_store.upsert_agent_run(agent_run)
+                        manifest_recorded = any(
+                            kind == "manifest" for kind, _ in evidence_entries
+                        )
+                        projection_recorded = any(
+                            kind == "projection" for kind, _ in evidence_entries
+                        )
             except Exception:
                 logger.exception(
                     "conversation_loop: falha ao persistir manifesto de contexto como evidência",
