@@ -139,7 +139,7 @@ async def delegate_to_subagent(
             should_require_approval=deps.should_require_approval,
             turn_budget=deps.turn_budget,
             liveness=deps.liveness,
-            policy_snapshot=deps.policy_snapshot,
+            parent_policy_snapshot=deps.policy_snapshot,
         )
     except Exception as exc:
         logger.exception(
