@@ -60,9 +60,27 @@ _SENSITIVE_KEYS = {
 
 
 def _is_sensitive_key(key: str) -> bool:
-    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", key).lower()
-    normalized = normalized.replace("-", "_")
-    return normalized in {item.replace("-", "_") for item in _SENSITIVE_KEYS}
+    normalized = re.sub(r"[^a-z0-9]", "", key.lower())
+    exact = {re.sub(r"[^a-z0-9]", "", item.lower()) for item in _SENSITIVE_KEYS}
+    if normalized in exact:
+        return True
+    # Prefixes and suffixes are common in wire payloads (for example
+    # ``oauth_client_secret`` and ``x_api_key``). Keep ``key`` out of this
+    # list because generic identifiers such as ``monkey`` are not secrets.
+    return any(
+        fragment in normalized
+        for fragment in (
+            "apikey",
+            "token",
+            "secret",
+            "password",
+            "passwd",
+            "credential",
+            "authorization",
+            "privatekey",
+            "cookie",
+        )
+    )
 
 
 def redact_string(value: str) -> str:
