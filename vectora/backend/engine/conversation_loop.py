@@ -236,6 +236,41 @@ def _resolve_tool_calls(acumulado: dict[int, dict[str, Any]]) -> list[ToolCall]:
     return chamadas
 
 
+async def _workspace_changed_paths(ctx: ToolContext) -> set[str]:
+    """Obtém arquivos alterados do workspace, sem confiar nos argumentos da tool."""
+    root = getattr(ctx, "workspace_dir", None) or getattr(ctx, "cwd", None)
+    if not root:
+        return set()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "status",
+            "--porcelain",
+            cwd=str(root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=2.0)
+        if proc.returncode != 0:
+            return set()
+        paths: set[str] = set()
+        for line in (stdout or b"").decode("utf-8", errors="replace").splitlines():
+            if len(line) <= 3:
+                continue
+            path = line[3:].strip()
+            if " -> " in path:
+                path = path.split(" -> ", 1)[-1].strip()
+            if path:
+                paths.add(path)
+        return paths
+    except Exception:
+        logger.debug(
+            "conversation_loop: não foi possível obter arquivos alterados",
+            exc_info=True,
+        )
+        return set()
+
+
 async def run_conversation(
     *,
     session_store: SessionStore,
@@ -260,6 +295,19 @@ async def run_conversation(
     from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    if hasattr(session_store, "list_agent_runs"):
+        runs = await session_store.list_agent_runs(thread_id, limit=5)
+        if any(
+            bool(
+                run.get("untrusted_content")
+                if isinstance(run, dict)
+                else getattr(run, "untrusted_content", False)
+            )
+            for run in runs
+        ):
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
     if policy_snapshot is None:
         policy_snapshot = compile_policy_snapshot(ctx)
 
@@ -824,68 +872,6 @@ async def run_conversation(
                 thread_id, resultado, parent_message_id=parent_id
             )
             call_id = resultado.tool_call_id or ""
-            if not resultado.is_error:
-                tc_match = next((t for t in tool_calls if t.id == call_id), None)
-                tc_args = tc_match.args if tc_match else {}
-                t_name = resultado.name or (tc_match.name if tc_match else "")
-                if t_name in {
-                    "file_write",
-                    "file_edit",
-                    "write_file",
-                    "edit_file",
-                    "apply_patch",
-                    "append_file",
-                    "replace_file",
-                }:
-                    p = (
-                        tc_args.get("file_path")
-                        or tc_args.get("path")
-                        or tc_args.get("target_file")
-                    )
-                    if isinstance(p, str) and p and p not in files_touched:
-                        files_touched.append(p)
-                elif t_name in {"file_delete", "delete_file"}:
-                    p = tc_args.get("path") or tc_args.get("file_path")
-                    if isinstance(p, str) and p and p not in files_touched:
-                        files_touched.append(p)
-                elif t_name in {"file_move", "move_file"}:
-                    for k in ("to_path", "from_path"):
-                        p = tc_args.get(k)
-                        if isinstance(p, str) and p and p not in files_touched:
-                            files_touched.append(p)
-                elif t_name in {
-                    "write_terminal",
-                    "terminal",
-                    "run_command",
-                    "exec_command",
-                }:
-                    ws_path = getattr(ctx, "workspace_dir", None) or getattr(
-                        ctx, "cwd", None
-                    )
-                    if ws_path:
-                        try:
-                            proc = await asyncio.create_subprocess_exec(
-                                "git",
-                                "status",
-                                "--porcelain",
-                                cwd=str(ws_path),
-                                stdout=asyncio.subprocess.PIPE,
-                                stderr=asyncio.subprocess.DEVNULL,
-                            )
-                            stdout_data, _ = await asyncio.wait_for(
-                                proc.communicate(), timeout=2.0
-                            )
-                            out = stdout_data.decode("utf-8", errors="replace")
-                            for raw_line in out.splitlines():
-                                cleaned_line = raw_line.strip()
-                                if len(cleaned_line) > 3:
-                                    f_part = cleaned_line[3:].strip()
-                                    if " -> " in f_part:
-                                        f_part = f_part.split(" -> ")[-1].strip()
-                                    if f_part and f_part not in files_touched:
-                                        files_touched.append(f_part)
-                        except Exception:
-                            pass
             if config.run_id and call_id:
                 try:
                     if hasattr(session_store, "append_ledger_event"):
@@ -970,6 +956,12 @@ async def run_conversation(
                 todos = _parse_todos_result(resultado.text())
                 if todos is not None:
                     await emit(TodosUpdated(todos=todos))
+
+        # Deriva a evidência do workspace após o lote. Isso exclui chamadas
+        # rejeitadas e leituras, e também detecta arquivos escritos via terminal.
+        for changed_path in await _workspace_changed_paths(ctx):
+            if changed_path not in files_touched:
+                files_touched.append(changed_path)
 
         if turn_budget.exceeded is not None:
             if config.run_id:
