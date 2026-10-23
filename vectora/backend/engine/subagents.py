@@ -509,11 +509,12 @@ async def _run_subagent_once(
                     f"{liveness.heartbeat_interval_s * liveness.max_stalled_heartbeats:.0f}s."
                 )
                 if hasattr(session_store, "update_agent_run_status"):
-                    await session_store.update_agent_run_status(
-                        child_run_id,
-                        status="cancelled",
-                        detail=texto_cancelado,
-                    )
+                    with contextlib.suppress(Exception):
+                        await session_store.update_agent_run_status(
+                            child_run_id,
+                            status="cancelled",
+                            detail=texto_cancelado,
+                        )
                 if on_event is not None:
                     await on_event(
                         SubagentOutput(
@@ -541,11 +542,12 @@ async def _run_subagent_once(
                 f"(hard interrupt)."
             )
             if hasattr(session_store, "update_agent_run_status"):
-                await session_store.update_agent_run_status(
-                    child_run_id,
-                    status="cancelled",
-                    detail=texto_cancelado,
-                )
+                with contextlib.suppress(Exception):
+                    await session_store.update_agent_run_status(
+                        child_run_id,
+                        status="cancelled",
+                        detail=texto_cancelado,
+                    )
             if on_event is not None:
                 await on_event(
                     SubagentOutput(
@@ -556,6 +558,15 @@ async def _run_subagent_once(
                     )
                 )
             return texto_cancelado
+        except Exception as exc:
+            if hasattr(session_store, "update_agent_run_status"):
+                with contextlib.suppress(Exception):
+                    await session_store.update_agent_run_status(
+                        child_run_id,
+                        status="failed",
+                        detail=f"Subagente '{spec.name}' falhou: {exc}",
+                    )
+            raise
     finally:
         if spec.correlation_id:
             _ACTIVE_CONVERSATION_TASKS.pop(spec.correlation_id, None)

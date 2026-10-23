@@ -384,16 +384,6 @@ async def run_conversation(
                 ctx._extra = {}
             ctx._extra["untrusted_content"] = True
 
-    if hasattr(session_store, "list_agent_runs") and not (
-        isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
-    ):
-        runs = await session_store.list_agent_runs(thread_id, limit=5)
-        latest_run = runs[0] if runs else None
-        if latest_run and latest_run.untrusted_content:
-            if not isinstance(ctx._extra, dict):
-                ctx._extra = {}
-            ctx._extra["untrusted_content"] = True
-
     if hasattr(session_store, "list_agent_runs"):
         runs = await session_store.list_agent_runs(thread_id, limit=5)
         if any(
@@ -412,7 +402,7 @@ async def run_conversation(
 
     if isinstance(ctx._extra, dict):
         sub_deps = ctx._extra.get("subagent_deps")
-        if sub_deps is not None and getattr(sub_deps, "policy_snapshot", None) is None:
+        if sub_deps is not None:
             sub_deps.policy_snapshot = policy_snapshot
 
     emit = on_event or _noop_event
@@ -1298,8 +1288,10 @@ async def run_conversation(
                                             agent_run.evidence.append(v_entry)
                                             if v_res.passed:
                                                 executed_step_gates.add(pair)
-                                            else:
-                                                agent_run.status = v_res.status
+                                            # The verification result is
+                                            # persisted as evidence; the
+                                            # final verification pass owns the
+                                            # terminal AgentRun status.
                                         except Exception as gate_exc:
                                             logger.exception(
                                                 "Falha ao executar quality gate %s para step %s (run_id %s)",
@@ -1307,7 +1299,6 @@ async def run_conversation(
                                                 step_key,
                                                 config.run_id,
                                             )
-                                            agent_run.status = "failed"
                                             agent_run.evidence.append(
                                                 {
                                                     "kind": "quality_gate_verification",
