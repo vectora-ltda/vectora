@@ -12629,7 +12629,9 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HealthLiveResponse"
+                  "additionalProperties": true,
+                  "title": "Response Health Live Health Live Get",
+                  "type": "object"
                 }
               }
             },
@@ -12648,7 +12650,9 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HealthReadyResponse"
+                  "additionalProperties": true,
+                  "title": "Response Health Ready Health Ready Get",
+                  "type": "object"
                 }
               }
             },
@@ -19154,7 +19158,6 @@
             "required": false,
             "schema": {
               "default": 0,
-              "minimum": 0,
               "title": "From Seq",
               "type": "integer"
             }
@@ -19166,7 +19169,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "integer"
                 },
                 {
                   "type": "null"
@@ -19179,9 +19182,11 @@
         "responses": {
           "200": {
             "content": {
-              "text/event-stream": {}
+              "application/json": {
+                "schema": {}
+              }
             },
-            "description": "Stream SSE de eventos do ledger da thread"
+            "description": "Successful Response"
           },
           "422": {
             "content": {

@@ -280,17 +280,19 @@ class SessionStore:
             "(run_id, thread_id, turn_id, status, detail, provider_model, started_at, updated_at, terminal_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(run_id) DO UPDATE SET "
-            "status=excluded.status, "
+            "status=CASE WHEN session_runs.status IN ('completed', 'failed', 'cancelled') "
+            "THEN session_runs.status ELSE excluded.status END, "
             "detail=COALESCE(excluded.detail, session_runs.detail), "
             "provider_model=COALESCE(excluded.provider_model, session_runs.provider_model), "
-            "updated_at=excluded.updated_at, "
+            "updated_at=CASE WHEN session_runs.status IN ('completed', 'failed', 'cancelled') "
+            "THEN session_runs.updated_at ELSE excluded.updated_at END, "
             "terminal_at=COALESCE(session_runs.terminal_at, excluded.terminal_at)",
             (
                 run.run_id,
                 run.thread_id,
                 run.turn_id,
                 mapped_status,
-                run.detail,
+                redacted_detail,
                 provider_model,
                 run.started_at,
                 now,
@@ -300,14 +302,16 @@ class SessionStore:
         # Insere/atualiza na tabela canônica agent_runs
         await conn.execute(
             "INSERT INTO agent_runs ("
-            "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
-            "status, plan_step, tools_available_json, tools_used_json, approvals_json, "
+            "run_id, thread_id, contract_version, turn_id, user_id, workspace_id, model, provider, "
+            "status, plan_step, checkpoint_id, tools_available_json, tools_used_json, approvals_json, "
             "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
             "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
             "ON CONFLICT(run_id) DO UPDATE SET "
-            "status=excluded.status, "
+            "status=CASE WHEN agent_runs.status IN ('passed', 'degraded', 'failed', 'cancelled') "
+            "THEN agent_runs.status ELSE excluded.status END, "
             "plan_step=COALESCE(excluded.plan_step, agent_runs.plan_step), "
+            "checkpoint_id=COALESCE(excluded.checkpoint_id, agent_runs.checkpoint_id), "
             "tools_available_json=excluded.tools_available_json, "
             "tools_used_json=excluded.tools_used_json, "
             "approvals_json=excluded.approvals_json, "
@@ -319,11 +323,13 @@ class SessionStore:
             "evidence_json=excluded.evidence_json, "
             "detail=COALESCE(excluded.detail, agent_runs.detail), "
             "error_code=COALESCE(excluded.error_code, agent_runs.error_code), "
-            "updated_at=excluded.updated_at, "
+            "updated_at=CASE WHEN agent_runs.status IN ('passed', 'degraded', 'failed', 'cancelled') "
+            "THEN agent_runs.updated_at ELSE excluded.updated_at END, "
             "terminal_at=COALESCE(agent_runs.terminal_at, excluded.terminal_at)",
             (
                 run.run_id,
                 run.thread_id,
+                run.contract_version,
                 run.turn_id,
                 run.user_id,
                 run.workspace_id,
@@ -331,6 +337,7 @@ class SessionStore:
                 run.provider,
                 run.status,
                 redacted_plan_step,
+                run.checkpoint_id,
                 tools_available,
                 tools_used,
                 approvals,
@@ -482,8 +489,8 @@ class SessionStore:
     ) -> AgentRun | None:
         """Carrega e desserializa um AgentRun na conexão fornecida."""
         cur = await conn.execute(
-            "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
-            "model, provider, status, plan_step, tools_available_json, "
+            "SELECT run_id, thread_id, contract_version, turn_id, user_id, workspace_id, "
+            "model, provider, status, plan_step, checkpoint_id, tools_available_json, "
             "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
             "tests_run_json, artifacts_json, metrics_json, evidence_json, "
             "detail, error_code, started_at, updated_at, terminal_at "
@@ -530,27 +537,29 @@ class SessionStore:
         return AgentRun(
             run_id=str(row[0]),
             thread_id=str(row[1]),
-            turn_id=str(row[2]) if row[2] else None,
-            user_id=str(row[3] or ""),
-            workspace_id=str(row[4]) if row[4] else None,
-            model=str(row[5] or ""),
-            provider=str(row[6] or ""),
-            status=cast("AgentRunStatus", row[7]),
-            plan_step=str(row[8]) if row[8] else None,
-            tools_available=json.loads(row[9] or "[]"),
-            tools_used=json.loads(row[10] or "[]"),
-            approvals=json.loads(row[11] or "[]"),
-            files_touched=json.loads(row[12] or "[]"),
-            commands_run=json.loads(row[13] or "[]"),
-            tests_run=json.loads(row[14] or "[]"),
-            artifacts=json.loads(row[15] or "[]"),
-            metrics=AgentRunMetrics(**json.loads(row[16] or "{}")),
-            evidence=json.loads(row[17] or "[]"),
-            detail=str(row[18]) if row[18] else None,
-            error_code=str(row[19]) if row[19] else None,
-            started_at=str(row[20]),
-            updated_at=str(row[21]),
-            terminal_at=str(row[22]) if row[22] else None,
+            contract_version=int(row[2] or 1),
+            turn_id=str(row[3]) if row[3] else None,
+            user_id=str(row[4] or ""),
+            workspace_id=str(row[5]) if row[5] else None,
+            model=str(row[6] or ""),
+            provider=str(row[7] or ""),
+            status=cast("AgentRunStatus", row[8]),
+            plan_step=str(row[9]) if row[9] else None,
+            checkpoint_id=str(row[10]) if row[10] else None,
+            tools_available=json.loads(row[11] or "[]"),
+            tools_used=json.loads(row[12] or "[]"),
+            approvals=json.loads(row[13] or "[]"),
+            files_touched=json.loads(row[14] or "[]"),
+            commands_run=json.loads(row[15] or "[]"),
+            tests_run=json.loads(row[16] or "[]"),
+            artifacts=json.loads(row[17] or "[]"),
+            metrics=AgentRunMetrics(**json.loads(row[18] or "{}")),
+            evidence=json.loads(row[19] or "[]"),
+            detail=str(row[20]) if row[20] else None,
+            error_code=str(row[21]) if row[21] else None,
+            started_at=str(row[22]),
+            updated_at=str(row[23]),
+            terminal_at=str(row[24]) if row[24] else None,
         )
 
     async def get_agent_run(self, run_id: str) -> AgentRun | None:
@@ -567,8 +576,8 @@ class SessionStore:
         safe_limit = max(1, min(500, int(limit)))
         async with self._pool.acquire() as conn:
             cur = await conn.execute(
-                "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
-                "model, provider, status, plan_step, tools_available_json, "
+                "SELECT run_id, thread_id, contract_version, turn_id, user_id, workspace_id, "
+                "model, provider, status, plan_step, checkpoint_id, tools_available_json, "
                 "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
                 "tests_run_json, artifacts_json, metrics_json, evidence_json, "
                 "detail, error_code, started_at, updated_at, terminal_at "
@@ -581,39 +590,45 @@ class SessionStore:
                 AgentRun(
                     run_id=str(r[0]),
                     thread_id=str(r[1]),
-                    turn_id=str(r[2]) if r[2] else None,
-                    user_id=str(r[3] or ""),
-                    workspace_id=str(r[4]) if r[4] else None,
-                    model=str(r[5] or ""),
-                    provider=str(r[6] or ""),
-                    status=cast("AgentRunStatus", r[7]),
-                    plan_step=str(r[8]) if r[8] else None,
-                    tools_available=json.loads(r[9] or "[]"),
-                    tools_used=json.loads(r[10] or "[]"),
-                    approvals=json.loads(r[11] or "[]"),
-                    files_touched=json.loads(r[12] or "[]"),
-                    commands_run=json.loads(r[13] or "[]"),
-                    tests_run=json.loads(r[14] or "[]"),
-                    artifacts=json.loads(r[15] or "[]"),
-                    metrics=AgentRunMetrics(**json.loads(r[16] or "{}")),
-                    evidence=json.loads(r[17] or "[]"),
-                    detail=str(r[18]) if r[18] else None,
-                    error_code=str(r[19]) if r[19] else None,
-                    started_at=str(r[20]),
-                    updated_at=str(r[21]),
-                    terminal_at=str(r[22]) if r[22] else None,
+                    contract_version=int(r[2] or 1),
+                    turn_id=str(r[3]) if r[3] else None,
+                    user_id=str(r[4] or ""),
+                    workspace_id=str(r[5]) if r[5] else None,
+                    model=str(r[6] or ""),
+                    provider=str(r[7] or ""),
+                    status=cast("AgentRunStatus", r[8]),
+                    plan_step=str(r[9]) if r[9] else None,
+                    checkpoint_id=str(r[10]) if r[10] else None,
+                    tools_available=json.loads(r[11] or "[]"),
+                    tools_used=json.loads(r[12] or "[]"),
+                    approvals=json.loads(r[13] or "[]"),
+                    files_touched=json.loads(r[14] or "[]"),
+                    commands_run=json.loads(r[15] or "[]"),
+                    tests_run=json.loads(r[16] or "[]"),
+                    artifacts=json.loads(r[17] or "[]"),
+                    metrics=AgentRunMetrics(**json.loads(r[18] or "{}")),
+                    evidence=json.loads(r[19] or "[]"),
+                    detail=str(r[20]) if r[20] else None,
+                    error_code=str(r[21]) if r[21] else None,
+                    started_at=str(r[22]),
+                    updated_at=str(r[23]),
+                    terminal_at=str(r[24]) if r[24] else None,
                 )
                 for r in rows
             ]
 
-    async def get_agent_run_timeline(self, run_id: str) -> list[AgentRunTimelineEntry]:
-        """Recupera todos os eventos do ledger correlacionados a um run_id."""
+    async def get_agent_run_timeline(
+        self, run_id: str, *, limit: int = 500, offset: int = 0
+    ) -> list[AgentRunTimelineEntry]:
+        """Recupera uma página ordenada dos eventos correlacionados ao run."""
+        limit = max(1, min(limit, 500))
+        offset = max(0, offset)
         await self.setup()
         async with self._pool.acquire() as conn:
             cur = await conn.execute(
                 "SELECT seq, event_key, type, created_at, payload_json "
-                "FROM thread_events WHERE run_id = ? ORDER BY seq ASC",
-                (run_id,),
+                "FROM thread_events WHERE run_id = ? ORDER BY seq ASC LIMIT ? OFFSET ?",
+                (run_id, limit, offset),
             )
             rows = await cur.fetchall()
             return [

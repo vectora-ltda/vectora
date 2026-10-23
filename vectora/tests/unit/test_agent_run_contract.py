@@ -151,12 +151,14 @@ class TestAgentRunLifecycle:
         run = AgentRun(
             run_id="run-uuid-1",
             thread_id="thread-run-1",
+            contract_version=2,
             turn_id="turn-1",
             user_id="user-123",
             workspace_id="ws-abc",
             model="gemini-2.5-pro",
             provider="google_genai",
             status="planned",
+            checkpoint_id="cp-1",
             plan_step="Etapa 1: Iniciar scaffolding",
             tools_available=["file_read", "terminal"],
             metrics=AgentRunMetrics(
@@ -168,12 +170,14 @@ class TestAgentRunLifecycle:
         loaded = await store.get_agent_run("run-uuid-1")
         assert loaded is not None
         assert loaded.run_id == "run-uuid-1"
+        assert loaded.contract_version == 2
         assert loaded.thread_id == "thread-run-1"
         assert loaded.user_id == "user-123"
         assert loaded.workspace_id == "ws-abc"
         assert loaded.model == "gemini-2.5-pro"
         assert loaded.provider == "google_genai"
         assert loaded.status == "planned"
+        assert loaded.checkpoint_id == "cp-1"
         assert loaded.plan_step == "Etapa 1: Iniciar scaffolding"
         assert loaded.tools_available == ["file_read", "terminal"]
         assert loaded.metrics.total_tokens == 120
@@ -312,6 +316,32 @@ class TestAgentRunLifecycle:
 
         assert legacy_after == legacy_before
         assert canonical_after == canonical_before
+
+    async def test_upsert_does_not_reopen_terminal_run(
+        self, store: SessionStore
+    ) -> None:
+        """Uma atualização tardia do objeto não reabre uma execução terminal."""
+        await store.create_session("thread-upsert-guard", user_id="user-123")
+        await store.upsert_agent_run(
+            AgentRun(run_id="run-upsert-guard", thread_id="thread-upsert-guard")
+        )
+        await store.update_agent_run_status("run-upsert-guard", status="failed")
+        terminal = await store.get_agent_run("run-upsert-guard")
+        assert terminal is not None
+
+        await store.upsert_agent_run(
+            AgentRun(
+                run_id="run-upsert-guard",
+                thread_id="thread-upsert-guard",
+                status="running",
+                detail="late provider callback",
+            )
+        )
+        current = await store.get_agent_run("run-upsert-guard")
+        assert current is not None
+        assert current.status == "failed"
+        assert current.terminal_at == terminal.terminal_at
+        assert current.updated_at == terminal.updated_at
 
     async def test_record_evidences_and_redaction(self, store: SessionStore) -> None:
         await store.create_session("thread-run-3", user_id="user-123")
