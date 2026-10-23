@@ -1163,7 +1163,7 @@ class TestResumeConversation:
             tool_registry=registry,
             ctx=ctx,
             thread_id="thread-1",
-            config=LoopConfig(),
+            config=LoopConfig(run_id="run-hitl-1"),
             should_require_approval=lambda *_a: True,
             approval_gate=gate,
         )
@@ -1195,6 +1195,14 @@ class TestResumeConversation:
         assert resultados == [
             ToolResult(tool_call_id="call_1", content_json="escrito!", is_error=False)
         ]
+        ledger = await session_store.list_events("thread-1")
+        tool_events = [event for event in ledger if event.type.startswith("tool_")]
+        assert [event.type for event in tool_events] == [
+            "tool_started",
+            "tool_finished",
+        ]
+        assert {event.run_id for event in tool_events} == {"run-hitl-1"}
+        assert {event.tool_call_id for event in tool_events} == {"call_1"}
 
     async def test_aprovar_classifica_erro_mcp_localizado_e_registra_uso(
         self, session_store, ctx, monkeypatch
