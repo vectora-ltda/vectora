@@ -451,11 +451,15 @@ async def new_tab(
         if url:
             from backend.browser.ssrf_guard import is_url_ssrf_safe
 
-            if not is_url_ssrf_safe(url):
+            if url != "about:blank" and not is_url_ssrf_safe(url):
                 raise ValueError("URL recusada pelo SSRF guard")
             await page.goto(url, wait_until="domcontentloaded")
             final_url = str(getattr(page, "url", ""))
-            if final_url and not is_url_ssrf_safe(final_url):
+            if (
+                final_url
+                and final_url != "about:blank"
+                and not is_url_ssrf_safe(final_url)
+            ):
                 raise ValueError("redirect recusado pelo SSRF guard")
         tab = await _create_tab_state(page)
         _claim_page(page, workspace_id)
