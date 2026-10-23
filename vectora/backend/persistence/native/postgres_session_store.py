@@ -1705,6 +1705,7 @@ class PostgresSessionStore:
         }
         if not isinstance(clean, dict) or not clean.get("projection_id"):
             raise ValueError("projeção sem projection_id")
+        storage_projection_id = f"{thread_id}:{clean['projection_id']}"
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO vectora_native_context_projections ("
@@ -1715,7 +1716,7 @@ class PostgresSessionStore:
                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) "
                 "ON CONFLICT (projection_id) DO UPDATE SET content_json = EXCLUDED.content_json, "
                 "tokens_before = EXCLUDED.tokens_before, tokens_after = EXCLUDED.tokens_after",
-                str(clean["projection_id"]),
+                storage_projection_id,
                 thread_id,
                 run_id,
                 str(clean.get("source_transcript_hash", "")),
@@ -1773,7 +1774,7 @@ class PostgresSessionStore:
             return None
         value = row.get
         return {
-            "projection_id": value("projection_id"),
+            "projection_id": str(value("projection_id")).split(":", 1)[-1],
             "run_id": value("run_id"),
             "source_hash": value("source_hash"),
             "covered_from_sequence": value("covered_from_sequence"),
@@ -1829,28 +1830,31 @@ class PostgresSessionStore:
             )
 
     async def get_latest_context_checkpoint(
-        self, thread_id: str, *, source_hash: str | None = None
+        self,
+        thread_id: str,
+        *,
+        source_hash: str | None = None,
+        run_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Carrega o checkpoint mais recente compatível com o transcript."""
         await self.setup()
         async with self._pool.acquire() as conn:
-            if source_hash is None:
-                row = await conn.fetchrow(
-                    "SELECT checkpoint_id, run_id, last_sequence, source_hash, "
-                    "schema_version, state_json, artifact_refs_json, created_at "
-                    "FROM vectora_native_context_checkpoints WHERE thread_id = $1 "
-                    "ORDER BY last_sequence DESC, created_at DESC LIMIT 1",
-                    thread_id,
-                )
-            else:
-                row = await conn.fetchrow(
-                    "SELECT checkpoint_id, run_id, last_sequence, source_hash, "
-                    "schema_version, state_json, artifact_refs_json, created_at "
-                    "FROM vectora_native_context_checkpoints WHERE thread_id = $1 "
-                    "AND source_hash = $2 ORDER BY last_sequence DESC, created_at DESC LIMIT 1",
-                    thread_id,
-                    source_hash,
-                )
+            clauses = ["thread_id = $1"]
+            params: list[Any] = [thread_id]
+            if source_hash is not None:
+                params.append(source_hash)
+                clauses.append(f"source_hash = ${len(params)}")
+            if run_id is not None:
+                params.append(run_id)
+                clauses.append(f"run_id = ${len(params)}")
+            row = await conn.fetchrow(
+                "SELECT checkpoint_id, run_id, last_sequence, source_hash, "  # nosec B608 - clauses are fixed column names
+                "schema_version, state_json, artifact_refs_json, created_at "
+                "FROM vectora_native_context_checkpoints WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY last_sequence DESC, created_at DESC LIMIT 1",
+                *params,
+            )
         if row is None:
             return None
         value = row.get

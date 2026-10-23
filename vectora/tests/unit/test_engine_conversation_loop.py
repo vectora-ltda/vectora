@@ -34,6 +34,7 @@ from backend.engine.stream_events import (
     WorkbenchInvalidate,
 )
 from backend.persistence.native.session_store import SessionStore
+from backend.services.context_planner import compute_transcript_hash
 from backend.services.policy_compiler import PolicySnapshot
 from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.tools import media as _media_module
@@ -159,7 +160,8 @@ class TestParadaNormal:
             {
                 "checkpoint_id": "run-recovery:seq:0:tool_running",
                 "last_sequence": 0,
-                "source_hash": "hash",
+                "source_hash": compute_transcript_hash([]),
+                "schema_version": "context.v1",
                 "state": {
                     "phase": "tool_running",
                     "pending_tool_call_ids": ["tool-1"],

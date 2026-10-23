@@ -218,6 +218,63 @@ def _fit_required_message(message: VMessage, budget: int) -> VMessage:
     return candidate
 
 
+def _fit_compaction_marker(
+    omitted_count: int,
+    *,
+    preserved_errors: list[str],
+    preserved_approvals: list[str],
+    preserved_decisions: list[str],
+    budget: int,
+) -> VMessage:
+    """Fit a compaction marker while retaining its semantic headings.
+
+    A generic prefix truncation can remove the decisions/errors headings even
+    though those are the information the marker exists to preserve.  Compact
+    the entries first, then fall back to headings without entries before using
+    the generic hard limit for an exceptionally small budget.
+    """
+
+    def compact_item(value: str) -> str:
+        for prefix in (
+            "Chamada de ferramentas: ",
+            "Tool ",
+            "Aprovação de ",
+        ):
+            value = value.removeprefix(prefix)
+        if ": " in value and value.split(": ", 1)[0].lower().startswith("call_"):
+            value = value.split(": ", 1)[1]
+        return value
+
+    candidates = [
+        (preserved_decisions, preserved_approvals, preserved_errors),
+        (
+            [compact_item(item) for item in preserved_decisions],
+            [compact_item(item) for item in preserved_approvals],
+            [compact_item(item) for item in preserved_errors],
+        ),
+        ([], [], []),
+    ]
+    for decisions, approvals, errors in candidates:
+        candidate = _format_compacted_marker(
+            omitted_count,
+            preserved_decisions=decisions,
+            preserved_approvals=approvals,
+            preserved_errors=errors,
+        )
+        if _message_tokens(candidate) <= budget:
+            return candidate
+
+    return _fit_required_message(
+        _format_compacted_marker(
+            omitted_count,
+            preserved_decisions=preserved_decisions,
+            preserved_approvals=preserved_approvals,
+            preserved_errors=preserved_errors,
+        ),
+        budget,
+    )
+
+
 @dataclass
 class PlannedContext:
     """Resultado do planejamento de contexto para envio ao modelo."""
@@ -270,6 +327,7 @@ class ContextPlanner:
                 r.domain == "project"
                 and r.scope_id in (memory_scope, "global")
                 and r.trust_level != "untrusted"
+                and r.active
             )
         ][:5]
         if trusted_records:
@@ -480,6 +538,16 @@ class ContextPlanner:
                 preserved_approvals=preserved_approvals,
                 preserved_decisions=preserved_decisions,
             )
+            if not preserve_latest_tool_result:
+                fixed_tokens = sum(_message_tokens(m) for m in systems)
+                fixed_tokens += sum(_message_tokens(m) for m in selected_non_system)
+                marker_msg = _fit_compaction_marker(
+                    omitted,
+                    preserved_decisions=preserved_decisions,
+                    preserved_errors=preserved_errors,
+                    preserved_approvals=preserved_approvals,
+                    budget=max(1, max_tokens - fixed_tokens),
+                )
             final_messages = [*systems, marker_msg, *selected_non_system]
         else:
             final_messages = [*systems, *selected_non_system]

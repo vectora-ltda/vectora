@@ -65,6 +65,7 @@ from backend.persistence.native.ledger import (
     make_tool_started_key,
 )
 from backend.services.context_compaction import compact_messages
+from backend.services.context_planner import compute_transcript_hash
 from backend.services.memory_store import MemoryRecord
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import ContentBlock, MessageRole, ToolCall, VMessage
@@ -444,10 +445,25 @@ async def run_conversation(  # noqa: PLR0911
 
     if config.run_id and hasattr(session_store, "get_latest_context_checkpoint"):
         try:
-            checkpoint = await session_store.get_latest_context_checkpoint(thread_id)
+            checkpoint = await session_store.get_latest_context_checkpoint(
+                thread_id,
+                run_id=config.run_id,
+            )
             state = checkpoint.get("state", {}) if checkpoint else {}
-            if (
+            checkpoint_is_current = bool(
                 checkpoint
+                and checkpoint.get("schema_version") == "context.v1"
+                and isinstance(checkpoint.get("source_hash"), str)
+                and bool(checkpoint.get("source_hash"))
+            )
+            if checkpoint_is_current:
+                current_history = await session_store.get_history(thread_id)
+                checkpoint_is_current = checkpoint[
+                    "source_hash"
+                ] == compute_transcript_hash(current_history)
+            if (
+                checkpoint_is_current
+                and checkpoint is not None
                 and checkpoint.get("run_id") == config.run_id
                 and state.get("phase") == "tool_running"
                 and state.get("pending_tool_call_ids")
@@ -474,10 +490,7 @@ async def run_conversation(  # noqa: PLR0911
             if config.context_max_tokens is not None
             else _default_context_tokens()
         )
-        from backend.services.context_planner import (
-            compute_transcript_hash,
-            plan_context,
-        )
+        from backend.services.context_planner import plan_context
 
         persistent_memory_records = await _load_persistent_context_memories(ctx)
         planned_context = plan_context(

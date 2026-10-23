@@ -618,6 +618,7 @@ class SessionStore:
         }
         if not isinstance(clean, dict) or not clean.get("projection_id"):
             raise ValueError("projeção sem projection_id")
+        storage_projection_id = f"{thread_id}:{clean['projection_id']}"
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "INSERT OR REPLACE INTO context_projections ("
@@ -627,7 +628,7 @@ class SessionStore:
                 "pending_tool_calls_json, omitted_sequences_json, content_json, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
-                    str(clean["projection_id"]),
+                    storage_projection_id,
                     thread_id,
                     run_id,
                     str(clean.get("source_transcript_hash", "")),
@@ -686,7 +687,7 @@ class SessionStore:
         if row is None:
             return None
         return {
-            "projection_id": row[0],
+            "projection_id": str(row[0]).split(":", 1)[-1],
             "run_id": row[1],
             "source_hash": row[2],
             "covered_from_sequence": row[3],
@@ -737,26 +738,27 @@ class SessionStore:
         thread_id: str,
         *,
         source_hash: str | None = None,
+        run_id: str | None = None,
     ) -> dict[str, Any] | None:
         """Carrega o checkpoint mais recente compatível com o transcript."""
         await self.setup()
         async with self._pool.acquire() as conn:
-            if source_hash is None:
-                cur = await conn.execute(
-                    "SELECT checkpoint_id, run_id, last_sequence, source_hash, "
-                    "schema_version, state_json, artifact_refs_json, created_at "
-                    "FROM context_checkpoints WHERE thread_id = ? "
-                    "ORDER BY last_sequence DESC, created_at DESC LIMIT 1",
-                    (thread_id,),
-                )
-            else:
-                cur = await conn.execute(
-                    "SELECT checkpoint_id, run_id, last_sequence, source_hash, "
-                    "schema_version, state_json, artifact_refs_json, created_at "
-                    "FROM context_checkpoints WHERE thread_id = ? AND source_hash = ? "
-                    "ORDER BY last_sequence DESC, created_at DESC LIMIT 1",
-                    (thread_id, source_hash),
-                )
+            clauses = ["thread_id = ?"]
+            params: list[str] = [thread_id]
+            if source_hash is not None:
+                clauses.append("source_hash = ?")
+                params.append(source_hash)
+            if run_id is not None:
+                clauses.append("run_id = ?")
+                params.append(run_id)
+            cur = await conn.execute(
+                "SELECT checkpoint_id, run_id, last_sequence, source_hash, "  # nosec B608 - clauses are fixed column names
+                "schema_version, state_json, artifact_refs_json, created_at "
+                "FROM context_checkpoints WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY last_sequence DESC, created_at DESC LIMIT 1",
+                params,
+            )
             row = await cur.fetchone()
         if row is None:
             return None
