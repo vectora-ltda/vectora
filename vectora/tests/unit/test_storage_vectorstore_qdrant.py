@@ -231,11 +231,11 @@ class TestQdrantBackendDelete:
     ) -> None:
         count = 1
 
-        async def fake_count(*args, **kwargs):
+        async def fake_count(*args: object, **kwargs: object) -> CountResult:
             await asyncio.sleep(0)
             return CountResult(count=count)
 
-        async def fake_delete(*args, **kwargs):
+        async def fake_delete(*args: object, **kwargs: object) -> None:
             nonlocal count
             await asyncio.sleep(0)
             count = 0

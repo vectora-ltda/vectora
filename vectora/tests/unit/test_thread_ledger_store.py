@@ -124,6 +124,7 @@ class TestThreadLedgerStore:
             interrupt_id="int-1",
             tool_name="bash",
             tool_call_id="tc-1",
+            run_id="run-1",
             args={"cmd": "ls"},
             reasoning="Verificar arquivos",
         )
@@ -137,6 +138,7 @@ class TestThreadLedgerStore:
         claimed = await store.claim_pending_approval("thread-1", interrupt_id="int-1")
         assert claimed is not None
         assert claimed["interrupt_id"] == "int-1"
+        assert claimed["run_id"] == "run-1"
 
         events_after = await store.list_events("thread-1", after_seq=1)
         assert len(events_after) == 1

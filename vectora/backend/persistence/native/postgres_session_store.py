@@ -238,8 +238,8 @@ class PostgresSessionStore:
                 tool_call_id,
                 name,
                 turn_id,
-                run_id,
                 None,
+                run_id,
                 agora,
             )
             await conn.execute(
@@ -605,7 +605,7 @@ class PostgresSessionStore:
         await self.setup()
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT interrupt_id, tool_name, tool_call_id, args_json, "
+                "SELECT interrupt_id, tool_name, tool_call_id, run_id, args_json, "
                 "reasoning, options_json, priority, expires_at, created_at FROM vectora_native_pending_approvals "
                 "WHERE thread_id = $1",
                 thread_id,
@@ -670,6 +670,7 @@ class PostgresSessionStore:
             "interrupt_id": row["interrupt_id"],
             "tool_name": row["tool_name"],
             "tool_call_id": row["tool_call_id"],
+            "run_id": row["run_id"],
             "args": json.loads(row["args_json"]),
             "reasoning": row["reasoning"],
             "options": json.loads(row["options_json"] or "[]"),
@@ -693,7 +694,7 @@ class PostgresSessionStore:
             row = await conn.fetchrow(
                 "DELETE FROM vectora_native_pending_approvals "
                 "WHERE thread_id = $1 AND interrupt_id = $2 "
-                "RETURNING interrupt_id, tool_name, tool_call_id, args_json, reasoning, "
+                "RETURNING interrupt_id, tool_name, tool_call_id, run_id, args_json, reasoning, "
                 "options_json, priority, expires_at, created_at",
                 thread_id,
                 interrupt_id,
@@ -739,6 +740,7 @@ class PostgresSessionStore:
             "interrupt_id": row["interrupt_id"],
             "tool_name": row["tool_name"],
             "tool_call_id": row["tool_call_id"],
+            "run_id": row["run_id"],
             "args": json.loads(row["args_json"]),
             "reasoning": row["reasoning"],
             "options": json.loads(row["options_json"] or "[]"),
@@ -754,6 +756,7 @@ class PostgresSessionStore:
         interrupt_id: str,
         tool_name: str,
         tool_call_id: str,
+        run_id: str | None = None,
         args: dict[str, Any],
         reasoning: str | None = None,
         options: list[ToolOption] | None = None,
@@ -769,12 +772,13 @@ class PostgresSessionStore:
             )
             await conn.execute(
                 "INSERT INTO vectora_native_pending_approvals (thread_id, interrupt_id, "
-                "tool_name, tool_call_id, args_json, reasoning, options_json, priority, expires_at, created_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
+                "tool_name, tool_call_id, run_id, args_json, reasoning, options_json, priority, expires_at, created_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
                 "ON CONFLICT (thread_id) DO UPDATE SET "
                 "interrupt_id = EXCLUDED.interrupt_id, "
                 "tool_name = EXCLUDED.tool_name, "
                 "tool_call_id = EXCLUDED.tool_call_id, "
+                "run_id = EXCLUDED.run_id, "
                 "args_json = EXCLUDED.args_json, "
                 "reasoning = EXCLUDED.reasoning, "
                 "options_json = EXCLUDED.options_json, "
@@ -785,6 +789,7 @@ class PostgresSessionStore:
                 interrupt_id,
                 tool_name,
                 tool_call_id,
+                run_id,
                 json.dumps(args, ensure_ascii=False),
                 reasoning,
                 json.dumps(options or [], ensure_ascii=False),
@@ -801,6 +806,7 @@ class PostgresSessionStore:
             payload = {
                 "tool_name": tool_name,
                 "tool_call_id": tool_call_id,
+                "run_id": run_id,
                 "args": args,
                 "reasoning": reasoning,
                 "priority": priority,
@@ -815,7 +821,7 @@ class PostgresSessionStore:
                 req_key,
                 "approval_requested",
                 None,
-                None,
+                run_id,
                 None,
                 tool_call_id,
                 interrupt_id,
