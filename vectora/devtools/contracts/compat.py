@@ -70,10 +70,10 @@ def check_schema_compatibility(
                     f"{path}: valores de enum removidos em request: {sorted(removed_enums)}"
                 )
         else:
-            # Em response, expandir enum sem aviso pode quebrar clientes estritos
+            # Consumidores de response podem rejeitar valores que não conhecem.
             added_enums = new_enum_set - old_enum_set
             if added_enums:
-                report.non_breaking.append(
+                report.breaking.append(
                     f"{path}: novos valores de enum adicionados em response: {sorted(added_enums)}"
                 )
 
@@ -150,13 +150,42 @@ def check_schema_compatibility(
             report.breaking.extend(sub_report.breaking)
             report.non_breaking.extend(sub_report.non_breaking)
 
-    # 8. Checa oneOf / anyOf / allOf
+    # 8. Checa oneOf / anyOf / allOf. A cardinalidade sozinha nao e suficiente:
+    # cada alternativa e comparada recursivamente e a direcao determina qual
+    # alteracao restringe o produtor/consumidor.
     for combo_key in ("oneOf", "anyOf", "allOf"):
         old_combos = old_schema.get(combo_key, [])
         new_combos = new_schema.get(combo_key, [])
-        if len(old_combos) != len(new_combos):
-            report.non_breaking.append(
-                f"{path}: número de alternativas em {combo_key} alterado de {len(old_combos)} para {len(new_combos)}"
+        if not isinstance(old_combos, list) or not isinstance(new_combos, list):
+            continue
+        old_len, new_len = len(old_combos), len(new_combos)
+        if old_len != new_len:
+            if combo_key in {"anyOf", "oneOf"}:
+                breaking = (direction == "request" and new_len < old_len) or (
+                    direction == "response" and new_len > old_len
+                )
+            else:  # allOf: mais restricoes no request, menos no response
+                breaking = (direction == "request" and new_len > old_len) or (
+                    direction == "response" and new_len < old_len
+                )
+            message = (
+                f"{path}: número de alternativas em {combo_key} alterado de "
+                f"{old_len} para {new_len}"
             )
+            (report.breaking if breaking else report.non_breaking).append(message)
+        for index, (old_alt, new_alt) in enumerate(
+            zip(old_combos, new_combos, strict=False)
+        ):
+            if isinstance(old_alt, dict) and isinstance(new_alt, dict):
+                sub_report = check_schema_compatibility(
+                    old_alt,
+                    new_alt,
+                    path=f"{path}.{combo_key}[{index}]"
+                    if path
+                    else f"{combo_key}[{index}]",
+                    direction=direction,
+                )
+                report.breaking.extend(sub_report.breaking)
+                report.non_breaking.extend(sub_report.non_breaking)
 
     return report
