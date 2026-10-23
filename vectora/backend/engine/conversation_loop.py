@@ -118,7 +118,7 @@ async def _noop_event(_event: object) -> None:
 
 
 async def _safe_update_agent_run_status(
-    session_store: Any,
+    session_store: SessionStore | None,
     run_id: str | None,
     *,
     status: AgentRunStatus,
@@ -402,6 +402,14 @@ async def run_conversation(
 
         texto_final = "".join(partes_texto)
         tool_calls = _resolve_tool_calls(tool_call_chunks_por_indice)
+        tool_calls = [
+            replace(
+                tool_call,
+                id=tool_call.id
+                or f"call_{config.run_id or thread_id}_{_iteracao}_{index}",
+            )
+            for index, tool_call in enumerate(tool_calls)
+        ]
         observed_tools.update(tc.name for tc in tool_calls if tc.name)
 
         logger.info(

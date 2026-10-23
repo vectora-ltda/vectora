@@ -26,6 +26,7 @@ from backend.persistence.native.agent_run import (
     redact_sensitive_data,
 )
 from backend.persistence.native.ledger import (
+    NOTIFIABLE_EVENT_TYPES,
     LedgerEventType,
     LedgerEventTypeLiteral,
     RunDraft,
@@ -1176,7 +1177,11 @@ class PostgresSessionStore:
                 "GROUP BY r.thread_id, c.read_seq",
                 user_id,
                 thread_ids,
-                ["approval_requested", "run_failed"],
+                sorted(
+                    event_type
+                    for event_type in NOTIFIABLE_EVENT_TYPES
+                    if event_type != "message_created"
+                ),
             )
             cursors = {r["thread_id"]: int(r["read_seq"]) for r in cursor_rows}
             unread_counts = {
@@ -1311,7 +1316,9 @@ class PostgresSessionStore:
             )
         return [(r["thread_id"], r["run_id"]) for r in rows]
 
-    async def _upsert_agent_run_on_conn(self, conn: Any, run: AgentRun) -> None:
+    async def _upsert_agent_run_on_conn(
+        self, conn: asyncpg.Connection, run: AgentRun
+    ) -> None:
         """Persiste ou atualiza uma execução do agente na conexão PostgreSQL fornecida."""
         now = _now()
         terminal_at = (
@@ -1467,7 +1474,7 @@ class PostgresSessionStore:
             )
 
     async def _get_agent_run_on_conn(
-        self, conn: Any, run_id: str, *, for_update: bool = False
+        self, conn: asyncpg.Connection, run_id: str, *, for_update: bool = False
     ) -> AgentRun | None:
         """Carrega e desserializa um AgentRun na conexão fornecida."""
         query = (

@@ -182,6 +182,17 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
         )
         agent_runs_sql = await cursor.fetchone()
         if agent_runs_sql and "waiting_provider" not in str(agent_runs_sql[0]):
+            legacy_columns = {
+                str(column[1])
+                for column in await conn.execute_fetchall(
+                    "PRAGMA table_info(agent_runs)"
+                )
+            }
+            for lineage_column in ("parent_run_id", "correlation_id"):
+                if lineage_column not in legacy_columns:
+                    await conn.execute(
+                        f"ALTER TABLE agent_runs ADD COLUMN {lineage_column} TEXT"
+                    )
             await conn.execute("DROP INDEX IF EXISTS ix_agent_runs_thread_turn")
             await conn.execute("DROP INDEX IF EXISTS ix_agent_runs_thread_status")
             await conn.execute("ALTER TABLE agent_runs RENAME TO agent_runs_legacy")
@@ -190,6 +201,8 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
                     run_id TEXT PRIMARY KEY,
                     thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
                     turn_id TEXT,
+                    parent_run_id TEXT,
+                    correlation_id TEXT,
                     user_id TEXT NOT NULL DEFAULT '',
                     workspace_id TEXT,
                     model TEXT NOT NULL DEFAULT '',
@@ -216,12 +229,14 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
             await conn.execute(
                 """INSERT INTO agent_runs (
                     run_id, thread_id, turn_id, user_id, workspace_id, model, provider,
+                    parent_run_id, correlation_id,
                     status, plan_step, tools_available_json, tools_used_json,
                     approvals_json, files_touched_json, commands_run_json,
                     tests_run_json, artifacts_json, metrics_json, evidence_json,
                     detail, error_code, started_at, updated_at, terminal_at
                 ) SELECT run_id, thread_id, turn_id, user_id, workspace_id, model,
-                    provider, status, plan_step, tools_available_json, tools_used_json,
+                    provider, parent_run_id, correlation_id, status, plan_step,
+                    tools_available_json, tools_used_json,
                     approvals_json, files_touched_json, commands_run_json,
                     tests_run_json, artifacts_json, metrics_json, evidence_json,
                     detail, error_code, started_at, updated_at, terminal_at

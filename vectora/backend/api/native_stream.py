@@ -304,43 +304,51 @@ def stream_engine_events(
         # the consumer loop below is entered.
         try:
             resolved_run_id = run_id or uuid.uuid4().hex
-            if run_id:
-                try:
-                    from backend.services import agent_factory
+            try:
+                from backend.services import agent_factory
 
-                    store = await agent_factory.get_session_store()
-                    if hasattr(store, "start_run"):
-                        await store.start_run(
-                            thread_id,
-                            resolved_run_id,
-                            detail="Provider ainda não iniciado.",
-                            provider_model=provider_model,
+                store = await agent_factory.get_session_store()
+                persist_run = True
+                get_session = getattr(store, "get_session", None)
+                if callable(get_session):
+                    persist_run = await get_session(thread_id) is not None
+                    if not persist_run:
+                        logger.warning(
+                            "native_stream: thread ausente; execução não será persistida",
+                            extra={"thread_id": thread_id, "run_id": resolved_run_id},
                         )
-                    if hasattr(store, "upsert_agent_run"):
-                        from backend.persistence.native.agent_run import AgentRun
-
-                        prov, _, mod = (provider_model or "").partition(":")
-                        await store.upsert_agent_run(
-                            AgentRun(
-                                run_id=resolved_run_id,
-                                thread_id=thread_id,
-                                user_id=user_id or "",
-                                workspace_id=workspace_id or None,
-                                provider=prov if mod else "",
-                                model=mod or prov,
-                                status="running",
-                                detail="Provider ainda não iniciado.",
-                            )
-                        )
-                except Exception as exc:
-                    logger.exception(
-                        "native_stream: falha ao registrar início do run",
-                        extra={"thread_id": thread_id, "run_id": resolved_run_id},
+                if persist_run and hasattr(store, "start_run"):
+                    await store.start_run(
+                        thread_id,
+                        resolved_run_id,
+                        detail="Provider ainda não iniciado.",
+                        provider_model=provider_model,
                     )
-                    raise RuntimeError(
-                        "Não foi possível persistir o início da execução; "
-                        "o provider não será iniciado."
-                    ) from exc
+                if persist_run and hasattr(store, "upsert_agent_run"):
+                    from backend.persistence.native.agent_run import AgentRun
+
+                    prov, _, mod = (provider_model or "").partition(":")
+                    await store.upsert_agent_run(
+                        AgentRun(
+                            run_id=resolved_run_id,
+                            thread_id=thread_id,
+                            user_id=user_id or "",
+                            workspace_id=workspace_id or None,
+                            provider=prov if mod else "",
+                            model=mod or prov,
+                            status="running",
+                            detail="Provider ainda não iniciado.",
+                        )
+                    )
+            except Exception as exc:
+                logger.exception(
+                    "native_stream: falha ao registrar início do run",
+                    extra={"thread_id": thread_id, "run_id": resolved_run_id},
+                )
+                raise RuntimeError(
+                    "Não foi possível persistir o início da execução; "
+                    "o provider não será iniciado."
+                ) from exc
             turn_snapshot = await asyncio.to_thread(
                 capture, workspace_id, thread_id, resolved_run_id
             )
@@ -628,11 +636,12 @@ def stream_engine_events(
                         detail="O provedor LLM encerrou o stream sem retornar texto ou ferramenta.",
                     )
                 else:
-                    await _update_persisted_run(
-                        resolved_run_id,
-                        status="completed",
-                        partial_text=accumulated_partial_content,
-                    )
+                    if not disconnected:
+                        await _update_persisted_run(
+                            resolved_run_id,
+                            status="completed",
+                            partial_text=accumulated_partial_content,
+                        )
                     t = asyncio.ensure_future(_clear_partial(thread_id))
                     background_tasks.add(t)
                     t.add_done_callback(background_tasks.discard)
