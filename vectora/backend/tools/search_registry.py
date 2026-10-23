@@ -40,6 +40,7 @@ class SearchBackend:
 
 
 async def _search_tavily(query: str, max_results: int = 5) -> list[dict]:
+    """Execute a Tavily search with a short lived client."""
     from backend.settings import settings
     from backend.tools.tavily.client import TavilyClient
 
@@ -53,6 +54,7 @@ async def _search_tavily(query: str, max_results: int = 5) -> list[dict]:
 
 
 async def _search_ollama_web(query: str, max_results: int = 5) -> list[dict]:
+    """Execute web search through the configured Ollama web endpoint."""
     from backend.llm.ollama.web_search import ollama_web_search
     from backend.settings import settings
 
@@ -94,18 +96,21 @@ async def _search_browser(
 
 
 async def _search_duckduckgo(query: str, max_results: int = 5) -> list[dict]:
+    """Execute the keyless DuckDuckGo fallback search."""
     from backend.browser.search_fallback import search_fallback
 
     return search_fallback(query, max_results=max_results)
 
 
 def _tem_tavily() -> bool:
+    """Return whether Tavily credentials are configured."""
     from backend.settings import settings
 
     return bool((settings.tavily_api_key or "").strip())
 
 
 def _tem_ollama_cloud() -> bool:
+    """Return whether the Ollama web search service is available."""
     from backend.llm.ollama.web_search import web_search_available
 
     return web_search_available()
@@ -185,6 +190,7 @@ def available_backends() -> list[SearchBackend]:
 
 
 def _escolha_do_usuario() -> str:
+    """Read the explicit search backend selection from runtime settings."""
     try:
         from backend.workspace.runtime_settings import runtime_settings
 

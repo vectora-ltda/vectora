@@ -115,6 +115,7 @@ def _electron_cdp_endpoint() -> str:
 
 
 def _electron_cdp_headers() -> dict[str, str]:
+    """Return authentication headers required by the Electron CDP proxy."""
     from backend.browser.cdp import electron_cdp_headers
 
     return electron_cdp_headers()
@@ -199,6 +200,7 @@ def _register_page_listeners(tab: TabState) -> None:
 
 
 async def _create_tab_state(page: Any) -> TabState:
+    """Create the reusable CDP and observability state for one page."""
     cdp = await page.context.new_cdp_session(page)
     target_id: str | None = None
     try:
@@ -278,6 +280,7 @@ def _page_target_id(page: Any) -> str:
 
 
 def _claim_page(page: Any, workspace_id: str) -> None:
+    """Associate a CDP target with a workspace, rejecting conflicting owners."""
     tid = _page_target_id(page)
     owner = _page_owners.get(tid)
     if owner is not None and owner != workspace_id:
@@ -411,9 +414,13 @@ async def new_tab(
                         page = candidates[-1]
                         break
                 if page is None:
-                    raise RuntimeError("Electron criou a view mas não publicou o alvo CDP")
+                    raise RuntimeError(
+                        "Electron criou a view mas não publicou o alvo CDP"
+                    )
         except Exception:
-            logger.debug("browser_session: bridge de criação indisponível", exc_info=True)
+            logger.debug(
+                "browser_session: bridge de criação indisponível", exc_info=True
+            )
             page = None
         if page is None:
             # Real Electron contexts must never fall back to Playwright's

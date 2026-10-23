@@ -191,6 +191,7 @@ async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
     max_bytes = 2_000_000
 
     async def _read_limited(response: httpx.Response) -> str:
+        """Read an HTTP response while enforcing the tool content limit."""
         response.raise_for_status()
         chunks: list[bytes] = []
         size = 0

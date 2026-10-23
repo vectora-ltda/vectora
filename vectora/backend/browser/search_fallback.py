@@ -36,6 +36,7 @@ _BROWSER_LOCK = threading.RLock()
 
 
 def _get_browser() -> Any:
+    """Connect to the Electron Chromium instance and cache the connection."""
     global _browser, _playwright
     if _browser is None:
         from playwright.sync_api import sync_playwright
