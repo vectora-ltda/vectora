@@ -201,7 +201,7 @@ class ClefApiAdapter(BaseSystemOneApiAdapter):
     def __init__(
         self,
         api_key: str,
-        account_id: str = "systemone",
+        account_id: str,
         base_url: str = "https://api.cloudflare.com/client/v4/accounts",
         timeout: float = _DEFAULT_TIMEOUT_SECONDS,
         *,
