@@ -57,6 +57,7 @@ from backend.persistence.native.agent_run import AgentRunMetrics
 from backend.persistence.native.ledger import (
     LedgerEventType,
     ThreadLedgerEvent,
+    make_agent_turn_started_key,
     make_run_completed_key,
     make_run_failed_key,
     make_tool_finished_key,
@@ -288,6 +289,36 @@ async def run_conversation(
     emit = on_event or _noop_event
     tools = tool_registry.all()
     parent_id = await session_store.get_branch_head_id(thread_id)
+    # Uma identidade por invocação mantém retries correlacionados sem
+    # reutilizar IDs quando o runner não fornece run_id.
+    turn_identity: str = config.run_id or f"turn-{uuid4().hex}"
+
+    if config.run_id:
+        try:
+            if hasattr(session_store, "append_ledger_event"):
+                await session_store.append_ledger_event(
+                    thread_id,
+                    event_key=make_agent_turn_started_key(config.run_id),
+                    event_type="agent_turn_started",
+                    run_id=config.run_id,
+                    payload={"iteration": 1},
+                )
+            elif hasattr(session_store, "append_event"):
+                await session_store.append_event(
+                    thread_id,
+                    ThreadLedgerEvent(
+                        thread_id=thread_id,
+                        event_key=make_agent_turn_started_key(config.run_id),
+                        type="agent_turn_started",
+                        run_id=config.run_id,
+                        payload={"iteration": 1},
+                    ),
+                )
+        except Exception:
+            logger.exception(
+                "conversation_loop: falha ao registrar agent_turn_started no ledger para thread %s",
+                thread_id,
+            )
     assinaturas_anteriores: tuple[tuple[str, str], ...] | None = None
     repeticoes_seguidas = 0
     turn_budget = TurnBudget(config=config.loop_caps)
@@ -627,6 +658,7 @@ async def run_conversation(
                         interrupt_id=interrupt_id,
                         tool_name=pendente.name,
                         tool_call_id=stable_call_id,
+                        run_id=config.run_id,
                         args=pendente.args,
                         options=options,
                         priority=priority,
@@ -1089,6 +1121,85 @@ async def resume_conversation(
     if pending is None:
         return False
 
+    # A retomada deve continuar o mesmo turno persistido, e não criar uma
+    # segunda identidade de execução. Isso mantém tool_started/tool_finished
+    # correlacionados com a aprovação original após uma pausa HITL.
+    resume_run_id = str(pending.get("run_id") or "") or None
+
+    async def _execute_resume_tool(
+        tc: ToolCall,
+        args: dict[str, Any] | None = None,
+        policy_snapshot: PolicySnapshot | None = None,
+    ) -> VMessage:
+        call = replace(tc, args=args) if args is not None else tc
+        call_id = call.id or f"{resume_run_id or thread_id}:tool:{uuid4().hex}"
+        call = replace(call, id=call_id)
+        sanitized = _sanitize_tool_call(call, ctx)
+
+        async def record(event_type: str, payload: dict[str, Any]) -> None:
+            if not resume_run_id:
+                return
+            try:
+                if hasattr(session_store, "append_ledger_event"):
+                    await session_store.append_ledger_event(
+                        thread_id,
+                        event_key=(
+                            make_tool_started_key(resume_run_id, call_id)
+                            if event_type == "tool_started"
+                            else make_tool_finished_key(resume_run_id, call_id)
+                        ),
+                        event_type=event_type,
+                        run_id=resume_run_id,
+                        tool_call_id=call_id,
+                        payload=payload,
+                    )
+                elif hasattr(session_store, "append_event"):
+                    await session_store.append_event(
+                        thread_id,
+                        ThreadLedgerEvent(
+                            thread_id=thread_id,
+                            event_key=(
+                                make_tool_started_key(resume_run_id, call_id)
+                                if event_type == "tool_started"
+                                else make_tool_finished_key(resume_run_id, call_id)
+                            ),
+                            type=event_type,
+                            run_id=resume_run_id,
+                            tool_call_id=call_id,
+                            payload=payload,
+                        ),
+                    )
+            except Exception:
+                logger.exception(
+                    "Falha ao registrar %s da retomada no ledger para tool %s",
+                    event_type,
+                    call.name,
+                )
+
+        await record(
+            "tool_started",
+            {"tool_name": sanitized.name, "args": sanitized.args},
+        )
+        try:
+            result = await _execute_single_call(
+                call,
+                tool_registry=tool_registry,
+                ctx=ctx,
+                on_event=on_event,
+                policy_snapshot=policy_snapshot,
+            )
+        except Exception as exc:
+            await record(
+                "tool_finished",
+                {"tool_name": call.name, "is_error": True, "error": str(exc)},
+            )
+            raise
+        await record(
+            "tool_finished",
+            {"tool_name": result.name, "is_error": result.is_error},
+        )
+        return result
+
     flagged_id = pending["tool_call_id"]
     historico = await session_store.get_history(thread_id)
     ultimo_assistant = next(
@@ -1156,11 +1267,8 @@ async def resume_conversation(
                         is_error=True,
                     )
                 else:
-                    resultado = await _execute_single_call(
-                        tc,
-                        tool_registry=tool_registry,
-                        ctx=ctx,
-                        policy_snapshot=policy_snapshot,
+                    resultado = await _execute_resume_tool(
+                        tc, policy_snapshot=policy_snapshot
                     )
         elif decision == "reject":
             resultado = VMessage(
@@ -1176,7 +1284,6 @@ async def resume_conversation(
                 args = ephemeral_args
             if decision in {"edit", "option"} and edited_args is not None:
                 args = edited_args
-
             call_snapshot = policy_snapshot
             if (
                 tc.id == flagged_id
@@ -1189,12 +1296,8 @@ async def resume_conversation(
 
                 call_snapshot = dc_replace(policy_snapshot, allow_force_push=True)
 
-            resultado = await _execute_single_call(
-                replace(tc, args=args),
-                tool_registry=tool_registry,
-                ctx=ctx,
-                on_event=on_event,
-                policy_snapshot=call_snapshot,
+            resultado = await _execute_resume_tool(
+                replace(tc, args=args), policy_snapshot=call_snapshot
             )
 
         parent_id = await session_store.append_message(
