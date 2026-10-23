@@ -141,6 +141,7 @@ class TestAgentRunLifecycle:
                     )
                 ).fetchone()
             assert {"parent_run_id", "correlation_id"} <= columns
+            assert row is not None
             assert tuple(row) == (None, None)
         finally:
             await pool.close()
