@@ -35,23 +35,27 @@ class TestErroDeExecucaoFicaLogado:
             def __init__(self) -> None:
                 self.messages: list[dict[str, object]] = []
 
-            async def get_message_id_by_turn_id(self, thread_id: str, turn_id: str):
+            async def get_message_id_by_turn_id(
+                self, thread_id: str, turn_id: str
+            ) -> int | None:
                 for message in self.messages:
                     if message["turn_id"] == turn_id:
                         return 1
                 return None
 
-            async def get_branch_head_id(self, thread_id: str):
+            async def get_branch_head_id(self, thread_id: str) -> int:
                 return 7
 
-            async def append_message(self, thread_id: str, message, **kwargs):
+            async def append_message(
+                self, thread_id: str, message: VMessage, **kwargs: object
+            ) -> int:
                 self.messages.append({"message": message, **kwargs})
                 return 8
 
         store = _Store()
         from backend.services import agent_factory
 
-        async def _get_store():
+        async def _get_store() -> _Store:
             return store
 
         monkeypatch.setattr(agent_factory, "get_session_store", _get_store)
@@ -163,20 +167,26 @@ class TestErroDeExecucaoFicaLogado:
             def __init__(self) -> None:
                 self.messages: list[dict[str, object]] = []
 
-            async def get_message_id_by_turn_id(self, thread_id: str, turn_id: str):
+            async def get_message_id_by_turn_id(
+                self, thread_id: str, turn_id: str
+            ) -> None:
                 return None
 
-            async def get_branch_head_id(self, thread_id: str):
+            async def get_branch_head_id(self, thread_id: str) -> int:
                 return 1
 
-            async def append_message(self, thread_id: str, message, **kwargs):
+            async def append_message(
+                self, thread_id: str, message: VMessage, **kwargs: object
+            ) -> int:
                 self.messages.append({"message": message, **kwargs})
                 return 2
 
-            async def update_run(self, run_id: str, **kwargs):
+            async def update_run(self, run_id: str, **kwargs: object) -> None:
                 updated_statuses.append({"type": "legacy", "run_id": run_id, **kwargs})
 
-            async def update_agent_run_status(self, run_id: str, **kwargs):
+            async def update_agent_run_status(
+                self, run_id: str, **kwargs: object
+            ) -> None:
                 updated_statuses.append(
                     {"type": "agent_run", "run_id": run_id, **kwargs}
                 )
@@ -184,7 +194,7 @@ class TestErroDeExecucaoFicaLogado:
         store = _Store()
         from backend.services import agent_factory
 
-        async def _get_store():
+        async def _get_store() -> _Store:
             return store
 
         monkeypatch.setattr(agent_factory, "get_session_store", _get_store)

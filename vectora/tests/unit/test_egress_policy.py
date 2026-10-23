@@ -132,6 +132,44 @@ def test_is_url_allowed_empty_allowed_ports_permits_custom_port():
     assert ok is True
 
 
+def test_is_url_allowed_no_resolve_dns_blocks_literal_private_ip() -> None:
+    policy = EgressPolicy(block_private_ips=True)
+    # AWS metadata IP
+    ok, reason = is_url_allowed(
+        "http://169.254.169.254/latest/meta-data/", policy, resolve_dns=False
+    )
+    assert ok is False
+    assert "privado/restrito" in reason
+
+    # Localhost IPv4
+    ok_lh, reason_lh = is_url_allowed(
+        "http://127.0.0.1:8080", policy, resolve_dns=False
+    )
+    assert ok_lh is False
+    assert "privado/restrito" in reason_lh
+
+    # Private RFC 1918
+    ok_priv, reason_priv = is_url_allowed("http://10.0.0.1/", policy, resolve_dns=False)
+    assert ok_priv is False
+    assert "privado/restrito" in reason_priv
+
+
+def test_is_url_allowed_no_resolve_dns_allows_literal_public_ip() -> None:
+    policy = EgressPolicy(block_private_ips=True)
+    ok, reason = is_url_allowed("https://93.184.216.34/", policy, resolve_dns=False)
+    assert ok is True
+    assert reason == ""
+
+
+@pytest.mark.parametrize("host", ["localhost", "service.internal", "127.1"])
+def test_is_url_allowed_no_resolve_dns_rejects_non_public_aliases(host: str) -> None:
+    ok, reason = is_url_allowed(
+        f"https://{host}", EgressPolicy(block_private_ips=False), resolve_dns=False
+    )
+    assert ok is False
+    assert "destino DNS público" in reason
+
+
 @pytest.mark.asyncio
 async def test_async_is_url_allowed_returns_pinned_ip(monkeypatch):
     import asyncio

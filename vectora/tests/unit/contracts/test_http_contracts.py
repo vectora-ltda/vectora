@@ -39,7 +39,7 @@ def test_correlation_sanitization_and_unhandled_exception_headers() -> None:
     app = create_app(serve_static=False)
 
     @app.get("/test/error-route")
-    async def _failing_route():
+    async def _failing_route() -> None:
         raise RuntimeError("Simulated unhandled explosion")
 
     client = TestClient(app, raise_server_exceptions=False)

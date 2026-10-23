@@ -27,6 +27,7 @@ vocabulário nativo.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import math
@@ -64,7 +65,6 @@ from backend.persistence.native.ledger import (
     make_tool_finished_key,
     make_tool_started_key,
 )
-from backend.services.context_compaction import compact_messages
 from backend.services.context_planner import compute_transcript_hash
 from backend.services.memory_store import MemoryRecord
 from backend.vtypes.contracts import ToolOption
@@ -83,22 +83,11 @@ logger = logging.getLogger(__name__)
 
 
 def _preserve_latest_tool_result(model_id: str) -> bool:
-    """Indica se o provider local deve manter o último resultado de tool.
-
-    Os providers locais usam janelas menores e a projeção compacta do system
-    prompt. Remover o resultado mais recente antes da próxima iteração quebra
-    a causalidade do loop e pode fazer o modelo repetir a mesma chamada.
-    """
     normalized = model_id.strip().casefold()
     return normalized.startswith(("ollama:", "llamacpp:", "dmr:"))
 
 
 async def _load_persistent_context_memories(ctx: ToolContext) -> list[MemoryRecord]:
-    """Carrega memórias persistidas para a projeção do turno atual.
-
-    A namespace é a mesma usada pelas memory tools. Falha de leitura degrada
-    apenas o enriquecimento do contexto e não impede a inferência do turno.
-    """
     if ctx.store is None or not hasattr(ctx.store, "asearch"):
         return []
     if ctx.user_id and ctx.user_id != "local":
@@ -114,14 +103,10 @@ async def _load_persistent_context_memories(ctx: ToolContext) -> list[MemoryReco
         from backend.services.context_planner import memory_records_from_backend_items
 
         return memory_records_from_backend_items(
-            items,
-            default_scope_id=ctx.workspace_id or ctx.thread_id or "global",
+            items, default_scope_id=ctx.workspace_id or ctx.thread_id or "global"
         )
     except Exception:
-        logger.exception(
-            "conversation_loop: falha ao carregar memórias persistentes",
-            extra={"workspace_id": ctx.workspace_id, "user_id": ctx.user_id},
-        )
+        logger.exception("conversation_loop: falha ao carregar memórias persistentes")
         return []
 
 
@@ -135,7 +120,6 @@ if TYPE_CHECKING:
     from backend.services.policy_compiler import PolicySnapshot
     from backend.tools.context import ToolContext
     from backend.tools.registry import ToolRegistry
-    from backend.vtypes import JsonObject
 
 
 @dataclass(slots=True)
@@ -168,33 +152,48 @@ class LoopResult:
     tool_names: tuple[str, ...] = ()
 
 
-async def _safe_update_agent_run_status(
-    session_store: Any,
-    run_id: str,
-    *,
-    status: str,
-    plan_step: str | None = None,
-    detail: str | None = None,
-    error_code: str | None = None,
-) -> None:
-    """Persist a recovery status when the storage adapter supports AgentRun."""
-    updater = getattr(session_store, "update_agent_run_status", None)
-    if updater is None:
-        return
-    try:
-        await updater(
-            run_id,
-            status=status,
-            plan_step=plan_step,
-            detail=detail,
-            error_code=error_code,
-        )
-    except Exception:
-        logger.exception("conversation_loop: falha ao persistir status da run")
-
-
 async def _noop_event(_event: object) -> None:
     return None
+
+
+async def _safe_update_agent_run_status(
+    session_store: Any,
+    run_id: str | None,
+    *,
+    status: str,
+    detail: str | None = None,
+    error_code: str | None = None,
+    metrics: AgentRunMetrics | None = None,
+) -> None:
+    """Persiste o estado do run sem deixar falha do storage interromper o turno."""
+    if not run_id or not hasattr(session_store, "update_agent_run_status"):
+        return
+    try:
+        await session_store.update_agent_run_status(
+            run_id,
+            status=status,
+            detail=detail,
+            error_code=error_code,
+            metrics=metrics,
+        )
+    except Exception:
+        logger.exception(
+            "conversation_loop: falha ao persistir status do run %s", run_id
+        )
+
+
+async def _safe_record_run_evidence(
+    session_store: Any, run_id: str | None, **evidence: Any
+) -> None:
+    """Persiste evidências de forma best-effort, sem perder o resultado da tool."""
+    if not run_id or not hasattr(session_store, "record_run_evidence"):
+        return
+    try:
+        await session_store.record_run_evidence(run_id, **evidence)
+    except Exception:
+        logger.exception(
+            "conversation_loop: falha ao persistir evidência do run %s", run_id
+        )
 
 
 _ARGS_PREVIEW_MAX_CHARS = 80
@@ -317,7 +316,42 @@ def _resolve_tool_calls(acumulado: dict[int, dict[str, Any]]) -> list[ToolCall]:
     return chamadas
 
 
-async def run_conversation(  # noqa: PLR0911
+async def _workspace_changed_paths(ctx: ToolContext) -> set[str]:
+    """Obtém arquivos alterados do workspace, sem confiar nos argumentos da tool."""
+    root = getattr(ctx, "workspace_dir", None) or getattr(ctx, "cwd", None)
+    if not root:
+        return set()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "status",
+            "--porcelain",
+            cwd=str(root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=2.0)
+        if proc.returncode != 0:
+            return set()
+        paths: set[str] = set()
+        for line in (stdout or b"").decode("utf-8", errors="replace").splitlines():
+            if len(line) <= 3:
+                continue
+            path = line[3:].strip()
+            if " -> " in path:
+                path = path.split(" -> ", 1)[-1].strip()
+            if path:
+                paths.add(path)
+        return paths
+    except Exception:
+        logger.debug(
+            "conversation_loop: não foi possível obter arquivos alterados",
+            exc_info=True,
+        )
+        return set()
+
+
+async def run_conversation(
     *,
     session_store: SessionStore,
     chat_client: ChatClient,
@@ -360,6 +394,19 @@ async def run_conversation(  # noqa: PLR0911
                 ctx._extra = {}
             ctx._extra["untrusted_content"] = True
 
+    if hasattr(session_store, "list_agent_runs"):
+        runs = await session_store.list_agent_runs(thread_id, limit=5)
+        if any(
+            bool(
+                run.get("untrusted_content")
+                if isinstance(run, dict)
+                else getattr(run, "untrusted_content", False)
+            )
+            for run in runs
+        ):
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
     if policy_snapshot is None:
         policy_snapshot = compile_policy_snapshot(ctx)
 
@@ -446,21 +493,17 @@ async def run_conversation(  # noqa: PLR0911
     if config.run_id and hasattr(session_store, "get_latest_context_checkpoint"):
         try:
             checkpoint = await session_store.get_latest_context_checkpoint(
-                thread_id,
-                run_id=config.run_id,
+                thread_id, run_id=config.run_id
             )
             state = checkpoint.get("state", {}) if checkpoint else {}
+            current_history = await session_store.get_history(thread_id)
             checkpoint_is_current = bool(
                 checkpoint
                 and checkpoint.get("schema_version") == "context.v1"
-                and isinstance(checkpoint.get("source_hash"), str)
-                and bool(checkpoint.get("source_hash"))
+                and checkpoint.get("source_hash")
+                and checkpoint.get("source_hash")
+                == compute_transcript_hash(current_history)
             )
-            if checkpoint_is_current:
-                current_history = await session_store.get_history(thread_id)
-                checkpoint_is_current = checkpoint[
-                    "source_hash"
-                ] == compute_transcript_hash(current_history)
             if (
                 checkpoint_is_current
                 and checkpoint is not None
@@ -472,15 +515,13 @@ async def run_conversation(  # noqa: PLR0911
                     session_store,
                     config.run_id,
                     status="recovery_required",
-                    plan_step="checkpoint_recovery",
                     detail="Execução interrompida durante tools; reconciliação necessária.",
                     error_code="CHECKPOINT_TOOL_RECONCILIATION_REQUIRED",
                 )
                 return LoopResult(stopped_reason="recovery_required")
         except Exception:
             logger.exception(
-                "conversation_loop: falha ao carregar checkpoint de retomada",
-                extra={"run_id": config.run_id, "thread_id": thread_id},
+                "conversation_loop: falha ao carregar checkpoint de retomada"
             )
 
     for _iteracao in range(config.max_iterations):
@@ -492,7 +533,6 @@ async def run_conversation(  # noqa: PLR0911
         )
         from backend.services.context_planner import plan_context
 
-        persistent_memory_records = await _load_persistent_context_memories(ctx)
         planned_context = plan_context(
             raw_history,
             max_tokens=effective_max_tokens,
@@ -500,92 +540,51 @@ async def run_conversation(  # noqa: PLR0911
             preserve_latest_tool_result=_preserve_latest_tool_result(str(ctx.model)),
             workspace_id=ctx.workspace_id or None,
             policy_snapshot=policy_snapshot,
-            persistent_memory_records=persistent_memory_records,
+            persistent_memory_records=await _load_persistent_context_memories(ctx),
         )
         historico = planned_context.messages
-
-        should_record_manifest = bool(
-            not manifest_recorded and planned_context.manifest
-        )
-        should_record_projection = bool(
-            not projection_recorded and planned_context.projection is not None
-        )
-        if config.run_id and (should_record_manifest or should_record_projection):
+        if config.run_id and hasattr(session_store, "record_run_evidence"):
             try:
-                evidence_entries: list[tuple[str, JsonObject]] = []
-                if should_record_manifest and planned_context.manifest:
-                    manifest_entry = cast(
-                        "JsonObject", dict(planned_context.manifest.to_evidence_entry())
+                if planned_context.manifest and not manifest_recorded:
+                    await session_store.record_run_evidence(
+                        config.run_id,
+                        evidence={
+                            "run_id": config.run_id,
+                            "thread_id": thread_id,
+                            **planned_context.manifest.to_evidence_entry(),
+                        },
                     )
-                    manifest_entry["run_id"] = config.run_id
-                    manifest_entry["thread_id"] = thread_id
-                    evidence_entries.append(("manifest", manifest_entry))
-                if should_record_projection and planned_context.projection is not None:
-                    projection_entry = cast(
-                        "JsonObject",
-                        dict(planned_context.projection.to_evidence_entry()),
+                    manifest_recorded = True
+                if planned_context.projection is not None and not projection_recorded:
+                    projection_entry = planned_context.projection.to_evidence_entry()
+                    await session_store.record_run_evidence(
+                        config.run_id,
+                        evidence={
+                            "run_id": config.run_id,
+                            "thread_id": thread_id,
+                            **projection_entry,
+                        },
                     )
-                    projection_entry["run_id"] = config.run_id
-                    projection_entry["thread_id"] = thread_id
-                    evidence_entries.append(("projection", projection_entry))
-
-                if hasattr(session_store, "record_run_evidence"):
-                    for kind, entry in evidence_entries:
-                        await session_store.record_run_evidence(
-                            config.run_id, evidence=entry
+                    if hasattr(session_store, "save_context_projection"):
+                        await session_store.save_context_projection(
+                            thread_id, config.run_id, dict(projection_entry)
                         )
-                        if (
-                            kind == "projection"
-                            and planned_context.projection is not None
-                            and hasattr(session_store, "save_context_projection")
-                        ):
-                            await session_store.save_context_projection(
-                                thread_id,
-                                config.run_id,
-                                dict(planned_context.projection.to_evidence_entry()),
-                            )
-                        if kind == "manifest":
-                            manifest_recorded = True
-                        else:
-                            projection_recorded = True
-                elif hasattr(session_store, "get_agent_run") and hasattr(
-                    session_store, "upsert_agent_run"
-                ):
-                    # Compatibility path for lightweight stores used by older integrations.
-                    agent_run = await session_store.get_agent_run(config.run_id)
-                    if agent_run is not None:
-                        agent_run.evidence.extend(
-                            entry for _, entry in evidence_entries
-                        )
-                        await session_store.upsert_agent_run(agent_run)
-                        manifest_recorded = any(
-                            kind == "manifest" for kind, _ in evidence_entries
-                        )
-                        projection_recorded = any(
-                            kind == "projection" for kind, _ in evidence_entries
-                        )
+                    projection_recorded = True
             except Exception:
                 logger.exception(
-                    "conversation_loop: falha ao persistir manifesto de contexto como evidência",
-                    extra={"run_id": config.run_id},
+                    "conversation_loop: falha ao persistir contexto planejado"
                 )
-
         source_hash = (
             planned_context.projection.source_transcript_hash
             if planned_context.projection is not None
             else compute_transcript_hash(raw_history)
         )
-        try:
+        with contextlib.suppress(Exception):
             await _persist_context_checkpoint(
                 raw_history,
                 phase="provider_dispatch",
                 iteration=_iteracao,
                 source_hash=source_hash,
-            )
-        except Exception:
-            logger.exception(
-                "conversation_loop: falha ao persistir checkpoint de contexto",
-                extra={"run_id": config.run_id, "thread_id": thread_id},
             )
 
         partes_texto: list[str] = []
@@ -699,6 +698,22 @@ async def run_conversation(  # noqa: PLR0911
                 )
             )
             await emit(MessageBreak())
+            await _safe_update_agent_run_status(
+                session_store,
+                config.run_id,
+                status="failed",
+                detail="O provedor encerrou o stream sem texto ou tool call.",
+                error_code="EMPTY_MODEL_RESPONSE",
+            )
+            if config.run_id:
+                with contextlib.suppress(Exception):
+                    await session_store.append_ledger_event(
+                        thread_id,
+                        event_key=make_run_failed_key(config.run_id),
+                        event_type=LedgerEventType.RUN_FAILED,
+                        run_id=config.run_id,
+                        payload={"error": "EMPTY_MODEL_RESPONSE"},
+                    )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=None,
@@ -758,6 +773,22 @@ async def run_conversation(  # noqa: PLR0911
                 )
                 await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
                 await emit(MessageBreak())
+                await _safe_update_agent_run_status(
+                    session_store,
+                    config.run_id,
+                    status="failed",
+                    detail=mensagem,
+                    error_code="TOOL_CALL_REPEATED",
+                )
+                if config.run_id:
+                    with contextlib.suppress(Exception):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_run_failed_key(config.run_id),
+                            event_type=LedgerEventType.RUN_FAILED,
+                            run_id=config.run_id,
+                            payload={"error": "TOOL_CALL_REPEATED"},
+                        )
                 return LoopResult(
                     stopped_reason="loop_cap_exceeded",
                     final_message=None,
@@ -806,8 +837,10 @@ async def run_conversation(  # noqa: PLR0911
                         thread_id,
                     )
                 if hasattr(session_store, "update_agent_run_status"):
+                    verification_handled = True
                     # 1. Transiciona atomicamente para o estado 'verifying'
-                    await session_store.update_agent_run_status(
+                    await _safe_update_agent_run_status(
+                        session_store,
                         config.run_id,
                         status="verifying",
                         detail="Executando verificação de quality gates e snapshot criptográfico.",
@@ -833,7 +866,8 @@ async def run_conversation(  # noqa: PLR0911
                             config.run_id,
                             thread_id,
                         )
-                        await session_store.update_agent_run_status(
+                        await _safe_update_agent_run_status(
+                            session_store,
                             config.run_id,
                             status="failed",
                             detail="Erro interno durante a verificação pós-execução.",
@@ -861,7 +895,8 @@ async def run_conversation(  # noqa: PLR0911
                                     )
                                     await session_store.upsert_agent_run(agent_run)
                             else:
-                                await session_store.update_agent_run_status(
+                                await _safe_update_agent_run_status(
+                                    session_store,
                                     config.run_id,
                                     status=v_res.status,
                                     detail=(
@@ -876,6 +911,16 @@ async def run_conversation(  # noqa: PLR0911
                                 "Falha ao persistir evidências de verificação para run %s",
                                 config.run_id,
                             )
+                else:
+                    verification_handled = False
+                if not verification_handled:
+                    await _safe_update_agent_run_status(
+                        session_store,
+                        config.run_id,
+                        status="passed",
+                        detail="Execução completada com sucesso.",
+                        metrics=iter_metrics,
+                    )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=assistant_msg,
@@ -981,27 +1026,24 @@ async def run_conversation(  # noqa: PLR0911
                 # A falha na gravação de evidências ou atualização do run não pode impedir
                 # a emissão de HitlRequested para o cliente.
                 try:
-                    if hasattr(session_store, "record_run_evidence") and config.run_id:
-                        await session_store.record_run_evidence(
-                            config.run_id,
-                            approval={
-                                "interrupt_id": interrupt_id,
-                                "tool_name": pendente.name,
-                                "tool_call_id": stable_call_id,
-                                "options": options,
-                                "priority": priority,
-                            },
-                        )
-                    if (
-                        hasattr(session_store, "update_agent_run_status")
-                        and config.run_id
-                    ):
-                        await session_store.update_agent_run_status(
-                            config.run_id,
-                            status="waiting_approval",
-                            detail=f"Aguardando aprovação para {pendente.name}",
-                            metrics=iter_metrics,
-                        )
+                    await _safe_record_run_evidence(
+                        session_store,
+                        config.run_id,
+                        approval={
+                            "interrupt_id": interrupt_id,
+                            "tool_name": pendente.name,
+                            "tool_call_id": stable_call_id,
+                            "options": options,
+                            "priority": priority,
+                        },
+                    )
+                    await _safe_update_agent_run_status(
+                        session_store,
+                        config.run_id,
+                        status="waiting_approval",
+                        detail=f"Aguardando aprovação para {pendente.name}",
+                        metrics=iter_metrics,
+                    )
                 except Exception:
                     logger.exception(
                         "conversation_loop: falha ao persistir evidência/status de aprovação para thread %s",
@@ -1045,7 +1087,10 @@ async def run_conversation(  # noqa: PLR0911
                             event_type=LedgerEventType.TOOL_STARTED,
                             run_id=config.run_id,
                             tool_call_id=tc.id,
-                            payload={"tool_name": tc.name, "args": tc.args},
+                            payload={
+                                "tool_name": tc.name,
+                                "args": _sanitize_tool_call(tc, ctx).args,
+                            },
                         )
                     elif hasattr(session_store, "append_event"):
                         await session_store.append_event(
@@ -1056,7 +1101,10 @@ async def run_conversation(  # noqa: PLR0911
                                 type=LedgerEventType.TOOL_STARTED,
                                 run_id=config.run_id,
                                 tool_call_id=tc.id,
-                                payload={"tool_name": tc.name, "args": tc.args},
+                                payload={
+                                    "tool_name": tc.name,
+                                    "args": _sanitize_tool_call(tc, ctx).args,
+                                },
                             ),
                         )
                 except Exception:
@@ -1082,18 +1130,13 @@ async def run_conversation(  # noqa: PLR0911
                 )
             )
 
-        try:
+        with contextlib.suppress(Exception):
             await _persist_context_checkpoint(
                 raw_history,
                 phase="tool_running",
                 iteration=_iteracao,
                 source_hash=source_hash,
                 pending_tool_call_ids=tuple(call.id for call in tool_calls if call.id),
-            )
-        except Exception:
-            logger.exception(
-                "conversation_loop: falha ao persistir checkpoint de tools",
-                extra={"run_id": config.run_id, "thread_id": thread_id},
             )
 
         resultados = await execute_tool_batch(
@@ -1109,68 +1152,6 @@ async def run_conversation(  # noqa: PLR0911
                 thread_id, resultado, parent_message_id=parent_id
             )
             call_id = resultado.tool_call_id or ""
-            if not resultado.is_error:
-                tc_match = next((t for t in tool_calls if t.id == call_id), None)
-                tc_args = tc_match.args if tc_match else {}
-                t_name = resultado.name or (tc_match.name if tc_match else "")
-                if t_name in {
-                    "file_write",
-                    "file_edit",
-                    "write_file",
-                    "edit_file",
-                    "apply_patch",
-                    "append_file",
-                    "replace_file",
-                }:
-                    p = (
-                        tc_args.get("file_path")
-                        or tc_args.get("path")
-                        or tc_args.get("target_file")
-                    )
-                    if isinstance(p, str) and p and p not in files_touched:
-                        files_touched.append(p)
-                elif t_name in {"file_delete", "delete_file"}:
-                    p = tc_args.get("path") or tc_args.get("file_path")
-                    if isinstance(p, str) and p and p not in files_touched:
-                        files_touched.append(p)
-                elif t_name in {"file_move", "move_file"}:
-                    for k in ("to_path", "from_path"):
-                        p = tc_args.get(k)
-                        if isinstance(p, str) and p and p not in files_touched:
-                            files_touched.append(p)
-                elif t_name in {
-                    "write_terminal",
-                    "terminal",
-                    "run_command",
-                    "exec_command",
-                }:
-                    ws_path = getattr(ctx, "workspace_dir", None) or getattr(
-                        ctx, "cwd", None
-                    )
-                    if ws_path:
-                        try:
-                            proc = await asyncio.create_subprocess_exec(
-                                "git",
-                                "status",
-                                "--porcelain",
-                                cwd=str(ws_path),
-                                stdout=asyncio.subprocess.PIPE,
-                                stderr=asyncio.subprocess.DEVNULL,
-                            )
-                            stdout_data, _ = await asyncio.wait_for(
-                                proc.communicate(), timeout=2.0
-                            )
-                            out = stdout_data.decode("utf-8", errors="replace")
-                            for raw_line in out.splitlines():
-                                cleaned_line = raw_line.strip()
-                                if len(cleaned_line) > 3:
-                                    f_part = cleaned_line[3:].strip()
-                                    if " -> " in f_part:
-                                        f_part = f_part.split(" -> ")[-1].strip()
-                                    if f_part and f_part not in files_touched:
-                                        files_touched.append(f_part)
-                        except Exception:
-                            pass
             if config.run_id and call_id:
                 try:
                     if hasattr(session_store, "append_ledger_event"):
@@ -1349,7 +1330,13 @@ async def run_conversation(  # noqa: PLR0911
                                 config.run_id,
                             )
 
-        try:
+        # Deriva a evidência do workspace após o lote. Isso exclui chamadas
+        # rejeitadas e leituras, e também detecta arquivos escritos via terminal.
+        for changed_path in await _workspace_changed_paths(ctx):
+            if changed_path not in files_touched:
+                files_touched.append(changed_path)
+
+        with contextlib.suppress(Exception):
             await _persist_context_checkpoint(
                 raw_history,
                 phase="provider_dispatch",
@@ -1358,11 +1345,6 @@ async def run_conversation(  # noqa: PLR0911
                 completed_tool_call_ids=tuple(
                     result.tool_call_id for result in resultados if result.tool_call_id
                 ),
-            )
-        except Exception:
-            logger.exception(
-                "conversation_loop: falha ao persistir checkpoint pós-tools",
-                extra={"run_id": config.run_id, "thread_id": thread_id},
             )
 
         if turn_budget.exceeded is not None:

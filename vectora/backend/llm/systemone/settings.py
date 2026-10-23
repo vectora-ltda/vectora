@@ -98,6 +98,7 @@ def get_systemone_provider(
         return ClefLocalAdapter(
             base_url=settings.local_base_url,
             api_key=local_api_key or os.getenv("LLAMACPP_API_KEY"),
+            model=settings.local_model,
         )
     if provider_type == "laya-local":
         return LayaLocalAdapter(

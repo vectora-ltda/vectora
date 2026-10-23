@@ -453,10 +453,11 @@ class Settings(BaseSettings):
     systemone_laya_api_key: str | None = None
     """Bearer opcional do servidor laya-serve."""
 
-    systemone_clef_api_base_url: str = (
-        "https://api.cloudflare.com/client/v4/accounts/systemone"
-    )
+    systemone_clef_api_base_url: str = "https://api.cloudflare.com/client/v4/accounts"
     """Endpoint da API remota Cloudflare Clef."""
+
+    systemone_clef_account_id: str = ""
+    """Account ID da Cloudflare usado pelo provedor Clef remoto."""
 
     systemone_clef_api_model: str = "@cf/cloudflare/clef-flash"
     """Identificador do modelo na API Clef."""

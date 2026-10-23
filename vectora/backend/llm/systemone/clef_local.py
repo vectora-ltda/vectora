@@ -47,11 +47,13 @@ class ClefLocalAdapter(SystemOneProvider):
         api_key: str | None = None,
         timeout: float = _DEFAULT_TIMEOUT_SECONDS,
         *,
+        model: str = "clef-flash",
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._timeout = timeout
+        self._model = model
         self._external_client = client
 
     @property
@@ -70,7 +72,9 @@ class ClefLocalAdapter(SystemOneProvider):
             supports_score=True,
             supports_image=False,
             supports_video=False,
-            supported_models=["clef", "clef-flash", "default"],
+            supported_models=list(
+                dict.fromkeys(["clef", "clef-flash", "default", self._model])
+            ),
             evidence="observed",
         )
 

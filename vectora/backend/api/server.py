@@ -780,6 +780,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
             "Content-Type",
             "X-Correlation-ID",
             "X-Request-ID",
+            "X-Vectora-Device-Id",
         ],
         expose_headers=[
             "X-Vectora-Chat-Persisted",
