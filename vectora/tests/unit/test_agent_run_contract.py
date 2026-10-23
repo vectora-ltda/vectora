@@ -141,6 +141,7 @@ class TestAgentRunLifecycle:
                     )
                 ).fetchone()
             assert {"parent_run_id", "correlation_id"} <= columns
+            assert row is not None
             assert tuple(row) == (None, None)
         finally:
             await pool.close()
@@ -150,12 +151,14 @@ class TestAgentRunLifecycle:
         run = AgentRun(
             run_id="run-uuid-1",
             thread_id="thread-run-1",
+            contract_version=2,
             turn_id="turn-1",
             user_id="user-123",
             workspace_id="ws-abc",
             model="gemini-2.5-pro",
             provider="google_genai",
             status="planned",
+            checkpoint_id="cp-1",
             plan_step="Etapa 1: Iniciar scaffolding",
             tools_available=["file_read", "terminal"],
             metrics=AgentRunMetrics(
@@ -167,12 +170,14 @@ class TestAgentRunLifecycle:
         loaded = await store.get_agent_run("run-uuid-1")
         assert loaded is not None
         assert loaded.run_id == "run-uuid-1"
+        assert loaded.contract_version == 2
         assert loaded.thread_id == "thread-run-1"
         assert loaded.user_id == "user-123"
         assert loaded.workspace_id == "ws-abc"
         assert loaded.model == "gemini-2.5-pro"
         assert loaded.provider == "google_genai"
         assert loaded.status == "planned"
+        assert loaded.checkpoint_id == "cp-1"
         assert loaded.plan_step == "Etapa 1: Iniciar scaffolding"
         assert loaded.tools_available == ["file_read", "terminal"]
         assert loaded.metrics.total_tokens == 120

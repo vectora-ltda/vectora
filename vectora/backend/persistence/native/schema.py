@@ -138,6 +138,7 @@ CREATE TABLE IF NOT EXISTS ledger_backfill (
 CREATE TABLE IF NOT EXISTS agent_runs (
     run_id TEXT PRIMARY KEY,
     thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
+    contract_version INTEGER NOT NULL DEFAULT 1,
     turn_id TEXT,
     parent_run_id TEXT,
     correlation_id TEXT,
@@ -148,6 +149,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     status TEXT NOT NULL CHECK(status IN
         ('planned', 'admitted', 'running', 'waiting_approval', 'waiting_provider', 'tool_running', 'verifying', 'passed', 'degraded', 'failed', 'cancelled', 'recovery_required')),
     plan_step TEXT,
+    checkpoint_id TEXT,
     tools_available_json TEXT NOT NULL DEFAULT '[]',
     tools_used_json TEXT NOT NULL DEFAULT '[]',
     approvals_json TEXT NOT NULL DEFAULT '[]',
@@ -200,6 +202,7 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
                 """CREATE TABLE agent_runs (
                     run_id TEXT PRIMARY KEY,
                     thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
+                    contract_version INTEGER NOT NULL DEFAULT 1,
                     turn_id TEXT,
                     parent_run_id TEXT,
                     correlation_id TEXT,
@@ -210,6 +213,7 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
                     status TEXT NOT NULL CHECK(status IN
                         ('planned', 'admitted', 'running', 'waiting_approval', 'waiting_provider', 'tool_running', 'verifying', 'passed', 'degraded', 'failed', 'cancelled', 'recovery_required')),
                     plan_step TEXT,
+                    checkpoint_id TEXT,
                     tools_available_json TEXT NOT NULL DEFAULT '[]',
                     tools_used_json TEXT NOT NULL DEFAULT '[]',
                     approvals_json TEXT NOT NULL DEFAULT '[]',
@@ -228,14 +232,14 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
             )
             await conn.execute(
                 """INSERT INTO agent_runs (
-                    run_id, thread_id, turn_id, user_id, workspace_id, model, provider,
+                    run_id, thread_id, contract_version, turn_id, user_id, workspace_id, model, provider,
                     parent_run_id, correlation_id,
-                    status, plan_step, tools_available_json, tools_used_json,
+                    status, plan_step, checkpoint_id, tools_available_json, tools_used_json,
                     approvals_json, files_touched_json, commands_run_json,
                     tests_run_json, artifacts_json, metrics_json, evidence_json,
                     detail, error_code, started_at, updated_at, terminal_at
-                ) SELECT run_id, thread_id, turn_id, user_id, workspace_id, model,
-                    provider, parent_run_id, correlation_id, status, plan_step,
+                ) SELECT run_id, thread_id, 1, turn_id, user_id, workspace_id, model,
+                    provider, parent_run_id, correlation_id, status, plan_step, NULL,
                     tools_available_json, tools_used_json,
                     approvals_json, files_touched_json, commands_run_json,
                     tests_run_json, artifacts_json, metrics_json, evidence_json,
@@ -279,6 +283,12 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
             await conn.execute("ALTER TABLE messages ADD COLUMN edited_files_json TEXT")
         run_cols = await conn.execute_fetchall("PRAGMA table_info(agent_runs)")
         run_col_names = {str(col[1]) for col in run_cols}
+        if "contract_version" not in run_col_names:
+            await conn.execute(
+                "ALTER TABLE agent_runs ADD COLUMN contract_version INTEGER NOT NULL DEFAULT 1"
+            )
+        if "checkpoint_id" not in run_col_names:
+            await conn.execute("ALTER TABLE agent_runs ADD COLUMN checkpoint_id TEXT")
         if "parent_run_id" not in run_col_names:
             await conn.execute("ALTER TABLE agent_runs ADD COLUMN parent_run_id TEXT")
         if "correlation_id" not in run_col_names:
@@ -411,6 +421,7 @@ CREATE TABLE IF NOT EXISTS vectora_native_ledger_backfill (
 CREATE TABLE IF NOT EXISTS vectora_native_agent_runs (
     run_id TEXT PRIMARY KEY,
     thread_id TEXT NOT NULL REFERENCES vectora_native_sessions(thread_id),
+    contract_version INTEGER NOT NULL DEFAULT 1,
     turn_id TEXT,
     parent_run_id TEXT,
     correlation_id TEXT,
@@ -421,6 +432,7 @@ CREATE TABLE IF NOT EXISTS vectora_native_agent_runs (
     status TEXT NOT NULL CHECK(status IN
         ('planned', 'admitted', 'running', 'waiting_approval', 'waiting_provider', 'tool_running', 'verifying', 'passed', 'degraded', 'failed', 'cancelled', 'recovery_required')),
     plan_step TEXT,
+    checkpoint_id TEXT,
     tools_available_json TEXT NOT NULL DEFAULT '[]',
     tools_used_json TEXT NOT NULL DEFAULT '[]',
     approvals_json TEXT NOT NULL DEFAULT '[]',
@@ -485,4 +497,11 @@ async def setup_postgres_session_schema(pool: asyncpg.Pool) -> None:
         )
         await conn.execute(
             "ALTER TABLE vectora_native_agent_runs ADD COLUMN IF NOT EXISTS correlation_id TEXT"
+        )
+        await conn.execute(
+            "ALTER TABLE vectora_native_agent_runs "
+            "ADD COLUMN IF NOT EXISTS contract_version INTEGER NOT NULL DEFAULT 1"
+        )
+        await conn.execute(
+            "ALTER TABLE vectora_native_agent_runs ADD COLUMN IF NOT EXISTS checkpoint_id TEXT"
         )

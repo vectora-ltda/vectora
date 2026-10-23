@@ -1361,14 +1361,17 @@ class PostgresSessionStore:
 
         await conn.execute(
             "INSERT INTO vectora_native_agent_runs ("
-            "run_id, thread_id, turn_id, user_id, workspace_id, model, provider, "
-            "status, plan_step, tools_available_json, tools_used_json, approvals_json, "
+            "run_id, thread_id, contract_version, turn_id, user_id, workspace_id, model, provider, "
+            "status, plan_step, checkpoint_id, tools_available_json, tools_used_json, approvals_json, "
             "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
             "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25) "
             "ON CONFLICT(run_id) DO UPDATE SET "
-            "status = EXCLUDED.status, "
+            "contract_version = EXCLUDED.contract_version, "
+            "status = CASE WHEN vectora_native_agent_runs.status IN ('passed', 'degraded', 'failed', 'cancelled') "
+            "THEN vectora_native_agent_runs.status ELSE EXCLUDED.status END, "
             "plan_step = COALESCE(EXCLUDED.plan_step, vectora_native_agent_runs.plan_step), "
+            "checkpoint_id = COALESCE(EXCLUDED.checkpoint_id, vectora_native_agent_runs.checkpoint_id), "
             "tools_available_json = EXCLUDED.tools_available_json, "
             "tools_used_json = EXCLUDED.tools_used_json, "
             "approvals_json = EXCLUDED.approvals_json, "
@@ -1384,6 +1387,7 @@ class PostgresSessionStore:
             "terminal_at = COALESCE(vectora_native_agent_runs.terminal_at, EXCLUDED.terminal_at)",
             run.run_id,
             run.thread_id,
+            run.contract_version,
             run.turn_id,
             run.user_id,
             run.workspace_id,
@@ -1391,6 +1395,7 @@ class PostgresSessionStore:
             run.provider,
             run.status,
             redacted_plan_step,
+            run.checkpoint_id,
             tools_available,
             tools_used,
             approvals,
@@ -1478,8 +1483,8 @@ class PostgresSessionStore:
     ) -> AgentRun | None:
         """Carrega e desserializa um AgentRun na conexão fornecida."""
         query = (
-            "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
-            "model, provider, status, plan_step, tools_available_json, "
+            "SELECT run_id, thread_id, contract_version, turn_id, user_id, workspace_id, "
+            "model, provider, status, plan_step, checkpoint_id, tools_available_json, "
             "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
             "tests_run_json, artifacts_json, metrics_json, evidence_json, "
             "detail, error_code, started_at, updated_at, terminal_at "
@@ -1493,6 +1498,7 @@ class PostgresSessionStore:
         return AgentRun(
             run_id=str(row["run_id"]),
             thread_id=str(row["thread_id"]),
+            contract_version=int(row["contract_version"] or 1),
             turn_id=str(row["turn_id"]) if row["turn_id"] else None,
             user_id=str(row["user_id"] or ""),
             workspace_id=str(row["workspace_id"]) if row["workspace_id"] else None,
@@ -1500,6 +1506,7 @@ class PostgresSessionStore:
             provider=str(row["provider"] or ""),
             status=cast("AgentRunStatus", row["status"]),
             plan_step=str(row["plan_step"]) if row["plan_step"] else None,
+            checkpoint_id=str(row["checkpoint_id"]) if row["checkpoint_id"] else None,
             tools_available=json.loads(row["tools_available_json"] or "[]"),
             tools_used=json.loads(row["tools_used_json"] or "[]"),
             approvals=json.loads(row["approvals_json"] or "[]"),
@@ -1565,8 +1572,8 @@ class PostgresSessionStore:
         safe_limit = max(1, min(500, int(limit)))
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
-                "model, provider, status, plan_step, tools_available_json, "
+                "SELECT run_id, thread_id, contract_version, turn_id, user_id, workspace_id, "
+                "model, provider, status, plan_step, checkpoint_id, tools_available_json, "
                 "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
                 "tests_run_json, artifacts_json, metrics_json, evidence_json, "
                 "detail, error_code, started_at, updated_at, terminal_at "
@@ -1579,6 +1586,7 @@ class PostgresSessionStore:
                 AgentRun(
                     run_id=str(r["run_id"]),
                     thread_id=str(r["thread_id"]),
+                    contract_version=int(r["contract_version"] or 1),
                     turn_id=str(r["turn_id"]) if r["turn_id"] else None,
                     user_id=str(r["user_id"] or ""),
                     workspace_id=str(r["workspace_id"]) if r["workspace_id"] else None,
@@ -1586,6 +1594,9 @@ class PostgresSessionStore:
                     provider=str(r["provider"] or ""),
                     status=cast("AgentRunStatus", r["status"]),
                     plan_step=str(r["plan_step"]) if r["plan_step"] else None,
+                    checkpoint_id=str(r["checkpoint_id"])
+                    if r["checkpoint_id"]
+                    else None,
                     tools_available=json.loads(r["tools_available_json"] or "[]"),
                     tools_used=json.loads(r["tools_used_json"] or "[]"),
                     approvals=json.loads(r["approvals_json"] or "[]"),
