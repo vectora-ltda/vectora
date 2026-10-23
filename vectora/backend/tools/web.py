@@ -47,21 +47,21 @@ def _tavily_client() -> Any:
     return TavilyClient(api_key=settings.tavily_api_key or "")
 
 
-def _get_search_tool() -> Any:
+def _get_search_tool(ctx: ToolContext | None = None) -> Any:
     """Retorna o backend resolvido para busca.
 
     Mantido como ponto de extensão para testes e mocks.
     """
     from backend.tools.search_registry import resolve_backend
 
-    return resolve_backend()
+    return resolve_backend(ctx.workspace_id if ctx is not None else None)
 
 
-def _get_extract_tool() -> Any:
+def _get_extract_tool(ctx: ToolContext | None = None) -> Any:
     """Retorna o backend resolvido para extração de URL."""
     from backend.tools.search_registry import resolve_backend
 
-    return resolve_backend()
+    return resolve_backend(ctx.workspace_id if ctx is not None else None)
 
 
 async def _invoke_backend(tool: Any, payload: dict[str, Any]) -> Any:
@@ -294,7 +294,7 @@ async def web_search(
     try:
         from backend.tools.search_registry import SearchBackendUnavailableError
 
-        backend = _get_search_tool()
+        backend = _get_search_tool(ctx)
     except SearchBackendUnavailableError as exc:
         # Backend escolhido sem credencial: erro claro em vez de cair noutro
         # em silêncio — o usuário pediu aquele especificamente.
@@ -450,9 +450,11 @@ async def fetch_url(url: str, ctx: ToolContext | None = None) -> str:
         _tracer = None  # type: ignore[assignment]
 
     try:
-        client = _get_extract_tool()
+        client = _get_extract_tool(ctx)
         try:
-            results = await _invoke_backend(client, {"url": url})
+            results = await _invoke_backend(
+                client, {"url": url, "workspace_id": ctx.workspace_id if ctx else None}
+            )
         except AttributeError:
             logger.warning(
                 "backend de busca não suporta extração; usando HTTP direto",

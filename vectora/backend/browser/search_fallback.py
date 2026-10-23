@@ -140,6 +140,7 @@ def _install_ssrf_route(page: Page, policy: Any = None) -> Any:
         policy = EgressPolicy.model_validate(policy)
 
     def _handle(route: Any) -> None:
+        """Abort requests that violate the run egress policy."""
         request_url = str(route.request.url)
         scheme = request_url.split(":", 1)[0].lower()
         allowed = True

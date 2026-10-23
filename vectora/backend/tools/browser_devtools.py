@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def _workspace_id(ctx: ToolContext) -> str:
+    """Return the workspace key used to isolate Browser Workbench tabs."""
     return ctx.workspace_id or "default"
 
 
@@ -334,6 +335,7 @@ def _build_ax_outline(nodes: list[dict[str, Any]], max_nodes: int = 500) -> str:
     count = 0
 
     def walk(node_id: str, depth: int) -> None:
+        """Walk one accessibility subtree up to the requested depth."""
         nonlocal count
         if count >= max_nodes:
             return
@@ -619,6 +621,7 @@ async def browser_start_trace(ctx: ToolContext, tab_id: str | None = None) -> st
     _trace_buffers[key] = events
 
     def _on_data(params: dict[str, Any]) -> None:
+        """Collect one tracing chunk emitted by CDP."""
         events.extend(params.get("value", []))
 
     try:
@@ -668,6 +671,7 @@ async def browser_stop_trace(ctx: ToolContext, tab_id: str | None = None) -> str
         done = asyncio.Event()
 
         def _on_complete(_params: dict[str, Any]) -> None:
+            """Wake the trace waiter after CDP finishes writing data."""
             done.set()
 
         tab.cdp.on("Tracing.tracingComplete", _on_complete)
@@ -801,6 +805,7 @@ async def _take_heap_snapshot_via_cdp(cdp: Any) -> dict[str, Any]:
     chunks: list[str] = []
 
     def _on_chunk(params: dict[str, Any]) -> None:
+        """Collect one heap snapshot chunk emitted by CDP."""
         chunks.append(params.get("chunk", ""))
 
     cdp.on("HeapProfiler.addHeapSnapshotChunk", _on_chunk)
@@ -1118,6 +1123,7 @@ async def browser_screencast_start(ctx: ToolContext, tab_id: str | None = None) 
     _screencast_buffers[key] = frames
 
     def _on_frame(params: dict[str, Any]) -> None:
+        """Store one screencast frame for the active browser session."""
         frames.append(params.get("data", ""))
         session_id = params.get("sessionId")
         if session_id is not None:

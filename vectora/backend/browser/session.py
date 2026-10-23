@@ -128,6 +128,7 @@ def _register_page_listeners(tab: TabState) -> None:
     page = tab.page
 
     def _on_console(msg: Any) -> None:
+        """Record a console message for the owning browser tab."""
         try:
             entry: BrowserConsoleEntry = {"type": msg.type, "text": msg.text}
             validate_browser_console_entry(entry)
@@ -136,6 +137,7 @@ def _register_page_listeners(tab: TabState) -> None:
             logger.debug("browser_session: falha ao capturar console log")
 
     def _on_request(request: Any) -> None:
+        """Record an outgoing request observed by the tab."""
         try:
             entry = {
                 "request_id": str(id(request)),
@@ -152,6 +154,7 @@ def _register_page_listeners(tab: TabState) -> None:
             logger.debug("browser_session: falha ao capturar network request")
 
     def _on_response(response: Any) -> None:
+        """Record a response observed by the tab."""
         try:
             entry = tab._request_entries.get(id(response.request))
             if entry is not None:
@@ -160,6 +163,7 @@ def _register_page_listeners(tab: TabState) -> None:
             logger.debug("browser_session: falha ao capturar network response")
 
     def _on_request_failed(request: Any) -> None:
+        """Record a failed request without interrupting navigation."""
         try:
             entry = tab._request_entries.get(id(request))
             if entry is not None:
@@ -170,6 +174,7 @@ def _register_page_listeners(tab: TabState) -> None:
             logger.debug("browser_session: falha ao capturar falha de request")
 
     def _on_dialog(dialog: Any) -> None:
+        """Apply the tab's configured dialog policy."""
         policy = tab.dialog_policy
         if policy is None:
             # Sem política definida — mesmo comportamento de hoje: o dialog
@@ -188,6 +193,7 @@ def _register_page_listeners(tab: TabState) -> None:
             logger.debug("browser_session: falha ao aplicar política de dialog")
 
     def _on_frame_navigated(frame: Any) -> None:
+        """Update navigation metadata when a frame changes URL."""
         if frame is page.main_frame:
             tab.navigation_generation += 1
 
@@ -443,7 +449,14 @@ async def new_tab(
                     "selecione uma aba existente ou abra uma nova aba no Electron."
                 ) from exc
         if url:
+            from backend.browser.ssrf_guard import is_url_ssrf_safe
+
+            if not is_url_ssrf_safe(url):
+                raise ValueError("URL recusada pelo SSRF guard")
             await page.goto(url, wait_until="domcontentloaded")
+            final_url = str(getattr(page, "url", ""))
+            if final_url and not is_url_ssrf_safe(final_url):
+                raise ValueError("redirect recusado pelo SSRF guard")
         tab = await _create_tab_state(page)
         _claim_page(page, workspace_id)
         tab_id = uuid.uuid4().hex[:12]

@@ -116,9 +116,14 @@ def _tem_ollama_cloud() -> bool:
     return web_search_available()
 
 
-def _electron_is_ready() -> bool:
+def _electron_is_ready(workspace_id: str | None = None) -> bool:
     """Fast readiness probe used only for automatic provider selection."""
     try:
+        if workspace_id:
+            from backend.browser.session import has_browser_session
+
+            if not has_browser_session(workspace_id):
+                return False
         import httpx
 
         from backend.browser.cdp import electron_cdp_endpoint, electron_cdp_headers
@@ -201,7 +206,16 @@ def _escolha_do_usuario() -> str:
         return ""
 
 
-def resolve_backend() -> SearchBackend:
+def _browser_ready(workspace_id: str | None = None) -> bool:
+    """Call the readiness probe while preserving compatibility with test doubles."""
+    try:
+        return _electron_is_ready(workspace_id)
+    except TypeError:
+        # Older integrations monkeypatch the probe as a zero-argument callable.
+        return _electron_is_ready()  # type: ignore[call-arg]
+
+
+def resolve_backend(workspace_id: str | None = None) -> SearchBackend:
     """Backend a usar: escolha explícita do usuário, ou a ordem de preferência.
 
     Escolha explícita indisponível levanta em vez de cair em outro backend —
@@ -217,6 +231,14 @@ def resolve_backend() -> SearchBackend:
                 f"opções: {disponiveis}, auto"
             )
             raise SearchBackendUnavailableError(msg)
+        if (
+            backend.name == "browser"
+            and workspace_id
+            and not _browser_ready(workspace_id)
+        ):
+            raise SearchBackendUnavailableError(
+                "Browser Workbench não está pronto para este workspace; abra uma aba no Electron."
+            )
         if not backend.is_available():
             msg = (
                 f"backend de busca {escolhido!r} está selecionado mas não tem "
@@ -229,7 +251,7 @@ def resolve_backend() -> SearchBackend:
     for backend in _BACKENDS:
         # Browser is preferred when Electron is actually ready, but an
         # unavailable sidecar must not make headless/server startup unusable.
-        if backend.name == "browser" and not _electron_is_ready():
+        if backend.name == "browser" and not _browser_ready(workspace_id):
             continue
         if backend.is_available():
             return backend

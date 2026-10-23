@@ -121,11 +121,15 @@ async def browser_navigate(url: str, ctx: ToolContext) -> str:
     try:
         page = await get_browser_page(ctx.workspace_id or "default")
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        final_url = str(getattr(page, "url", ""))
+        final_allowed, final_reason = await _browser_url_allowed(ctx, final_url)
+        if not final_allowed:
+            return f"Error: redirecionamento bloqueado pela política de egress: {final_reason}"
         logger.info(
             "browser_navigate completed",
             extra={
                 "tool": "browser_navigate",
-                "url": page.url,
+                "url": final_url,
                 "workspace_id": ctx.workspace_id,
                 "status": "ok",
             },
