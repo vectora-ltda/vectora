@@ -8389,6 +8389,7 @@
                 "type": "null"
               }
             ],
+            "default": null,
             "title": "Confidence Threshold Hitl"
           },
           "enabled": {
