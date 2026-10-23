@@ -572,7 +572,12 @@ class SessionStore:
         }
         if not isinstance(clean, dict) or not clean.get("projection_id"):
             raise ValueError("projeção sem projection_id")
-        storage_projection_id = f"{thread_id}:{clean['projection_id']}"
+        # ``thread_id`` already participates in the table primary key.  Keep
+        # the projection identity opaque and stable; embedding the thread in
+        # this column made the persisted key differ from the contract and
+        # made migrations/reconciliation unable to address a projection by
+        # its public id.
+        storage_projection_id = str(clean["projection_id"])
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "INSERT OR REPLACE INTO context_projections ("
@@ -641,7 +646,7 @@ class SessionStore:
         if row is None:
             return None
         return {
-            "projection_id": str(row[0]).split(":", 1)[-1],
+            "projection_id": str(row[0]),
             "run_id": row[1],
             "source_hash": row[2],
             "covered_from_sequence": row[3],
