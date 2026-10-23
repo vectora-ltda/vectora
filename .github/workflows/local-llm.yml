@@ -1,8 +1,8 @@
-name: Local LLM (real llama.cpp)
+name: Local LLM (Ollama Qwen, llama.cpp Jev e Laya)
 
-# Este workflow fica barato para os PRs normais: o detector só libera o job
-# pesado quando o commit enviado contém o marcador explícito [local-llm].
-# Assim a execução real é opt-in, auditável e repetível no mesmo PR.
+# This workflow stays opt-in for expensive local-runtime checks.
+# The [llm-local] marker enables the real Ollama, llama.cpp and Laya matrix.
+# [local-llm] remains accepted for backwards compatibility.
 on:
   push:
     branches: ["**"]
@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   detect:
-    name: Detect [local-llm] marker
+    name: Detect [llm-local] marker
     runs-on: ubuntu-24.04
     outputs:
       requested: ${{ steps.marker.outputs.requested }}
@@ -30,18 +30,18 @@ jobs:
         run: |
           subject="$(git log -1 --format=%s)"
           echo "commit_subject=$subject"
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" || "$subject" == *"[local-llm]"* ]]; then
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" || "$subject" == *"[llm-local]"* || "$subject" == *"[local-llm]"* ]]; then
             echo "requested=true" >> "$GITHUB_OUTPUT"
           else
             echo "requested=false" >> "$GITHUB_OUTPUT"
           fi
 
   local-llm:
-    name: Real Docker + llama.cpp + Qwen & Clef
+    name: Ollama Qwen + llama.cpp Qwen + Laya SystemOne
     needs: detect
     if: needs.detect.outputs.requested == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
         with:
@@ -63,6 +63,19 @@ jobs:
         run: |
           docker version
           docker run --rm hello-world
+      - name: Install and start Ollama
+        env:
+          OLLAMA_HOST: 127.0.0.1:11434
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 https://ollama.com/install.sh | sh
+          ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/ollama.pid"
+          for attempt in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:11434/api/version >/dev/null; then break; fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:11434/api/version
+          ollama pull qwen2.5:0.5b
       - name: Build llama.cpp server
         env:
           LLAMA_CPP_DIR: ${{ runner.temp }}/llama.cpp
@@ -108,16 +121,50 @@ jobs:
         uses: ./.github/actions/setup-uv
         with:
           python-version: "3.13"
-      - name: Execute real local-LLM integration test
+      - name: Install Laya server and download its selected checkpoint
+        working-directory: vectora
+        env:
+          LAYA_DEVICE: cpu
+          LAYA_HOST: 127.0.0.1
+          LAYA_PORT: "18000"
+          LAYA_MODELS: multilingual
+          LAYA_DEFAULT_MODEL: multilingual
+          LAYA_PRELOAD: "1"
+          HF_HOME: ${{ runner.temp }}/huggingface
+        run: |
+          runtime_python="$(uv run python -c 'import sys; print(sys.executable)')"
+          uv pip install --python "$runtime_python" "laya[serve]"
+          mkdir -p "$HF_HOME"
+          LAYA_DEVICE=cpu LAYA_HOST=127.0.0.1 LAYA_PORT=18000 \
+            LAYA_MODELS=multilingual LAYA_DEFAULT_MODEL=multilingual LAYA_PRELOAD=1 \
+            uv run laya-serve > "$RUNNER_TEMP/laya.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/laya.pid"
+          for attempt in {1..180}; do
+            if curl --fail --silent http://127.0.0.1:18000/health >/dev/null || \
+               curl --fail --silent http://127.0.0.1:18000/openapi.json >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/laya.log"
+          exit 1
+      - name: Execute the three real local decision-model contracts
         working-directory: vectora
         env:
           VECTORA_LOCAL_LLM_BASE_URL: http://127.0.0.1:18080/v1
+          VECTORA_OLLAMA_BASE_URL: http://127.0.0.1:11434
+          VECTORA_OLLAMA_MODEL: qwen2.5:0.5b
+          VECTORA_LAYA_BASE_URL: http://127.0.0.1:18000
+          VECTORA_LAYA_MODEL: multilingual
         run: |
-          uv run pytest tests/integration/test_local_llm_live.py -m local_llm -v --timeout=180
-      - name: Upload llama.cpp log
+          uv run pytest tests/integration/test_local_llm_live.py tests/integration/test_systemone_local_live.py -m local_llm -v --timeout=300
+      - name: Upload local runtime logs
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: local-llm-server-log
-          path: ${{ runner.temp }}/llama-server.log
+          name: local-llm-runtime-logs
+          path: |
+            ${{ runner.temp }}/llama-server.log
+            ${{ runner.temp }}/ollama.log
+            ${{ runner.temp }}/laya.log
           if-no-files-found: ignore
