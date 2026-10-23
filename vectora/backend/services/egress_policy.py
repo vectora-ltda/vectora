@@ -55,6 +55,41 @@ class EgressPolicy(BaseModel):
     allowed_ports: list[int] = Field(default_factory=lambda: [80, 443])
     allow_localhost_dev_ports: list[int] = Field(default_factory=list)
 
+    @classmethod
+    def for_workspace(cls, workspace_id: str | None) -> "EgressPolicy":
+        """Carrega a política persistida do workspace, com fallback seguro."""
+        raw: object = None
+        try:
+            from backend.workspace.runtime_settings import runtime_settings
+
+            direct = (
+                runtime_settings.get(f"egress_policy:{workspace_id}")
+                if workspace_id
+                else None
+            )
+            configured = runtime_settings.get("egress_policy", {})
+            if isinstance(direct, dict):
+                raw = direct
+            elif isinstance(configured, dict) and workspace_id:
+                candidate = configured.get(workspace_id)
+                if isinstance(candidate, dict):
+                    raw = candidate
+            elif isinstance(configured, dict):
+                raw = configured
+        except Exception:
+            logger.exception("egress_policy: falha ao carregar política persistida")
+        if not isinstance(raw, dict):
+            raw = {}
+        allowed = {
+            "block_private_ips",
+            "allowed_hosts",
+            "denied_hosts",
+            "allowed_ports",
+            "allow_localhost_dev_ports",
+        }
+        values = {key: value for key, value in raw.items() if key in allowed}
+        return cls(workspace_id=workspace_id, **values)
+
     def requires_network_restriction(self) -> bool:
         """Indica se a política impõe restrições ativas de saída."""
         return (
@@ -201,6 +236,14 @@ def is_url_allowed(  # noqa: PLR0911
             ]
             ok, reason, _ = _validate_addr_infos_and_port(host, port, pol, fake_info)
             return ok, reason
+
+        normalized_host = host.rstrip(".").lower()
+        if (
+            "." not in normalized_host
+            or normalized_host.endswith((".localhost", ".internal"))
+            or all(part.isdigit() for part in normalized_host.split("."))
+        ):
+            return False, f"Host '{host}' não é um destino DNS público permitido"
 
         if pol.allowed_ports and port not in pol.allowed_ports:
             return (

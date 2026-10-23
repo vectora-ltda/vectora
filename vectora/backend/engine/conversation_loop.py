@@ -26,6 +26,7 @@ vocabulário nativo.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import math
@@ -122,6 +123,46 @@ class LoopResult:
 
 async def _noop_event(_event: object) -> None:
     return None
+
+
+async def _safe_update_agent_run_status(
+    session_store: Any,
+    run_id: str | None,
+    *,
+    status: str,
+    detail: str | None = None,
+    error_code: str | None = None,
+    metrics: AgentRunMetrics | None = None,
+) -> None:
+    """Persiste o estado do run sem deixar falha do storage interromper o turno."""
+    if not run_id or not hasattr(session_store, "update_agent_run_status"):
+        return
+    try:
+        await session_store.update_agent_run_status(
+            run_id,
+            status=status,
+            detail=detail,
+            error_code=error_code,
+            metrics=metrics,
+        )
+    except Exception:
+        logger.exception(
+            "conversation_loop: falha ao persistir status do run %s", run_id
+        )
+
+
+async def _safe_record_run_evidence(
+    session_store: Any, run_id: str | None, **evidence: Any
+) -> None:
+    """Persiste evidências de forma best-effort, sem perder o resultado da tool."""
+    if not run_id or not hasattr(session_store, "record_run_evidence"):
+        return
+    try:
+        await session_store.record_run_evidence(run_id, **evidence)
+    except Exception:
+        logger.exception(
+            "conversation_loop: falha ao persistir evidência do run %s", run_id
+        )
 
 
 _ARGS_PREVIEW_MAX_CHARS = 80
@@ -450,6 +491,22 @@ async def run_conversation(
                 )
             )
             await emit(MessageBreak())
+            await _safe_update_agent_run_status(
+                session_store,
+                config.run_id,
+                status="failed",
+                detail="O provedor encerrou o stream sem texto ou tool call.",
+                error_code="EMPTY_MODEL_RESPONSE",
+            )
+            if config.run_id:
+                with contextlib.suppress(Exception):
+                    await session_store.append_ledger_event(
+                        thread_id,
+                        event_key=make_run_failed_key(config.run_id),
+                        event_type=LedgerEventType.RUN_FAILED,
+                        run_id=config.run_id,
+                        payload={"error": "EMPTY_MODEL_RESPONSE"},
+                    )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=None,
@@ -509,6 +566,22 @@ async def run_conversation(
                 )
                 await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
                 await emit(MessageBreak())
+                await _safe_update_agent_run_status(
+                    session_store,
+                    config.run_id,
+                    status="failed",
+                    detail=mensagem,
+                    error_code="TOOL_CALL_REPEATED",
+                )
+                if config.run_id:
+                    with contextlib.suppress(Exception):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_run_failed_key(config.run_id),
+                            event_type=LedgerEventType.RUN_FAILED,
+                            run_id=config.run_id,
+                            payload={"error": "TOOL_CALL_REPEATED"},
+                        )
                 return LoopResult(
                     stopped_reason="loop_cap_exceeded",
                     final_message=None,
@@ -556,13 +629,13 @@ async def run_conversation(
                         "Falha ao registrar RUN_COMPLETED no ledger para thread %s",
                         thread_id,
                     )
-                if hasattr(session_store, "update_agent_run_status"):
-                    await session_store.update_agent_run_status(
-                        config.run_id,
-                        status="passed",
-                        detail="Execução completada com sucesso.",
-                        metrics=iter_metrics,
-                    )
+                await _safe_update_agent_run_status(
+                    session_store,
+                    config.run_id,
+                    status="passed",
+                    detail="Execução completada com sucesso.",
+                    metrics=iter_metrics,
+                )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=assistant_msg,
@@ -668,27 +741,24 @@ async def run_conversation(
                 # A falha na gravação de evidências ou atualização do run não pode impedir
                 # a emissão de HitlRequested para o cliente.
                 try:
-                    if hasattr(session_store, "record_run_evidence") and config.run_id:
-                        await session_store.record_run_evidence(
-                            config.run_id,
-                            approval={
-                                "interrupt_id": interrupt_id,
-                                "tool_name": pendente.name,
-                                "tool_call_id": stable_call_id,
-                                "options": options,
-                                "priority": priority,
-                            },
-                        )
-                    if (
-                        hasattr(session_store, "update_agent_run_status")
-                        and config.run_id
-                    ):
-                        await session_store.update_agent_run_status(
-                            config.run_id,
-                            status="waiting_approval",
-                            detail=f"Aguardando aprovação para {pendente.name}",
-                            metrics=iter_metrics,
-                        )
+                    await _safe_record_run_evidence(
+                        session_store,
+                        config.run_id,
+                        approval={
+                            "interrupt_id": interrupt_id,
+                            "tool_name": pendente.name,
+                            "tool_call_id": stable_call_id,
+                            "options": options,
+                            "priority": priority,
+                        },
+                    )
+                    await _safe_update_agent_run_status(
+                        session_store,
+                        config.run_id,
+                        status="waiting_approval",
+                        detail=f"Aguardando aprovação para {pendente.name}",
+                        metrics=iter_metrics,
+                    )
                 except Exception:
                     logger.exception(
                         "conversation_loop: falha ao persistir evidência/status de aprovação para thread %s",
@@ -732,7 +802,10 @@ async def run_conversation(
                             event_type=LedgerEventType.TOOL_STARTED,
                             run_id=config.run_id,
                             tool_call_id=tc.id,
-                            payload={"tool_name": tc.name, "args": tc.args},
+                            payload={
+                                "tool_name": tc.name,
+                                "args": _sanitize_tool_call(tc, ctx).args,
+                            },
                         )
                     elif hasattr(session_store, "append_event"):
                         await session_store.append_event(
@@ -743,7 +816,10 @@ async def run_conversation(
                                 type=LedgerEventType.TOOL_STARTED,
                                 run_id=config.run_id,
                                 tool_call_id=tc.id,
-                                payload={"tool_name": tc.name, "args": tc.args},
+                                payload={
+                                    "tool_name": tc.name,
+                                    "args": _sanitize_tool_call(tc, ctx).args,
+                                },
                             ),
                         )
                 except Exception:

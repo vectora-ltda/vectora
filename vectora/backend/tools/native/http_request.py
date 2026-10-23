@@ -87,9 +87,7 @@ async def http_request(
         Response body ou erro
     """
     try:
-        policy = None
-        if ctx and ctx.workspace_id:
-            policy = EgressPolicy(workspace_id=ctx.workspace_id)
+        policy = EgressPolicy.for_workspace(ctx.workspace_id if ctx else None)
 
         allowed, reason, pinned_ip = await async_is_url_allowed(url, policy)
         if not allowed or not pinned_ip:

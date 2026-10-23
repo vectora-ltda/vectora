@@ -365,6 +365,7 @@ def stream_engine_events(
         background_tasks: set[asyncio.Task[None]] = set()
         run_error: BaseException | None = None
         stopped_reason = "stop"
+        empty_model_response = False
         turn_files_payload: list[dict[str, object]] = []
         event_count = 0
         message_chunk_count = 0
@@ -381,6 +382,9 @@ def stream_engine_events(
         )
 
         async def on_event(event: EngineEvent) -> None:
+            nonlocal empty_model_response
+            if isinstance(event, ErrorSignal) and event.code == "EMPTY_MODEL_RESPONSE":
+                empty_model_response = True
             await queue.put(event)
 
         async def _runner() -> None:
@@ -424,6 +428,13 @@ def stream_engine_events(
                         resolved_run_id,
                         status="cancelled",
                         detail="A execução foi cancelada antes de produzir uma resposta.",
+                    )
+                elif empty_model_response:
+                    await _persist_terminal_outcome(
+                        thread_id,
+                        resolved_run_id,
+                        status="failed",
+                        detail="O provedor encerrou o stream sem texto ou tool call.",
                     )
                 elif stopped_reason == "stop":
                     await _update_persisted_run(
@@ -557,6 +568,8 @@ def stream_engine_events(
                     event = replace(event, pre_approved=pre)
 
                 if isinstance(event, ErrorSignal):
+                    if event.code == "EMPTY_MODEL_RESPONSE":
+                        empty_model_response = True
                     logger.warning(
                         "native_stream_event_error",
                         extra={
@@ -606,6 +619,13 @@ def stream_engine_events(
                     resolved_run_id,
                     status="cancelled",
                     detail="A execução foi cancelada antes de produzir uma resposta.",
+                )
+            elif empty_model_response:
+                await _persist_terminal_outcome(
+                    thread_id,
+                    resolved_run_id,
+                    status="failed",
+                    detail="O provedor encerrou o stream sem texto ou tool call.",
                 )
             elif stopped_reason == "stop":
                 await _update_persisted_run(

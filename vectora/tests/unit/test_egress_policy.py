@@ -169,6 +169,15 @@ def test_is_url_allowed_no_resolve_dns_allows_literal_public_ip() -> None:
     assert reason == ""
 
 
+@pytest.mark.parametrize("host", ["localhost", "service.internal", "127.1"])
+def test_is_url_allowed_no_resolve_dns_rejects_non_public_aliases(host: str) -> None:
+    ok, reason = is_url_allowed(
+        f"https://{host}", EgressPolicy(block_private_ips=False), resolve_dns=False
+    )
+    assert ok is False
+    assert "destino DNS público" in reason
+
+
 @pytest.mark.asyncio
 async def test_async_is_url_allowed_returns_pinned_ip(
     monkeypatch: pytest.MonkeyPatch,
