@@ -106,6 +106,9 @@ from backend.vtypes.permission import PERMISSION_MODES, PermissionMode
 
 logger = logging.getLogger(__name__)
 
+_THREAD_NOT_FOUND_DETAIL = "Thread não encontrada."
+_RUN_NOT_FOUND_DETAIL = "Run não encontrada."
+
 router = APIRouter()
 
 
@@ -851,13 +854,11 @@ async def _assert_owns_thread(
     session = await session_store.get_session(thread_id)
     if session is None:
         if require_existing:
-            raise HTTPException(
-                status_code=404, detail=f"Thread {thread_id!r} not found"
-            )
+            raise HTTPException(status_code=404, detail=_THREAD_NOT_FOUND_DETAIL)
         return
     user_id = _user_id(http_request)
     if session["user_id"] != user_id:
-        raise HTTPException(status_code=404, detail=f"Thread {thread_id!r} not found")
+        raise HTTPException(status_code=404, detail=_THREAD_NOT_FOUND_DETAIL)
 
 
 async def _require_existing_thread(thread_id: str, request: Request) -> None:
@@ -865,7 +866,7 @@ async def _require_existing_thread(thread_id: str, request: Request) -> None:
     await _assert_owns_thread(thread_id, request, require_existing=True)
     store = await _get_session_store()
     if await store.get_session(thread_id) is None:
-        raise HTTPException(status_code=404, detail="Thread não encontrada")
+        raise HTTPException(status_code=404, detail=_THREAD_NOT_FOUND_DETAIL)
 
 
 async def _assert_existing_thread_ownership(thread_id: str, request: Request) -> None:
@@ -873,7 +874,7 @@ async def _assert_existing_thread_ownership(thread_id: str, request: Request) ->
     await _assert_owns_thread(thread_id, request)
     store = await _get_session_store()
     if await store.get_session(thread_id) is None:
-        raise HTTPException(status_code=404, detail="Thread não encontrada")
+        raise HTTPException(status_code=404, detail=_THREAD_NOT_FOUND_DETAIL)
 
 
 @router.post("/vectora.chat.v1.ThreadService/GetThread")
@@ -2658,9 +2659,17 @@ async def get_agent_run(run_id: str, request: Request) -> AgentRun:
     if run is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run {run_id!r} não encontrada.",
+            detail=_RUN_NOT_FOUND_DETAIL,
         )
-    await _assert_existing_thread_ownership(run.thread_id, request)
+    try:
+        await _assert_existing_thread_ownership(run.thread_id, request)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=_RUN_NOT_FOUND_DETAIL,
+            ) from exc
+        raise
     return run
 
 
@@ -2679,9 +2688,17 @@ async def get_agent_run_timeline(
     if run is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Run {run_id!r} não encontrada.",
+            detail=_RUN_NOT_FOUND_DETAIL,
         )
-    await _assert_existing_thread_ownership(run.thread_id, request)
+    try:
+        await _assert_existing_thread_ownership(run.thread_id, request)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=_RUN_NOT_FOUND_DETAIL,
+            ) from exc
+        raise
     timeline: list[AgentRunTimelineEntry] = []
     if hasattr(session_store, "get_agent_run_timeline"):
         timeline = await session_store.get_agent_run_timeline(run_id)

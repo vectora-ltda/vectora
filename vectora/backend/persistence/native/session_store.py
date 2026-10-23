@@ -27,13 +27,13 @@ from backend.persistence.native.agent_run import (
     redact_sensitive_data,
 )
 from backend.persistence.native.ledger import (
+    NOTIFIABLE_EVENT_TYPES,
     LedgerEventType,
     LedgerEventTypeLiteral,
     RunDraft,
     ThreadLastMessage,
     ThreadLedgerEvent,
     ThreadSummary,
-    is_event_notifiable,
     make_approval_requested_key,
     make_approval_resolved_key,
     make_message_created_key,
@@ -43,6 +43,8 @@ from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import VMessage
 
 if TYPE_CHECKING:
+    import aiosqlite
+
     from backend.storage.sqlite.pool import AsyncConnectionPool
 
 
@@ -223,7 +225,9 @@ class SessionStore:
             )
             await conn.commit()
 
-    async def _upsert_agent_run_on_conn(self, conn: Any, run: AgentRun) -> None:
+    async def _upsert_agent_run_on_conn(
+        self, conn: aiosqlite.Connection, run: AgentRun
+    ) -> None:
         """Persiste ou atualiza uma execução do agente na conexão fornecida."""
         now = _now()
         terminal_at = (
@@ -473,7 +477,9 @@ class SessionStore:
                 await conn.execute("ROLLBACK")
                 raise
 
-    async def _get_agent_run_on_conn(self, conn: Any, run_id: str) -> AgentRun | None:
+    async def _get_agent_run_on_conn(
+        self, conn: aiosqlite.Connection, run_id: str
+    ) -> AgentRun | None:
         """Carrega e desserializa um AgentRun na conexão fornecida."""
         cur = await conn.execute(
             "SELECT run_id, thread_id, turn_id, user_id, workspace_id, "
@@ -648,6 +654,10 @@ class SessionStore:
         await self.setup()
         now = _now()
         terminal_at = now if status in {"completed", "failed", "cancelled"} else None
+        redacted_detail = redact_sensitive_data(detail) if detail is not None else None
+        redacted_error_code = (
+            redact_sensitive_data(error_code) if error_code is not None else None
+        )
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "UPDATE session_runs SET "
@@ -661,8 +671,8 @@ class SessionStore:
                 "AND (status IS NULL OR status NOT IN ('completed', 'failed', 'cancelled'))",
                 (
                     status,
-                    detail,
-                    error_code,
+                    redacted_detail,
+                    redacted_error_code,
                     partial_text,
                     now,
                     provider_model,
@@ -691,8 +701,8 @@ class SessionStore:
                     "AND (status IS NULL OR status NOT IN ('passed', 'degraded', 'failed', 'cancelled'))",
                     (
                         canonical_status,
-                        detail,
-                        error_code,
+                        redacted_detail,
+                        redacted_error_code,
                         now,
                         terminal_at,
                         run_id,
@@ -1920,14 +1930,49 @@ class SessionStore:
                 str(r[0]): int(r[1]) for r in await cur_max.fetchall()
             }
 
-            # 3. Obter todos os eventos notificáveis com seq > read_seq para cada thread
-            cur_events = await conn.execute(
-                f"SELECT thread_id, seq, event_key, type, turn_id, run_id, "  # noqa: S608  # nosec B608
-                f"message_id, tool_call_id, interrupt_id, payload_json, created_at "
-                f"FROM thread_events WHERE thread_id IN ({placeholders}) ORDER BY seq ASC",
-                tuple(thread_ids),
+            status_types = (
+                "run_completed",
+                "agent_turn_finished",
+                "run_failed",
+                "approval_resolved",
+                "approval_requested",
+                "agent_turn_started",
             )
-            all_events = await cur_events.fetchall()
+            status_placeholders = ",".join("?" for _ in status_types)
+            cur_status = await conn.execute(
+                "SELECT thread_id, type, payload_json FROM ("  # nosec B608
+                " SELECT thread_id, type, payload_json, "
+                " ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY seq DESC) AS rn "
+                f" FROM thread_events WHERE thread_id IN ({placeholders}) "
+                f" AND type IN ({status_placeholders})"
+                ") latest WHERE rn = 1",
+                (*thread_ids, *status_types),
+            )
+            status_rows = await cur_status.fetchall()
+
+            notifiable_types = tuple(
+                event_type
+                for event_type in sorted(NOTIFIABLE_EVENT_TYPES)
+                if event_type != "message_created"
+            )
+            notifiable_placeholders = ",".join("?" for _ in notifiable_types)
+            cur_unread = await conn.execute(
+                "SELECT e.thread_id, COUNT(*) FROM thread_events e "  # nosec B608
+                "LEFT JOIN (SELECT thread_id, MAX(last_seen_seq) AS read_seq "
+                "FROM thread_event_cursors WHERE user_id = ? "
+                f"AND thread_id IN ({placeholders}) GROUP BY thread_id) c "
+                "ON c.thread_id = e.thread_id "
+                f"WHERE e.thread_id IN ({placeholders}) "
+                "AND e.seq > COALESCE(c.read_seq, 0) AND ("
+                f"e.type IN ({notifiable_placeholders}) OR "
+                "(e.type = 'message_created' "
+                "AND json_extract(e.payload_json, '$.role') = 'assistant')) "
+                "GROUP BY e.thread_id",
+                (user_id, *thread_ids, *thread_ids, *notifiable_types),
+            )
+            unread_counts = {
+                str(row[0]): int(row[1]) for row in await cur_unread.fetchall()
+            }
 
             # 4. Obter última mensagem persistida
             cur_last_msgs = await conn.execute(
@@ -1956,56 +2001,27 @@ class SessionStore:
                     created_at=c_at,
                 )
 
-        # Agrupar eventos por thread
-        thread_events_map: dict[str, list[ThreadLedgerEvent]] = {
-            t: [] for t in thread_ids
-        }
-        for r in all_events:
-            ev = ThreadLedgerEvent(
-                thread_id=r[0],
-                seq=r[1],
-                event_key=r[2],
-                type=r[3],
-                turn_id=r[4],
-                run_id=r[5],
-                message_id=r[6],
-                tool_call_id=r[7],
-                interrupt_id=r[8],
-                payload=json.loads(r[9] or "{}"),
-                created_at=r[10],
-            )
-            thread_events_map[r[0]].append(ev)
+        status_by_thread = {str(row[0]): (str(row[1]), row[2]) for row in status_rows}
 
         summaries: list[ThreadSummary] = []
         for tid in thread_ids:
             read_seq = int(cursors.get(tid, 0))
             last_seq = int(max_seqs.get(tid, 0))
-            events = thread_events_map.get(tid, [])
-
-            # Calcular status derivado do último evento de execução
             status = "idle"
-            for ev in reversed(events):
-                if ev.type in ("run_completed", "agent_turn_finished"):
-                    status = "idle"
-                    break
-                if ev.type == "run_failed":
+            status_row = status_by_thread.get(tid)
+            if status_row:
+                event_type, payload_json = status_row
+                if event_type == "run_failed":
                     status = "failed"
-                    break
-                if ev.type == "approval_resolved":
-                    is_exp = bool(ev.payload.get("expired", False))
-                    status = "idle" if is_exp else "running"
-                    break
-                if ev.type == "approval_requested":
+                elif event_type == "approval_requested":
                     status = "awaiting_approval"
-                    break
-                if ev.type == "agent_turn_started":
+                elif event_type == "agent_turn_started":
                     status = "running"
-                    break
+                elif event_type == "approval_resolved":
+                    payload = json.loads(payload_json or "{}")
+                    status = "idle" if payload.get("expired", False) else "running"
 
-            # Calcular unread_count (notificáveis onde seq > read_seq)
-            unread_count = sum(
-                1 for ev in events if ev.seq > read_seq and is_event_notifiable(ev)
-            )
+            unread_count = unread_counts.get(tid, 0)
 
             summaries.append(
                 ThreadSummary(

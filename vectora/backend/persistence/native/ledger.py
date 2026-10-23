@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from backend.storage.sqlite.pool import AsyncConnectionPool
 
 
 class LedgerEventType:
@@ -155,7 +158,7 @@ def is_event_notifiable(event: ThreadLedgerEvent) -> bool:
 
 
 async def backfill_thread_ledger(
-    pool: Any,
+    pool: AsyncConnectionPool,
     thread_id: str,
     *,
     legacy_read_count: int = 0,
@@ -173,6 +176,14 @@ async def backfill_thread_ledger(
     async with pool.acquire() as conn:
         await conn.execute("BEGIN IMMEDIATE")
         try:
+            cur_session = await conn.execute(
+                "SELECT 1 FROM sessions WHERE thread_id = ? LIMIT 1",
+                (thread_id,),
+            )
+            if await cur_session.fetchone() is None:
+                await conn.rollback()
+                return 0, 0
+
             # 1. Verificar se já migrou
             cur_bf = await conn.execute(
                 "SELECT status, migrated_messages, last_seq FROM ledger_backfill WHERE thread_id = ?",
@@ -300,7 +311,7 @@ async def backfill_thread_ledger(
 
 
 async def ensure_thread_backfilled(
-    pool: Any,
+    pool: AsyncConnectionPool,
     thread_id: str,
     *,
     user_id: str = "",
