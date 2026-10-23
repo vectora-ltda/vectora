@@ -34,6 +34,7 @@ from backend.persistence.native.ledger import (
     ThreadLastMessage,
     ThreadLedgerEvent,
     ThreadSummary,
+    ensure_thread_backfilled,
     make_approval_requested_key,
     make_approval_resolved_key,
     make_message_created_key,
@@ -780,6 +781,7 @@ class SessionStore:
         """Persiste `msg` e o evento `message_created` atomicamente no ledger,
         devolvendo `(message_id, seq)`. Aceita eventos extras na mesma transação."""
         await self.setup()
+        await ensure_thread_backfilled(self._pool, thread_id)
         agora = _now()
         role, content_json, tool_calls_json, tool_call_id, name, is_error = (
             _message_to_row(msg)
@@ -1726,6 +1728,7 @@ class SessionStore:
         """Gera seq monótono e insere o evento no ledger.
         Em caso de conflito de event_key, retorna o evento existente sem erro."""
         await self.setup()
+        await ensure_thread_backfilled(self._pool, thread_id)
         agora = _now()
         created_at = draft.created_at or agora
         payload_str = json.dumps(draft.payload, ensure_ascii=False)
