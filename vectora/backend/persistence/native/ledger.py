@@ -8,10 +8,17 @@ Também define os modelos de resumo da thread e do rascunho de execução.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from backend.storage.sqlite.pool import AsyncConnectionPool
+
+
+logger = logging.getLogger(__name__)
 
 
 class LedgerEventType:
@@ -155,7 +162,7 @@ def is_event_notifiable(event: ThreadLedgerEvent) -> bool:
 
 
 async def backfill_thread_ledger(
-    pool: Any,
+    pool: AsyncConnectionPool,
     thread_id: str,
     *,
     legacy_read_count: int = 0,
@@ -173,6 +180,14 @@ async def backfill_thread_ledger(
     async with pool.acquire() as conn:
         await conn.execute("BEGIN IMMEDIATE")
         try:
+            cur_session = await conn.execute(
+                "SELECT 1 FROM sessions WHERE thread_id = ? LIMIT 1",
+                (thread_id,),
+            )
+            if await cur_session.fetchone() is None:
+                await conn.rollback()
+                return 0, 0
+
             # 1. Verificar se já migrou
             cur_bf = await conn.execute(
                 "SELECT status, migrated_messages, last_seq FROM ledger_backfill WHERE thread_id = ?",
@@ -288,19 +303,24 @@ async def backfill_thread_ledger(
             return migrated_count, current_seq
         except Exception as exc:
             await conn.rollback()
-            async with pool.acquire() as conn_err:
-                await conn_err.execute(
+            try:
+                await conn.execute(
                     "INSERT INTO ledger_backfill (thread_id, status, error, started_at, completed_at) "
                     "VALUES (?, 'failed', ?, ?, ?) "
                     "ON CONFLICT(thread_id) DO UPDATE SET status='failed', error=excluded.error, completed_at=excluded.completed_at",
                     (thread_id, str(exc), now, _now()),
                 )
-                await conn_err.commit()
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                logger.exception(
+                    "Falha ao registrar backfill failed para thread %s", thread_id
+                )
             raise
 
 
 async def ensure_thread_backfilled(
-    pool: Any,
+    pool: AsyncConnectionPool,
     thread_id: str,
     *,
     user_id: str = "",

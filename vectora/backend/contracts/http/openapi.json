@@ -186,7 +186,9 @@
         "properties": {
           "approvals": {
             "items": {
-              "additionalProperties": true,
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
               "type": "object"
             },
             "title": "Approvals",
@@ -194,7 +196,9 @@
           },
           "artifacts": {
             "items": {
-              "additionalProperties": true,
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
               "type": "object"
             },
             "title": "Artifacts",
@@ -202,7 +206,9 @@
           },
           "commands_run": {
             "items": {
-              "additionalProperties": true,
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
               "type": "object"
             },
             "title": "Commands Run",
@@ -243,7 +249,9 @@
           },
           "evidence": {
             "items": {
-              "additionalProperties": true,
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
               "type": "object"
             },
             "title": "Evidence",
@@ -251,7 +259,9 @@
           },
           "files_touched": {
             "items": {
-              "additionalProperties": true,
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
               "type": "object"
             },
             "title": "Files Touched",
@@ -328,7 +338,9 @@
           },
           "tests_run": {
             "items": {
-              "additionalProperties": true,
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
               "type": "object"
             },
             "title": "Tests Run",
@@ -448,7 +460,9 @@
             "type": "string"
           },
           "payload": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "title": "Payload",
             "type": "object"
           },
@@ -3491,6 +3505,59 @@
         "title": "HasUsersResponse",
         "type": "object"
       },
+      "HealthLiveResponse": {
+        "description": "Contrato de resposta da sonda de liveness.",
+        "properties": {
+          "status": {
+            "const": "live",
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["status", "version"],
+        "title": "HealthLiveResponse",
+        "type": "object"
+      },
+      "HealthReadyChecks": {
+        "description": "Estado detalhado das dependências vitais.",
+        "properties": {
+          "lancedb": {
+            "title": "Lancedb",
+            "type": "boolean"
+          },
+          "store": {
+            "title": "Store",
+            "type": "boolean"
+          }
+        },
+        "required": ["store", "lancedb"],
+        "title": "HealthReadyChecks",
+        "type": "object"
+      },
+      "HealthReadyResponse": {
+        "description": "Contrato de resposta da sonda de readiness.",
+        "properties": {
+          "checks": {
+            "$ref": "#/components/schemas/HealthReadyChecks"
+          },
+          "status": {
+            "enum": ["ready", "not_ready"],
+            "title": "Status",
+            "type": "string"
+          },
+          "version": {
+            "title": "Version",
+            "type": "string"
+          }
+        },
+        "required": ["status", "version", "checks"],
+        "title": "HealthReadyResponse",
+        "type": "object"
+      },
       "HistoryMessage": {
         "properties": {
           "attachments": {
@@ -3971,6 +4038,7 @@
         "title": "JourneySkill",
         "type": "object"
       },
+      "JsonValue": {},
       "LaunchConfigModel": {
         "properties": {
           "env": {
@@ -5466,7 +5534,7 @@
         "properties": {
           "evidence": {
             "default": "documented",
-            "description": "Evidência de compatibilidade verificada para este provedor e runtime.",
+            "description": "Nível de evidência declarado para este provedor e runtime.",
             "enum": ["documented", "observed", "unverified"],
             "title": "Evidence",
             "type": "string"
@@ -7166,6 +7234,18 @@
             "title": "Jev Api Model",
             "type": "string"
           },
+          "laya_api_key_configured": {
+            "title": "Laya Api Key Configured",
+            "type": "boolean"
+          },
+          "laya_base_url": {
+            "title": "Laya Base Url",
+            "type": "string"
+          },
+          "laya_model": {
+            "title": "Laya Model",
+            "type": "string"
+          },
           "local_base_url": {
             "title": "Local Base Url",
             "type": "string"
@@ -7175,7 +7255,7 @@
             "type": "string"
           },
           "provider": {
-            "enum": ["clef-local", "clef-api", "jev-api"],
+            "enum": ["clef-local", "laya-local", "clef-api", "jev-api"],
             "title": "Provider",
             "type": "string"
           }
@@ -7185,6 +7265,9 @@
           "provider",
           "local_base_url",
           "local_model",
+          "laya_base_url",
+          "laya_model",
+          "laya_api_key_configured",
           "clef_api_base_url",
           "clef_api_model",
           "clef_api_key_configured",
@@ -8389,7 +8472,6 @@
                 "type": "null"
               }
             ],
-            "default": null,
             "title": "Confidence Threshold Hitl"
           },
           "enabled": {
@@ -8436,6 +8518,39 @@
             ],
             "title": "Jev Api Model"
           },
+          "laya_api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Laya Api Key"
+          },
+          "laya_base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Laya Base Url"
+          },
+          "laya_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Laya Model"
+          },
           "local_base_url": {
             "anyOf": [
               {
@@ -8461,7 +8576,7 @@
           "provider": {
             "anyOf": [
               {
-                "enum": ["clef-local", "clef-api", "jev-api"],
+                "enum": ["clef-local", "laya-local", "clef-api", "jev-api"],
                 "type": "string"
               },
               {

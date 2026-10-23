@@ -60,9 +60,27 @@ _SENSITIVE_KEYS = {
 
 
 def _is_sensitive_key(key: str) -> bool:
-    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", key).lower()
-    normalized = normalized.replace("-", "_")
-    return normalized in {item.replace("-", "_") for item in _SENSITIVE_KEYS}
+    normalized = re.sub(r"[^a-z0-9]", "", key.lower())
+    exact = {re.sub(r"[^a-z0-9]", "", item.lower()) for item in _SENSITIVE_KEYS}
+    if normalized in exact:
+        return True
+    # Prefixes and suffixes are common in wire payloads (for example
+    # ``oauth_client_secret`` and ``x_api_key``). Keep ``key`` out of this
+    # list because generic identifiers such as ``monkey`` are not secrets.
+    return any(
+        fragment in normalized
+        for fragment in (
+            "apikey",
+            "token",
+            "secret",
+            "password",
+            "passwd",
+            "credential",
+            "authorization",
+            "privatekey",
+            "cookie",
+        )
+    )
 
 
 def redact_string(value: str) -> str:
@@ -73,7 +91,12 @@ def redact_string(value: str) -> str:
     return redacted
 
 
-def redact_payload(obj: Any, *, _schema_context: bool = False) -> Any:
+def redact_payload(
+    obj: Any,
+    *,
+    _schema_context: bool = False,
+    _preserve_map_keys: bool = False,
+) -> Any:
     """Aplica redação recursivamente em dicionários, listas e primitivos.
 
     Preserva estruturas de JSON Schema contidas sob `properties` para não
@@ -83,7 +106,11 @@ def redact_payload(obj: Any, *, _schema_context: bool = False) -> Any:
         new_dict = {}
         for k, v in obj.items():
             key_str = str(k)
-            if _is_sensitive_key(key_str) and not _schema_context:
+            if (
+                _is_sensitive_key(key_str)
+                and not _schema_context
+                and not _preserve_map_keys
+            ):
                 new_dict[k] = "[REDACTED]"
             else:
                 child_schema = _schema_context or key_str in {
@@ -91,7 +118,11 @@ def redact_payload(obj: Any, *, _schema_context: bool = False) -> Any:
                     "$defs",
                     "definitions",
                 }
-                new_dict[k] = redact_payload(v, _schema_context=child_schema)
+                new_dict[k] = redact_payload(
+                    v,
+                    _schema_context=child_schema,
+                    _preserve_map_keys=key_str in {"paths", "schemas"},
+                )
         return new_dict
     if isinstance(obj, list):
         return [redact_payload(item, _schema_context=_schema_context) for item in obj]

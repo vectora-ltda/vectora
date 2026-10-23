@@ -4,6 +4,8 @@ O teste não inicia servidor, não substitui ``httpx`` e não usa mocks. O
 workflow ``local-llm`` compila o ``llama-server``, baixa um modelo Qwen
 fixado por digest e expõe ``VECTORA_LOCAL_LLM_BASE_URL`` antes de executar
 este módulo.
+workflow ``local-llm`` compila o ``llama-server`` e baixa o modelo Qwen fixado e
+expõe ``VECTORA_LOCAL_LLM_BASE_URL`` antes de executar este módulo.
 """
 
 from __future__ import annotations
@@ -25,10 +27,10 @@ _TIMEOUT: Final[httpx.Timeout] = httpx.Timeout(45.0, connect=10.0)
 
 @pytest.mark.skipif(
     not os.environ.get("VECTORA_LOCAL_LLM_BASE_URL"),
-    reason="VECTORA_LOCAL_LLM_BASE_URL nÃ£o aponta para um servidor local real",
+    reason="VECTORA_LOCAL_LLM_BASE_URL não aponta para um servidor local real",
 )
 async def test_llamacpp_real_exposes_model_and_generates_completion() -> None:
-    """Confirma descoberta e inferÃªncia usando o mesmo endpoint de produÃ§Ã£o."""
+    """Confirma descoberta e inferência usando o mesmo endpoint de produção."""
 
     async with httpx.AsyncClient(base_url=_BASE_URL, timeout=_TIMEOUT) as client:
         health = await client.get(_BASE_URL.removesuffix("/v1") + "/health")
@@ -37,7 +39,7 @@ async def test_llamacpp_real_exposes_model_and_generates_completion() -> None:
         models_response = await client.get("/models")
         assert models_response.status_code == 200, models_response.text
         models = models_response.json().get("data", [])
-        assert models, "llama.cpp nÃ£o publicou nenhum modelo em /v1/models"
+        assert models, "llama.cpp não publicou nenhum modelo em /v1/models"
         model_id = models[0]["id"]
 
         completion = await client.post(
@@ -63,7 +65,7 @@ async def test_llamacpp_real_exposes_model_and_generates_completion() -> None:
 
 @pytest.mark.skipif(
     not os.environ.get("VECTORA_LOCAL_LLM_BASE_URL"),
-    reason="VECTORA_LOCAL_LLM_BASE_URL nÃ£o aponta para um servidor local real",
+    reason="VECTORA_LOCAL_LLM_BASE_URL não aponta para um servidor local real",
 )
 async def test_llamacpp_systemone_endpoint_or_clef_adapter() -> None:
     """Exercita o adapter ClefLocalAdapter e o endpoint /v1/systemone no llama.cpp local."""
@@ -83,10 +85,10 @@ async def test_llamacpp_systemone_endpoint_or_clef_adapter() -> None:
 
     req = SystemOneRequest(
         model="clef-flash",
-        state="O usuÃ¡rio enviou uma mensagem solicitando listagem de diretÃ³rio.",
+        state="O usuário enviou uma mensagem solicitando listagem de diretório.",
         questions={
             "is_file_operation": NoulQuestion(
-                criterion="A solicitaÃ§Ã£o envolve leitura de arquivos?"
+                criterion="A solicitação envolve leitura de arquivos?"
             )
         },
     )
@@ -100,15 +102,15 @@ async def test_llamacpp_systemone_endpoint_or_clef_adapter() -> None:
             assert "is_file_operation" in decide_res.answers
             assert isinstance(decide_res.answers["is_file_operation"], NoulAnswer)
         else:
-            # Em servidores com build sem endpoint /v1/systemone ativado ou nÃ£o implementado, o retorno Ã© 404, 405 ou 501 (Not Implemented)
-            assert res.status_code in {200, 404, 405, 501}
+            assert res.status_code in {404, 405, 501}, res.text
+            pytest.skip(f"llama.cpp não expõe /v1/systemone (HTTP {res.status_code})")
 
 
 @pytest.mark.skipif(
     not os.environ.get("VECTORA_LOCAL_LLM_BASE_URL"), reason="llama.cpp local ausente"
 )
 async def test_llamacpp_structured_decision_contract() -> None:
-    """Valida decisÃ£o estruturada no endpoint usado pelo Jev/Clef."""
+    """Valida decisão estruturada no endpoint usado pelo Jev/Clef."""
     async with httpx.AsyncClient(base_url=_BASE_URL, timeout=_TIMEOUT) as client:
         models_response = await client.get("/models")
         assert models_response.status_code == 200, models_response.text
@@ -120,7 +122,7 @@ async def test_llamacpp_structured_decision_contract() -> None:
                 "messages": [
                     {
                         "role": "user",
-                        "content": "Classifique como technical ou billing: API indisponÃ­vel e cliente pede reembolso. Retorne JSON com decision e confidence.",
+                        "content": "Classifique como technical ou billing: API indisponível e cliente pede reembolso. Retorne JSON com decision e confidence.",
                     }
                 ],
                 "max_tokens": 96,

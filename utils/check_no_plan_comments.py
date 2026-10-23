@@ -60,7 +60,7 @@ _AI_TOOL_PATTERN: re.Pattern[str] = re.compile(
 
 # Proíbe referências a rastreadores de tarefas, revisões abertas e automações de CI em comentários.
 _TRACKER_PATTERN: re.Pattern[str] = re.compile(
-    r"(?i:\b(?:issue|issues)\s*#?\d+\b|#\d+\b|\bpull\s+requests?(?:\s*#?\d+)?\b|\b(?:pull\s*request|pr)\s*#?\d+\b|https?://github\.com/[^\s/]+/[^\s/]+/(?:issues|pull)/\d+|\bgha\b|\bgithub\s+actions\b)"
+    r"(?i:\b(?:issue|issues)\s*#?\d+\b|#(?![0-9a-f]{6}\b)\d+\b|\bpull\s+requests?(?:\s*#?\d+)?\b|\b(?:pull\s*request|pr)\s*#?\d+\b|https?://github\.com/[^\s/]+/[^\s/]+/(?:issues|pull)/\d+|\bgha\b|\bgithub\s+actions\b)"
 )
 
 # Padrão único para metadados e comentários: planos artificiais,

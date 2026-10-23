@@ -205,7 +205,7 @@ class TestQdrantBackendListRows:
 class TestQdrantBackendDelete:
     @pytest.mark.asyncio
     async def test_delete_envia_point_ids_list(self, backend, mock_client):
-        mock_client.count.return_value = 2
+        mock_client.count.return_value = CountResult(count=2)
         count = await backend.delete("articles", ["p1", "p2"])
 
         assert count == 2

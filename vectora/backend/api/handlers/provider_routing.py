@@ -4266,6 +4266,7 @@ async def get_decision_models_status(
         laya_model=settings.systemone_laya_model,
         laya_api_key=settings.systemone_laya_api_key,
         clef_api_base_url=settings.systemone_clef_api_base_url,
+        clef_account_id=settings.systemone_clef_account_id,
         clef_api_model=settings.systemone_clef_api_model,
         jev_api_base_url=settings.systemone_jev_api_base_url,
         jev_api_model=settings.systemone_jev_api_model,

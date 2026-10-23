@@ -97,6 +97,7 @@ from backend.api.schemas import (
 )
 from backend.persistence.native.ledger import (
     ThreadLedgerEvent,
+    ThreadSummary,
     ensure_thread_backfilled,
 )
 from backend.persistence.thread_activity import get_remote_activity
@@ -1038,7 +1039,7 @@ async def list_threads(
         else {}
     )
     thread_ids = [r[0] for r in rows]
-    summaries_by_id: dict[str, Any] = {}
+    summaries_by_id: dict[str, ThreadSummary] = {}
     if hasattr(session_store, "get_thread_summaries"):
         if hasattr(session_store, "_pool") and thread_ids:
             # Buscar contagens legadas de thread_read_cursors para preservar no backfill
@@ -2649,7 +2650,7 @@ async def get_agent_run(run_id: str, request: Request) -> AgentRun:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Run {run_id!r} não encontrada.",
         )
-    await _assert_owns_thread(run.thread_id, request)
+    await _assert_existing_thread_ownership(run.thread_id, request)
     return run
 
 
@@ -2670,7 +2671,7 @@ async def get_agent_run_timeline(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Run {run_id!r} não encontrada.",
         )
-    await _assert_owns_thread(run.thread_id, request)
+    await _assert_existing_thread_ownership(run.thread_id, request)
     timeline: list[AgentRunTimelineEntry] = []
     if hasattr(session_store, "get_agent_run_timeline"):
         timeline = await session_store.get_agent_run_timeline(run_id)
