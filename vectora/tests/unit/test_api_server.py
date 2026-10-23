@@ -214,6 +214,7 @@ class TestRoutes:
             mw for mw in headless_app.user_middleware if mw.cls is CORSMiddleware
         )
         assert "X-Vectora-Chat-Persisted" in cors.kwargs["expose_headers"]
+        assert "X-Vectora-Device-Id" in cors.kwargs["allow_headers"]
 
     def test_workspaces_active_route_exists(self, headless_app):
         paths = self._route_paths(headless_app)
