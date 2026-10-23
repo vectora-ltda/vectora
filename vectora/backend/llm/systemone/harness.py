@@ -272,6 +272,8 @@ class SystemOneHarness:
     def _resolve_model_for_provider(self, provider_id: str) -> str:
         if provider_id == "clef-local":
             return self._settings.local_model
+        if provider_id == "laya-local":
+            return self._settings.laya_model
         if provider_id == "clef-api":
             return self._settings.clef_api_model
         if provider_id == "jev-api":
