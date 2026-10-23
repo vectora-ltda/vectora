@@ -294,10 +294,7 @@ class QdrantBackend:
                         count_filter=count_filter,
                         exact=True,
                     )
-                raw_count = getattr(count_res, "count", count_res)
-                target_count = (
-                    int(raw_count) if isinstance(raw_count, (int, str)) else 0
-                )
+                target_count = count_res.count
             except Exception:
                 logger.debug(
                     "QdrantBackend.delete: erro ao contar pontos para exclusao",

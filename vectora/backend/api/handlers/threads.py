@@ -952,7 +952,7 @@ async def get_thread(
         summaries = await session_store.get_thread_summaries(
             [thread.id], user_id=user_id
         )
-        if summaries:
+        if summaries and summaries[0].last_seq > 0:
             s = summaries[0]
             thread.unread_count = s.unread_count
             thread.status = s.status
@@ -2158,6 +2158,8 @@ async def get_thread_history_paginated(
         messages=messages,
         has_more=has_more,
         total_count=total,
+        run_status=thread.status,
+        last_seq=thread.last_seq,
     )
 
 
