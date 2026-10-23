@@ -136,7 +136,7 @@ CREATE TABLE IF NOT EXISTS ledger_backfill (
     completed_at TEXT
 );
 CREATE TABLE IF NOT EXISTS context_projections (
-    projection_id TEXT PRIMARY KEY,
+    projection_id TEXT NOT NULL,
     thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
     run_id TEXT NOT NULL,
     source_hash TEXT NOT NULL,
@@ -152,7 +152,8 @@ CREATE TABLE IF NOT EXISTS context_projections (
     pending_tool_calls_json TEXT NOT NULL DEFAULT '[]',
     omitted_sequences_json TEXT NOT NULL DEFAULT '[]',
     content_json TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (thread_id, projection_id)
 );
 CREATE INDEX IF NOT EXISTS ix_context_projections_thread
     ON context_projections(thread_id, covered_to_sequence DESC, created_at DESC);
@@ -439,7 +440,7 @@ CREATE TABLE IF NOT EXISTS vectora_native_ledger_backfill (
     completed_at TEXT
 );
 CREATE TABLE IF NOT EXISTS vectora_native_context_projections (
-    projection_id TEXT PRIMARY KEY,
+    projection_id TEXT NOT NULL,
     thread_id TEXT NOT NULL REFERENCES vectora_native_sessions(thread_id),
     run_id TEXT NOT NULL,
     source_hash TEXT NOT NULL,
@@ -455,7 +456,8 @@ CREATE TABLE IF NOT EXISTS vectora_native_context_projections (
     pending_tool_calls_json TEXT NOT NULL DEFAULT '[]',
     omitted_sequences_json TEXT NOT NULL DEFAULT '[]',
     content_json TEXT,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (thread_id, projection_id)
 );
 CREATE INDEX IF NOT EXISTS ix_vectora_native_context_projections_thread
     ON vectora_native_context_projections(thread_id, covered_to_sequence DESC, created_at DESC);

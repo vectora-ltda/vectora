@@ -11,6 +11,7 @@ import gzip
 import hashlib
 import json
 import os
+import zlib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -74,6 +75,20 @@ def export_cold_archive(
     with temporary.open("r+b") as stream:
         os.fsync(stream.fileno())
     temporary.replace(final_path)
+    # Durabilidade do rename: o arquivo e a entrada do diretório precisam
+    # sobreviver a uma queda de energia antes de publicar o manifesto.
+    try:
+        directory_fd = os.open(destination_root, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except OSError:
+        # Windows does not expose a fsync-able directory handle. The atomic
+        # replace still provides the file-level guarantee on that platform.
+        if os.name != "nt":
+            final_path.unlink(missing_ok=True)
+            raise
     created_at = datetime.now(UTC).isoformat()
     manifest = {
         "thread_id": safe_id,
@@ -102,18 +117,21 @@ def read_cold_archive(
     archive = Path(path).resolve(strict=True)
     digest = hashlib.sha256()
     records: list[dict[str, Any]] = []
-    with gzip.open(archive, "rb") as stream:
-        for line in stream:
-            digest.update(line)
-            value = json.loads(line.decode("utf-8"))
-            if not isinstance(value, dict):
-                raise ValueError("cold archive contém registro inválido")
-            if (
-                expected_thread_id is not None
-                and value.get("thread_id") != expected_thread_id
-            ):
-                raise ValueError("cold archive pertence a outra thread")
-            records.append(value)
+    try:
+        with gzip.open(archive, "rb") as stream:
+            for line in stream:
+                digest.update(line)
+                value = json.loads(line.decode("utf-8"))
+                if not isinstance(value, dict):
+                    raise ValueError("cold archive contém registro inválido")
+                if (
+                    expected_thread_id is not None
+                    and value.get("thread_id") != expected_thread_id
+                ):
+                    raise ValueError("cold archive pertence a outra thread")
+                records.append(value)
+    except (EOFError, gzip.BadGzipFile, OSError, zlib.error) as exc:
+        raise ValueError("cold archive comprimido inválido ou truncado") from exc
     actual = digest.hexdigest()
     if actual != expected_sha256:
         raise ValueError("sha256 do cold archive não confere")

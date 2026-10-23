@@ -44,6 +44,10 @@ async def benchmark_sqlite(
             "CREATE TABLE IF NOT EXISTS benchmark_messages "
             "(id INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, payload TEXT NOT NULL)"
         )
+        await connection.execute(
+            "CREATE INDEX IF NOT EXISTS ix_benchmark_messages_thread_id_id "
+            "ON benchmark_messages(thread_id, id)"
+        )
         await connection.commit()
 
     for size in sizes:
@@ -51,6 +55,9 @@ async def benchmark_sqlite(
         payload = "x" * payload_bytes
         append_started = time.perf_counter()
         async with aiosqlite.connect(database) as connection:
+            await connection.execute(
+                "DELETE FROM benchmark_messages WHERE thread_id = ?", (thread_id,)
+            )
             await connection.executemany(
                 "INSERT INTO benchmark_messages(thread_id, payload) VALUES (?, ?)",
                 ((thread_id, payload) for _ in range(size)),

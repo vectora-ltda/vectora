@@ -222,6 +222,9 @@ def _manifest_files(manifest: dict[str, Any]) -> dict[str, list[dict[str, Any]]]
         if category not in _CATEGORIES:
             raise ValueError("categoria de backup inválida")
         items = raw if isinstance(raw, list) else [raw]
+        if raw == []:
+            result[category] = []
+            continue
         if not items or any(not isinstance(item, dict) for item in items):
             raise ValueError("entrada de manifesto inválida")
         result[category] = items
@@ -258,8 +261,9 @@ def create_backup(
             )
             sources[category] = [(archive_name, data)]
     artifact_entries = _artifact_entries(database)
-    if artifact_entries:
-        sources["artifacts"] = artifact_entries
+    # A categoria vazia é deliberada: no restore ela remove artefatos antigos
+    # quando o backup foi criado sem payloads.
+    sources["artifacts"] = artifact_entries
     manifest: dict[str, Any] = {
         "format_version": FORMAT_VERSION,
         "app_version": app_version,
@@ -346,7 +350,8 @@ def inspect_backup(archive_path: str | Path) -> BackupPreview:
                 if not isinstance(item.get("count", 0), int) or item["count"] < 0:
                     raise ValueError("contagem de backup inválida")
                 count += item["count"]
-            categories[category] = count
+            if items:
+                categories[category] = count
         if set(names) != declared_paths:
             raise ValueError("backup contém entradas não declaradas")
     return BackupPreview(
@@ -379,7 +384,20 @@ def _atomic_write(destination: Path, data: bytes) -> None:
         handle.write(data)
         handle.flush()
         os.fsync(handle.fileno())
-    temporary.replace(destination)
+    try:
+        temporary.replace(destination)
+        try:
+            directory_fd = os.open(destination.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError:
+            if os.name != "nt":
+                raise
+    except OSError:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def _apply_sqlite_schema(connection: sqlite3.Connection) -> None:
@@ -417,11 +435,14 @@ def restore_backup(
             _atomic_write(destination, source.read())
         return BackupPreview(0, "", archive_file.stat().st_size, {"database": 0}, True)
     preview = inspect_backup(archive_file)
-    selected = set(preview.categories) if categories is None else set(categories)
+    with zipfile.ZipFile(archive_file) as archive:
+        manifest = json.loads(archive.read(MANIFEST))
+        available_categories = set(_manifest_files(manifest))
+    selected = available_categories if categories is None else set(categories)
     unknown = selected - _CATEGORIES
     if unknown:
         raise ValueError("categoria de backup desconhecida")
-    unavailable = selected - set(preview.categories)
+    unavailable = selected - available_categories
     if unavailable:
         raise ValueError("categoria selecionada não está presente no backup")
     destination = Path(db_path)
@@ -456,7 +477,9 @@ def restore_backup(
         # original do ZIP.
         staged_temp: dict[Path, Path] = {}
         for path, data in staged.items():
-            if path.suffix == ".db":
+            if path in {targets["database"], targets["threads"]} and data.startswith(
+                b"SQLite format 3\x00"
+            ):
                 with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as handle:
                     handle.write(data)
                     staged_temp[path] = Path(handle.name)
