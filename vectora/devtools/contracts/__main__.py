@@ -9,6 +9,7 @@ import subprocess  # nosec B404
 import sys
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -659,7 +660,7 @@ def check_all(contracts_dir: Path) -> int:
             if not prettier.exists():
                 prettier = frontend_dir / "node_modules" / ".bin" / "prettier"
             if prettier.exists():
-                subprocess.run(  # noqa: S603
+                subprocess.run(  # noqa: S603  # nosec B603
                     [str(prettier), str(generated_ts), "--write"],
                     cwd=frontend_dir,
                     capture_output=True,
