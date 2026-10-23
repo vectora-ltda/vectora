@@ -49,12 +49,20 @@ _SENSITIVE_KEYS = {
     "refresh-token",
     "private_key",
     "private-key",
+    "api_token",
+    "auth_token",
+    "secret_key",
+    "privatekey",
+    "session_token",
+    "cookie",
+    "set_cookie",
 }
 
 
 def _is_sensitive_key(key: str) -> bool:
-    normalized = key.lower().replace("-", "_")
-    return normalized in _SENSITIVE_KEYS or key.lower() in _SENSITIVE_KEYS
+    normalized = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", key).lower()
+    normalized = normalized.replace("-", "_")
+    return normalized in {item.replace("-", "_") for item in _SENSITIVE_KEYS}
 
 
 def redact_string(value: str) -> str:
@@ -65,32 +73,28 @@ def redact_string(value: str) -> str:
     return redacted
 
 
-def redact_payload(obj: Any) -> Any:
+def redact_payload(obj: Any, *, _schema_context: bool = False) -> Any:
     """Aplica redação recursivamente em dicionários, listas e primitivos.
 
     Preserva estruturas de JSON Schema contidas sob `properties` para não
     descaracterizar schemas de API ao exportar contratos.
     """
     if isinstance(obj, dict):
-        # Se for um schema (contém `properties` ou `type` com definições de schema),
-        # precisamos garantir que não redigimos definições de propriedades estruturais
         new_dict = {}
-        is_schema_properties = "type" in obj and (
-            "title" in obj or "description" in obj
-        )
         for k, v in obj.items():
             key_str = str(k)
-            if _is_sensitive_key(key_str) and not is_schema_properties:
-                # Redige se não for um schema de tipo (ex: {"type": "string"})
-                if isinstance(v, dict) and "type" in v:
-                    new_dict[k] = redact_payload(v)
-                else:
-                    new_dict[k] = "[REDACTED]"
+            if _is_sensitive_key(key_str) and not _schema_context:
+                new_dict[k] = "[REDACTED]"
             else:
-                new_dict[k] = redact_payload(v)
+                child_schema = _schema_context or key_str in {
+                    "properties",
+                    "$defs",
+                    "definitions",
+                }
+                new_dict[k] = redact_payload(v, _schema_context=child_schema)
         return new_dict
     if isinstance(obj, list):
-        return [redact_payload(item) for item in obj]
+        return [redact_payload(item, _schema_context=_schema_context) for item in obj]
     if isinstance(obj, str):
         return redact_string(obj)
     return obj

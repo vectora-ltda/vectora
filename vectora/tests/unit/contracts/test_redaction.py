@@ -49,3 +49,25 @@ def test_redact_string_patterns() -> None:
     # JWT pattern
     jwt_sample = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c"
     assert redact_string(f"JWT: {jwt_sample}") == "JWT: [REDACTED_JWT]"
+
+
+def test_redaction_distinguishes_schema_properties_from_payload() -> None:
+    payload = {"type": "x", "description": "d", "password": "secret"}
+    assert redact_payload(payload)["password"] == "[REDACTED]"
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "token": {"type": "string", "enum": ["safe-example"]},
+            "password": {"enum": ["secret-example"]},
+        },
+    }
+    redacted = redact_payload(schema)
+    assert redacted["properties"]["token"]["enum"] == ["safe-example"]
+    assert redacted["properties"]["password"]["enum"] == ["secret-example"]
+
+
+def test_redaction_covers_camel_case_sensitive_keys() -> None:
+    redacted = redact_payload({"apiToken": "secret", "session-token": 123})
+    assert redacted["apiToken"] == "[REDACTED]"
+    assert redacted["session-token"] == "[REDACTED]"
