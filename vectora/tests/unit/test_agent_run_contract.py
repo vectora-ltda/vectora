@@ -189,6 +189,64 @@ class TestAgentRunLifecycle:
             assert legacy_row[0] == expected_legacy_status
             assert legacy_row[1] is not None
 
+    async def test_update_run_preserves_terminal_state_in_both_tables(
+        self, store: SessionStore
+    ) -> None:
+        """A late legacy update cannot overwrite either terminal projection."""
+        await store.create_session("thread-terminal-guard", user_id="user-123")
+        run_id = "run-terminal-guard"
+        await store.upsert_agent_run(
+            AgentRun(run_id=run_id, thread_id="thread-terminal-guard", status="running")
+        )
+
+        await store.update_run(
+            run_id,
+            status="failed",
+            detail="falha definitiva",
+            error_code="PROVIDER_FAILED",
+            partial_text="resposta parcial",
+        )
+        async with store._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT status, detail, error_code, partial_text, updated_at, terminal_at "
+                "FROM session_runs WHERE run_id = ?",
+                (run_id,),
+            )
+            legacy_before = await cur.fetchone()
+            cur = await conn.execute(
+                "SELECT status, detail, error_code, updated_at, terminal_at "
+                "FROM agent_runs WHERE run_id = ?",
+                (run_id,),
+            )
+            canonical_before = await cur.fetchone()
+
+        assert legacy_before is not None
+        assert canonical_before is not None
+        await store.update_run(
+            run_id,
+            status="completed",
+            detail="atualização atrasada",
+            error_code="SHOULD_NOT_OVERWRITE",
+            partial_text="texto atrasado",
+        )
+
+        async with store._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT status, detail, error_code, partial_text, updated_at, terminal_at "
+                "FROM session_runs WHERE run_id = ?",
+                (run_id,),
+            )
+            legacy_after = await cur.fetchone()
+            cur = await conn.execute(
+                "SELECT status, detail, error_code, updated_at, terminal_at "
+                "FROM agent_runs WHERE run_id = ?",
+                (run_id,),
+            )
+            canonical_after = await cur.fetchone()
+
+        assert legacy_after == legacy_before
+        assert canonical_after == canonical_before
+
     async def test_record_evidences_and_redaction(self, store: SessionStore) -> None:
         await store.create_session("thread-run-3", user_id="user-123")
         run = AgentRun(

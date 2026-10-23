@@ -11,6 +11,7 @@ import logging
 from typing import Any, cast
 
 import lancedb
+import lancedb.db
 import pyarrow as pa
 
 from backend.storage.lancedb.index import create_fts_index
@@ -56,10 +57,10 @@ class LanceDBBackend:
         self._path = str(lancedb_dir)
         self._write_semaphore = write_semaphore or asyncio.Semaphore(1)
 
-    async def _db(self) -> Any:
+    async def _db(self) -> lancedb.db.AsyncConnection:
         return await lancedb.connect_async(self._path)
 
-    async def _list_table_names(self, db: Any) -> list[str]:
+    async def _list_table_names(self, db: lancedb.db.AsyncConnection) -> list[str]:
         """Compatibilidade entre versões do cliente LanceDB."""
         try:
             response = await db.list_tables()
@@ -177,6 +178,37 @@ class LanceDBBackend:
                     )
                 except Exception:
                     table = await db.open_table(collection)
+            # ``merge_insert`` não define o resultado quando a tabela já
+            # contém várias linhas para a mesma chave. Repare o legado antes
+            # do merge para que a idempotência também valha para dados antigos.
+            try:
+                existing = await table.to_pandas()
+                if "id" in existing.columns:
+                    duplicated = existing[existing["id"].duplicated(keep=False)]
+                    incoming_ids = set(deduped)
+                    for raw_id in duplicated["id"].drop_duplicates().tolist():
+                        row_id = str(raw_id)
+                        escaped_id = row_id.replace("'", "''")
+                        await table.delete(f"id = '{escaped_id}'")
+                        if row_id not in incoming_ids:
+                            retained = duplicated[duplicated["id"] == raw_id].iloc[-1]
+                            await table.add(
+                                [
+                                    {
+                                        "id": row_id,
+                                        "vector": list(retained["vector"]),
+                                        "text": str(retained.get("text", "")),
+                                        "metadata": str(
+                                            retained.get("metadata", "{}") or "{}"
+                                        ),
+                                    }
+                                ]
+                            )
+            except Exception:
+                logger.exception(
+                    "LanceDBBackend: falha ao deduplicar dados legados da coleção %s",
+                    collection,
+                )
             # Idempotência: merge_insert por 'id' atualiza os existentes e insere os novos,
             # eliminando registros duplicados.
             await (

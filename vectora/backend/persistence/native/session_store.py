@@ -739,7 +739,9 @@ class SessionStore:
                 "error_code = COALESCE(?, error_code), "
                 "partial_text = COALESCE(?, partial_text), updated_at = ?, "
                 "provider_model = COALESCE(?, provider_model), "
-                "terminal_at = COALESCE(?, terminal_at) WHERE run_id = ?",
+                "terminal_at = COALESCE(?, terminal_at) "
+                "WHERE run_id = ? "
+                "AND (status IS NULL OR status NOT IN ('completed', 'failed', 'cancelled'))",
                 (
                     status,
                     detail,
@@ -767,7 +769,9 @@ class SessionStore:
                     "detail = COALESCE(?, detail), "
                     "error_code = COALESCE(?, error_code), "
                     "updated_at = ?, "
-                    "terminal_at = COALESCE(?, terminal_at) WHERE run_id = ?",
+                    "terminal_at = COALESCE(?, terminal_at) "
+                    "WHERE run_id = ? "
+                    "AND (status IS NULL OR status NOT IN ('passed', 'degraded', 'failed', 'cancelled'))",
                     (
                         canonical_status,
                         detail,
@@ -874,8 +878,8 @@ class SessionStore:
                         name,
                         is_error,
                         turn_id,
-                        run_id,
                         None,
+                        run_id,
                         agora,
                     ),
                 )
@@ -1418,7 +1422,7 @@ class SessionStore:
         await self.setup()
         async with self._pool.acquire() as conn:
             cur = await conn.execute(
-                "SELECT interrupt_id, tool_name, tool_call_id, args_json, "
+                "SELECT interrupt_id, tool_name, tool_call_id, run_id, args_json, "
                 "reasoning, options_json, priority, expires_at, created_at "
                 "FROM pending_approvals WHERE thread_id = ?",
                 (thread_id,),
@@ -1430,6 +1434,7 @@ class SessionStore:
             interrupt_id,
             tool_name,
             tool_call_id,
+            run_id,
             args_json,
             reasoning,
             options_json,
@@ -1486,6 +1491,7 @@ class SessionStore:
             "interrupt_id": interrupt_id,
             "tool_name": tool_name,
             "tool_call_id": tool_call_id,
+            "run_id": run_id,
             "args": json.loads(args_json),
             "reasoning": reasoning,
             "options": json.loads(options_json or "[]"),
@@ -1506,7 +1512,7 @@ class SessionStore:
             try:
                 cur = await conn.execute(
                     "DELETE FROM pending_approvals WHERE thread_id = ? AND interrupt_id = ? "
-                    "RETURNING interrupt_id, tool_name, tool_call_id, args_json, reasoning, "
+                    "RETURNING interrupt_id, tool_name, tool_call_id, run_id, args_json, reasoning, "
                     "options_json, priority, expires_at, created_at",
                     (thread_id, interrupt_id),
                 )
@@ -1519,6 +1525,7 @@ class SessionStore:
                     claimed_id,
                     tool_name,
                     tool_call_id,
+                    run_id,
                     args_json,
                     reasoning,
                     options_json,
@@ -1574,6 +1581,7 @@ class SessionStore:
             "interrupt_id": claimed_id,
             "tool_name": tool_name,
             "tool_call_id": tool_call_id,
+            "run_id": run_id,
             "args": json.loads(args_json),
             "reasoning": reasoning,
             "options": json.loads(options_json or "[]"),
@@ -1589,6 +1597,7 @@ class SessionStore:
         interrupt_id: str,
         tool_name: str,
         tool_call_id: str,
+        run_id: str | None = None,
         args: dict[str, Any],
         reasoning: str | None = None,
         options: list[ToolOption] | None = None,
@@ -1604,13 +1613,14 @@ class SessionStore:
             try:
                 await conn.execute(
                     "INSERT OR REPLACE INTO pending_approvals (thread_id, "
-                    "interrupt_id, tool_name, tool_call_id, args_json, reasoning, options_json, "
-                    "priority, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "interrupt_id, tool_name, tool_call_id, run_id, args_json, reasoning, options_json, "
+                    "priority, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         thread_id,
                         interrupt_id,
                         tool_name,
                         tool_call_id,
+                        run_id,
                         json.dumps(args, ensure_ascii=False),
                         reasoning,
                         json.dumps(options or [], ensure_ascii=False),
@@ -1631,6 +1641,7 @@ class SessionStore:
                 payload = {
                     "tool_name": tool_name,
                     "tool_call_id": tool_call_id,
+                    "run_id": run_id,
                     "args": args,
                     "reasoning": reasoning,
                     "priority": priority,
@@ -1646,7 +1657,7 @@ class SessionStore:
                         req_key,
                         "approval_requested",
                         None,
-                        None,
+                        run_id,
                         None,
                         tool_call_id,
                         interrupt_id,
