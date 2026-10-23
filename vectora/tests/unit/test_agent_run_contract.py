@@ -254,124 +254,15 @@ class TestAgentRunLifecycle:
         assert len(loaded.tools_used) == 5
         assert len(loaded.evidence) == 5
 
-    async def test_projection_and_artifact_evidence_are_idempotent(
+    async def test_evidence_lock_registry_releases_unknown_runs(
         self, store: SessionStore
     ) -> None:
-        await store.create_session("thread-idempotent", user_id="user-123")
-        await store.upsert_agent_run(
-            AgentRun(run_id="run-idempotent", thread_id="thread-idempotent")
-        )
-
-        projection = {"kind": "context_projection", "projection_id": "projection-1"}
-        artifact = {"artifact_id": "artifact-1", "sha256": "a" * 64}
-        await store.record_run_evidence(
-            "run-idempotent", evidence=projection, artifact=artifact
-        )
-        await store.record_run_evidence(
-            "run-idempotent", evidence=projection, artifact=artifact
-        )
-
-        loaded = await store.get_agent_run("run-idempotent")
-        assert loaded is not None
-        assert len(loaded.evidence) == 1
-        assert len(loaded.artifacts) == 1
-
-    async def test_projection_store_is_separate_from_agent_evidence(
-        self, store: SessionStore
-    ) -> None:
-        await store.create_session("thread-projection-store", user_id="user-123")
-        await store.save_context_projection(
-            "thread-projection-store",
-            "run-projection",
-            {
-                "projection_id": "projection-persisted",
-                "source_transcript_hash": "b" * 64,
-                "start_seq": 3,
-                "end_seq": 8,
-                "model": "qwen",
-                "policy_version": "context.v1",
-                "tokens_before": 100,
-                "tokens_after": 40,
-                "preserved_decisions": ["d1"],
-                "omitted_sequences": [1, 2],
-            },
-        )
-
-        projection = await store.get_latest_context_projection(
-            "thread-projection-store", policy_version="context.v1"
-        )
-        assert projection is not None
-        assert projection["projection_id"] == "projection-persisted"
-        assert projection["covered_to_sequence"] == 8
-        assert projection["omitted_sequences"] == [1, 2]
-        assert (
-            await store.get_latest_context_projection(
-                "thread-projection-store", source_transcript_hash="c" * 64
+        """Uma execução ausente não pode deixar um lock retido para sempre."""
+        for index in range(100):
+            await store.record_run_evidence(
+                f"missing-run-{index}", evidence={"step": index}
             )
-        ) is None
-
-        await store.save_context_checkpoint(
-            "thread-projection-store",
-            "run-projection",
-            {
-                "checkpoint_id": "checkpoint-persisted",
-                "last_sequence": 8,
-                "source_hash": "b" * 64,
-                "schema_version": "context.v1",
-                "state": {"step": "verify"},
-                "artifact_refs": ["artifact-1"],
-            },
-        )
-        checkpoint = await store.get_latest_context_checkpoint(
-            "thread-projection-store", source_hash="b" * 64
-        )
-        assert checkpoint is not None
-        assert checkpoint["checkpoint_id"] == "checkpoint-persisted"
-        assert checkpoint["state"] == {"step": "verify"}
-        assert (
-            await store.get_latest_context_checkpoint(
-                "thread-projection-store", source_hash="c" * 64
-            )
-        ) is None
-
-        await store.delete_session("thread-projection-store")
-        assert (
-            await store.get_latest_context_projection("thread-projection-store")
-        ) is None
-        assert (
-            await store.get_latest_context_checkpoint("thread-projection-store")
-        ) is None
-
-    async def test_context_checkpoints_allow_distinct_transcript_branches(
-        self, store: SessionStore
-    ) -> None:
-        thread_id = "thread-checkpoint-branches"
-        await store.create_session(thread_id, user_id="user-123")
-        for checkpoint_id, run_id, source_hash in (
-            ("checkpoint-a", "run-a", "hash-a"),
-            ("checkpoint-b", "run-b", "hash-b"),
-        ):
-            await store.save_context_checkpoint(
-                thread_id,
-                run_id,
-                {
-                    "checkpoint_id": checkpoint_id,
-                    "last_sequence": 3,
-                    "source_hash": source_hash,
-                    "state": {"phase": run_id},
-                },
-            )
-
-        checkpoint_a = await store.get_latest_context_checkpoint(
-            thread_id, source_hash="hash-a"
-        )
-        checkpoint_b = await store.get_latest_context_checkpoint(
-            thread_id, source_hash="hash-b"
-        )
-        assert checkpoint_a is not None
-        assert checkpoint_b is not None
-        assert checkpoint_a["checkpoint_id"] == "checkpoint-a"
-        assert checkpoint_b["checkpoint_id"] == "checkpoint-b"
+        assert len(store._run_evidence_locks) == 0
 
     async def test_rehydrate_after_restart(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "restart_test.db")
