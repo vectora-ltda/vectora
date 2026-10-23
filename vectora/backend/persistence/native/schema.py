@@ -6,7 +6,7 @@ do consumo de dados feito por `SessionStore` e `PostgresSessionStore`.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import asyncpg
@@ -184,77 +184,83 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
         )
         agent_runs_sql = await cursor.fetchone()
         if agent_runs_sql and "waiting_provider" not in str(agent_runs_sql[0]):
-            legacy_columns = {
-                str(column[1])
-                for column in await conn.execute_fetchall(
-                    "PRAGMA table_info(agent_runs)"
-                )
-            }
-            for lineage_column in ("parent_run_id", "correlation_id"):
-                if lineage_column not in legacy_columns:
-                    await conn.execute(
-                        f"ALTER TABLE agent_runs ADD COLUMN {lineage_column} TEXT"
+            await conn.execute("BEGIN IMMEDIATE")
+            try:
+                legacy_columns = {
+                    str(column[1])
+                    for column in await conn.execute_fetchall(
+                        "PRAGMA table_info(agent_runs)"
                     )
-            await conn.execute("DROP INDEX IF EXISTS ix_agent_runs_thread_turn")
-            await conn.execute("DROP INDEX IF EXISTS ix_agent_runs_thread_status")
-            await conn.execute("ALTER TABLE agent_runs RENAME TO agent_runs_legacy")
-            await conn.execute(
-                """CREATE TABLE agent_runs (
-                    run_id TEXT PRIMARY KEY,
-                    thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
-                    contract_version INTEGER NOT NULL DEFAULT 1,
-                    turn_id TEXT,
-                    parent_run_id TEXT,
-                    correlation_id TEXT,
-                    user_id TEXT NOT NULL DEFAULT '',
-                    workspace_id TEXT,
-                    model TEXT NOT NULL DEFAULT '',
-                    provider TEXT NOT NULL DEFAULT '',
-                    status TEXT NOT NULL CHECK(status IN
-                        ('planned', 'admitted', 'running', 'waiting_approval', 'waiting_provider', 'tool_running', 'verifying', 'passed', 'degraded', 'failed', 'cancelled', 'recovery_required')),
-                    plan_step TEXT,
-                    checkpoint_id TEXT,
-                    tools_available_json TEXT NOT NULL DEFAULT '[]',
-                    tools_used_json TEXT NOT NULL DEFAULT '[]',
-                    approvals_json TEXT NOT NULL DEFAULT '[]',
-                    files_touched_json TEXT NOT NULL DEFAULT '[]',
-                    commands_run_json TEXT NOT NULL DEFAULT '[]',
-                    tests_run_json TEXT NOT NULL DEFAULT '[]',
-                    artifacts_json TEXT NOT NULL DEFAULT '[]',
-                    metrics_json TEXT NOT NULL DEFAULT '{}',
-                    evidence_json TEXT NOT NULL DEFAULT '[]',
-                    detail TEXT,
-                    error_code TEXT,
-                    started_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    terminal_at TEXT
-                )"""
-            )
-            await conn.execute(
-                """INSERT INTO agent_runs (
-                    run_id, thread_id, contract_version, turn_id, user_id, workspace_id, model, provider,
-                    parent_run_id, correlation_id,
-                    status, plan_step, checkpoint_id, tools_available_json, tools_used_json,
-                    approvals_json, files_touched_json, commands_run_json,
-                    tests_run_json, artifacts_json, metrics_json, evidence_json,
-                    detail, error_code, started_at, updated_at, terminal_at
-                ) SELECT run_id, thread_id, 1, turn_id, user_id, workspace_id, model,
-                    provider, parent_run_id, correlation_id, status, plan_step, NULL,
-                    tools_available_json, tools_used_json,
-                    approvals_json, files_touched_json, commands_run_json,
-                    tests_run_json, artifacts_json, metrics_json, evidence_json,
-                    detail, error_code, started_at, updated_at, terminal_at
-                    FROM agent_runs_legacy"""
-            )
-            await conn.execute("DROP TABLE agent_runs_legacy")
-            await conn.execute(
-                "CREATE UNIQUE INDEX ix_agent_runs_thread_turn "
-                "ON agent_runs(thread_id, turn_id) WHERE turn_id IS NOT NULL"
-            )
-            await conn.execute(
-                "CREATE INDEX ix_agent_runs_thread_status "
-                "ON agent_runs(thread_id, status, updated_at)"
-            )
+                }
+                for lineage_column in ("parent_run_id", "correlation_id"):
+                    if lineage_column not in legacy_columns:
+                        await conn.execute(
+                            f"ALTER TABLE agent_runs ADD COLUMN {lineage_column} TEXT"
+                        )
+                await conn.execute("DROP INDEX IF EXISTS ix_agent_runs_thread_turn")
+                await conn.execute("DROP INDEX IF EXISTS ix_agent_runs_thread_status")
+                await conn.execute("ALTER TABLE agent_runs RENAME TO agent_runs_legacy")
+                await conn.execute(
+                    """CREATE TABLE agent_runs (
+                        run_id TEXT PRIMARY KEY,
+                        thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
+                        contract_version INTEGER NOT NULL DEFAULT 1,
+                        turn_id TEXT,
+                        parent_run_id TEXT,
+                        correlation_id TEXT,
+                        user_id TEXT NOT NULL DEFAULT '',
+                        workspace_id TEXT,
+                        model TEXT NOT NULL DEFAULT '',
+                        provider TEXT NOT NULL DEFAULT '',
+                        status TEXT NOT NULL CHECK(status IN
+                            ('planned', 'admitted', 'running', 'waiting_approval', 'waiting_provider', 'tool_running', 'verifying', 'passed', 'degraded', 'failed', 'cancelled', 'recovery_required')),
+                        plan_step TEXT,
+                        checkpoint_id TEXT,
+                        tools_available_json TEXT NOT NULL DEFAULT '[]',
+                        tools_used_json TEXT NOT NULL DEFAULT '[]',
+                        approvals_json TEXT NOT NULL DEFAULT '[]',
+                        files_touched_json TEXT NOT NULL DEFAULT '[]',
+                        commands_run_json TEXT NOT NULL DEFAULT '[]',
+                        tests_run_json TEXT NOT NULL DEFAULT '[]',
+                        artifacts_json TEXT NOT NULL DEFAULT '[]',
+                        metrics_json TEXT NOT NULL DEFAULT '{}',
+                        evidence_json TEXT NOT NULL DEFAULT '[]',
+                        detail TEXT,
+                        error_code TEXT,
+                        started_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        terminal_at TEXT
+                    )"""
+                )
+                await conn.execute(
+                    """INSERT INTO agent_runs (
+                        run_id, thread_id, contract_version, turn_id, user_id, workspace_id, model, provider,
+                        parent_run_id, correlation_id,
+                        status, plan_step, checkpoint_id, tools_available_json, tools_used_json,
+                        approvals_json, files_touched_json, commands_run_json,
+                        tests_run_json, artifacts_json, metrics_json, evidence_json,
+                        detail, error_code, started_at, updated_at, terminal_at
+                    ) SELECT run_id, thread_id, 1, turn_id, user_id, workspace_id, model,
+                        provider, parent_run_id, correlation_id, status, plan_step, NULL,
+                        tools_available_json, tools_used_json,
+                        approvals_json, files_touched_json, commands_run_json,
+                        tests_run_json, artifacts_json, metrics_json, evidence_json,
+                        detail, error_code, started_at, updated_at, terminal_at
+                        FROM agent_runs_legacy"""
+                )
+                await conn.execute("DROP TABLE agent_runs_legacy")
+                await conn.execute(
+                    "CREATE UNIQUE INDEX ix_agent_runs_thread_turn "
+                    "ON agent_runs(thread_id, turn_id) WHERE turn_id IS NOT NULL"
+                )
+                await conn.execute(
+                    "CREATE INDEX ix_agent_runs_thread_status "
+                    "ON agent_runs(thread_id, status, updated_at)"
+                )
+            except Exception:
+                await conn.rollback()
+                raise
+            await conn.commit()
         # Upgrade de bancos criados antes de decisões estruturadas de HITL
         for statement in (
             "ALTER TABLE pending_approvals ADD COLUMN options_json TEXT NOT NULL DEFAULT '[]'",
@@ -504,4 +510,18 @@ async def setup_postgres_session_schema(pool: asyncpg.Pool) -> None:
         )
         await conn.execute(
             "ALTER TABLE vectora_native_agent_runs ADD COLUMN IF NOT EXISTS checkpoint_id TEXT"
+        )
+        # Tables created before the expanded AgentRun contract retain their
+        # original CHECK constraint. Replace that fixed constraint explicitly
+        # so existing PostgreSQL installations admit every persisted state.
+        await conn.execute(
+            "ALTER TABLE vectora_native_agent_runs "
+            "DROP CONSTRAINT IF EXISTS vectora_native_agent_runs_status_check"
+        )
+        await conn.execute(
+            "ALTER TABLE vectora_native_agent_runs "
+            "ADD CONSTRAINT vectora_native_agent_runs_status_check CHECK "
+            "(status IN ('planned', 'admitted', 'running', 'waiting_approval', "
+            "'waiting_provider', 'tool_running', 'verifying', 'passed', 'degraded', "
+            "'failed', 'cancelled', 'recovery_required'))"
         )

@@ -405,8 +405,7 @@ async def run_conversation(
         tool_calls = [
             replace(
                 tool_call,
-                id=tool_call.id
-                or f"call_{config.run_id or thread_id}_{_iteracao}_{index}",
+                id=tool_call.id or f"call_{turn_identity}_{_iteracao}_{index}",
             )
             for index, tool_call in enumerate(tool_calls)
         ]

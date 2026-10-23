@@ -8,6 +8,7 @@ Também define os modelos de resumo da thread e do rascunho de execução.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -15,6 +16,9 @@ from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from backend.storage.sqlite.pool import AsyncConnectionPool
+
+
+logger = logging.getLogger(__name__)
 
 
 class LedgerEventType:
@@ -299,14 +303,19 @@ async def backfill_thread_ledger(
             return migrated_count, current_seq
         except Exception as exc:
             await conn.rollback()
-            async with pool.acquire() as conn_err:
-                await conn_err.execute(
+            try:
+                await conn.execute(
                     "INSERT INTO ledger_backfill (thread_id, status, error, started_at, completed_at) "
                     "VALUES (?, 'failed', ?, ?, ?) "
                     "ON CONFLICT(thread_id) DO UPDATE SET status='failed', error=excluded.error, completed_at=excluded.completed_at",
                     (thread_id, str(exc), now, _now()),
                 )
-                await conn_err.commit()
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                logger.exception(
+                    "Falha ao registrar backfill failed para thread %s", thread_id
+                )
             raise
 
 

@@ -292,7 +292,7 @@ class SessionStore:
                 run.thread_id,
                 run.turn_id,
                 mapped_status,
-                run.detail,
+                redacted_detail,
                 provider_model,
                 run.started_at,
                 now,
@@ -617,14 +617,18 @@ class SessionStore:
                 for r in rows
             ]
 
-    async def get_agent_run_timeline(self, run_id: str) -> list[AgentRunTimelineEntry]:
-        """Recupera todos os eventos do ledger correlacionados a um run_id."""
+    async def get_agent_run_timeline(
+        self, run_id: str, *, limit: int = 500, offset: int = 0
+    ) -> list[AgentRunTimelineEntry]:
+        """Recupera uma página ordenada dos eventos correlacionados ao run."""
+        limit = max(1, min(limit, 500))
+        offset = max(0, offset)
         await self.setup()
         async with self._pool.acquire() as conn:
             cur = await conn.execute(
                 "SELECT seq, event_key, type, created_at, payload_json "
-                "FROM thread_events WHERE run_id = ? ORDER BY seq ASC",
-                (run_id,),
+                "FROM thread_events WHERE run_id = ? ORDER BY seq ASC LIMIT ? OFFSET ?",
+                (run_id, limit, offset),
             )
             rows = await cur.fetchall()
             return [
