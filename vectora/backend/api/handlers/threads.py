@@ -1073,7 +1073,7 @@ async def list_threads(
     threads = []
     for row in rows:
         thread = _row_to_thread(row)
-        if s := summaries_by_id.get(thread.id):
+        if (s := summaries_by_id.get(thread.id)) and s.last_seq > 0:
             thread.unread_count = s.unread_count
             thread.status = s.status
             thread.last_seq = s.last_seq
@@ -2555,7 +2555,7 @@ async def stream_thread_ledger_events(
     last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
 ) -> StreamingResponse:
     """Stream SSE de eventos do ledger da thread com suporte a Last-Event-ID / from_seq."""
-    await _assert_owns_thread(thread_id, request)
+    await _assert_owns_thread(thread_id, request, require_existing=True)
     session_store = await _get_session_store()
 
     # Validação e parsing de Last-Event-ID e from_seq
@@ -2630,7 +2630,7 @@ async def stream_thread_ledger_events(
 
 
 # ---------------------------------------------------------------------------
-# Endpoints de AgentRun e Auditoria de Execução (Issue #368)
+# Endpoints de AgentRun e auditoria de execução.
 # ---------------------------------------------------------------------------
 
 

@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS pending_approvals (
     interrupt_id TEXT NOT NULL,
     tool_name TEXT NOT NULL,
     tool_call_id TEXT NOT NULL,
+    run_id TEXT,
     args_json TEXT NOT NULL,
     reasoning TEXT,
     options_json TEXT NOT NULL DEFAULT '[]',
@@ -285,6 +286,7 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
             "ALTER TABLE pending_approvals ADD COLUMN options_json TEXT NOT NULL DEFAULT '[]'",
             "ALTER TABLE pending_approvals ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
             "ALTER TABLE pending_approvals ADD COLUMN expires_at TEXT",
+            "ALTER TABLE pending_approvals ADD COLUMN run_id TEXT",
         ):
             try:
                 await conn.execute(statement)
@@ -370,6 +372,7 @@ CREATE TABLE IF NOT EXISTS vectora_native_pending_approvals (
     interrupt_id TEXT NOT NULL,
     tool_name TEXT NOT NULL,
     tool_call_id TEXT NOT NULL,
+    run_id TEXT,
     args_json TEXT NOT NULL,
     reasoning TEXT,
     options_json TEXT NOT NULL DEFAULT '[]',
@@ -530,6 +533,10 @@ async def setup_postgres_session_schema(pool: asyncpg.Pool) -> None:
             (
                 "ALTER TABLE vectora_native_pending_approvals "
                 "ADD COLUMN IF NOT EXISTS expires_at TEXT"
+            ),
+            (
+                "ALTER TABLE vectora_native_pending_approvals "
+                "ADD COLUMN IF NOT EXISTS run_id TEXT"
             ),
         ):
             await conn.execute(statement)
