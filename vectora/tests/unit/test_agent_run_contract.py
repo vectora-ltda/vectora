@@ -80,6 +80,71 @@ class TestRedaction:
 
 
 class TestAgentRunLifecycle:
+    async def test_legacy_agent_run_migration_preserves_lineage_columns(
+        self, tmp_path: Path
+    ) -> None:
+        """A status-check migration must not discard lineage metadata."""
+        pool = AsyncConnectionPool(
+            str(tmp_path / "legacy-agent-runs.db"), min_size=1, max_size=1
+        )
+        await pool.open()
+        try:
+            async with pool.acquire() as conn:
+                await conn.executescript(
+                    """
+                    CREATE TABLE sessions (thread_id TEXT PRIMARY KEY);
+                    INSERT INTO sessions(thread_id) VALUES ('legacy-thread');
+                    CREATE TABLE agent_runs (
+                        run_id TEXT PRIMARY KEY,
+                        thread_id TEXT NOT NULL,
+                        turn_id TEXT,
+                        user_id TEXT NOT NULL DEFAULT '',
+                        workspace_id TEXT,
+                        model TEXT NOT NULL DEFAULT '',
+                        provider TEXT NOT NULL DEFAULT '',
+                        status TEXT NOT NULL CHECK(status IN ('planned', 'running', 'passed')),
+                        plan_step TEXT,
+                        tools_available_json TEXT NOT NULL DEFAULT '[]',
+                        tools_used_json TEXT NOT NULL DEFAULT '[]',
+                        approvals_json TEXT NOT NULL DEFAULT '[]',
+                        files_touched_json TEXT NOT NULL DEFAULT '[]',
+                        commands_run_json TEXT NOT NULL DEFAULT '[]',
+                        tests_run_json TEXT NOT NULL DEFAULT '[]',
+                        artifacts_json TEXT NOT NULL DEFAULT '[]',
+                        metrics_json TEXT NOT NULL DEFAULT '{}',
+                        evidence_json TEXT NOT NULL DEFAULT '[]',
+                        detail TEXT,
+                        error_code TEXT,
+                        started_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        terminal_at TEXT
+                    );
+                    INSERT INTO agent_runs(
+                        run_id, thread_id, status, started_at, updated_at
+                    ) VALUES ('legacy-run', 'legacy-thread', 'planned', 's', 'u');
+                    """
+                )
+                await conn.commit()
+
+            await SessionStore(pool).setup()
+            async with pool.acquire() as conn:
+                columns = {
+                    str(row[1])
+                    for row in await conn.execute_fetchall(
+                        "PRAGMA table_info(agent_runs)"
+                    )
+                }
+                row = await (
+                    await conn.execute(
+                        "SELECT parent_run_id, correlation_id FROM agent_runs WHERE run_id = ?",
+                        ("legacy-run",),
+                    )
+                ).fetchone()
+            assert {"parent_run_id", "correlation_id"} <= columns
+            assert tuple(row) == (None, None)
+        finally:
+            await pool.close()
+
     async def test_create_and_read_agent_run(self, store: SessionStore) -> None:
         await store.create_session("thread-run-1", user_id="user-123")
         run = AgentRun(
