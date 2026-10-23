@@ -1383,7 +1383,8 @@ class PostgresSessionStore:
             "evidence_json = EXCLUDED.evidence_json, "
             "detail = COALESCE(EXCLUDED.detail, vectora_native_agent_runs.detail), "
             "error_code = COALESCE(EXCLUDED.error_code, vectora_native_agent_runs.error_code), "
-            "updated_at = EXCLUDED.updated_at, "
+            "updated_at = CASE WHEN vectora_native_agent_runs.status IN ('passed', 'degraded', 'failed', 'cancelled') "
+            "THEN vectora_native_agent_runs.updated_at ELSE EXCLUDED.updated_at END, "
             "terminal_at = COALESCE(vectora_native_agent_runs.terminal_at, EXCLUDED.terminal_at)",
             run.run_id,
             run.thread_id,

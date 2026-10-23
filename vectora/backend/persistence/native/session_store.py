@@ -284,7 +284,8 @@ class SessionStore:
             "THEN session_runs.status ELSE excluded.status END, "
             "detail=COALESCE(excluded.detail, session_runs.detail), "
             "provider_model=COALESCE(excluded.provider_model, session_runs.provider_model), "
-            "updated_at=excluded.updated_at, "
+            "updated_at=CASE WHEN session_runs.status IN ('completed', 'failed', 'cancelled') "
+            "THEN session_runs.updated_at ELSE excluded.updated_at END, "
             "terminal_at=COALESCE(session_runs.terminal_at, excluded.terminal_at)",
             (
                 run.run_id,
@@ -322,7 +323,8 @@ class SessionStore:
             "evidence_json=excluded.evidence_json, "
             "detail=COALESCE(excluded.detail, agent_runs.detail), "
             "error_code=COALESCE(excluded.error_code, agent_runs.error_code), "
-            "updated_at=excluded.updated_at, "
+            "updated_at=CASE WHEN agent_runs.status IN ('passed', 'degraded', 'failed', 'cancelled') "
+            "THEN agent_runs.updated_at ELSE excluded.updated_at END, "
             "terminal_at=COALESCE(agent_runs.terminal_at, excluded.terminal_at)",
             (
                 run.run_id,

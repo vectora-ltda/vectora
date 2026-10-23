@@ -317,6 +317,32 @@ class TestAgentRunLifecycle:
         assert legacy_after == legacy_before
         assert canonical_after == canonical_before
 
+    async def test_upsert_does_not_reopen_terminal_run(
+        self, store: SessionStore
+    ) -> None:
+        """Uma atualização tardia do objeto não reabre uma execução terminal."""
+        await store.create_session("thread-upsert-guard", user_id="user-123")
+        await store.upsert_agent_run(
+            AgentRun(run_id="run-upsert-guard", thread_id="thread-upsert-guard")
+        )
+        await store.update_agent_run_status("run-upsert-guard", status="failed")
+        terminal = await store.get_agent_run("run-upsert-guard")
+        assert terminal is not None
+
+        await store.upsert_agent_run(
+            AgentRun(
+                run_id="run-upsert-guard",
+                thread_id="thread-upsert-guard",
+                status="running",
+                detail="late provider callback",
+            )
+        )
+        current = await store.get_agent_run("run-upsert-guard")
+        assert current is not None
+        assert current.status == "failed"
+        assert current.terminal_at == terminal.terminal_at
+        assert current.updated_at == terminal.updated_at
+
     async def test_record_evidences_and_redaction(self, store: SessionStore) -> None:
         await store.create_session("thread-run-3", user_id="user-123")
         run = AgentRun(
