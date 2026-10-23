@@ -150,24 +150,49 @@ def check_schema_compatibility(
             report.breaking.extend(sub_report.breaking)
             report.non_breaking.extend(sub_report.non_breaking)
 
-    # 8. Checa oneOf / anyOf / allOf. A cardinalidade sozinha nao e suficiente:
-    # cada alternativa e comparada recursivamente e a direcao determina qual
-    # alteracao restringe o produtor/consumidor.
+    # 8. Checa oneOf / anyOf / allOf. Alternativas de anyOf/oneOf são conjuntos
+    # sem ordem semântica; allOf mantém a ordem porque cada posição é uma
+    # restrição correspondente.
     for combo_key in ("oneOf", "anyOf", "allOf"):
         old_combos = old_schema.get(combo_key, [])
         new_combos = new_schema.get(combo_key, [])
         if not isinstance(old_combos, list) or not isinstance(new_combos, list):
             continue
+        if combo_key in {"anyOf", "oneOf"}:
+            source, target = (
+                (old_combos, new_combos)
+                if direction == "request"
+                else (new_combos, old_combos)
+            )
+            for index, source_alt in enumerate(source):
+                if not isinstance(source_alt, dict):
+                    continue
+                matched = False
+                for target_alt in target:
+                    if not isinstance(target_alt, dict):
+                        continue
+                    candidate = check_schema_compatibility(
+                        source_alt,
+                        target_alt,
+                        path=f"{path}.{combo_key}[{index}]"
+                        if path
+                        else f"{combo_key}[{index}]",
+                        direction=direction,
+                    )
+                    if candidate.is_compatible:
+                        matched = True
+                        break
+                if not matched:
+                    report.breaking.append(
+                        f"{path}: alternativa {index} de {combo_key} não possui correspondente"
+                    )
+            continue
+
         old_len, new_len = len(old_combos), len(new_combos)
         if old_len != new_len:
-            if combo_key in {"anyOf", "oneOf"}:
-                breaking = (direction == "request" and new_len < old_len) or (
-                    direction == "response" and new_len > old_len
-                )
-            else:  # allOf: mais restricoes no request, menos no response
-                breaking = (direction == "request" and new_len > old_len) or (
-                    direction == "response" and new_len < old_len
-                )
+            breaking = (direction == "request" and new_len > old_len) or (
+                direction == "response" and new_len < old_len
+            )
             message = (
                 f"{path}: número de alternativas em {combo_key} alterado de "
                 f"{old_len} para {new_len}"

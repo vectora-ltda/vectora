@@ -135,8 +135,11 @@ async def test_postgres_agent_run_upsert_uses_for_update_and_preserves_untrusted
 
     execute_call = conn.execute.await_args
     assert execute_call is not None
-    # evidence_json é o 18º valor de parâmetro ($18 -> args[18])
-    evidence_saved = json.loads(execute_call.args[18])
+    evidence_saved = next(
+        json.loads(value)
+        for value in execute_call.args[1:]
+        if isinstance(value, str) and value.startswith("[{")
+    )
     assert any(
         isinstance(e, dict) and e.get("untrusted_content") is True
         for e in evidence_saved

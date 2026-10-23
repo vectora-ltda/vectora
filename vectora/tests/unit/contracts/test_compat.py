@@ -223,3 +223,15 @@ def test_schema_compat_response_enum_expansion_is_breaking() -> None:
         direction="response",
     )
     assert not report.is_compatible
+
+
+def test_schema_compat_combinator_removal_from_middle() -> None:
+    old = {"anyOf": [{"type": "string"}, {"type": "integer"}, {"type": "boolean"}]}
+    new = {"anyOf": [{"type": "string"}, {"type": "boolean"}]}
+
+    request_report = check_schema_compatibility(old, new, direction="request")
+    assert not request_report.is_compatible
+    assert any("alternativa 1" in item for item in request_report.breaking)
+
+    response_report = check_schema_compatibility(old, new, direction="response")
+    assert response_report.is_compatible

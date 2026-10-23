@@ -115,6 +115,41 @@ class TestThreadLedgerStore:
         assert events2[0].message_id == msg2_id
         assert events2[0].seq == 2
 
+    async def test_append_event_backfills_legacy_messages_before_allocating_seq(
+        self, store: SessionStore
+    ) -> None:
+        """Eventos novos seguem as mensagens legadas já existentes no ledger."""
+        await store.create_session("thread-legacy", user_id="alice")
+        async with store._pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO messages (thread_id, role, content_json, "
+                "is_branch_head, created_at) VALUES (?, ?, ?, 1, ?)",
+                (
+                    "thread-legacy",
+                    "user",
+                    '[{"kind":"text","text":"histórico"}]',
+                    "2026-10-01T10:00:00Z",
+                ),
+            )
+            await conn.commit()
+
+        event = await store.append_event(
+            "thread-legacy",
+            ThreadLedgerEvent(
+                thread_id="thread-legacy",
+                event_key="run-legacy:started",
+                type="agent_turn_started",
+                run_id="run-legacy",
+            ),
+        )
+
+        assert event.seq == 2
+        events = await store.list_events("thread-legacy")
+        assert [item.type for item in events] == [
+            "message_created",
+            "agent_turn_started",
+        ]
+
     async def test_pending_approval_atomic_events(self, store: SessionStore) -> None:
         """put_pending_approval grava approval_requested e claim_pending_approval grava approval_resolved."""
         await store.create_session("thread-1", user_id="alice")

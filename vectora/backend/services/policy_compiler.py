@@ -150,7 +150,7 @@ def compile_policy_snapshot(
 
         is_jailed = _workspace_is_jailed(ws_id)
 
-    eff_egress = egress_policy or EgressPolicy(workspace_id=ws_id)
+    eff_egress = egress_policy or EgressPolicy.for_workspace(ws_id)
 
     return PolicySnapshot(
         workspace_id=ws_id,

@@ -382,7 +382,7 @@ class TestSettingsAndSecrets:
         p_local = get_systemone_provider(s_local)
         assert p_local.provider_id == "clef-local"
 
-        s_clef = SystemOneSettings(provider="clef-api")
+        s_clef = SystemOneSettings(provider="clef-api", clef_account_id="account-test")
         p_clef = get_systemone_provider(s_clef, clef_api_key="cf_key")
         assert p_clef.provider_id == "clef-api"
 

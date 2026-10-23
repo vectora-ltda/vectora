@@ -93,6 +93,10 @@ class TestFerramentaIaDeteccao:
 
 
 class TestTrackerDeteccao:
+    def test_nao_bloqueia_cor_hexadecimal_css(self, tmp_path: Path) -> None:
+        path = _write(tmp_path, "a.py", "# background-color: #000000\nx = 1\n")
+        assert _find_violations(path) == []
+
     def test_bloqueia_issue_com_numero(self, tmp_path: Path) -> None:
         path = _write(tmp_path, "a.py", "# fix para issue #318\nx = 1\n")
         assert len(_find_violations(path)) == 1
