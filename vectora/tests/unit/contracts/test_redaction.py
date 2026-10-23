@@ -71,3 +71,16 @@ def test_redaction_covers_camel_case_sensitive_keys() -> None:
     redacted = redact_payload({"apiToken": "secret", "session-token": 123})
     assert redacted["apiToken"] == "[REDACTED]"
     assert redacted["session-token"] == "[REDACTED]"
+
+
+def test_redaction_preserves_paths_and_schema_map_keys() -> None:
+    payload = {
+        "paths": {"/auth/token": {"post": {"description": "safe"}}},
+        "schemas": {"TokenResponse": {"properties": {"token": {"type": "string"}}}},
+    }
+    redacted = redact_payload(payload)
+    assert "/auth/token" in redacted["paths"]
+    assert "TokenResponse" in redacted["schemas"]
+    assert redacted["schemas"]["TokenResponse"]["properties"]["token"] == {
+        "type": "string"
+    }

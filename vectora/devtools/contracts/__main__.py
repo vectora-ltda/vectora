@@ -263,7 +263,7 @@ def export_quality_gates(contracts_dir: Path) -> None:
     definitions = top.get("$defs", {})
 
     bundle = {
-        "$schema": "https://json-schema.org/draft-07/schema#",
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "QualityGatesVerificationBundle",
         "description": "Schemas de perfis e resultados de verificação pós-execução.",
         "definitions": definitions,
@@ -299,7 +299,7 @@ def export_harness(contracts_dir: Path) -> None:
     )
     definitions = top.get("$defs", {})
     bundle = {
-        "$schema": "https://json-schema.org/draft-07/schema#",
+        "$schema": "http://json-schema.org/draft-07/schema#",
         "title": "HarnessRuntimeContractBundle",
         "description": "Contratos canônicos de artifacts, checkpoints, projections, memória e providers.",
         "definitions": definitions,
@@ -660,13 +660,19 @@ def check_all(contracts_dir: Path) -> int:
             if not prettier.exists():
                 prettier = frontend_dir / "node_modules" / ".bin" / "prettier"
             if prettier.exists():
-                subprocess.run(  # nosec B603 # noqa: S603
-                    [str(prettier), str(generated_ts), "--write"],
-                    cwd=frontend_dir,
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
+                try:
+                    subprocess.run(  # nosec B603 # noqa: S603
+                        [str(prettier), str(generated_ts), "--write"],
+                        cwd=frontend_dir,
+                        capture_output=True,
+                        text=True,
+                        check=True,
+                    )
+                except subprocess.CalledProcessError as exc:
+                    print(
+                        f"WARNING: Prettier falhou: {exc.stderr}; "
+                        "comparação literal usada"
+                    )
             else:
                 print("WARNING: Prettier não encontrado; comparação literal usada")
             if tracked_ts.read_text(encoding="utf-8") != generated_ts.read_text(
@@ -696,7 +702,7 @@ def check_all(contracts_dir: Path) -> int:
                     print(f"WARNING: caminho de baseline inválido: {rel}")
                     continue
                 repo_root = _contracts_root().parents[2]
-                git_rel = Path("backend") / "contracts" / rel
+                git_rel = _contracts_root().relative_to(repo_root) / rel
                 res = subprocess.run(  # nosec B603, B607  # noqa: S603
                     [  # noqa: S607
                         "git",
