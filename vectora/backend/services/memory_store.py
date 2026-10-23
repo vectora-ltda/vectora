@@ -41,9 +41,15 @@ class MemoryRecord:
         """Retorna se o registro ainda pode ser projetado no contexto."""
         if self.invalidated_at is not None:
             return False
-        return (
-            self.valid_until is None or self.valid_until > datetime.now(UTC).isoformat()
-        )
+        if self.valid_until is None:
+            return True
+        try:
+            expiry = datetime.fromisoformat(self.valid_until)
+            if expiry.tzinfo is None:
+                expiry = expiry.replace(tzinfo=UTC)
+            return expiry.astimezone(UTC) > datetime.now(UTC)
+        except ValueError:
+            return False
 
 
 @dataclass
@@ -105,6 +111,8 @@ class MemoryStore:
                 and existing.content == content
                 and existing.provenance == provenance
                 and existing.metadata == (metadata or {})
+                and existing.trust_level == trust_level
+                and existing.supersedes_id == supersedes_id
             )
             if same:
                 self._metrics["idempotent_writes"] += 1

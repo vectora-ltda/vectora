@@ -1714,7 +1714,7 @@ class PostgresSessionStore:
                 "preserved_decisions_json, preserved_errors_json, preserved_approvals_json, "
                 "pending_tool_calls_json, omitted_sequences_json, content_json, created_at) "
                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) "
-                "ON CONFLICT (projection_id) DO UPDATE SET content_json = EXCLUDED.content_json, "
+                "ON CONFLICT (thread_id, projection_id) DO UPDATE SET content_json = EXCLUDED.content_json, "
                 "tokens_before = EXCLUDED.tokens_before, tokens_after = EXCLUDED.tokens_after",
                 storage_projection_id,
                 thread_id,

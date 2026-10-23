@@ -44,13 +44,15 @@ def _normalise_reference(value: str | Path) -> str:
             text = text[1:]
         if parsed.netloc:
             text = f"//{parsed.netloc}{text}"
-    return str(Path(text).absolute()).casefold()
+    return str(Path(text).resolve(strict=False)).casefold()
 
 
 def _retention_class(sidecar: Path) -> str:
     try:
         payload = json.loads(sidecar.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
+        return "run"
+    if not isinstance(payload, dict):
         return "run"
     value = payload.get("retention_class")
     return value if isinstance(value, str) and value else "run"
