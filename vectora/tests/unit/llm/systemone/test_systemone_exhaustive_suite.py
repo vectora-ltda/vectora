@@ -526,7 +526,10 @@ def test_mask_secret_permutations(secret: str | None) -> None:
 
 @pytest.mark.parametrize("provider_name", ["clef-local", "clef-api", "jev-api"])
 def test_get_systemone_provider_matrix(provider_name: DecisionProviderType) -> None:
-    settings = SystemOneSettings(provider=provider_name)
+    settings = SystemOneSettings(
+        provider=provider_name,
+        clef_account_id="account-test" if provider_name == "clef-api" else "",
+    )
     prov = get_systemone_provider(
         settings,
         clef_api_key="cf_mock_key",

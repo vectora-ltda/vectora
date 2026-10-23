@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 import httpx
 import pytest
 from pydantic import ValidationError
@@ -214,6 +216,12 @@ class TestClefLocalAdapter:
 class TestApiAdapters:
     """Testes de contrato para os adapters JEV API e Clef API."""
 
+    def test_clef_api_adapter_requires_account_id(self) -> None:
+        parameter = inspect.signature(ClefApiAdapter.__init__).parameters["account_id"]
+        assert parameter.default is inspect.Parameter.empty
+        with pytest.raises(ValueError, match="account_id é obrigatório"):
+            ClefApiAdapter(api_key="key", account_id="")
+
     @pytest.mark.asyncio
     async def test_clef_api_adapter_requires_key(self) -> None:
         adapter = ClefApiAdapter(api_key="", account_id="test-account")
@@ -374,7 +382,7 @@ class TestSettingsAndSecrets:
         p_local = get_systemone_provider(s_local)
         assert p_local.provider_id == "clef-local"
 
-        s_clef = SystemOneSettings(provider="clef-api")
+        s_clef = SystemOneSettings(provider="clef-api", clef_account_id="account-test")
         p_clef = get_systemone_provider(s_clef, clef_api_key="cf_key")
         assert p_clef.provider_id == "clef-api"
 

@@ -18,25 +18,33 @@ from pydantic import BaseModel, Field, JsonValue
 
 AgentRunStatus = Literal[
     "planned",
+    "admitted",
     "running",
     "waiting_approval",
+    "waiting_provider",
+    "tool_running",
     "verifying",
     "passed",
     "degraded",
     "failed",
     "cancelled",
+    "recovery_required",
 ]
 
 VALID_AGENT_RUN_STATUSES: frozenset[str] = frozenset(
     {
         "planned",
+        "admitted",
         "running",
         "waiting_approval",
+        "waiting_provider",
+        "tool_running",
         "verifying",
         "passed",
         "degraded",
         "failed",
         "cancelled",
+        "recovery_required",
     }
 )
 
@@ -205,6 +213,7 @@ class AgentRun(BaseModel):
 
     run_id: str
     thread_id: str
+    contract_version: int = 1
     turn_id: str | None = None
     parent_run_id: str | None = None
     correlation_id: str | None = None
@@ -214,6 +223,7 @@ class AgentRun(BaseModel):
     provider: str = ""
     status: AgentRunStatus = "running"
     plan_step: str | None = None
+    checkpoint_id: str | None = None
     tools_available: list[str] = Field(default_factory=list)
     tools_used: list[str] = Field(default_factory=list)
     approvals: list[dict[str, JsonValue]] = Field(default_factory=list)

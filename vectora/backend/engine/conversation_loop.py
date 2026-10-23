@@ -27,6 +27,7 @@ vocabulário nativo.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import math
@@ -123,6 +124,46 @@ class LoopResult:
 
 async def _noop_event(_event: object) -> None:
     return None
+
+
+async def _safe_update_agent_run_status(
+    session_store: Any,
+    run_id: str | None,
+    *,
+    status: str,
+    detail: str | None = None,
+    error_code: str | None = None,
+    metrics: AgentRunMetrics | None = None,
+) -> None:
+    """Persiste o estado do run sem deixar falha do storage interromper o turno."""
+    if not run_id or not hasattr(session_store, "update_agent_run_status"):
+        return
+    try:
+        await session_store.update_agent_run_status(
+            run_id,
+            status=status,
+            detail=detail,
+            error_code=error_code,
+            metrics=metrics,
+        )
+    except Exception:
+        logger.exception(
+            "conversation_loop: falha ao persistir status do run %s", run_id
+        )
+
+
+async def _safe_record_run_evidence(
+    session_store: Any, run_id: str | None, **evidence: Any
+) -> None:
+    """Persiste evidências de forma best-effort, sem perder o resultado da tool."""
+    if not run_id or not hasattr(session_store, "record_run_evidence"):
+        return
+    try:
+        await session_store.record_run_evidence(run_id, **evidence)
+    except Exception:
+        logger.exception(
+            "conversation_loop: falha ao persistir evidência do run %s", run_id
+        )
 
 
 _ARGS_PREVIEW_MAX_CHARS = 80
@@ -245,6 +286,41 @@ def _resolve_tool_calls(acumulado: dict[int, dict[str, Any]]) -> list[ToolCall]:
     return chamadas
 
 
+async def _workspace_changed_paths(ctx: ToolContext) -> set[str]:
+    """Obtém arquivos alterados do workspace, sem confiar nos argumentos da tool."""
+    root = getattr(ctx, "workspace_dir", None) or getattr(ctx, "cwd", None)
+    if not root:
+        return set()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "status",
+            "--porcelain",
+            cwd=str(root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=2.0)
+        if proc.returncode != 0:
+            return set()
+        paths: set[str] = set()
+        for line in (stdout or b"").decode("utf-8", errors="replace").splitlines():
+            if len(line) <= 3:
+                continue
+            path = line[3:].strip()
+            if " -> " in path:
+                path = path.split(" -> ", 1)[-1].strip()
+            if path:
+                paths.add(path)
+        return paths
+    except Exception:
+        logger.debug(
+            "conversation_loop: não foi possível obter arquivos alterados",
+            exc_info=True,
+        )
+        return set()
+
+
 async def run_conversation(
     *,
     session_store: SessionStore,
@@ -288,6 +364,19 @@ async def run_conversation(
                 ctx._extra = {}
             ctx._extra["untrusted_content"] = True
 
+    if hasattr(session_store, "list_agent_runs"):
+        runs = await session_store.list_agent_runs(thread_id, limit=5)
+        if any(
+            bool(
+                run.get("untrusted_content")
+                if isinstance(run, dict)
+                else getattr(run, "untrusted_content", False)
+            )
+            for run in runs
+        ):
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
     if policy_snapshot is None:
         policy_snapshot = compile_policy_snapshot(ctx)
 
@@ -462,6 +551,22 @@ async def run_conversation(
                 )
             )
             await emit(MessageBreak())
+            await _safe_update_agent_run_status(
+                session_store,
+                config.run_id,
+                status="failed",
+                detail="O provedor encerrou o stream sem texto ou tool call.",
+                error_code="EMPTY_MODEL_RESPONSE",
+            )
+            if config.run_id:
+                with contextlib.suppress(Exception):
+                    await session_store.append_ledger_event(
+                        thread_id,
+                        event_key=make_run_failed_key(config.run_id),
+                        event_type=LedgerEventType.RUN_FAILED,
+                        run_id=config.run_id,
+                        payload={"error": "EMPTY_MODEL_RESPONSE"},
+                    )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=None,
@@ -521,6 +626,22 @@ async def run_conversation(
                 )
                 await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
                 await emit(MessageBreak())
+                await _safe_update_agent_run_status(
+                    session_store,
+                    config.run_id,
+                    status="failed",
+                    detail=mensagem,
+                    error_code="TOOL_CALL_REPEATED",
+                )
+                if config.run_id:
+                    with contextlib.suppress(Exception):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_run_failed_key(config.run_id),
+                            event_type=LedgerEventType.RUN_FAILED,
+                            run_id=config.run_id,
+                            payload={"error": "TOOL_CALL_REPEATED"},
+                        )
                 return LoopResult(
                     stopped_reason="loop_cap_exceeded",
                     final_message=None,
@@ -569,8 +690,10 @@ async def run_conversation(
                         thread_id,
                     )
                 if hasattr(session_store, "update_agent_run_status"):
+                    verification_handled = True
                     # 1. Transiciona atomicamente para o estado 'verifying'
-                    await session_store.update_agent_run_status(
+                    await _safe_update_agent_run_status(
+                        session_store,
                         config.run_id,
                         status="verifying",
                         detail="Executando verificação de quality gates e snapshot criptográfico.",
@@ -596,7 +719,8 @@ async def run_conversation(
                             config.run_id,
                             thread_id,
                         )
-                        await session_store.update_agent_run_status(
+                        await _safe_update_agent_run_status(
+                            session_store,
                             config.run_id,
                             status="failed",
                             detail="Erro interno durante a verificação pós-execução.",
@@ -624,7 +748,8 @@ async def run_conversation(
                                     )
                                     await session_store.upsert_agent_run(agent_run)
                             else:
-                                await session_store.update_agent_run_status(
+                                await _safe_update_agent_run_status(
+                                    session_store,
                                     config.run_id,
                                     status=v_res.status,
                                     detail=(
@@ -639,6 +764,16 @@ async def run_conversation(
                                 "Falha ao persistir evidências de verificação para run %s",
                                 config.run_id,
                             )
+                else:
+                    verification_handled = False
+                if not verification_handled:
+                    await _safe_update_agent_run_status(
+                        session_store,
+                        config.run_id,
+                        status="passed",
+                        detail="Execução completada com sucesso.",
+                        metrics=iter_metrics,
+                    )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=assistant_msg,
@@ -744,27 +879,24 @@ async def run_conversation(
                 # A falha na gravação de evidências ou atualização do run não pode impedir
                 # a emissão de HitlRequested para o cliente.
                 try:
-                    if hasattr(session_store, "record_run_evidence") and config.run_id:
-                        await session_store.record_run_evidence(
-                            config.run_id,
-                            approval={
-                                "interrupt_id": interrupt_id,
-                                "tool_name": pendente.name,
-                                "tool_call_id": stable_call_id,
-                                "options": options,
-                                "priority": priority,
-                            },
-                        )
-                    if (
-                        hasattr(session_store, "update_agent_run_status")
-                        and config.run_id
-                    ):
-                        await session_store.update_agent_run_status(
-                            config.run_id,
-                            status="waiting_approval",
-                            detail=f"Aguardando aprovação para {pendente.name}",
-                            metrics=iter_metrics,
-                        )
+                    await _safe_record_run_evidence(
+                        session_store,
+                        config.run_id,
+                        approval={
+                            "interrupt_id": interrupt_id,
+                            "tool_name": pendente.name,
+                            "tool_call_id": stable_call_id,
+                            "options": options,
+                            "priority": priority,
+                        },
+                    )
+                    await _safe_update_agent_run_status(
+                        session_store,
+                        config.run_id,
+                        status="waiting_approval",
+                        detail=f"Aguardando aprovação para {pendente.name}",
+                        metrics=iter_metrics,
+                    )
                 except Exception:
                     logger.exception(
                         "conversation_loop: falha ao persistir evidência/status de aprovação para thread %s",
@@ -808,7 +940,10 @@ async def run_conversation(
                             event_type=LedgerEventType.TOOL_STARTED,
                             run_id=config.run_id,
                             tool_call_id=tc.id,
-                            payload={"tool_name": tc.name, "args": tc.args},
+                            payload={
+                                "tool_name": tc.name,
+                                "args": _sanitize_tool_call(tc, ctx).args,
+                            },
                         )
                     elif hasattr(session_store, "append_event"):
                         await session_store.append_event(
@@ -819,7 +954,10 @@ async def run_conversation(
                                 type=LedgerEventType.TOOL_STARTED,
                                 run_id=config.run_id,
                                 tool_call_id=tc.id,
-                                payload={"tool_name": tc.name, "args": tc.args},
+                                payload={
+                                    "tool_name": tc.name,
+                                    "args": _sanitize_tool_call(tc, ctx).args,
+                                },
                             ),
                         )
                 except Exception:
@@ -858,68 +996,6 @@ async def run_conversation(
                 thread_id, resultado, parent_message_id=parent_id
             )
             call_id = resultado.tool_call_id or ""
-            if not resultado.is_error:
-                tc_match = next((t for t in tool_calls if t.id == call_id), None)
-                tc_args = tc_match.args if tc_match else {}
-                t_name = resultado.name or (tc_match.name if tc_match else "")
-                if t_name in {
-                    "file_write",
-                    "file_edit",
-                    "write_file",
-                    "edit_file",
-                    "apply_patch",
-                    "append_file",
-                    "replace_file",
-                }:
-                    p = (
-                        tc_args.get("file_path")
-                        or tc_args.get("path")
-                        or tc_args.get("target_file")
-                    )
-                    if isinstance(p, str) and p and p not in files_touched:
-                        files_touched.append(p)
-                elif t_name in {"file_delete", "delete_file"}:
-                    p = tc_args.get("path") or tc_args.get("file_path")
-                    if isinstance(p, str) and p and p not in files_touched:
-                        files_touched.append(p)
-                elif t_name in {"file_move", "move_file"}:
-                    for k in ("to_path", "from_path"):
-                        p = tc_args.get(k)
-                        if isinstance(p, str) and p and p not in files_touched:
-                            files_touched.append(p)
-                elif t_name in {
-                    "write_terminal",
-                    "terminal",
-                    "run_command",
-                    "exec_command",
-                }:
-                    ws_path = getattr(ctx, "workspace_dir", None) or getattr(
-                        ctx, "cwd", None
-                    )
-                    if ws_path:
-                        try:
-                            proc = await asyncio.create_subprocess_exec(
-                                "git",
-                                "status",
-                                "--porcelain",
-                                cwd=str(ws_path),
-                                stdout=asyncio.subprocess.PIPE,
-                                stderr=asyncio.subprocess.DEVNULL,
-                            )
-                            stdout_data, _ = await asyncio.wait_for(
-                                proc.communicate(), timeout=2.0
-                            )
-                            out = stdout_data.decode("utf-8", errors="replace")
-                            for raw_line in out.splitlines():
-                                cleaned_line = raw_line.strip()
-                                if len(cleaned_line) > 3:
-                                    f_part = cleaned_line[3:].strip()
-                                    if " -> " in f_part:
-                                        f_part = f_part.split(" -> ")[-1].strip()
-                                    if f_part and f_part not in files_touched:
-                                        files_touched.append(f_part)
-                        except Exception:
-                            pass
             if config.run_id and call_id:
                 try:
                     if hasattr(session_store, "append_ledger_event"):
@@ -1097,6 +1173,12 @@ async def run_conversation(
                                 "Erro inesperado ao processar plano e quality gates para run_id %s",
                                 config.run_id,
                             )
+
+        # Deriva a evidência do workspace após o lote. Isso exclui chamadas
+        # rejeitadas e leituras, e também detecta arquivos escritos via terminal.
+        for changed_path in await _workspace_changed_paths(ctx):
+            if changed_path not in files_touched:
+                files_touched.append(changed_path)
 
         if turn_budget.exceeded is not None:
             if config.run_id:

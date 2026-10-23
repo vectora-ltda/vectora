@@ -11,6 +11,7 @@ import asyncio
 import ipaddress
 import logging
 import socket
+from collections.abc import Sequence
 from enum import StrEnum
 from typing import Any
 from urllib.parse import urlparse
@@ -20,6 +21,14 @@ from pydantic import BaseModel, Field
 from backend.browser.ssrf_guard import _is_blocked_ip
 
 logger = logging.getLogger(__name__)
+
+_AddrInfo = tuple[
+    socket.AddressFamily,
+    socket.SocketKind,
+    int,
+    str,
+    tuple[str, int] | tuple[str, int, int, int] | tuple[int, bytes],
+]
 
 
 class BackendEgressCapability(StrEnum):
@@ -53,6 +62,41 @@ class EgressPolicy(BaseModel):
     denied_hosts: list[str] = Field(default_factory=list)
     allowed_ports: list[int] = Field(default_factory=lambda: [80, 443])
     allow_localhost_dev_ports: list[int] = Field(default_factory=list)
+
+    @classmethod
+    def for_workspace(cls, workspace_id: str | None) -> "EgressPolicy":
+        """Carrega a política persistida do workspace, com fallback seguro."""
+        raw: object = None
+        try:
+            from backend.workspace.runtime_settings import runtime_settings
+
+            direct = (
+                runtime_settings.get(f"egress_policy:{workspace_id}")
+                if workspace_id
+                else None
+            )
+            configured = runtime_settings.get("egress_policy", {})
+            if isinstance(direct, dict):
+                raw = direct
+            elif isinstance(configured, dict) and workspace_id:
+                candidate = configured.get(workspace_id)
+                if isinstance(candidate, dict):
+                    raw = candidate
+            elif isinstance(configured, dict):
+                raw = configured
+        except Exception:
+            logger.exception("egress_policy: falha ao carregar política persistida")
+        if not isinstance(raw, dict):
+            raw = {}
+        allowed = {
+            "block_private_ips",
+            "allowed_hosts",
+            "denied_hosts",
+            "allowed_ports",
+            "allow_localhost_dev_ports",
+        }
+        values = {key: value for key, value in raw.items() if key in allowed}
+        return cls(workspace_id=workspace_id, **values)
 
     def requires_network_restriction(self) -> bool:
         """Indica se a política impõe restrições ativas de saída."""
@@ -126,7 +170,10 @@ def _validate_addr_infos_and_port(
 
 
 def is_url_allowed(  # noqa: PLR0911
-    url: str, policy: EgressPolicy | None = None
+    url: str,
+    policy: EgressPolicy | None = None,
+    *,
+    resolve_dns: bool = True,
 ) -> tuple[bool, str]:
     """Verifica se a URL é autorizada pela política de egress e segura contra SSRF.
 
@@ -170,6 +217,39 @@ def is_url_allowed(  # noqa: PLR0911
                 False,
                 f"Host '{host}' não consta na allowlist de destinos autorizados",
             )
+
+    if not resolve_dns:
+        try:
+            literal_ip = ipaddress.ip_address(host)
+        except ValueError:
+            literal_ip = None
+        if literal_ip is not None:
+            fake_info: list[_AddrInfo] = [
+                (
+                    socket.AF_INET if literal_ip.version == 4 else socket.AF_INET6,
+                    socket.SOCK_STREAM,
+                    socket.IPPROTO_TCP,
+                    "",
+                    (host, port),
+                )
+            ]
+            ok, reason, _ = _validate_addr_infos_and_port(host, port, pol, fake_info)
+            return ok, reason
+
+        normalized_host = host.rstrip(".").lower()
+        if (
+            "." not in normalized_host
+            or normalized_host.endswith((".localhost", ".internal"))
+            or all(part.isdigit() for part in normalized_host.split("."))
+        ):
+            return False, f"Host '{host}' não é um destino DNS público permitido"
+
+        if pol.allowed_ports and port not in pol.allowed_ports:
+            return (
+                False,
+                f"Porta de conexão {port} não autorizada pela política de egress",
+            )
+        return True, ""
 
     # 3. Resolução DNS para proteção contra SSRF e DNS rebinding
     try:
