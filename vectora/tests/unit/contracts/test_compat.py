@@ -201,3 +201,25 @@ def test_python_union_type_to_ts_preserves_nullability() -> None:
     from devtools.contracts.__main__ import _python_type_to_ts
 
     assert _python_type_to_ts(str | None) == "string | null"
+
+
+def test_schema_compat_combinators_compare_content_and_direction() -> None:
+    old = {"anyOf": [{"type": "string"}, {"type": "integer"}]}
+    removed = {"anyOf": [{"type": "string"}]}
+    request_report = check_schema_compatibility(old, removed, direction="request")
+    assert not request_report.is_compatible
+    response_report = check_schema_compatibility(old, removed, direction="response")
+    assert response_report.is_compatible
+
+    changed = {"anyOf": [{"type": "number"}, {"type": "integer"}]}
+    changed_report = check_schema_compatibility(old, changed, direction="request")
+    assert not changed_report.is_compatible
+
+
+def test_schema_compat_response_enum_expansion_is_breaking() -> None:
+    report = check_schema_compatibility(
+        {"type": "string", "enum": ["a"]},
+        {"type": "string", "enum": ["a", "b"]},
+        direction="response",
+    )
+    assert not report.is_compatible
