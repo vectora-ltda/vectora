@@ -261,7 +261,7 @@ def export_quality_gates(contracts_dir: Path) -> None:
     definitions = top.get("$defs", {})
 
     bundle = {
-        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$schema": "https://json-schema.org/draft-07/schema#",
         "title": "QualityGatesVerificationBundle",
         "description": "Schemas de perfis e resultados de verificação pós-execução.",
         "definitions": definitions,
@@ -297,7 +297,7 @@ def export_harness(contracts_dir: Path) -> None:
     )
     definitions = top.get("$defs", {})
     bundle = {
-        "$schema": "http://json-schema.org/draft-07/schema#",
+        "$schema": "https://json-schema.org/draft-07/schema#",
         "title": "HarnessRuntimeContractBundle",
         "description": "Contratos canônicos de artifacts, checkpoints, projections, memória e providers.",
         "definitions": definitions,
@@ -658,7 +658,7 @@ def check_all(contracts_dir: Path) -> int:
             if not prettier.exists():
                 prettier = frontend_dir / "node_modules" / ".bin" / "prettier"
             if prettier.exists():
-                subprocess.run(  # noqa: S603
+                subprocess.run(  # nosec B603 # noqa: S603
                     [str(prettier), str(generated_ts), "--write"],
                     cwd=frontend_dir,
                     capture_output=True,
@@ -690,9 +690,18 @@ def check_all(contracts_dir: Path) -> int:
             # Se for schema OpenAPI ou SSE, executa check_schema_compatibility
             baseline_data: dict[str, Any] | None = None
             try:
-                res = subprocess.run(  # nosec B603, B607 # noqa: S603
-                    ["git", "show", f"origin/release/0.3:./{rel.as_posix()}"],  # noqa: S607
-                    cwd=_contracts_root(),
+                if rel.is_absolute() or ".." in rel.parts:
+                    print(f"WARNING: caminho de baseline inválido: {rel}")
+                    continue
+                repo_root = _contracts_root().parents[2]
+                git_rel = Path("backend") / "contracts" / rel
+                res = subprocess.run(  # nosec B603, B607  # noqa: S603
+                    [  # noqa: S607
+                        "git",
+                        "show",
+                        f"origin/release/0.3:{git_rel.as_posix()}",
+                    ],
+                    cwd=repo_root,
                     capture_output=True,
                     text=True,
                     check=False,
