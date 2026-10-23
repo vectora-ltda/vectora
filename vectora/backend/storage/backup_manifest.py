@@ -359,7 +359,20 @@ def inspect_backup(archive_path: str | Path) -> BackupPreview:
     )
 
 
+def _assert_safe_destination(path: Path) -> None:
+    """Reject destination paths that traverse an existing symlink."""
+    current = path
+    while True:
+        if current.is_symlink():
+            raise ValueError(f"destino de restore contém symlink: {current}")
+        parent = current.parent
+        if parent == current:
+            return
+        current = parent
+
+
 def _atomic_write(destination: Path, data: bytes) -> None:
+    _assert_safe_destination(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as handle:
         temporary = Path(handle.name)
@@ -419,6 +432,8 @@ def restore_backup(
         "memories": destination.parent.parent / "memories.json",
         "artifacts": _artifacts_root(destination),
     }
+    for target in targets.values():
+        _assert_safe_destination(target)
     snapshots = snapshot_targets(destination, selected)
     staged: dict[Path, bytes] = {}
     try:
@@ -541,6 +556,7 @@ def snapshot_targets(
         if category not in categories:
             continue
         if category == "artifacts":
+            _assert_safe_destination(path)
             if path.is_dir():
                 snapshots.update(
                     {
@@ -550,6 +566,7 @@ def snapshot_targets(
                     }
                 )
             continue
+        _assert_safe_destination(path)
         snapshots[path] = path.read_bytes() if path.is_file() else None
     return snapshots
 
