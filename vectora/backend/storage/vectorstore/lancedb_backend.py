@@ -137,6 +137,48 @@ class LanceDBBackend:
             for _, row in results.iterrows()
         ]
 
+    async def _repair_legacy_duplicates(
+        self,
+        table: lancedb.table.AsyncTable,
+        incoming_ids: set[str],
+        docs: list[dict[str, Any]],
+    ) -> None:
+        """Remove duplicate legacy IDs and stage retained rows for the merge.
+
+        Legacy tables can contain more than one row for an ID because older
+        writers did not enforce uniqueness.  The repair is deliberately kept
+        separate from the normal write path: it runs once per collection and
+        reads the full table only when duplicate IDs are actually found.
+        """
+        id_frame = await table.query().select(["id"]).to_pandas()
+        if "id" not in id_frame.columns:
+            return
+        duplicated_ids = (
+            id_frame[id_frame["id"].duplicated(keep=False)]["id"]
+            .drop_duplicates()
+            .tolist()
+        )
+        if not duplicated_ids:
+            return
+
+        existing = await table.to_pandas()
+        for raw_id in duplicated_ids:
+            row_id = str(raw_id)
+            escaped_id = row_id.replace("'", "''")
+            # A failed delete is allowed to abort the whole upsert.  Continuing
+            # would make the merge operate on an unknown mixture of old rows.
+            await table.delete(f"id = '{escaped_id}'")
+            if row_id not in incoming_ids:
+                retained = existing[existing["id"] == raw_id].iloc[-1]
+                docs.append(
+                    {
+                        "id": row_id,
+                        "vector": list(retained["vector"]),
+                        "text": str(retained.get("text", "")),
+                        "metadata": str(retained.get("metadata", "{}") or "{}"),
+                    }
+                )
+
     async def upsert(self, collection: str, rows: list[VectorRow]) -> None:
         if not rows:
             return
@@ -182,43 +224,20 @@ class LanceDBBackend:
             # Repare dados legados uma única vez por coleção/instância. A
             # primeira leitura busca somente IDs; linhas completas só são
             # carregadas quando há duplicatas para reparar antes do merge.
-            if collection not in self._legacy_checked:
-                id_frame = await table.query().select(["id"]).to_pandas()
-                duplicated_ids = (
-                    id_frame[id_frame["id"].duplicated(keep=False)]["id"]
-                    .drop_duplicates()
-                    .tolist()
-                    if "id" in id_frame.columns
-                    else []
-                )
-                if duplicated_ids:
-                    existing = await table.to_pandas()
-                    incoming_ids = set(deduped)
-                    for raw_id in duplicated_ids:
-                        row_id = str(raw_id)
-                        escaped_id = row_id.replace("'", "''")
-                        await table.delete(f"id = '{escaped_id}'")
-                        if row_id not in incoming_ids:
-                            retained = existing[existing["id"] == raw_id].iloc[-1]
-                            docs.append(
-                                {
-                                    "id": row_id,
-                                    "vector": list(retained["vector"]),
-                                    "text": str(retained.get("text", "")),
-                                    "metadata": str(
-                                        retained.get("metadata", "{}") or "{}"
-                                    ),
-                                }
-                            )
-                self._legacy_checked.add(collection)
             # Idempotência: merge_insert por 'id' atualiza os existentes e insere os novos,
             # eliminando registros duplicados.
+            if collection not in self._legacy_checked:
+                await self._repair_legacy_duplicates(table, set(deduped), docs)
             await (
                 table.merge_insert("id")
                 .when_matched_update_all()
                 .when_not_matched_insert_all()
                 .execute(docs)
             )
+            # Mark only after both the repair and the write succeeded.  A
+            # failed merge must be retried instead of silently skipping the
+            # legacy repair on the next call.
+            self._legacy_checked.add(collection)
 
     async def list_rows(self, collection: str) -> list[VectorRow]:
         db = await self._db()
