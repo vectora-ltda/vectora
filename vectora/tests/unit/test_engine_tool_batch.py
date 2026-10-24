@@ -30,6 +30,34 @@ def ctx() -> ToolContext:
 
 
 class TestDespachoParaleloSequencial:
+    async def test_falha_na_notificacao_de_inicio_nao_interrompe_a_tool(self, ctx):
+        """Telemetria indisponível não pode transformar uma execução válida em erro."""
+
+        executada = False
+
+        @vtool(extras=ToolExtras(destructive=False))
+        async def tool_resiliente(ctx: ToolContext) -> str:
+            nonlocal executada
+            executada = True
+            return "resultado"
+
+        registry = ToolRegistry()
+        _register(registry, "tool_resiliente")
+
+        async def falhar_ao_notificar(_call: ToolCall) -> None:
+            raise RuntimeError("sink indisponível")
+
+        resultados = await execute_tool_batch(
+            [ToolCall(id="c1", name="tool_resiliente", args={})],
+            tool_registry=registry,
+            ctx=ctx,
+            on_tool_started=falhar_ao_notificar,
+        )
+
+        assert executada is True
+        assert resultados[0].is_error is False
+        assert resultados[0].text() == "resultado"
+
     async def test_lote_sem_destrutiva_roda_em_paralelo(self, ctx):
         ordem: list[str] = []
 
