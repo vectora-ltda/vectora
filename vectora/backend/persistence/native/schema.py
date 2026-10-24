@@ -257,10 +257,10 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
                     "CREATE INDEX ix_agent_runs_thread_status "
                     "ON agent_runs(thread_id, status, updated_at)"
                 )
+                await conn.commit()
             except Exception:
                 await conn.rollback()
                 raise
-            await conn.commit()
         # Upgrade de bancos criados antes de decisões estruturadas de HITL
         for statement in (
             "ALTER TABLE pending_approvals ADD COLUMN options_json TEXT NOT NULL DEFAULT '[]'",
