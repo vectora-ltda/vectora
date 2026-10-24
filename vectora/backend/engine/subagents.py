@@ -77,6 +77,7 @@ from uuid import uuid4
 
 from backend.engine.conversation_loop import LoopConfig, run_conversation
 from backend.engine.stream_events import MessageChunk, SubagentOutput
+from backend.persistence.native.agent_run import AgentRunStatus
 from backend.rbac import tool_policy
 from backend.services.egress_policy import EgressPolicy
 from backend.services.policy_compiler import (
@@ -491,6 +492,18 @@ async def _run_subagent_once(
     if spec.correlation_id:
         _ACTIVE_CONVERSATION_TASKS[spec.correlation_id] = conversation_task
 
+    async def _mark_child_status(status: AgentRunStatus, detail: str) -> None:
+        if not hasattr(session_store, "update_agent_run_status"):
+            return
+        try:
+            await session_store.update_agent_run_status(
+                child_run_id, status=status, detail=detail
+            )
+        except Exception:
+            logger.exception(
+                "Falha ao persistir status do subagente %s (%s)", child_run_id, status
+            )
+
     try:
         if liveness is not None:
             watchdog_task = asyncio.create_task(
@@ -508,12 +521,7 @@ async def _run_subagent_once(
                     f"progresso por "
                     f"{liveness.heartbeat_interval_s * liveness.max_stalled_heartbeats:.0f}s."
                 )
-                if hasattr(session_store, "update_agent_run_status"):
-                    await session_store.update_agent_run_status(
-                        child_run_id,
-                        status="cancelled",
-                        detail=texto_cancelado,
-                    )
+                await _mark_child_status("cancelled", texto_cancelado)
                 if on_event is not None:
                     await on_event(
                         SubagentOutput(
@@ -540,12 +548,7 @@ async def _run_subagent_once(
                 f"Subagente '{spec.name}' cancelado por pedido explícito "
                 f"(hard interrupt)."
             )
-            if hasattr(session_store, "update_agent_run_status"):
-                await session_store.update_agent_run_status(
-                    child_run_id,
-                    status="cancelled",
-                    detail=texto_cancelado,
-                )
+            await _mark_child_status("cancelled", texto_cancelado)
             if on_event is not None:
                 await on_event(
                     SubagentOutput(
@@ -556,6 +559,10 @@ async def _run_subagent_once(
                     )
                 )
             return texto_cancelado
+        except Exception as exc:
+            texto_falha = f"Subagente '{spec.name}' falhou: {exc}"
+            await _mark_child_status("failed", texto_falha)
+            raise
     finally:
         if spec.correlation_id:
             _ACTIVE_CONVERSATION_TASKS.pop(spec.correlation_id, None)

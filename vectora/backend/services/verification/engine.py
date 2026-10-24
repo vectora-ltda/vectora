@@ -227,6 +227,7 @@ async def run_verification(
                 file_hashes=file_hashes,
                 gate_results=[],
                 failure_feedback=f"Quality gates solicitados não existem no perfil: {sorted(missing_gate_ids)}",
+                outcome="failed",
             )
 
     applicable_gates: list[QualityGateSpec] = (
