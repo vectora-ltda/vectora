@@ -1105,12 +1105,17 @@ async def run_conversation(  # noqa: PLR0911
         tool_started_at: dict[str, float] = {}
         tool_args_previews: dict[str, str] = {}
 
-        async def _record_tool_started(tc: ToolCall) -> None:
+        async def _record_tool_started(
+            tc: ToolCall,
+            *,
+            _started_at: dict[str, float] = tool_started_at,
+            _previews: dict[str, str] = tool_args_previews,
+        ) -> None:
             """Persist and publish one start event immediately before execution."""
             spec = tool_registry.get(tc.name)
             extras = spec.extras if spec is not None else None
-            tool_started_at.setdefault(tc.id, time.monotonic())
-            preview = tool_args_previews.setdefault(tc.id, _args_preview(tc.args))
+            _started_at.setdefault(tc.id, time.monotonic())
+            preview = _previews.setdefault(tc.id, _args_preview(tc.args))
             if config.run_id:
                 try:
                     if hasattr(session_store, "append_ledger_event"):
