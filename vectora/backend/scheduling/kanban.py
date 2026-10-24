@@ -28,6 +28,8 @@ import uuid
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
+import aiosqlite
+
 if TYPE_CHECKING:
     from backend.llm.systemone.harness import SystemOneHarness
 
@@ -83,7 +85,7 @@ MANUAL_TRANSITIONS: dict[str, frozenset[str]] = {
 BLOCK_RECURRENCE_LIMIT = 3
 
 
-async def _get_db() -> Any:
+async def _get_db() -> aiosqlite.Connection:
     """Mesmo banco de `vectora_background_tasks` — não `checkpoints.db`.
 
     `vectora_background_tasks`/`vectora_task_links` vivem em
@@ -907,6 +909,7 @@ async def get_progress(task_id: str) -> dict[str, int] | None:
     total = row["total"] if row else 0
     if not total:
         return None
+    assert row is not None
     return {"done": row["done"], "total": total}
 
 
@@ -959,7 +962,7 @@ async def get_dependencies_batch(
 
 async def _depende_de(task_id: str) -> set[str]:
     """Ancestrais de `task_id` — usado pra detectar ciclo."""
-    db = await _get_db()
+    db: aiosqlite.Connection = await _get_db()
     vistos: set[str] = set()
     fila = [task_id]
     while fila:
@@ -1089,6 +1092,8 @@ async def add_comment(task_id: str, user_id: str, body: str) -> dict[str, Any]:
         (comment_id,),
     ) as cur:
         row = await cur.fetchone()
+    if row is None:
+        raise RuntimeError("comentário recém-criado não foi encontrado")
     return dict(row)
 
 
