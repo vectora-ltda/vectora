@@ -379,6 +379,7 @@ class MemoryStore:
         cutoff_dt = self._parse_datetime(before) if before else datetime.now(UTC)
         cutoff = cutoff_dt.isoformat()
         changed = 0
+        changed_ids: list[str] = []
         with self._lock:
             for record in self._records.values():
                 if not record.active or record.valid_until is None:
@@ -390,13 +391,13 @@ class MemoryStore:
                 if expires_at <= cutoff_dt:
                     record.invalidated_at = cutoff
                     changed += 1
-            if self._path is not None and changed:
+                    changed_ids.append(record.id)
+            if self._path is not None and changed_ids:
                 with self._connect() as connection:
-                    connection.execute(
+                    connection.executemany(
                         "UPDATE context_memory_records SET invalidated_at = ? "
-                        "WHERE valid_until IS NOT NULL AND valid_until <= ? "
-                        "AND invalidated_at IS NULL",
-                        (cutoff, cutoff),
+                        "WHERE record_id = ? AND invalidated_at IS NULL",
+                        [(cutoff, record_id) for record_id in changed_ids],
                     )
         return changed
 
