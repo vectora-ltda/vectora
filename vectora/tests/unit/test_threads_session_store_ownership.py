@@ -517,6 +517,22 @@ class TestMarkThreadRead:
 
         assert exc_info.value.status_code == 404
 
+    async def test_leitura_de_thread_inexistente_nao_cria_cursor(
+        self, session_store
+    ) -> None:
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await th.mark_thread_read("thread-missing", _http_request("alice"))
+
+        assert exc_info.value.status_code == 404
+        db = await th._get_db()
+        async with db.execute(
+            "SELECT 1 FROM thread_read_cursors WHERE thread_id = ?",
+            ("thread-missing",),
+        ) as cursor:
+            assert await cursor.fetchone() is None
+
     async def test_repetir_leitura_e_idempotente_e_novas_mensagens_voltam_a_contar(
         self, session_store
     ) -> None:

@@ -235,3 +235,14 @@ def test_schema_compat_combinator_removal_from_middle() -> None:
 
     response_report = check_schema_compatibility(old, new, direction="response")
     assert response_report.is_compatible
+
+
+def test_contract_baseline_prefers_ci_base_and_explicit_override(monkeypatch) -> None:
+    from devtools.contracts.__main__ import _contract_baseline_ref
+
+    monkeypatch.delenv("VECTORA_CONTRACT_BASE_REF", raising=False)
+    monkeypatch.setenv("GITHUB_BASE_REF", "feat/contracts-python")
+    assert _contract_baseline_ref() == "origin/feat/contracts-python"
+
+    monkeypatch.setenv("VECTORA_CONTRACT_BASE_REF", "refs/remotes/origin/custom")
+    assert _contract_baseline_ref() == "refs/remotes/origin/custom"

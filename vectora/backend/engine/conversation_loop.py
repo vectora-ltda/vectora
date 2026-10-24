@@ -404,7 +404,6 @@ async def run_conversation(
         sub_deps = ctx._extra.get("subagent_deps")
         if sub_deps is not None:
             sub_deps.policy_snapshot = policy_snapshot
-
     emit = on_event or _noop_event
     tools = tool_registry.all()
     parent_id = await session_store.get_branch_head_id(thread_id)
