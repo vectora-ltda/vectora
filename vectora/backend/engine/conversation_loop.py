@@ -48,6 +48,7 @@ from backend.engine.stream_events import (
     WorkbenchInvalidate,
 )
 from backend.engine.tool_batch import _is_tool_error, execute_tool_batch
+from backend.persistence.native.agent_run import AgentRunMetrics, AgentRunStatus
 from backend.persistence.native.ledger import (
     ThreadLedgerEvent,
     make_agent_turn_started_key,
@@ -114,6 +115,36 @@ class LoopResult:
 
 async def _noop_event(_event: object) -> None:
     return None
+
+
+async def _safe_update_agent_run_status(
+    session_store: SessionStore | None,
+    run_id: str | None,
+    *,
+    status: AgentRunStatus,
+    plan_step: str | None = None,
+    detail: str | None = None,
+    error_code: str | None = None,
+    metrics: AgentRunMetrics | None = None,
+) -> None:
+    """Atualiza o status de AgentRun com tolerância a falhas na camada de persistência."""
+    if (
+        not run_id
+        or not session_store
+        or not hasattr(session_store, "update_agent_run_status")
+    ):
+        return
+    try:
+        await session_store.update_agent_run_status(
+            run_id,
+            status=status,
+            plan_step=plan_step,
+            detail=detail,
+            error_code=error_code,
+            metrics=metrics,
+        )
+    except Exception:
+        logger.exception("Falha ao persistir status %s de AgentRun %s", status, run_id)
 
 
 _ARGS_PREVIEW_MAX_CHARS = 80
@@ -371,15 +402,12 @@ async def run_conversation(
 
         texto_final = "".join(partes_texto)
         tool_calls = _resolve_tool_calls(tool_call_chunks_por_indice)
-        # Alguns providers omitem o id no streaming. O ledger e o retorno de
-        # tools exigem uma correlação única e estável; derive-a do run/turn e
-        # do índice, preservando ids fornecidos pelo provider.
         tool_calls = [
             replace(
-                tc,
-                id=(tc.id or f"{turn_identity}:tool:{_iteracao}:{index}"),
+                tool_call,
+                id=tool_call.id or f"{turn_identity}:tool:{_iteracao}:{index}",
             )
-            for index, tc in enumerate(tool_calls)
+            for index, tool_call in enumerate(tool_calls)
         ]
         observed_tools.update(tc.name for tc in tool_calls if tc.name)
 
@@ -425,6 +453,22 @@ async def run_conversation(
                 )
             )
             await emit(MessageBreak())
+            iter_metrics = (
+                AgentRunMetrics(
+                    input_tokens=int(last_usage.get("input_tokens", 0) or 0),
+                    output_tokens=int(last_usage.get("output_tokens", 0) or 0),
+                    total_tokens=int(last_usage.get("total_tokens", 0) or 0),
+                )
+                if last_usage
+                else None
+            )
+            await _safe_update_agent_run_status(
+                session_store,
+                config.run_id,
+                status="failed",
+                detail="O provedor LLM encerrou o stream sem retornar texto ou ferramenta.",
+                metrics=iter_metrics,
+            )
             if config.run_id:
                 try:
                     if hasattr(session_store, "append_ledger_event"):
@@ -470,6 +514,12 @@ async def run_conversation(
             finish_reason="tool_calls" if tool_calls else "stop",
         )
 
+        iter_metrics = AgentRunMetrics(
+            input_tokens=int(last_usage.get("input_tokens", 0) if last_usage else 0),
+            output_tokens=int(last_usage.get("output_tokens", 0) if last_usage else 0),
+            total_tokens=int(last_usage.get("total_tokens", 0) if last_usage else 0),
+        )
+
         # Do not persist an assistant tool-call message when the repetition
         # guard is about to stop the loop.  Persisting it would leave pending
         # calls in the session history without matching tool results, causing
@@ -507,6 +557,14 @@ async def run_conversation(
                         "tool_names": nomes,
                         "repetitions": repeticoes_seguidas,
                     },
+                )
+                await _safe_update_agent_run_status(
+                    session_store,
+                    config.run_id,
+                    status="failed",
+                    detail=mensagem,
+                    error_code="TOOL_CALL_REPEATED",
+                    metrics=iter_metrics,
                 )
                 await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
                 await emit(MessageBreak())
@@ -581,6 +639,13 @@ async def run_conversation(
                         "Falha ao registrar RUN_COMPLETED no ledger para thread %s",
                         thread_id,
                     )
+                await _safe_update_agent_run_status(
+                    session_store,
+                    config.run_id,
+                    status="passed",
+                    detail="Execução completada com sucesso.",
+                    metrics=iter_metrics,
+                )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=assistant_msg,
@@ -682,6 +747,32 @@ async def run_conversation(
                         priority=priority,
                         expires_at=str(expires_at) if expires_at else None,
                         approval_metadata=approval_metadata,
+                    )
+                # A falha na gravação de evidências ou atualização do run não pode impedir
+                # a emissão de HitlRequested para o cliente.
+                try:
+                    if hasattr(session_store, "record_run_evidence") and config.run_id:
+                        await session_store.record_run_evidence(
+                            config.run_id,
+                            approval={
+                                "interrupt_id": interrupt_id,
+                                "tool_name": pendente.name,
+                                "tool_call_id": stable_call_id,
+                                "options": options,
+                                "priority": priority,
+                            },
+                        )
+                    await _safe_update_agent_run_status(
+                        session_store,
+                        config.run_id,
+                        status="waiting_approval",
+                        detail=f"Aguardando aprovação para {pendente.name}",
+                        metrics=iter_metrics,
+                    )
+                except Exception:
+                    logger.exception(
+                        "conversation_loop: falha ao persistir evidência/status de aprovação para thread %s",
+                        thread_id,
                     )
                 await emit(
                     HitlRequested(
@@ -822,6 +913,28 @@ async def run_conversation(
                         call_id,
                         thread_id,
                     )
+            if (
+                hasattr(session_store, "record_run_evidence")
+                and config.run_id
+                and resultado.name
+            ):
+                try:
+                    await session_store.record_run_evidence(
+                        config.run_id,
+                        tool_used=resultado.name,
+                        evidence={
+                            "type": "tool_result",
+                            "tool_name": resultado.name,
+                            "tool_call_id": call_id,
+                            "is_error": resultado.is_error,
+                        },
+                    )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar evidência de tool no store para run %s (tool %s)",
+                        config.run_id,
+                        resultado.name,
+                    )
             await emit(
                 ToolResult(
                     tool_call_id=call_id,
@@ -886,6 +999,14 @@ async def run_conversation(
                         "Falha ao registrar RUN_FAILED (loop_cap_exceeded) no ledger para thread %s",
                         thread_id,
                     )
+                await _safe_update_agent_run_status(
+                    session_store,
+                    config.run_id,
+                    status="failed",
+                    detail=f"Teto de guardrail excedido: {turn_budget.exceeded}",
+                    error_code="LOOP_CAP_EXCEEDED",
+                    metrics=iter_metrics,
+                )
             await emit(
                 ErrorSignal(
                     code="LOOP_CAP_EXCEEDED",
@@ -930,6 +1051,19 @@ async def run_conversation(
                 "Falha ao registrar RUN_FAILED (recursion_limit) no ledger para thread %s",
                 thread_id,
             )
+        final_metrics = AgentRunMetrics(
+            input_tokens=int(last_usage.get("input_tokens", 0) if last_usage else 0),
+            output_tokens=int(last_usage.get("output_tokens", 0) if last_usage else 0),
+            total_tokens=int(last_usage.get("total_tokens", 0) if last_usage else 0),
+        )
+        await _safe_update_agent_run_status(
+            session_store,
+            config.run_id,
+            status="failed",
+            detail=f"Limite de {config.max_iterations} iterações atingido.",
+            error_code="RECURSION_LIMIT",
+            metrics=final_metrics,
+        )
     await emit(
         ErrorSignal(
             code="RECURSION_LIMIT",

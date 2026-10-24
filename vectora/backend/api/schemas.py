@@ -934,3 +934,23 @@ class AuditEntry(BaseModel):
 class EnvOverrideRequest(BaseModel):
     key: str
     value: str
+
+
+# ---------------------------------------------------------------------------
+# Contratos de AgentRun (Issue #368)
+# ---------------------------------------------------------------------------
+from backend.persistence.native.agent_run import (
+    AgentRun,
+    AgentRunMetrics,
+    AgentRunStatus,
+    AgentRunTimelineEntry,
+    AgentRunTimelineResponse,
+)
+
+__all__ = [
+    "AgentRun",
+    "AgentRunMetrics",
+    "AgentRunStatus",
+    "AgentRunTimelineEntry",
+    "AgentRunTimelineResponse",
+]

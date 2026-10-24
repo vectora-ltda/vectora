@@ -7,8 +7,8 @@ Também define os modelos de resumo da thread e do rascunho de execução.
 
 from __future__ import annotations
 
-import contextlib
 import json
+import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -17,7 +17,25 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from backend.storage.sqlite.pool import AsyncConnectionPool
 
-LedgerEventType = Literal[
+
+logger = logging.getLogger(__name__)
+
+
+class LedgerEventType:
+    """Tipos canônicos de eventos registrados no ledger."""
+
+    MESSAGE_CREATED = "message_created"
+    TOOL_STARTED = "tool_started"
+    TOOL_FINISHED = "tool_finished"
+    AGENT_TURN_STARTED = "agent_turn_started"
+    AGENT_TURN_FINISHED = "agent_turn_finished"
+    APPROVAL_REQUESTED = "approval_requested"
+    APPROVAL_RESOLVED = "approval_resolved"
+    RUN_FAILED = "run_failed"
+    RUN_COMPLETED = "run_completed"
+
+
+type LedgerEventTypeLiteral = Literal[
     "message_created",
     "tool_started",
     "tool_finished",
@@ -50,7 +68,7 @@ class ThreadLedgerEvent(BaseModel):
     thread_id: str
     seq: int = Field(default=0, description="Sequência monótona crescente por thread")
     event_key: str = Field(description="Chave única de idempotência do evento")
-    type: LedgerEventType
+    type: LedgerEventTypeLiteral
     turn_id: str | None = None
     run_id: str | None = None
     message_id: int | None = None
@@ -162,14 +180,15 @@ async def backfill_thread_ledger(
     async with pool.acquire() as conn:
         await conn.execute("BEGIN IMMEDIATE")
         try:
-            # 1. Verificar se a thread existe em sessions; se não existir, não cria sessão e encerra
-            cur_sess = await conn.execute(
-                "SELECT thread_id FROM sessions WHERE thread_id = ?", (thread_id,)
+            cur_session = await conn.execute(
+                "SELECT 1 FROM sessions WHERE thread_id = ? LIMIT 1",
+                (thread_id,),
             )
-            if not await cur_sess.fetchone():
+            if await cur_session.fetchone() is None:
                 await conn.rollback()
                 return 0, 0
 
+            # 1. Verificar se já migrou
             cur_bf = await conn.execute(
                 "SELECT status, migrated_messages, last_seq FROM ledger_backfill WHERE thread_id = ?",
                 (thread_id,),
@@ -283,8 +302,7 @@ async def backfill_thread_ledger(
             await conn.commit()
             return migrated_count, current_seq
         except Exception as exc:
-            with contextlib.suppress(Exception):
-                await conn.rollback()
+            await conn.rollback()
             try:
                 await conn.execute(
                     "INSERT INTO ledger_backfill (thread_id, status, error, started_at, completed_at) "
@@ -294,7 +312,10 @@ async def backfill_thread_ledger(
                 )
                 await conn.commit()
             except Exception:
-                pass
+                await conn.rollback()
+                logger.exception(
+                    "Falha ao registrar backfill failed para thread %s", thread_id
+                )
             raise
 
 
@@ -307,6 +328,15 @@ async def ensure_thread_backfilled(
 ) -> bool:
     """Garante de forma preguiçosa que o ledger da thread está populado."""
     async with pool.acquire() as conn:
+        # A FK de ``ledger_backfill`` aponta para ``sessions``.  Verificar a
+        # sessão antes de delegar ao backfill evita retornar sucesso para IDs
+        # inexistentes e preserva o erro original quando o chamador tenta
+        # gravar uma thread que não foi criada.
+        cur_session = await conn.execute(
+            "SELECT 1 FROM sessions WHERE thread_id = ? LIMIT 1", (thread_id,)
+        )
+        if await cur_session.fetchone() is None:
+            return False
         cur = await conn.execute(
             "SELECT status FROM ledger_backfill WHERE thread_id = ?", (thread_id,)
         )

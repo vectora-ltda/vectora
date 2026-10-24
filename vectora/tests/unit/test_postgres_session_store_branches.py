@@ -29,6 +29,7 @@ class _Connection:
         self.fetchval_results = list(fetchval_results or [])
         self.fetchval = AsyncMock(side_effect=self.fetchval_results)
         self.fetch = AsyncMock()
+        self.fetchrow = AsyncMock()
         self.execute = AsyncMock()
 
     def transaction(self):

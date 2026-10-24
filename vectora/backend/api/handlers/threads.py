@@ -32,8 +32,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response, StreamingResponse
+from fastapi import APIRouter, Header, HTTPException, Query, Request, status
+from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 
@@ -65,6 +65,9 @@ def _read_relative_nofollow(root: Path, parts: list[str]) -> bytes:
 
 
 from backend.api.schemas import (
+    AgentRun,
+    AgentRunTimelineEntry,
+    AgentRunTimelineResponse,
     ConversationBranch,
     ConversationBranchComparison,
     ConversationBranchesResponse,
@@ -102,6 +105,9 @@ from backend.rbac.device_id import validate_device_id
 from backend.vtypes.permission import PERMISSION_MODES, PermissionMode
 
 logger = logging.getLogger(__name__)
+
+_THREAD_NOT_FOUND_DETAIL = "Thread não encontrada."
+_RUN_NOT_FOUND_DETAIL = "Run não encontrada."
 
 router = APIRouter()
 
@@ -848,13 +854,11 @@ async def _assert_owns_thread(
     session = await session_store.get_session(thread_id)
     if session is None:
         if require_existing:
-            raise HTTPException(
-                status_code=404, detail=f"Thread {thread_id!r} not found"
-            )
+            raise HTTPException(status_code=404, detail=_THREAD_NOT_FOUND_DETAIL)
         return
     user_id = _user_id(http_request)
     if session["user_id"] != user_id:
-        raise HTTPException(status_code=404, detail=f"Thread {thread_id!r} not found")
+        raise HTTPException(status_code=404, detail=_THREAD_NOT_FOUND_DETAIL)
 
 
 async def _require_existing_thread(thread_id: str, request: Request) -> None:
@@ -862,7 +866,7 @@ async def _require_existing_thread(thread_id: str, request: Request) -> None:
     await _assert_owns_thread(thread_id, request, require_existing=True)
     store = await _get_session_store()
     if await store.get_session(thread_id) is None:
-        raise HTTPException(status_code=404, detail="Thread não encontrada")
+        raise HTTPException(status_code=404, detail=_THREAD_NOT_FOUND_DETAIL)
 
 
 async def _assert_existing_thread_ownership(thread_id: str, request: Request) -> None:
@@ -870,7 +874,7 @@ async def _assert_existing_thread_ownership(thread_id: str, request: Request) ->
     await _assert_owns_thread(thread_id, request)
     store = await _get_session_store()
     if await store.get_session(thread_id) is None:
-        raise HTTPException(status_code=404, detail="Thread não encontrada")
+        raise HTTPException(status_code=404, detail=_THREAD_NOT_FOUND_DETAIL)
 
 
 @router.post("/vectora.chat.v1.ThreadService/GetThread")
@@ -2637,3 +2641,84 @@ async def stream_thread_ledger_events(
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Endpoints de AgentRun e Auditoria de Execução (Issue #368)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/runs/{run_id}", response_model=AgentRun)
+async def get_agent_run(run_id: str, request: Request) -> AgentRun:
+    """Consulta o estado consolidado, evidências e métricas de um AgentRun."""
+    session_store = await _get_session_store()
+    if not hasattr(session_store, "get_agent_run"):
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Store não suporta consulta de AgentRun.",
+        )
+    run = await session_store.get_agent_run(run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_RUN_NOT_FOUND_DETAIL,
+        )
+    try:
+        await _assert_existing_thread_ownership(run.thread_id, request)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=_RUN_NOT_FOUND_DETAIL,
+            ) from exc
+        raise
+    return run
+
+
+@router.get("/runs/{run_id}/timeline", response_model=AgentRunTimelineResponse)
+async def get_agent_run_timeline(
+    run_id: str,
+    request: Request,
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> AgentRunTimelineResponse:
+    """Consulta o estado e a timeline de eventos correlacionados ao AgentRun."""
+    session_store = await _get_session_store()
+    if not hasattr(session_store, "get_agent_run"):
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Store não suporta consulta de AgentRun.",
+        )
+    run = await session_store.get_agent_run(run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=_RUN_NOT_FOUND_DETAIL,
+        )
+    try:
+        await _assert_existing_thread_ownership(run.thread_id, request)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_404_NOT_FOUND:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=_RUN_NOT_FOUND_DETAIL,
+            ) from exc
+        raise
+    timeline: list[AgentRunTimelineEntry] = []
+    if hasattr(session_store, "get_agent_run_timeline"):
+        timeline = await session_store.get_agent_run_timeline(
+            run_id, limit=limit, offset=offset
+        )
+    return AgentRunTimelineResponse(run=run, timeline=timeline)
+
+
+@router.get("/threads/{thread_id}/runs", response_model=list[AgentRun])
+async def list_thread_agent_runs(
+    thread_id: str, request: Request, limit: int = 50
+) -> list[AgentRun]:
+    """Lista as execuções de agente vinculadas a uma thread."""
+    await _assert_existing_thread_ownership(thread_id, request)
+    session_store = await _get_session_store()
+    if not hasattr(session_store, "list_agent_runs"):
+        return []
+    return await session_store.list_agent_runs(thread_id, limit=limit)
