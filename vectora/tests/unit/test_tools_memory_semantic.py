@@ -34,7 +34,7 @@ class _FakeStoreItem:
 
 class TestSearchMemoryTool:
     @pytest.mark.asyncio
-    async def test_search_with_scores_is_semantic(self):
+    async def test_search_with_scores_is_semantic(self) -> None:
         """Itens com score (store indexado) → semantic=True e score exposto."""
         from backend.tools.memory import search_memory
 
@@ -55,7 +55,7 @@ class TestSearchMemoryTool:
         assert data["memories"][0]["score"] == 0.9
 
     @pytest.mark.asyncio
-    async def test_search_without_scores_is_not_semantic(self):
+    async def test_search_without_scores_is_not_semantic(self) -> None:
         """Itens sem score (store sem índice) → semantic=False, sem ranqueamento."""
         from backend.tools.memory import search_memory
 
@@ -74,7 +74,7 @@ class TestSearchMemoryTool:
         assert data["count"] == 2
 
     @pytest.mark.asyncio
-    async def test_search_empty_results(self):
+    async def test_search_empty_results(self) -> None:
         """Store vazio → success com count 0."""
         from backend.tools.memory import search_memory
 
@@ -90,7 +90,7 @@ class TestSearchMemoryTool:
         assert data["count"] == 0
 
     @pytest.mark.asyncio
-    async def test_search_ignora_expiradas_sem_consumir_limit(self):
+    async def test_search_ignora_expiradas_sem_consumir_limit(self) -> None:
         from backend.tools.memory import search_memory
 
         ctx = ToolContext(thread_id="t5")
@@ -114,7 +114,7 @@ class TestSearchMemoryTool:
         )
 
     @pytest.mark.asyncio
-    async def test_search_expande_janela_quando_primeira_pagina_expira(self):
+    async def test_search_expande_janela_quando_primeira_pagina_expira(self) -> None:
         from backend.tools.memory import search_memory
 
         ctx = ToolContext(thread_id="t6")
@@ -147,7 +147,7 @@ class TestSearchMemoryTool:
         ]
 
     @pytest.mark.asyncio
-    async def test_error_returns_failed(self):
+    async def test_error_returns_failed(self) -> None:
         """Exceção ao obter o store retorna status failed com a mensagem."""
         from backend.tools.memory import search_memory
 
@@ -164,7 +164,7 @@ class TestSearchMemoryTool:
         assert "db error" in data["error"]
 
     @pytest.mark.asyncio
-    async def test_search_limit_zero_nao_retorna_memorias(self):
+    async def test_search_limit_zero_nao_retorna_memorias(self) -> None:
         from backend.tools.memory import search_memory
 
         ctx = ToolContext(thread_id="t7")
@@ -177,7 +177,7 @@ class TestSearchMemoryTool:
         store.asearch.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_search_limit_muito_alto_tem_teto_deterministico(self):
+    async def test_search_limit_muito_alto_tem_teto_deterministico(self) -> None:
         from backend.tools.memory import search_memory
 
         ctx = ToolContext(thread_id="t8")
