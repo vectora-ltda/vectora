@@ -296,6 +296,17 @@ def _claim_page(page: Any, workspace_id: str) -> None:
     _page_owners[tid] = workspace_id
 
 
+def _page_is_closed(page: Any) -> bool:
+    """Detect a stale Playwright wrapper without trusting arbitrary doubles."""
+    checker = getattr(page, "is_closed", None)
+    if not callable(checker):
+        return False
+    try:
+        return bool(checker())
+    except Exception:
+        return True
+
+
 async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
     """Retorna a `Page` da aba resolvida (ativa, se `tab_id` omitido),
     criando o browser (e a primeira aba) sob demanda."""
@@ -305,7 +316,23 @@ async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
         tab = session["tabs"].get(resolved)
         if tab is None:
             raise ValueError(f"aba '{resolved}' não encontrada")
-        return tab.page
+        owner = _page_owners.get(_page_target_id(tab.page))
+        if owner != workspace_id:
+            raise RuntimeError(
+                "A aba do Browser Workbench perdeu a propriedade do workspace"
+            )
+        if not _page_is_closed(tab.page):
+            return tab.page
+        # A conexão CDP pode sobreviver à página. Remove referências obsoletas
+        # antes de reconectar, sem fechar alvos que pertencem à UI.
+        _page_owners.pop(_page_target_id(tab.page), None)
+        session["tabs"].pop(resolved, None)
+        if session["tabs"]:
+            session["active_tab_id"] = next(iter(session["tabs"]))
+            return session["tabs"][session["active_tab_id"]].page
+        _sessions.pop(workspace_id, None)
+        with suppress(Exception):
+            await session["playwright"].stop()
 
     from playwright.async_api import async_playwright
 
