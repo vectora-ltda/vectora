@@ -4,12 +4,15 @@ resposta errada) sem depender de um banco LanceDB real em disco."""
 
 from __future__ import annotations
 
+from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import lancedb
 import numpy as np
 import pandas as pd
 import pytest
 
+from backend.storage.vectorstore.base import VectorRow
 from backend.storage.vectorstore.lancedb_backend import LanceDBBackend
 
 from ._lancedb_fakes import fake_async_connection, fake_async_table
@@ -208,3 +211,63 @@ class TestLanceDBBackendListRows:
         rows = await backend.list_rows("nao-existe")
 
         assert rows == []
+
+
+class TestLanceDBBackendUpsert:
+    @pytest.mark.asyncio
+    async def test_upsert_remove_ids_duplicados_legados_antes_do_merge(
+        self, backend: LanceDBBackend, mock_db: lancedb.AsyncConnection
+    ) -> None:
+        table = fake_async_table()
+        table.to_pandas = AsyncMock(
+            return_value=pd.DataFrame(
+                [
+                    {
+                        "id": "legacy",
+                        "vector": [0.1, 0.2],
+                        "text": "primeiro",
+                        "metadata": "{}",
+                    },
+                    {
+                        "id": "legacy",
+                        "vector": [0.3, 0.4],
+                        "text": "último",
+                        "metadata": '{"version": 2}',
+                    },
+                    {
+                        "id": "stable",
+                        "vector": [0.5, 0.6],
+                        "text": "único",
+                        "metadata": "{}",
+                    },
+                ]
+            )
+        )
+        query_mock = cast(AsyncMock, table.query)
+        query_mock.return_value.select.return_value.to_pandas = AsyncMock(
+            return_value=pd.DataFrame(
+                [{"id": "legacy"}, {"id": "legacy"}, {"id": "stable"}]
+            )
+        )
+        table.delete = AsyncMock()
+        merge = MagicMock()
+        merge.when_matched_update_all.return_value = merge
+        merge.when_not_matched_insert_all.return_value = merge
+        merge.execute = AsyncMock()
+        merge_insert = MagicMock(return_value=merge)
+        table.merge_insert = merge_insert  # type: ignore[assignment]
+        cast(AsyncMock, mock_db.open_table).return_value = table
+
+        await backend.upsert(
+            "articles",
+            [VectorRow(id="fresh", vector=[0.7, 0.8], text="novo", metadata={})],
+        )
+
+        table.delete.assert_awaited_once_with("id = 'legacy'")
+        assert cast(AsyncMock, table.add).await_count == 0
+        merge_insert.assert_called_once_with("id")
+        merge.execute.assert_awaited_once()
+        execute_mock = merge.execute
+        assert execute_mock.await_args is not None
+        docs = execute_mock.await_args.args[0]
+        assert {doc["id"] for doc in docs} == {"legacy", "fresh"}

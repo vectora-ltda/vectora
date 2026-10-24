@@ -48,6 +48,14 @@ from backend.engine.stream_events import (
     WorkbenchInvalidate,
 )
 from backend.engine.tool_batch import _is_tool_error, execute_tool_batch
+from backend.persistence.native.ledger import (
+    ThreadLedgerEvent,
+    make_agent_turn_started_key,
+    make_run_completed_key,
+    make_run_failed_key,
+    make_tool_finished_key,
+    make_tool_started_key,
+)
 from backend.services.context_compaction import compact_messages
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import ContentBlock, MessageRole, ToolCall, VMessage
@@ -245,6 +253,37 @@ async def run_conversation(
     emit = on_event or _noop_event
     tools = tool_registry.all()
     parent_id = await session_store.get_branch_head_id(thread_id)
+    # Uma identidade por invocação mantém retries correlacionados sem
+    # reutilizar IDs quando o runner não fornece run_id.
+    turn_identity: str = config.run_id or f"turn-{uuid4().hex}"
+
+    if config.run_id:
+        try:
+            if hasattr(session_store, "append_ledger_event"):
+                await session_store.append_ledger_event(
+                    thread_id,
+                    event_key=make_agent_turn_started_key(config.run_id),
+                    event_type="agent_turn_started",
+                    run_id=config.run_id,
+                    payload={"iteration": 1},
+                )
+            elif hasattr(session_store, "append_event"):
+                await session_store.append_event(
+                    thread_id,
+                    ThreadLedgerEvent(
+                        thread_id=thread_id,
+                        event_key=make_agent_turn_started_key(config.run_id),
+                        type="agent_turn_started",
+                        run_id=config.run_id,
+                        payload={"iteration": 1},
+                    ),
+                )
+        except Exception:
+            logger.exception(
+                "conversation_loop: falha ao registrar agent_turn_started no ledger para thread %s",
+                thread_id,
+            )
+
     assinaturas_anteriores: tuple[tuple[str, str], ...] | None = None
     repeticoes_seguidas = 0
     turn_budget = TurnBudget(config=config.loop_caps)
@@ -332,6 +371,16 @@ async def run_conversation(
 
         texto_final = "".join(partes_texto)
         tool_calls = _resolve_tool_calls(tool_call_chunks_por_indice)
+        # Alguns providers omitem o id no streaming. O ledger e o retorno de
+        # tools exigem uma correlação única e estável; derive-a do run/turn e
+        # do índice, preservando ids fornecidos pelo provider.
+        tool_calls = [
+            replace(
+                tc,
+                id=(tc.id or f"{turn_identity}:tool:{_iteracao}:{index}"),
+            )
+            for index, tc in enumerate(tool_calls)
+        ]
         observed_tools.update(tc.name for tc in tool_calls if tc.name)
 
         logger.info(
@@ -376,6 +425,32 @@ async def run_conversation(
                 )
             )
             await emit(MessageBreak())
+            if config.run_id:
+                try:
+                    if hasattr(session_store, "append_ledger_event"):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_run_failed_key(config.run_id),
+                            event_type="run_failed",
+                            run_id=config.run_id,
+                            payload={"error": "empty_model_response"},
+                        )
+                    elif hasattr(session_store, "append_event"):
+                        await session_store.append_event(
+                            thread_id,
+                            ThreadLedgerEvent(
+                                thread_id=thread_id,
+                                event_key=make_run_failed_key(config.run_id),
+                                type="run_failed",
+                                run_id=config.run_id,
+                                payload={"error": "empty_model_response"},
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar RUN_FAILED (empty_model_response) no ledger para thread %s",
+                        thread_id,
+                    )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=None,
@@ -435,6 +510,36 @@ async def run_conversation(
                 )
                 await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
                 await emit(MessageBreak())
+                if config.run_id:
+                    try:
+                        if hasattr(session_store, "append_ledger_event"):
+                            await session_store.append_ledger_event(
+                                thread_id,
+                                event_key=make_run_failed_key(config.run_id),
+                                event_type="run_failed",
+                                run_id=config.run_id,
+                                payload={
+                                    "error": f"loop_cap_exceeded: tool_call_repeated ({nomes})"
+                                },
+                            )
+                        elif hasattr(session_store, "append_event"):
+                            await session_store.append_event(
+                                thread_id,
+                                ThreadLedgerEvent(
+                                    thread_id=thread_id,
+                                    event_key=make_run_failed_key(config.run_id),
+                                    type="run_failed",
+                                    run_id=config.run_id,
+                                    payload={
+                                        "error": f"loop_cap_exceeded: tool_call_repeated ({nomes})"
+                                    },
+                                ),
+                            )
+                    except Exception:
+                        logger.exception(
+                            "Falha ao registrar RUN_FAILED (tool_call_repeated) no ledger para thread %s",
+                            thread_id,
+                        )
                 return LoopResult(
                     stopped_reason="loop_cap_exceeded",
                     final_message=None,
@@ -450,6 +555,32 @@ async def run_conversation(
         await emit(MessageBreak())
 
         if not tool_calls:
+            if config.run_id:
+                try:
+                    if hasattr(session_store, "append_ledger_event"):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_run_completed_key(config.run_id),
+                            event_type="run_completed",
+                            run_id=config.run_id,
+                            payload={"stopped_reason": "stop"},
+                        )
+                    elif hasattr(session_store, "append_event"):
+                        await session_store.append_event(
+                            thread_id,
+                            ThreadLedgerEvent(
+                                thread_id=thread_id,
+                                event_key=make_run_completed_key(config.run_id),
+                                type="run_completed",
+                                run_id=config.run_id,
+                                payload={"stopped_reason": "stop"},
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar RUN_COMPLETED no ledger para thread %s",
+                        thread_id,
+                    )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=assistant_msg,
@@ -545,6 +676,7 @@ async def run_conversation(
                         interrupt_id=interrupt_id,
                         tool_name=pendente.name,
                         tool_call_id=stable_call_id,
+                        run_id=config.run_id,
                         args=pendente.args,
                         options=options,
                         priority=priority,
@@ -574,12 +706,54 @@ async def run_conversation(
 
         tool_started_at: dict[str, float] = {}
         tool_args_previews: dict[str, str] = {}
-        for tc in tool_calls:
+
+        async def _record_tool_started(
+            tc: ToolCall,
+            *,
+            _started_at: dict[str, float] = tool_started_at,
+            _previews: dict[str, str] = tool_args_previews,
+        ) -> None:
             spec = tool_registry.get(tc.name)
             extras = spec.extras if spec is not None else None
-            tool_started_at[tc.id] = time.monotonic()
+            _started_at[tc.id] = time.monotonic()
             preview = _args_preview(tc.args)
-            tool_args_previews[tc.id] = preview
+            _previews[tc.id] = preview
+            if config.run_id:
+                sanitized_tc = _sanitize_tool_call(tc, ctx)
+                try:
+                    if hasattr(session_store, "append_ledger_event"):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_tool_started_key(config.run_id, tc.id),
+                            event_type="tool_started",
+                            run_id=config.run_id,
+                            tool_call_id=tc.id,
+                            payload={
+                                "tool_name": sanitized_tc.name,
+                                "args": sanitized_tc.args,
+                            },
+                        )
+                    elif hasattr(session_store, "append_event"):
+                        await session_store.append_event(
+                            thread_id,
+                            ThreadLedgerEvent(
+                                thread_id=thread_id,
+                                event_key=make_tool_started_key(config.run_id, tc.id),
+                                type="tool_started",
+                                run_id=config.run_id,
+                                tool_call_id=tc.id,
+                                payload={
+                                    "tool_name": sanitized_tc.name,
+                                    "args": sanitized_tc.args,
+                                },
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar TOOL_STARTED no ledger para tool %s (thread %s)",
+                        tc.name,
+                        thread_id,
+                    )
             await emit(
                 ToolCallStarted(
                     tool_name=tc.name,
@@ -603,12 +777,51 @@ async def run_conversation(
             ctx=ctx,
             turn_budget=turn_budget,
             on_event=on_event,
+            on_tool_started=_record_tool_started,
         )
         for resultado in resultados:
             parent_id = await session_store.append_message(
                 thread_id, resultado, parent_message_id=parent_id
             )
             call_id = resultado.tool_call_id or ""
+            was_started = call_id in tool_started_at
+            if config.run_id and call_id and was_started:
+                try:
+                    if hasattr(session_store, "append_ledger_event"):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_tool_finished_key(config.run_id, call_id),
+                            event_type="tool_finished",
+                            run_id=config.run_id,
+                            tool_call_id=call_id,
+                            payload={
+                                "tool_name": resultado.name,
+                                "is_error": resultado.is_error,
+                            },
+                        )
+                    elif hasattr(session_store, "append_event"):
+                        await session_store.append_event(
+                            thread_id,
+                            ThreadLedgerEvent(
+                                thread_id=thread_id,
+                                event_key=make_tool_finished_key(
+                                    config.run_id, call_id
+                                ),
+                                type="tool_finished",
+                                run_id=config.run_id,
+                                tool_call_id=call_id,
+                                payload={
+                                    "tool_name": resultado.name,
+                                    "is_error": resultado.is_error,
+                                },
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar TOOL_FINISHED no ledger para tool_call %s (thread %s)",
+                        call_id,
+                        thread_id,
+                    )
             await emit(
                 ToolResult(
                     tool_call_id=call_id,
@@ -643,6 +856,36 @@ async def run_conversation(
                     await emit(TodosUpdated(todos=todos))
 
         if turn_budget.exceeded is not None:
+            if config.run_id:
+                try:
+                    if hasattr(session_store, "append_ledger_event"):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_run_failed_key(config.run_id),
+                            event_type="run_failed",
+                            run_id=config.run_id,
+                            payload={
+                                "error": f"loop_cap_exceeded: {turn_budget.exceeded}"
+                            },
+                        )
+                    elif hasattr(session_store, "append_event"):
+                        await session_store.append_event(
+                            thread_id,
+                            ThreadLedgerEvent(
+                                thread_id=thread_id,
+                                event_key=make_run_failed_key(config.run_id),
+                                type="run_failed",
+                                run_id=config.run_id,
+                                payload={
+                                    "error": f"loop_cap_exceeded: {turn_budget.exceeded}"
+                                },
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar RUN_FAILED (loop_cap_exceeded) no ledger para thread %s",
+                        thread_id,
+                    )
             await emit(
                 ErrorSignal(
                     code="LOOP_CAP_EXCEEDED",
@@ -661,6 +904,32 @@ async def run_conversation(
                 tool_names=tuple(sorted(observed_tools)),
             )
 
+    if config.run_id:
+        try:
+            if hasattr(session_store, "append_ledger_event"):
+                await session_store.append_ledger_event(
+                    thread_id,
+                    event_key=make_run_failed_key(config.run_id),
+                    event_type="run_failed",
+                    run_id=config.run_id,
+                    payload={"error": f"recursion_limit: {config.max_iterations}"},
+                )
+            elif hasattr(session_store, "append_event"):
+                await session_store.append_event(
+                    thread_id,
+                    ThreadLedgerEvent(
+                        thread_id=thread_id,
+                        event_key=make_run_failed_key(config.run_id),
+                        type="run_failed",
+                        run_id=config.run_id,
+                        payload={"error": f"recursion_limit: {config.max_iterations}"},
+                    ),
+                )
+        except Exception:
+            logger.exception(
+                "Falha ao registrar RUN_FAILED (recursion_limit) no ledger para thread %s",
+                thread_id,
+            )
     await emit(
         ErrorSignal(
             code="RECURSION_LIMIT",
@@ -774,6 +1043,82 @@ async def resume_conversation(
     if pending is None:
         return False
 
+    # A retomada deve continuar o mesmo turno persistido, e não criar uma
+    # segunda identidade de execução. Isso mantém tool_started/tool_finished
+    # correlacionados com a aprovação original após uma pausa HITL.
+    resume_run_id = str(pending.get("run_id") or "") or None
+
+    async def _execute_resume_tool(
+        tc: ToolCall, args: dict[str, Any] | None = None
+    ) -> VMessage:
+        call = replace(tc, args=args) if args is not None else tc
+        call_id = call.id or f"{resume_run_id or thread_id}:tool:{uuid4().hex}"
+        call = replace(call, id=call_id)
+        sanitized = _sanitize_tool_call(call, ctx)
+
+        async def record(event_type: str, payload: dict[str, Any]) -> None:
+            if not resume_run_id:
+                return
+            try:
+                if hasattr(session_store, "append_ledger_event"):
+                    await session_store.append_ledger_event(
+                        thread_id,
+                        event_key=(
+                            make_tool_started_key(resume_run_id, call_id)
+                            if event_type == "tool_started"
+                            else make_tool_finished_key(resume_run_id, call_id)
+                        ),
+                        event_type=event_type,
+                        run_id=resume_run_id,
+                        tool_call_id=call_id,
+                        payload=payload,
+                    )
+                elif hasattr(session_store, "append_event"):
+                    await session_store.append_event(
+                        thread_id,
+                        ThreadLedgerEvent(
+                            thread_id=thread_id,
+                            event_key=(
+                                make_tool_started_key(resume_run_id, call_id)
+                                if event_type == "tool_started"
+                                else make_tool_finished_key(resume_run_id, call_id)
+                            ),
+                            type=event_type,
+                            run_id=resume_run_id,
+                            tool_call_id=call_id,
+                            payload=payload,
+                        ),
+                    )
+            except Exception:
+                logger.exception(
+                    "Falha ao registrar %s da retomada no ledger para tool %s",
+                    event_type,
+                    call.name,
+                )
+
+        await record(
+            "tool_started",
+            {"tool_name": sanitized.name, "args": sanitized.args},
+        )
+        try:
+            result = await _execute_single_call(
+                call,
+                tool_registry=tool_registry,
+                ctx=ctx,
+                on_event=on_event,
+            )
+        except Exception as exc:
+            await record(
+                "tool_finished",
+                {"tool_name": call.name, "is_error": True, "error": str(exc)},
+            )
+            raise
+        await record(
+            "tool_finished",
+            {"tool_name": result.name, "is_error": result.is_error},
+        )
+        return result
+
     flagged_id = pending["tool_call_id"]
     historico = await session_store.get_history(thread_id)
     ultimo_assistant = next(
@@ -841,9 +1186,7 @@ async def resume_conversation(
                         is_error=True,
                     )
                 else:
-                    resultado = await _execute_single_call(
-                        tc, tool_registry=tool_registry, ctx=ctx
-                    )
+                    resultado = await _execute_resume_tool(tc)
         elif decision == "reject":
             resultado = VMessage(
                 role=MessageRole.TOOL,
@@ -858,12 +1201,7 @@ async def resume_conversation(
                 args = ephemeral_args
             if decision in {"edit", "option"} and edited_args is not None:
                 args = edited_args
-            resultado = await _execute_single_call(
-                replace(tc, args=args),
-                tool_registry=tool_registry,
-                ctx=ctx,
-                on_event=on_event,
-            )
+            resultado = await _execute_resume_tool(tc, args)
 
         parent_id = await session_store.append_message(
             thread_id, resultado, parent_message_id=parent_id

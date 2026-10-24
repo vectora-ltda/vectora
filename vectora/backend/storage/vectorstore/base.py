@@ -9,6 +9,40 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Protocol
 
+from pydantic import BaseModel, ConfigDict
+
+
+class VectorStoreHealth(BaseModel):
+    """Resultado tipado de verificação de integridade do backend vetorial."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    ok: bool | None = None
+    error: str | None = None
+    tables: list[str] | None = None
+    collections: list[str] | None = None
+    internal: bool | None = None
+
+    def __getitem__(self, item: str) -> object:
+        if not hasattr(self, item):
+            raise KeyError(item)
+        val = getattr(self, item)
+        if val is None and item not in self.model_fields_set:
+            raise KeyError(item)
+        return val
+
+    def __contains__(self, item: object) -> bool:
+        if not isinstance(item, str):
+            return False
+        return hasattr(self, item) and (
+            getattr(self, item) is not None or item in self.model_fields_set
+        )
+
+    def get(self, item: str, default: object = None) -> object:
+        if item in self:
+            return getattr(self, item)
+        return default
+
 
 @dataclass
 class VectorRow:
@@ -85,4 +119,8 @@ class VectorStoreBackend(Protocol):
     async def count(self, collection: str) -> int | None:
         """Quantidade de documentos na coleção. `None` se não conseguir
         determinar (coleção corrompida/erro transitório) — nunca lança."""
+        ...
+
+    async def health(self) -> VectorStoreHealth:
+        """Verifica se o backend está acessível e funcional."""
         ...

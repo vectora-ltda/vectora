@@ -806,7 +806,6 @@ def create_app(serve_static: bool = True) -> FastAPI:
         return {"version": "1", "tool_count": len(tools_data), "tools": tools_data}
 
     # ── Health + Metrics ──────────────────────────────────────────────────────
-
     class HealthLiveResponse(BaseModel):
         """Contrato de resposta da sonda de liveness."""
 

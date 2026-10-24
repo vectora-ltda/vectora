@@ -13,90 +13,27 @@ conversa nativo sobre ``aiosqlite``: schema append-only ``sessions`` +
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 
+from backend.persistence.native.ledger import (
+    LedgerEventType,
+    RunDraft,
+    ThreadLastMessage,
+    ThreadLedgerEvent,
+    ThreadSummary,
+    ensure_thread_backfilled,
+    make_approval_requested_key,
+    make_approval_resolved_key,
+    make_message_created_key,
+)
+from backend.persistence.native.schema import setup_sqlite_session_schema
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import VMessage
 
 if TYPE_CHECKING:
     from backend.storage.sqlite.pool import AsyncConnectionPool
-
-_SETUP_SQL = """
-CREATE TABLE IF NOT EXISTS sessions (
-    thread_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    workspace_id TEXT,
-    parent_thread_id TEXT,
-    mode TEXT NOT NULL,
-    permission_mode TEXT NOT NULL DEFAULT 'ask',
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
-    parent_message_id INTEGER,
-    role TEXT NOT NULL,
-    content_json TEXT NOT NULL,
-    tool_calls_json TEXT,
-    tool_call_id TEXT,
-    name TEXT,
-    is_error INTEGER NOT NULL DEFAULT 0,
-    turn_id TEXT,
-    run_id TEXT,
-    edited_files_json TEXT,
-    is_branch_head INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS ix_messages_thread ON messages(thread_id, id);
-CREATE INDEX IF NOT EXISTS ix_messages_thread_parent ON messages(thread_id, parent_message_id);
-CREATE TABLE IF NOT EXISTS pending_approvals (
-    thread_id TEXT PRIMARY KEY REFERENCES sessions(thread_id),
-    interrupt_id TEXT NOT NULL,
-    tool_name TEXT NOT NULL,
-    tool_call_id TEXT NOT NULL,
-    args_json TEXT NOT NULL,
-    reasoning TEXT,
-    options_json TEXT NOT NULL DEFAULT '[]',
-    priority INTEGER NOT NULL DEFAULT 0,
-    expires_at TEXT,
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS approval_decisions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    thread_id TEXT NOT NULL,
-    interrupt_id TEXT NOT NULL,
-    tool_name TEXT NOT NULL,
-    decision TEXT NOT NULL,
-    selection TEXT,
-    decided_by TEXT,
-    decided_at TEXT NOT NULL,
-    options_json TEXT NOT NULL DEFAULT '[]',
-    priority INTEGER NOT NULL DEFAULT 0,
-    expires_at TEXT
-);
-CREATE INDEX IF NOT EXISTS ix_approval_decisions_thread
-    ON approval_decisions(thread_id, decided_at);
-CREATE TABLE IF NOT EXISTS session_runs (
-    run_id TEXT PRIMARY KEY,
-    thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
-    turn_id TEXT,
-    status TEXT NOT NULL CHECK(status IN
-        ('queued', 'running', 'streaming', 'completed', 'failed', 'cancelled')),
-    detail TEXT,
-    error_code TEXT,
-    partial_text TEXT NOT NULL DEFAULT '',
-    provider_model TEXT,
-    started_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    terminal_at TEXT
-);
-CREATE UNIQUE INDEX IF NOT EXISTS ix_session_runs_thread_turn
-    ON session_runs(thread_id, turn_id) WHERE turn_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS ix_session_runs_status
-    ON session_runs(status, updated_at);
-"""
 
 
 # Teto de segurança pra reconstrução recursiva da cadeia de mensagens
@@ -104,6 +41,8 @@ CREATE INDEX IF NOT EXISTS ix_session_runs_status
 # existe só pra um `parent_message_id` corrompido/cíclico não fazer a CTE
 # recursar sem fim.
 _CHAIN_DEPTH_CAP = 100_000
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -179,40 +118,7 @@ class SessionStore:
         automaticamente por todo método público antes de qualquer query."""
         if self._is_setup:
             return
-        async with self._pool.acquire() as conn:
-            await conn.executescript(_SETUP_SQL)
-            # Upgrade databases created before structured HITL decisions.
-            for statement in (
-                "ALTER TABLE pending_approvals ADD COLUMN options_json TEXT NOT NULL DEFAULT '[]'",
-                "ALTER TABLE pending_approvals ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
-                "ALTER TABLE pending_approvals ADD COLUMN expires_at TEXT",
-            ):
-                try:
-                    await conn.execute(statement)
-                except Exception as exc:
-                    if "duplicate column name" not in str(exc).lower():
-                        raise
-            try:
-                await conn.execute(
-                    "ALTER TABLE session_runs ADD COLUMN provider_model TEXT"
-                )
-            except Exception as exc:
-                if "duplicate column name" not in str(exc).lower():
-                    raise
-            columns = await conn.execute_fetchall("PRAGMA table_info(messages)")
-            if not any(str(column[1]) == "turn_id" for column in columns):
-                await conn.execute("ALTER TABLE messages ADD COLUMN turn_id TEXT")
-            if not any(str(column[1]) == "run_id" for column in columns):
-                await conn.execute("ALTER TABLE messages ADD COLUMN run_id TEXT")
-            if not any(str(column[1]) == "edited_files_json" for column in columns):
-                await conn.execute(
-                    "ALTER TABLE messages ADD COLUMN edited_files_json TEXT"
-                )
-            await conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ix_messages_thread_turn "
-                "ON messages(thread_id, turn_id) WHERE turn_id IS NOT NULL"
-            )
-            await conn.commit()
+        await setup_sqlite_session_schema(self._pool)
         self._is_setup = True
 
     async def create_session(
@@ -376,18 +282,37 @@ class SessionStore:
         turn_id: str | None = None,
         run_id: str | None = None,
     ) -> int:
-        """Persiste `msg` e devolve o `id` gerado. A mensagem nova vira a
-        ponta ativa da branch (`is_branch_head`); se `parent_message_id`
-        aponta pra um nó no meio da cadeia (fork — editar/regenerar), a
-        branch divergente anterior nunca é apagada, só deixa de ser a
-        ponta ativa dessa thread."""
+        """Persiste `msg` e devolve o `id` gerado, delegando para `append_message_recorded`."""
+        msg_id, _ = await self.append_message_recorded(
+            thread_id,
+            msg,
+            parent_message_id=parent_message_id,
+            turn_id=turn_id,
+            run_id=run_id,
+        )
+        return msg_id
+
+    async def append_message_recorded(
+        self,
+        thread_id: str,
+        msg: VMessage,
+        *,
+        parent_message_id: int | None = None,
+        turn_id: str | None = None,
+        run_id: str | None = None,
+        extra_events: list[ThreadLedgerEvent] | None = None,
+    ) -> tuple[int, int]:
+        """Persiste `msg` e o evento `message_created` atomicamente no ledger,
+        devolvendo `(message_id, seq)`. Aceita eventos extras na mesma transação."""
         await self.setup()
+        await ensure_thread_backfilled(self._pool, thread_id)
         agora = _now()
         role, content_json, tool_calls_json, tool_call_id, name, is_error = (
             _message_to_row(msg)
         )
         async with self._pool.acquire() as conn:
             try:
+                await conn.execute("BEGIN IMMEDIATE")
                 if turn_id is not None:
                     cur_existing = await conn.execute(
                         "SELECT id FROM messages WHERE thread_id = ? AND turn_id = ?",
@@ -395,7 +320,17 @@ class SessionStore:
                     )
                     existing = await cur_existing.fetchone()
                     if existing is not None:
-                        return int(existing[0])
+                        # Buscar seq do evento message_created existente
+                        existing_id = int(existing[0])
+                        cur_seq = await conn.execute(
+                            "SELECT seq FROM thread_events WHERE thread_id = ? AND message_id = ?",
+                            (thread_id, existing_id),
+                        )
+                        row_seq = await cur_seq.fetchone()
+                        seq = int(row_seq[0]) if row_seq is not None else 0
+                        await conn.rollback()
+                        return existing_id, seq
+
                 cur = await conn.execute(
                     "INSERT INTO messages (thread_id, parent_message_id, role, "
                     "content_json, tool_calls_json, tool_call_id, name, is_error, "
@@ -411,8 +346,8 @@ class SessionStore:
                         name,
                         is_error,
                         turn_id,
-                        run_id,
                         None,
+                        run_id,
                         agora,
                     ),
                 )
@@ -420,6 +355,7 @@ class SessionStore:
                 if new_id is None:
                     erro = "INSERT em `messages` não gerou lastrowid"
                     raise RuntimeError(erro)
+
                 await conn.execute(
                     "UPDATE messages SET is_branch_head = 0 "
                     "WHERE thread_id = ? AND id != ?",
@@ -429,10 +365,74 @@ class SessionStore:
                     "UPDATE sessions SET updated_at = ? WHERE thread_id = ?",
                     (agora, thread_id),
                 )
-                # An assistant message carrying tool calls is an intermediate
-                # step.  Only a final textual/error/cancelled assistant outcome
-                # can close the run; otherwise sequential tools become
-                # impossible to resume after persistence.
+
+                # Obter próximo seq do ledger
+                cur_max = await conn.execute(
+                    "SELECT COALESCE(MAX(seq), 0) FROM thread_events WHERE thread_id = ?",
+                    (thread_id,),
+                )
+                row_max = await cur_max.fetchone()
+                current_seq = int(row_max[0]) if row_max else 0
+
+                # Gravar eventos extras se houver (ex: tool_finished)
+                if extra_events:
+                    for extra in extra_events:
+                        current_seq += 1
+                        await conn.execute(
+                            "INSERT INTO thread_events (thread_id, seq, event_key, type, "
+                            "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                            "ON CONFLICT(thread_id, event_key) DO NOTHING",
+                            (
+                                thread_id,
+                                current_seq,
+                                extra.event_key,
+                                extra.type,
+                                extra.turn_id,
+                                extra.run_id,
+                                extra.message_id,
+                                extra.tool_call_id,
+                                extra.interrupt_id,
+                                json.dumps(extra.payload, ensure_ascii=False),
+                                extra.created_at or agora,
+                            ),
+                        )
+
+                # Gravar evento canônico message_created
+                current_seq += 1
+                msg_event_key = make_message_created_key(new_id)
+                msg_payload = {
+                    "role": role,
+                    "content": msg.text(),
+                    "is_error": bool(is_error),
+                }
+                await conn.execute(
+                    "INSERT INTO thread_events (thread_id, seq, event_key, type, "
+                    "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(thread_id, event_key) DO NOTHING",
+                    (
+                        thread_id,
+                        current_seq,
+                        msg_event_key,
+                        "message_created",
+                        turn_id,
+                        run_id,
+                        new_id,
+                        tool_call_id,
+                        None,
+                        json.dumps(msg_payload, ensure_ascii=False),
+                        agora,
+                    ),
+                )
+
+                # Exclusão atômica de rascunho de run no commit do assistente
+                if run_id is not None and role == "assistant" and not msg.tool_calls:
+                    await conn.execute(
+                        "DELETE FROM run_drafts WHERE thread_id = ? AND run_id = ?",
+                        (thread_id, run_id),
+                    )
+
                 if run_id is not None and role == "assistant" and not msg.tool_calls:
                     terminal_status = (
                         "failed"
@@ -457,7 +457,7 @@ class SessionStore:
             except Exception:
                 await conn.rollback()
                 raise
-        return int(new_id)
+        return int(new_id), current_seq
 
     async def attach_edited_files(
         self, thread_id: str, run_id: str, files: list[dict[str, object]]
@@ -872,6 +872,20 @@ class SessionStore:
             row = await cur.fetchone()
         return int(row[0] or 0) if row is not None else 0
 
+    async def get_event_seq_by_message_id(
+        self, thread_id: str, message_id: int | str
+    ) -> int | None:
+        """Localiza o seq do evento message_created correspondente a message_id."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT seq FROM thread_events WHERE thread_id = ? AND type = 'message_created' "
+                "AND (message_id = ? OR message_id = CAST(? AS INTEGER)) ORDER BY seq DESC LIMIT 1",
+                (thread_id, message_id, message_id),
+            )
+            row = await cur.fetchone()
+            return int(row[0]) if row and row[0] is not None else None
+
     async def list_active_user_ids(self, since_iso: str) -> list[str]:
         """`user_id` distintos com pelo menos uma sessão atualizada desde
         `since_iso` (string ISO comparável lexicograficamente com
@@ -890,7 +904,7 @@ class SessionStore:
         await self.setup()
         async with self._pool.acquire() as conn:
             cur = await conn.execute(
-                "SELECT interrupt_id, tool_name, tool_call_id, args_json, "
+                "SELECT interrupt_id, tool_name, tool_call_id, run_id, args_json, "
                 "reasoning, options_json, priority, expires_at, created_at "
                 "FROM pending_approvals WHERE thread_id = ?",
                 (thread_id,),
@@ -902,6 +916,7 @@ class SessionStore:
             interrupt_id,
             tool_name,
             tool_call_id,
+            run_id,
             args_json,
             reasoning,
             options_json,
@@ -910,12 +925,64 @@ class SessionStore:
             created_at,
         ) = row
         if expires_at and expires_at <= _now():
-            await self.clear_pending_approval(thread_id)
+            agora = _now()
+            async with self._pool.acquire() as conn:
+                await conn.execute("BEGIN IMMEDIATE")
+                try:
+                    cur_del = await conn.execute(
+                        "DELETE FROM pending_approvals "
+                        "WHERE thread_id = ? AND interrupt_id = ? "
+                        "AND expires_at IS NOT NULL AND expires_at <= ?",
+                        (thread_id, interrupt_id, agora),
+                    )
+                    if cur_del.rowcount <= 0:
+                        await conn.rollback()
+                        return None
+                    cur_max = await conn.execute(
+                        "SELECT COALESCE(MAX(seq), 0) FROM thread_events WHERE thread_id = ?",
+                        (thread_id,),
+                    )
+                    row_max = await cur_max.fetchone()
+                    current_seq = (int(row_max[0]) if row_max else 0) + 1
+                    resolved_key = make_approval_resolved_key(interrupt_id)
+                    payload = {
+                        "tool_name": tool_name,
+                        "tool_call_id": tool_call_id,
+                        "interrupt_id": interrupt_id,
+                        "expired": True,
+                    }
+                    await conn.execute(
+                        "INSERT INTO thread_events (thread_id, seq, event_key, type, "
+                        "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                        "ON CONFLICT(thread_id, event_key) DO NOTHING",
+                        (
+                            thread_id,
+                            current_seq,
+                            resolved_key,
+                            "approval_resolved",
+                            None,
+                            None,
+                            None,
+                            tool_call_id,
+                            interrupt_id,
+                            json.dumps(payload, ensure_ascii=False),
+                            agora,
+                        ),
+                    )
+                    await conn.commit()
+                except Exception:
+                    await conn.rollback()
+                    logger.exception(
+                        "session_store: falha ao expirar pending approval para thread %s",
+                        thread_id,
+                    )
             return None
         return {
             "interrupt_id": interrupt_id,
             "tool_name": tool_name,
             "tool_call_id": tool_call_id,
+            "run_id": run_id,
             "args": json.loads(args_json),
             "reasoning": reasoning,
             "options": json.loads(options_json or "[]"),
@@ -927,36 +994,85 @@ class SessionStore:
     async def claim_pending_approval(
         self, thread_id: str, *, interrupt_id: str
     ) -> dict[str, Any] | None:
-        """Atomically consume a matching pending approval for one resumer."""
+        """Atomically consume a matching pending approval for one resumer,
+        recording an approval_resolved event in the ledger on the same transaction."""
         await self.setup()
+        agora = _now()
         async with self._pool.acquire() as conn:
-            cur = await conn.execute(
-                "DELETE FROM pending_approvals WHERE thread_id = ? AND interrupt_id = ? "
-                "RETURNING interrupt_id, tool_name, tool_call_id, args_json, reasoning, "
-                "options_json, priority, expires_at, created_at",
-                (thread_id, interrupt_id),
-            )
-            row = await cur.fetchone()
-            await conn.commit()
-        if row is None:
+            await conn.execute("BEGIN IMMEDIATE")
+            try:
+                cur = await conn.execute(
+                    "DELETE FROM pending_approvals WHERE thread_id = ? AND interrupt_id = ? "
+                    "RETURNING interrupt_id, tool_name, tool_call_id, run_id, args_json, reasoning, "
+                    "options_json, priority, expires_at, created_at",
+                    (thread_id, interrupt_id),
+                )
+                row = await cur.fetchone()
+                if row is None:
+                    await conn.rollback()
+                    return None
+
+                (
+                    claimed_id,
+                    tool_name,
+                    tool_call_id,
+                    run_id,
+                    args_json,
+                    reasoning,
+                    options_json,
+                    priority,
+                    expires_at,
+                    created_at,
+                ) = row
+                is_expired = bool(expires_at and expires_at <= _now())
+
+                # Obter próximo seq do ledger
+                cur_max = await conn.execute(
+                    "SELECT COALESCE(MAX(seq), 0) FROM thread_events WHERE thread_id = ?",
+                    (thread_id,),
+                )
+                row_max = await cur_max.fetchone()
+                current_seq = (int(row_max[0]) if row_max else 0) + 1
+
+                resolved_key = make_approval_resolved_key(claimed_id)
+                payload = {
+                    "tool_name": tool_name,
+                    "tool_call_id": tool_call_id,
+                    "interrupt_id": claimed_id,
+                    "expired": is_expired,
+                }
+                await conn.execute(
+                    "INSERT INTO thread_events (thread_id, seq, event_key, type, "
+                    "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(thread_id, event_key) DO NOTHING",
+                    (
+                        thread_id,
+                        current_seq,
+                        resolved_key,
+                        "approval_resolved",
+                        None,
+                        None,
+                        None,
+                        tool_call_id,
+                        claimed_id,
+                        json.dumps(payload, ensure_ascii=False),
+                        agora,
+                    ),
+                )
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
+
+        if is_expired:
             return None
-        (
-            claimed_id,
-            tool_name,
-            tool_call_id,
-            args_json,
-            reasoning,
-            options_json,
-            priority,
-            expires_at,
-            created_at,
-        ) = row
-        if expires_at and expires_at <= _now():
-            return None
+
         return {
             "interrupt_id": claimed_id,
             "tool_name": tool_name,
             "tool_call_id": tool_call_id,
+            "run_id": run_id,
             "args": json.loads(args_json),
             "reasoning": reasoning,
             "options": json.loads(options_json or "[]"),
@@ -972,35 +1088,78 @@ class SessionStore:
         interrupt_id: str,
         tool_name: str,
         tool_call_id: str,
+        run_id: str | None = None,
         args: dict[str, Any],
         reasoning: str | None = None,
         options: list[ToolOption] | None = None,
         priority: int = 0,
         expires_at: str | None = None,
     ) -> None:
-        """Persiste IMEDIATA e SINCRONAMENTE a aprovação pendente, antes de
-        qualquer espera — HITL sobrevive a restart do backend porque o
-        estado nunca vive só em memória."""
+        """Persiste IMEDIATA e SINCRONAMENTE a aprovação pendente e grava
+        o evento approval_requested correspondente no ledger."""
         await self.setup()
+        agora = _now()
         async with self._pool.acquire() as conn:
-            await conn.execute(
-                "INSERT OR REPLACE INTO pending_approvals (thread_id, "
-                "interrupt_id, tool_name, tool_call_id, args_json, reasoning, options_json, "
-                "priority, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    thread_id,
-                    interrupt_id,
-                    tool_name,
-                    tool_call_id,
-                    json.dumps(args, ensure_ascii=False),
-                    reasoning,
-                    json.dumps(options or [], ensure_ascii=False),
-                    priority,
-                    expires_at,
-                    _now(),
-                ),
-            )
-            await conn.commit()
+            await conn.execute("BEGIN IMMEDIATE")
+            try:
+                await conn.execute(
+                    "INSERT OR REPLACE INTO pending_approvals (thread_id, "
+                    "interrupt_id, tool_name, tool_call_id, run_id, args_json, reasoning, options_json, "
+                    "priority, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        thread_id,
+                        interrupt_id,
+                        tool_name,
+                        tool_call_id,
+                        run_id,
+                        json.dumps(args, ensure_ascii=False),
+                        reasoning,
+                        json.dumps(options or [], ensure_ascii=False),
+                        priority,
+                        expires_at,
+                        agora,
+                    ),
+                )
+                # Obter próximo seq do ledger
+                cur_max = await conn.execute(
+                    "SELECT COALESCE(MAX(seq), 0) FROM thread_events WHERE thread_id = ?",
+                    (thread_id,),
+                )
+                row_max = await cur_max.fetchone()
+                current_seq = (int(row_max[0]) if row_max else 0) + 1
+
+                req_key = make_approval_requested_key(interrupt_id)
+                payload = {
+                    "tool_name": tool_name,
+                    "tool_call_id": tool_call_id,
+                    "run_id": run_id,
+                    "args": args,
+                    "reasoning": reasoning,
+                    "priority": priority,
+                }
+                await conn.execute(
+                    "INSERT INTO thread_events (thread_id, seq, event_key, type, "
+                    "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                    "ON CONFLICT(thread_id, event_key) DO NOTHING",
+                    (
+                        thread_id,
+                        current_seq,
+                        req_key,
+                        "approval_requested",
+                        None,
+                        run_id,
+                        None,
+                        tool_call_id,
+                        interrupt_id,
+                        json.dumps(payload, ensure_ascii=False),
+                        agora,
+                    ),
+                )
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
 
     async def clear_pending_approval(self, thread_id: str) -> None:
         await self.setup()
@@ -1047,11 +1206,7 @@ class SessionStore:
 
     async def delete_session(self, thread_id: str) -> None:
         """Apaga `thread_id` e tudo que referencia ela (`messages`,
-        `pending_approvals`) desta fonte de verdade. Precisa ser chamado
-        junto de qualquer exclusão em `vectora_sessions` — do contrário a
-        thread continua existindo aqui, e a reconciliação periódica
-        (`reconcile_vectora_sessions`) a repovoa na sidebar na próxima
-        rodada."""
+        `pending_approvals`, `thread_events`, `thread_event_cursors`, `run_drafts`)."""
         await self.setup()
         async with self._pool.acquire() as conn:
             try:
@@ -1065,9 +1220,403 @@ class SessionStore:
                     "DELETE FROM session_runs WHERE thread_id = ?", (thread_id,)
                 )
                 await conn.execute(
+                    "DELETE FROM thread_events WHERE thread_id = ?", (thread_id,)
+                )
+                await conn.execute(
+                    "DELETE FROM thread_event_cursors WHERE thread_id = ?", (thread_id,)
+                )
+                await conn.execute(
+                    "DELETE FROM run_drafts WHERE thread_id = ?", (thread_id,)
+                )
+                await conn.execute(
+                    "DELETE FROM ledger_backfill WHERE thread_id = ?", (thread_id,)
+                )
+                await conn.execute(
                     "DELETE FROM sessions WHERE thread_id = ?", (thread_id,)
                 )
                 await conn.commit()
             except Exception:
                 await conn.rollback()
                 raise
+
+    # -----------------------------------------------------------------------
+    # Ledger de Eventos, Cursores de Leitura e Rascunhos
+    # -----------------------------------------------------------------------
+
+    async def append_event(
+        self, thread_id: str, draft: ThreadLedgerEvent
+    ) -> ThreadLedgerEvent:
+        """Gera seq monótono e insere o evento no ledger.
+        Em caso de conflito de event_key, retorna o evento existente sem erro."""
+        await self.setup()
+        await ensure_thread_backfilled(self._pool, thread_id)
+        agora = _now()
+        created_at = draft.created_at or agora
+        payload_str = json.dumps(draft.payload, ensure_ascii=False)
+        async with self._pool.acquire() as conn:
+            await conn.execute("BEGIN IMMEDIATE")
+            try:
+                # Verificar se event_key já existe
+                cur_existing = await conn.execute(
+                    "SELECT thread_id, seq, event_key, type, turn_id, run_id, "
+                    "message_id, tool_call_id, interrupt_id, payload_json, created_at "
+                    "FROM thread_events WHERE thread_id = ? AND event_key = ?",
+                    (thread_id, draft.event_key),
+                )
+                row = await cur_existing.fetchone()
+                if row is not None:
+                    await conn.rollback()
+                    return ThreadLedgerEvent(
+                        thread_id=row[0],
+                        seq=row[1],
+                        event_key=row[2],
+                        type=row[3],
+                        turn_id=row[4],
+                        run_id=row[5],
+                        message_id=row[6],
+                        tool_call_id=row[7],
+                        interrupt_id=row[8],
+                        payload=json.loads(row[9] or "{}"),
+                        created_at=row[10],
+                    )
+
+                cur_max = await conn.execute(
+                    "SELECT COALESCE(MAX(seq), 0) FROM thread_events WHERE thread_id = ?",
+                    (thread_id,),
+                )
+                row_max = await cur_max.fetchone()
+                next_seq = (int(row_max[0]) if row_max else 0) + 1
+
+                await conn.execute(
+                    "INSERT INTO thread_events (thread_id, seq, event_key, type, "
+                    "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        thread_id,
+                        next_seq,
+                        draft.event_key,
+                        draft.type,
+                        draft.turn_id,
+                        draft.run_id,
+                        draft.message_id,
+                        draft.tool_call_id,
+                        draft.interrupt_id,
+                        payload_str,
+                        created_at,
+                    ),
+                )
+                await conn.commit()
+                return ThreadLedgerEvent(
+                    thread_id=thread_id,
+                    seq=next_seq,
+                    event_key=draft.event_key,
+                    type=draft.type,
+                    turn_id=draft.turn_id,
+                    run_id=draft.run_id,
+                    message_id=draft.message_id,
+                    tool_call_id=draft.tool_call_id,
+                    interrupt_id=draft.interrupt_id,
+                    payload=draft.payload,
+                    created_at=created_at,
+                )
+            except Exception:
+                await conn.rollback()
+                raise
+
+    async def append_ledger_event(
+        self,
+        thread_id: str,
+        *,
+        event_key: str,
+        event_type: LedgerEventType | str,
+        run_id: str | None = None,
+        turn_id: str | None = None,
+        message_id: int | None = None,
+        tool_call_id: str | None = None,
+        interrupt_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+        created_at: str | None = None,
+    ) -> ThreadLedgerEvent:
+        """Helper para registrar eventos no ledger usando argumentos nomeados."""
+        event = ThreadLedgerEvent(
+            thread_id=thread_id,
+            event_key=event_key,
+            type=cast("LedgerEventType", event_type),
+            run_id=run_id,
+            turn_id=turn_id,
+            message_id=message_id,
+            tool_call_id=tool_call_id,
+            interrupt_id=interrupt_id,
+            payload=payload or {},
+            created_at=created_at or _now(),
+        )
+        return await self.append_event(thread_id, event)
+
+    async def list_events(
+        self, thread_id: str, *, after_seq: int = 0, limit: int = 500
+    ) -> list[ThreadLedgerEvent]:
+        """Lista eventos do ledger ordenados por seq. Para message_created, junta o texto da mensagem se faltar no payload."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT e.thread_id, e.seq, e.event_key, e.type, e.turn_id, e.run_id, "
+                "e.message_id, e.tool_call_id, e.interrupt_id, e.payload_json, e.created_at, "
+                "m.role, m.content_json, m.is_error "
+                "FROM thread_events e "
+                "LEFT JOIN messages m ON e.message_id = m.id "
+                "WHERE e.thread_id = ? AND e.seq > ? "
+                "ORDER BY e.seq ASC LIMIT ?",
+                (thread_id, after_seq, limit),
+            )
+            rows = await cur.fetchall()
+
+        events: list[ThreadLedgerEvent] = []
+        for r in rows:
+            payload = json.loads(r[9] or "{}")
+            if r[3] == "message_created" and r[11] is not None:
+                if not payload.get("role"):
+                    payload["role"] = r[11]
+                if "content" not in payload and r[12]:
+                    try:
+                        blocks = json.loads(r[12])
+                        text_val = "".join(
+                            b.get("text", "") for b in blocks if isinstance(b, dict)
+                        )
+                        payload["content"] = text_val
+                    except Exception:
+                        pass
+                if "is_error" not in payload and r[13] is not None:
+                    payload["is_error"] = bool(r[13])
+
+            events.append(
+                ThreadLedgerEvent(
+                    thread_id=r[0],
+                    seq=r[1],
+                    event_key=r[2],
+                    type=r[3],
+                    turn_id=r[4],
+                    run_id=r[5],
+                    message_id=r[6],
+                    tool_call_id=r[7],
+                    interrupt_id=r[8],
+                    payload=payload,
+                    created_at=r[10],
+                )
+            )
+        return events
+
+    async def mark_events_seen(
+        self, thread_id: str, user_id: str, device_id: str, seen_seq: int
+    ) -> dict[str, int]:
+        """Atualiza o cursor com MAX(existing, seen_seq), limitado ao MAX(seq) da thread."""
+        await self.setup()
+        now = _now()
+        async with self._pool.acquire() as conn:
+            cur_max = await conn.execute(
+                "SELECT COALESCE(MAX(seq), 0) FROM thread_events WHERE thread_id = ?",
+                (thread_id,),
+            )
+            row_max = await cur_max.fetchone()
+            max_seq = int(row_max[0]) if row_max else 0
+            clamped_seq = max(0, min(seen_seq, max_seq))
+
+            await conn.execute(
+                "INSERT INTO thread_event_cursors (thread_id, user_id, device_id, last_seen_seq, updated_at) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(thread_id, user_id, device_id) DO UPDATE SET "
+                "last_seen_seq = MAX(thread_event_cursors.last_seen_seq, excluded.last_seen_seq), "
+                "updated_at = excluded.updated_at",
+                (thread_id, user_id, device_id, clamped_seq, now),
+            )
+            await conn.commit()
+
+        # Recalcular unread_count para a thread
+        summaries = await self.get_thread_summaries([thread_id], user_id=user_id)
+        if summaries:
+            return {
+                "read_seq": summaries[0].read_seq,
+                "unread_count": summaries[0].unread_count,
+            }
+        return {"read_seq": clamped_seq, "unread_count": 0}
+
+    async def get_thread_summaries(
+        self, thread_ids: list[str], *, user_id: str
+    ) -> list[ThreadSummary]:
+        """Retorna resumos derivados em lote para uma lista de thread_ids."""
+        if not thread_ids:
+            return []
+        await self.setup()
+        placeholders = ",".join("?" for _ in thread_ids)
+
+        async with self._pool.acquire() as conn:
+            # 1. Obter max_seq por thread
+            cur_max = await conn.execute(
+                f"SELECT thread_id, COALESCE(MAX(seq), 0) FROM thread_events "  # noqa: S608  # nosec B608
+                f"WHERE thread_id IN ({placeholders}) GROUP BY thread_id",
+                tuple(thread_ids),
+            )
+            max_seqs: dict[str, int] = {
+                str(r[0]): int(r[1]) for r in await cur_max.fetchall()
+            }
+
+            # 2. Derivar status e badges no SQLite sem reconstruir o ledger.
+            # O histórico completo só é necessário para a tela de conversa,
+            # nunca para a sidebar.
+            cur_status = await conn.execute(
+                f"SELECT thread_id, type, payload_json FROM ("  # noqa: S608  # nosec B608
+                f"  SELECT thread_id, type, payload_json, "
+                f"  ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY seq DESC) AS rn "
+                f"  FROM thread_events WHERE thread_id IN ({placeholders}) "
+                f"  AND type IN ('run_completed','agent_turn_finished','run_failed',"
+                f"'approval_resolved','approval_requested','agent_turn_started')"
+                f") WHERE rn = 1",
+                tuple(thread_ids),
+            )
+            status_rows = await cur_status.fetchall()
+            cur_unread = await conn.execute(
+                f"WITH requested(thread_id) AS (VALUES {','.join('(?)' for _ in thread_ids)}), "  # noqa: S608
+                f"cursors AS (SELECT thread_id, COALESCE(MAX(last_seen_seq), 0) AS read_seq "
+                f"FROM thread_event_cursors WHERE user_id = ? "
+                f"AND thread_id IN ({placeholders}) GROUP BY thread_id) "
+                f"SELECT r.thread_id, COALESCE(c.read_seq, 0), "
+                f"COALESCE(SUM(CASE WHEN e.seq > COALESCE(c.read_seq, 0) AND "
+                f"(e.type IN ('approval_requested','run_failed') OR "
+                f"(e.type = 'message_created' AND json_extract(e.payload_json, '$.role') = 'assistant')) "
+                f"THEN 1 ELSE 0 END), 0) "
+                f"FROM requested r LEFT JOIN cursors c ON c.thread_id = r.thread_id "
+                f"LEFT JOIN thread_events e ON e.thread_id = r.thread_id "
+                f"GROUP BY r.thread_id, c.read_seq",  # nosec B608
+                (*thread_ids, user_id, *thread_ids),
+            )
+            cursor_rows = await cur_unread.fetchall()
+            cursors = {str(r[0]): int(r[1]) for r in cursor_rows}
+            unread_counts = {str(r[0]): int(r[2]) for r in cursor_rows}
+
+            # 4. Obter última mensagem persistida
+            cur_last_msgs = await conn.execute(
+                f"SELECT m.thread_id, m.id, m.role, m.content_json, m.created_at "  # noqa: S608  # nosec B608
+                f"FROM messages m "
+                f"INNER JOIN ("
+                f"  SELECT thread_id, MAX(id) as max_id FROM messages "
+                f"  WHERE thread_id IN ({placeholders}) GROUP BY thread_id"
+                f") latest ON m.thread_id = latest.thread_id AND m.id = latest.max_id",
+                tuple(thread_ids),
+            )
+            last_msgs = {}
+            for row_msg in await cur_last_msgs.fetchall():
+                t_id, m_id, role, c_json, c_at = row_msg
+                try:
+                    blocks = json.loads(c_json or "[]")
+                    preview = "".join(
+                        b.get("text", "") for b in blocks if isinstance(b, dict)
+                    )
+                except Exception:
+                    preview = ""
+                last_msgs[t_id] = ThreadLastMessage(
+                    role=role,
+                    preview=preview,
+                    message_id=m_id,
+                    created_at=c_at,
+                )
+
+        status_by_thread = {str(r[0]): (str(r[1]), r[2]) for r in status_rows}
+
+        summaries: list[ThreadSummary] = []
+        for tid in thread_ids:
+            read_seq = int(cursors.get(tid, 0))
+            last_seq = int(max_seqs.get(tid, 0))
+            status = "idle"
+            status_row = status_by_thread.get(tid)
+            if status_row:
+                event_type, payload_json = status_row
+                if event_type == "run_failed":
+                    status = "failed"
+                elif event_type == "approval_requested":
+                    status = "awaiting_approval"
+                elif event_type == "agent_turn_started":
+                    status = "running"
+                elif event_type == "approval_resolved":
+                    payload = json.loads(payload_json or "{}")
+                    status = "idle" if payload.get("expired", False) else "running"
+
+            unread_count = unread_counts.get(tid, 0)
+
+            summaries.append(
+                ThreadSummary(
+                    thread_id=tid,
+                    last_seq=last_seq,
+                    last_message=last_msgs.get(tid),
+                    status=status,
+                    read_seq=read_seq,
+                    unread_count=unread_count,
+                )
+            )
+        return summaries
+
+    async def upsert_run_draft(
+        self,
+        thread_id: str,
+        run_id: str,
+        *,
+        content: str = "",
+        tool_calls_json: str | None = None,
+    ) -> None:
+        """Salva rascunho intermediário de um run."""
+        await self.setup()
+        now = _now()
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO run_drafts (thread_id, run_id, content, tool_calls_json, updated_at) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(thread_id, run_id) DO UPDATE SET "
+                "content = excluded.content, tool_calls_json = excluded.tool_calls_json, "
+                "updated_at = excluded.updated_at",
+                (thread_id, run_id, content, tool_calls_json, now),
+            )
+            await conn.commit()
+
+    async def get_run_draft(self, thread_id: str, run_id: str) -> RunDraft | None:
+        """Recupera o rascunho de um run."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT thread_id, run_id, content, tool_calls_json, updated_at "
+                "FROM run_drafts WHERE thread_id = ? AND run_id = ?",
+                (thread_id, run_id),
+            )
+            row = await cur.fetchone()
+        if row is None:
+            return None
+        return RunDraft(
+            thread_id=row[0],
+            run_id=row[1],
+            content=row[2],
+            tool_calls_json=row[3],
+            updated_at=row[4],
+        )
+
+    async def delete_run_draft(self, thread_id: str, run_id: str) -> None:
+        """Apaga o rascunho de um run concluído ou descartado."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM run_drafts WHERE thread_id = ? AND run_id = ?",
+                (thread_id, run_id),
+            )
+            await conn.commit()
+
+    async def find_orphan_runs(self) -> list[tuple[str, str]]:
+        """Identifica runs com agent_turn_started sem término (run_completed, run_failed ou agent_turn_finished)."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT DISTINCT e1.thread_id, e1.run_id FROM thread_events e1 "
+                "WHERE e1.type = 'agent_turn_started' AND e1.run_id IS NOT NULL "
+                "AND NOT EXISTS ("
+                "  SELECT 1 FROM thread_events e2 "
+                "  WHERE e2.thread_id = e1.thread_id AND e2.run_id = e1.run_id "
+                "  AND e2.type IN ('run_completed', 'run_failed', 'agent_turn_finished')"
+                ")"
+            )
+            rows = await cur.fetchall()
+        return [(r[0], r[1]) for r in rows]

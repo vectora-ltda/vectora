@@ -218,7 +218,21 @@ def test_container_matches_spec_quando_cmd_igual(
     def _fake_run(cmd: list[str]):
         class _P:
             returncode = 0
-            stdout = json.dumps(list(redis.command))
+            stdout = json.dumps(
+                {
+                    "Config": {"Cmd": list(redis.command), "Env": list(redis.env)},
+                    "HostConfig": {
+                        "PortBindings": {
+                            "6379/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6379"}]
+                        }
+                    },
+                    "NetworkSettings": {
+                        "Ports": {
+                            "6379/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6379"}]
+                        }
+                    },
+                }
+            )
 
         return _P()
 
@@ -244,7 +258,21 @@ def test_container_nao_bate_quando_falta_requirepass(
     def _fake_run(cmd: list[str]):
         class _P:
             returncode = 0
-            stdout = json.dumps(legacy_cmd)
+            stdout = json.dumps(
+                {
+                    "Config": {"Cmd": legacy_cmd, "Env": list(redis.env)},
+                    "HostConfig": {
+                        "PortBindings": {
+                            "6379/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6379"}]
+                        }
+                    },
+                    "NetworkSettings": {
+                        "Ports": {
+                            "6379/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6379"}]
+                        }
+                    },
+                }
+            )
 
         return _P()
 
@@ -252,19 +280,73 @@ def test_container_nao_bate_quando_falta_requirepass(
     assert dev_stack._container_matches_spec("vectora-redis", redis) is False
 
 
-def test_container_matches_spec_sem_command_sempre_true(
+def test_container_sem_porta_publicada_e_variavel_obrigatoria_recria(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Specs sem command (Postgres/Qdrant) não checam Cmd — nada a comparar."""
+    """Qdrant sem porta publicada não pode ser reutilizado só por estar up."""
+    import json
+
     from backend.storage import dev_stack
 
-    postgres = next(s for s in SERVICES if s.name == "vectora-postgres")
+    qdrant = next(s for s in SERVICES if s.name == "vectora-qdrant")
 
-    def _fail(cmd: list[str]):  # não deve ser chamado
-        raise AssertionError("não deveria inspecionar container sem command")
+    def _fake_run(cmd: list[str]):
+        class _P:
+            returncode = 0
+            stdout = json.dumps(
+                {
+                    "Config": {"Cmd": [], "Env": []},
+                    "HostConfig": {
+                        "PortBindings": {
+                            "6333/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6333"}],
+                            "6334/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6334"}],
+                        }
+                    },
+                    "NetworkSettings": {"Ports": {}},
+                }
+            )
 
-    monkeypatch.setattr(dev_stack, "_run", _fail)
-    assert dev_stack._container_matches_spec("vectora-postgres", postgres) is True
+        return _P()
+
+    monkeypatch.setattr(dev_stack, "_run", _fake_run)
+    assert dev_stack._container_matches_spec("vectora-qdrant", qdrant) is False
+
+
+def test_container_matches_spec_rejeita_env_incompleto(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Um serviço sem a API key exigida deve ser recriado, mesmo com portas."""
+    import json
+
+    from backend.storage import dev_stack
+
+    qdrant = next(s for s in SERVICES if s.name == "vectora-qdrant")
+
+    def _fake_run(cmd: list[str]):
+        class _P:
+            returncode = 0
+            stdout = json.dumps(
+                {
+                    "Config": {"Cmd": [], "Env": []},
+                    "HostConfig": {
+                        "PortBindings": {
+                            "6333/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6333"}],
+                            "6334/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6334"}],
+                        }
+                    },
+                    "NetworkSettings": {
+                        "Ports": {
+                            "6333/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6333"}],
+                            "6334/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6334"}],
+                        }
+                    },
+                }
+            )
+
+        return _P()
+
+    monkeypatch.setattr(dev_stack, "_run", _fake_run)
+    assert dev_stack._container_matches_spec("vectora-qdrant", qdrant) is False
 
 
 def test_container_matches_spec_inspect_falha_recria(

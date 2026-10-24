@@ -12,86 +12,26 @@ a sintaxe SQL mudam (``$1``/``$2`` de placeholder, ``BIGSERIAL``,
 from __future__ import annotations
 
 import json
+import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
+from backend.persistence.native.ledger import (
+    LedgerEventType,
+    RunDraft,
+    ThreadLastMessage,
+    ThreadLedgerEvent,
+    ThreadSummary,
+    make_approval_requested_key,
+    make_approval_resolved_key,
+    make_message_created_key,
+)
+from backend.persistence.native.schema import setup_postgres_session_schema
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import VMessage
 
 if TYPE_CHECKING:
     import asyncpg
-
-_SETUP_SQL = """
-CREATE TABLE IF NOT EXISTS vectora_sessions (
-    thread_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL DEFAULT '',
-    user_type TEXT NOT NULL DEFAULT 'human',
-    mode TEXT NOT NULL DEFAULT 'code',
-    permission_mode TEXT NOT NULL DEFAULT 'ask',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    last_activity TIMESTAMPTZ NOT NULL DEFAULT now(),
-    message_count BIGINT NOT NULL DEFAULT 0,
-    extra JSONB NOT NULL DEFAULT '{}'
-);
-ALTER TABLE vectora_sessions ADD COLUMN IF NOT EXISTS user_id TEXT NOT NULL DEFAULT '';
-ALTER TABLE vectora_sessions ADD COLUMN IF NOT EXISTS permission_mode TEXT NOT NULL DEFAULT 'ask';
-CREATE TABLE IF NOT EXISTS vectora_native_sessions (
-    thread_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    workspace_id TEXT,
-    parent_thread_id TEXT,
-    mode TEXT NOT NULL,
-    permission_mode TEXT NOT NULL DEFAULT 'ask',
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS vectora_native_messages (
-    id BIGSERIAL PRIMARY KEY,
-    thread_id TEXT NOT NULL REFERENCES vectora_native_sessions(thread_id),
-    parent_message_id BIGINT,
-    role TEXT NOT NULL,
-    content_json TEXT NOT NULL,
-    tool_calls_json TEXT,
-    tool_call_id TEXT,
-    name TEXT,
-    turn_id TEXT,
-    run_id TEXT,
-    edited_files_json TEXT,
-    is_branch_head BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS ix_vectora_native_messages_thread
-    ON vectora_native_messages(thread_id, id);
-CREATE INDEX IF NOT EXISTS ix_vectora_native_messages_thread_parent
-    ON vectora_native_messages(thread_id, parent_message_id);
-CREATE TABLE IF NOT EXISTS vectora_native_pending_approvals (
-    thread_id TEXT PRIMARY KEY REFERENCES vectora_native_sessions(thread_id),
-    interrupt_id TEXT NOT NULL,
-    tool_name TEXT NOT NULL,
-    tool_call_id TEXT NOT NULL,
-    args_json TEXT NOT NULL,
-    reasoning TEXT,
-    options_json TEXT NOT NULL DEFAULT '[]',
-    priority INTEGER NOT NULL DEFAULT 0,
-    expires_at TEXT,
-    created_at TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS vectora_native_approval_decisions (
-    id BIGSERIAL PRIMARY KEY,
-    thread_id TEXT NOT NULL,
-    interrupt_id TEXT NOT NULL,
-    tool_name TEXT NOT NULL,
-    decision TEXT NOT NULL,
-    selection TEXT,
-    decided_by TEXT,
-    decided_at TEXT NOT NULL,
-    options_json TEXT NOT NULL DEFAULT '[]',
-    priority INTEGER NOT NULL DEFAULT 0,
-    expires_at TEXT
-);
-CREATE INDEX IF NOT EXISTS ix_vectora_native_approval_decisions_thread
-    ON vectora_native_approval_decisions(thread_id, decided_at);
-"""
 
 
 # Teto de segurança pra reconstrução recursiva da cadeia de mensagens
@@ -99,6 +39,8 @@ CREATE INDEX IF NOT EXISTS ix_vectora_native_approval_decisions_thread
 # pra um `parent_message_id` corrompido/cíclico não fazer a CTE recursar
 # sem fim. Mesmo valor/motivo de `session_store.py::_CHAIN_DEPTH_CAP`.
 _CHAIN_DEPTH_CAP = 100_000
+
+logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
@@ -157,36 +99,7 @@ class PostgresSessionStore:
     async def setup(self) -> None:
         if self._is_setup:
             return
-        async with self._pool.acquire() as conn:
-            await conn.execute(_SETUP_SQL)
-            for statement in (
-                (
-                    "ALTER TABLE vectora_native_pending_approvals "
-                    "ADD COLUMN IF NOT EXISTS options_json TEXT NOT NULL DEFAULT '[]'"
-                ),
-                (
-                    "ALTER TABLE vectora_native_pending_approvals "
-                    "ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0"
-                ),
-                (
-                    "ALTER TABLE vectora_native_pending_approvals "
-                    "ADD COLUMN IF NOT EXISTS expires_at TEXT"
-                ),
-            ):
-                await conn.execute(statement)
-            await conn.execute(
-                "ALTER TABLE vectora_native_messages ADD COLUMN IF NOT EXISTS turn_id TEXT"
-            )
-            await conn.execute(
-                "ALTER TABLE vectora_native_messages ADD COLUMN IF NOT EXISTS run_id TEXT"
-            )
-            await conn.execute(
-                "ALTER TABLE vectora_native_messages "
-                "ADD COLUMN IF NOT EXISTS edited_files_json TEXT"
-            )
-            await conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ix_vectora_native_messages_thread_turn ON vectora_native_messages(thread_id, turn_id) WHERE turn_id IS NOT NULL"
-            )
+        await setup_postgres_session_schema(self._pool)
         self._is_setup = True
 
     async def create_session(
@@ -265,18 +178,32 @@ class PostgresSessionStore:
         turn_id: str | None = None,
         run_id: str | None = None,
     ) -> int:
-        """Persiste `msg` e devolve o `id` gerado — mesmo invariante de fork
-        de `SessionStore.append_message` (a mensagem nova vira a ponta ativa
-        da branch, sem apagar nenhuma mensagem existente)."""
+        """Persiste `msg` e devolve o `id` gerado, delegando para `append_message_recorded`."""
+        msg_id, _ = await self.append_message_recorded(
+            thread_id,
+            msg,
+            parent_message_id=parent_message_id,
+            turn_id=turn_id,
+            run_id=run_id,
+        )
+        return msg_id
+
+    async def append_message_recorded(
+        self,
+        thread_id: str,
+        msg: VMessage,
+        *,
+        parent_message_id: int | None = None,
+        turn_id: str | None = None,
+        run_id: str | None = None,
+        extra_events: list[ThreadLedgerEvent] | None = None,
+    ) -> tuple[int, int]:
+        """Persiste `msg` e o evento `message_created` atomicamente no ledger Postgres,
+        devolvendo `(message_id, seq)`."""
         await self.setup()
         agora = _now()
         role, content_json, tool_calls_json, tool_call_id, name = _message_to_row(msg)
         async with self._pool.acquire() as conn, conn.transaction():
-            # Lock de linha na sessão serializa `append_message` concorrente
-            # na mesma thread — sem isso, dois INSERTs em paralelo sob READ
-            # COMMITTED não enxergam a linha um do outro e o UPDATE seguinte
-            # (`is_branch_head = FALSE WHERE id != new_id`) deixa as duas
-            # mensagens marcadas como ponta ativa.
             await conn.execute(
                 "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
                 thread_id,
@@ -289,7 +216,14 @@ class PostgresSessionStore:
                     turn_id,
                 )
                 if existing_id is not None:
-                    return int(existing_id)
+                    row_seq = await conn.fetchval(
+                        "SELECT seq FROM vectora_native_thread_events WHERE thread_id = $1 AND message_id = $2",
+                        thread_id,
+                        int(existing_id),
+                    )
+                    seq = int(row_seq) if row_seq is not None else 0
+                    return int(existing_id), seq
+
             new_id = await conn.fetchval(
                 "INSERT INTO vectora_native_messages (thread_id, parent_message_id, role, "
                 "content_json, tool_calls_json, tool_call_id, name, turn_id, run_id, "
@@ -304,8 +238,8 @@ class PostgresSessionStore:
                 tool_call_id,
                 name,
                 turn_id,
-                run_id,
                 None,
+                run_id,
                 agora,
             )
             await conn.execute(
@@ -319,7 +253,69 @@ class PostgresSessionStore:
                 agora,
                 thread_id,
             )
-        return int(new_id)
+
+            # Obter próximo seq do ledger
+            max_seq = await conn.fetchval(
+                "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
+                thread_id,
+            )
+            current_seq = int(max_seq or 0)
+
+            if extra_events:
+                for extra in extra_events:
+                    current_seq += 1
+                    await conn.execute(
+                        "INSERT INTO vectora_native_thread_events (thread_id, seq, event_key, type, "
+                        "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
+                        "ON CONFLICT (thread_id, event_key) DO NOTHING",
+                        thread_id,
+                        current_seq,
+                        extra.event_key,
+                        extra.type,
+                        extra.turn_id,
+                        extra.run_id,
+                        extra.message_id,
+                        extra.tool_call_id,
+                        extra.interrupt_id,
+                        json.dumps(extra.payload, ensure_ascii=False),
+                        extra.created_at or agora,
+                    )
+
+            current_seq += 1
+            msg_event_key = make_message_created_key(new_id)
+            msg_payload = {
+                "role": role,
+                "content": msg.text(),
+                "is_error": bool(msg.is_error),
+            }
+            await conn.execute(
+                "INSERT INTO vectora_native_thread_events (thread_id, seq, event_key, type, "
+                "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
+                "ON CONFLICT (thread_id, event_key) DO NOTHING",
+                thread_id,
+                current_seq,
+                msg_event_key,
+                "message_created",
+                turn_id,
+                run_id,
+                new_id,
+                tool_call_id,
+                None,
+                json.dumps(msg_payload, ensure_ascii=False),
+                agora,
+            )
+
+            # Exclusão atômica de rascunho de run no commit do assistente
+            if run_id is not None and role == "assistant" and not msg.tool_calls:
+                await conn.execute(
+                    "DELETE FROM vectora_native_run_drafts WHERE thread_id = $1 AND run_id = $2",
+                    thread_id,
+                    run_id,
+                )
+
+        return int(new_id), current_seq
 
     async def attach_edited_files(
         self, thread_id: str, run_id: str, files: list[dict[str, object]]
@@ -609,7 +605,7 @@ class PostgresSessionStore:
         await self.setup()
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT interrupt_id, tool_name, tool_call_id, args_json, "
+                "SELECT interrupt_id, tool_name, tool_call_id, run_id, args_json, "
                 "reasoning, options_json, priority, expires_at, created_at FROM vectora_native_pending_approvals "
                 "WHERE thread_id = $1",
                 thread_id,
@@ -617,12 +613,64 @@ class PostgresSessionStore:
         if row is None:
             return None
         if row["expires_at"] and row["expires_at"] <= _now():
-            await self.clear_pending_approval(thread_id)
+            agora = _now()
+            try:
+                async with self._pool.acquire() as conn, conn.transaction():
+                    await conn.execute(
+                        "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
+                        thread_id,
+                    )
+                    deleted = await conn.fetchval(
+                        "DELETE FROM vectora_native_pending_approvals "
+                        "WHERE thread_id = $1 AND interrupt_id = $2 "
+                        "AND expires_at IS NOT NULL AND expires_at <= $3 "
+                        "RETURNING 1",
+                        thread_id,
+                        row["interrupt_id"],
+                        agora,
+                    )
+                    if not deleted:
+                        return None
+                    max_seq = await conn.fetchval(
+                        "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
+                        thread_id,
+                    )
+                    current_seq = int(max_seq or 0) + 1
+                    resolved_key = make_approval_resolved_key(row["interrupt_id"])
+                    payload = {
+                        "tool_name": row["tool_name"],
+                        "tool_call_id": row["tool_call_id"],
+                        "interrupt_id": row["interrupt_id"],
+                        "expired": True,
+                    }
+                    await conn.execute(
+                        "INSERT INTO vectora_native_thread_events (thread_id, seq, event_key, type, "
+                        "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
+                        "ON CONFLICT (thread_id, event_key) DO NOTHING",
+                        thread_id,
+                        current_seq,
+                        resolved_key,
+                        "approval_resolved",
+                        None,
+                        None,
+                        None,
+                        row["tool_call_id"],
+                        row["interrupt_id"],
+                        json.dumps(payload, ensure_ascii=False),
+                        agora,
+                    )
+            except Exception:
+                logger.exception(
+                    "postgres_session_store: falha ao expirar pending approval para thread %s",
+                    thread_id,
+                )
             return None
         return {
             "interrupt_id": row["interrupt_id"],
             "tool_name": row["tool_name"],
             "tool_call_id": row["tool_call_id"],
+            "run_id": row["run_id"],
             "args": json.loads(row["args_json"]),
             "reasoning": row["reasoning"],
             "options": json.loads(row["options_json"] or "[]"),
@@ -634,23 +682,65 @@ class PostgresSessionStore:
     async def claim_pending_approval(
         self, thread_id: str, *, interrupt_id: str
     ) -> dict[str, Any] | None:
-        """Atomically consume a matching pending approval for one resumer."""
+        """Atomically consume a matching pending approval for one resumer,
+        recording an approval_resolved event in the ledger on the same transaction."""
         await self.setup()
-        async with self._pool.acquire() as conn:
+        agora = _now()
+        async with self._pool.acquire() as conn, conn.transaction():
+            await conn.execute(
+                "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
+                thread_id,
+            )
             row = await conn.fetchrow(
                 "DELETE FROM vectora_native_pending_approvals "
                 "WHERE thread_id = $1 AND interrupt_id = $2 "
-                "RETURNING interrupt_id, tool_name, tool_call_id, args_json, reasoning, "
+                "RETURNING interrupt_id, tool_name, tool_call_id, run_id, args_json, reasoning, "
                 "options_json, priority, expires_at, created_at",
                 thread_id,
                 interrupt_id,
             )
-        if row is None or (row["expires_at"] and row["expires_at"] <= _now()):
+            if row is None:
+                return None
+            is_expired = bool(row["expires_at"] and row["expires_at"] <= _now())
+
+            max_seq = await conn.fetchval(
+                "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
+                thread_id,
+            )
+            current_seq = int(max_seq or 0) + 1
+            resolved_key = make_approval_resolved_key(row["interrupt_id"])
+            payload = {
+                "tool_name": row["tool_name"],
+                "tool_call_id": row["tool_call_id"],
+                "interrupt_id": row["interrupt_id"],
+                "expired": is_expired,
+            }
+            await conn.execute(
+                "INSERT INTO vectora_native_thread_events (thread_id, seq, event_key, type, "
+                "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
+                "ON CONFLICT (thread_id, event_key) DO NOTHING",
+                thread_id,
+                current_seq,
+                resolved_key,
+                "approval_resolved",
+                None,
+                None,
+                None,
+                row["tool_call_id"],
+                row["interrupt_id"],
+                json.dumps(payload, ensure_ascii=False),
+                agora,
+            )
+
+        if is_expired:
             return None
+
         return {
             "interrupt_id": row["interrupt_id"],
             "tool_name": row["tool_name"],
             "tool_call_id": row["tool_call_id"],
+            "run_id": row["run_id"],
             "args": json.loads(row["args_json"]),
             "reasoning": row["reasoning"],
             "options": json.loads(row["options_json"] or "[]"),
@@ -666,6 +756,7 @@ class PostgresSessionStore:
         interrupt_id: str,
         tool_name: str,
         tool_call_id: str,
+        run_id: str | None = None,
         args: dict[str, Any],
         reasoning: str | None = None,
         options: list[ToolOption] | None = None,
@@ -673,15 +764,21 @@ class PostgresSessionStore:
         expires_at: str | None = None,
     ) -> None:
         await self.setup()
-        async with self._pool.acquire() as conn:
+        agora = _now()
+        async with self._pool.acquire() as conn, conn.transaction():
+            await conn.execute(
+                "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
+                thread_id,
+            )
             await conn.execute(
                 "INSERT INTO vectora_native_pending_approvals (thread_id, interrupt_id, "
-                "tool_name, tool_call_id, args_json, reasoning, options_json, priority, expires_at, created_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) "
+                "tool_name, tool_call_id, run_id, args_json, reasoning, options_json, priority, expires_at, created_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
                 "ON CONFLICT (thread_id) DO UPDATE SET "
                 "interrupt_id = EXCLUDED.interrupt_id, "
                 "tool_name = EXCLUDED.tool_name, "
                 "tool_call_id = EXCLUDED.tool_call_id, "
+                "run_id = EXCLUDED.run_id, "
                 "args_json = EXCLUDED.args_json, "
                 "reasoning = EXCLUDED.reasoning, "
                 "options_json = EXCLUDED.options_json, "
@@ -692,12 +789,44 @@ class PostgresSessionStore:
                 interrupt_id,
                 tool_name,
                 tool_call_id,
+                run_id,
                 json.dumps(args, ensure_ascii=False),
                 reasoning,
                 json.dumps(options or [], ensure_ascii=False),
                 priority,
                 expires_at,
-                _now(),
+                agora,
+            )
+            max_seq = await conn.fetchval(
+                "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
+                thread_id,
+            )
+            current_seq = int(max_seq or 0) + 1
+            req_key = make_approval_requested_key(interrupt_id)
+            payload = {
+                "tool_name": tool_name,
+                "tool_call_id": tool_call_id,
+                "run_id": run_id,
+                "args": args,
+                "reasoning": reasoning,
+                "priority": priority,
+            }
+            await conn.execute(
+                "INSERT INTO vectora_native_thread_events (thread_id, seq, event_key, type, "
+                "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) "
+                "ON CONFLICT (thread_id, event_key) DO NOTHING",
+                thread_id,
+                current_seq,
+                req_key,
+                "approval_requested",
+                None,
+                run_id,
+                None,
+                tool_call_id,
+                interrupt_id,
+                json.dumps(payload, ensure_ascii=False),
+                agora,
             )
 
     async def clear_pending_approval(self, thread_id: str) -> None:
@@ -740,3 +869,430 @@ class PostgresSessionStore:
                 priority,
                 expires_at,
             )
+
+    async def delete_session(self, thread_id: str) -> None:
+        """Apaga `thread_id` e todos os seus registros de mensagens, eventos, cursores e rascunhos."""
+        await self.setup()
+        async with self._pool.acquire() as conn, conn.transaction():
+            await conn.execute(
+                "DELETE FROM vectora_native_pending_approvals WHERE thread_id = $1",
+                thread_id,
+            )
+            await conn.execute(
+                "DELETE FROM vectora_native_messages WHERE thread_id = $1",
+                thread_id,
+            )
+            await conn.execute(
+                "DELETE FROM vectora_native_thread_events WHERE thread_id = $1",
+                thread_id,
+            )
+            await conn.execute(
+                "DELETE FROM vectora_native_thread_event_cursors WHERE thread_id = $1",
+                thread_id,
+            )
+            await conn.execute(
+                "DELETE FROM vectora_native_run_drafts WHERE thread_id = $1",
+                thread_id,
+            )
+            await conn.execute(
+                "DELETE FROM vectora_native_ledger_backfill WHERE thread_id = $1",
+                thread_id,
+            )
+            await conn.execute(
+                "DELETE FROM vectora_native_sessions WHERE thread_id = $1",
+                thread_id,
+            )
+
+    # -----------------------------------------------------------------------
+    # Ledger de Eventos, Cursores de Leitura e Rascunhos (Postgres)
+    # -----------------------------------------------------------------------
+
+    async def append_event(
+        self, thread_id: str, draft: ThreadLedgerEvent
+    ) -> ThreadLedgerEvent:
+        """Gera seq monótono e insere o evento no ledger Postgres."""
+        await self.setup()
+        agora = _now()
+        created_at = draft.created_at or agora
+        payload_str = json.dumps(draft.payload, ensure_ascii=False)
+        async with self._pool.acquire() as conn, conn.transaction():
+            await conn.execute(
+                "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
+                thread_id,
+            )
+            cur_existing = await conn.fetchrow(
+                "SELECT thread_id, seq, event_key, type, turn_id, run_id, "
+                "message_id, tool_call_id, interrupt_id, payload_json, created_at "
+                "FROM vectora_native_thread_events WHERE thread_id = $1 AND event_key = $2",
+                thread_id,
+                draft.event_key,
+            )
+            if cur_existing is not None:
+                return ThreadLedgerEvent(
+                    thread_id=cur_existing["thread_id"],
+                    seq=cur_existing["seq"],
+                    event_key=cur_existing["event_key"],
+                    type=cur_existing["type"],
+                    turn_id=cur_existing["turn_id"],
+                    run_id=cur_existing["run_id"],
+                    message_id=cur_existing["message_id"],
+                    tool_call_id=cur_existing["tool_call_id"],
+                    interrupt_id=cur_existing["interrupt_id"],
+                    payload=json.loads(cur_existing["payload_json"] or "{}"),
+                    created_at=cur_existing["created_at"],
+                )
+
+            max_seq = await conn.fetchval(
+                "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
+                thread_id,
+            )
+            next_seq = int(max_seq or 0) + 1
+
+            await conn.execute(
+                "INSERT INTO vectora_native_thread_events (thread_id, seq, event_key, type, "
+                "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                thread_id,
+                next_seq,
+                draft.event_key,
+                draft.type,
+                draft.turn_id,
+                draft.run_id,
+                draft.message_id,
+                draft.tool_call_id,
+                draft.interrupt_id,
+                payload_str,
+                created_at,
+            )
+
+        return ThreadLedgerEvent(
+            thread_id=thread_id,
+            seq=next_seq,
+            event_key=draft.event_key,
+            type=draft.type,
+            turn_id=draft.turn_id,
+            run_id=draft.run_id,
+            message_id=draft.message_id,
+            tool_call_id=draft.tool_call_id,
+            interrupt_id=draft.interrupt_id,
+            payload=draft.payload,
+            created_at=created_at,
+        )
+
+    async def append_ledger_event(
+        self,
+        thread_id: str,
+        *,
+        event_key: str,
+        event_type: LedgerEventType | str,
+        run_id: str | None = None,
+        turn_id: str | None = None,
+        message_id: int | None = None,
+        tool_call_id: str | None = None,
+        interrupt_id: str | None = None,
+        payload: dict[str, Any] | None = None,
+        created_at: str | None = None,
+    ) -> ThreadLedgerEvent:
+        """Helper para registrar eventos no ledger Postgres usando argumentos nomeados."""
+        event = ThreadLedgerEvent(
+            thread_id=thread_id,
+            event_key=event_key,
+            type=cast("LedgerEventType", event_type),
+            run_id=run_id,
+            turn_id=turn_id,
+            message_id=message_id,
+            tool_call_id=tool_call_id,
+            interrupt_id=interrupt_id,
+            payload=payload or {},
+            created_at=created_at or _now(),
+        )
+        return await self.append_event(thread_id, event)
+
+    async def list_events(
+        self, thread_id: str, *, after_seq: int = 0, limit: int = 500
+    ) -> list[ThreadLedgerEvent]:
+        """Lista eventos do ledger ordenados por seq no Postgres."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT e.thread_id, e.seq, e.event_key, e.type, e.turn_id, e.run_id, "
+                "e.message_id, e.tool_call_id, e.interrupt_id, e.payload_json, e.created_at, "
+                "m.role, m.content_json "
+                "FROM vectora_native_thread_events e "
+                "LEFT JOIN vectora_native_messages m ON e.message_id = m.id "
+                "WHERE e.thread_id = $1 AND e.seq > $2 "
+                "ORDER BY e.seq ASC LIMIT $3",
+                thread_id,
+                after_seq,
+                limit,
+            )
+
+        events: list[ThreadLedgerEvent] = []
+        for r in rows:
+            payload = json.loads(r["payload_json"] or "{}")
+            if r["type"] == "message_created" and r["role"] is not None:
+                if not payload.get("role"):
+                    payload["role"] = r["role"]
+                if "content" not in payload and r["content_json"]:
+                    try:
+                        blocks = json.loads(r["content_json"])
+                        text_val = "".join(
+                            b.get("text", "") for b in blocks if isinstance(b, dict)
+                        )
+                        payload["content"] = text_val
+                    except Exception:
+                        pass
+
+            events.append(
+                ThreadLedgerEvent(
+                    thread_id=r["thread_id"],
+                    seq=r["seq"],
+                    event_key=r["event_key"],
+                    type=r["type"],
+                    turn_id=r["turn_id"],
+                    run_id=r["run_id"],
+                    message_id=r["message_id"],
+                    tool_call_id=r["tool_call_id"],
+                    interrupt_id=r["interrupt_id"],
+                    payload=payload,
+                    created_at=r["created_at"],
+                )
+            )
+        return events
+
+    async def get_event_seq_by_message_id(
+        self, thread_id: str, message_id: int | str
+    ) -> int | None:
+        """Localiza o seq do evento message_created correspondente a message_id."""
+        await self.setup()
+        mid_int = int(message_id) if str(message_id).isdigit() else None
+        if mid_int is None:
+            return None
+        async with self._pool.acquire() as conn:
+            val = await conn.fetchval(
+                "SELECT seq FROM vectora_native_thread_events WHERE thread_id = $1 AND type = 'message_created' "
+                "AND message_id = $2 ORDER BY seq DESC LIMIT 1",
+                thread_id,
+                mid_int,
+            )
+            return int(val) if val is not None else None
+
+    async def mark_events_seen(
+        self, thread_id: str, user_id: str, device_id: str, seen_seq: int
+    ) -> dict[str, int]:
+        """Atualiza cursor no Postgres limitado ao MAX(seq)."""
+        await self.setup()
+        now = _now()
+        async with self._pool.acquire() as conn:
+            max_seq = await conn.fetchval(
+                "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
+                thread_id,
+            )
+            clamped_seq = max(0, min(seen_seq, int(max_seq or 0)))
+
+            await conn.execute(
+                "INSERT INTO vectora_native_thread_event_cursors "
+                "(thread_id, user_id, device_id, last_seen_seq, updated_at) "
+                "VALUES ($1, $2, $3, $4, $5) "
+                "ON CONFLICT (thread_id, user_id, device_id) DO UPDATE SET "
+                "last_seen_seq = GREATEST(vectora_native_thread_event_cursors.last_seen_seq, EXCLUDED.last_seen_seq), "
+                "updated_at = EXCLUDED.updated_at",
+                thread_id,
+                user_id,
+                device_id,
+                clamped_seq,
+                now,
+            )
+
+        summaries = await self.get_thread_summaries([thread_id], user_id=user_id)
+        if summaries:
+            return {
+                "read_seq": summaries[0].read_seq,
+                "unread_count": summaries[0].unread_count,
+            }
+        return {"read_seq": clamped_seq, "unread_count": 0}
+
+    async def get_thread_summaries(
+        self, thread_ids: list[str], *, user_id: str
+    ) -> list[ThreadSummary]:
+        """Resumos derivados no Postgres."""
+        if not thread_ids:
+            return []
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            rows_max = await conn.fetch(
+                "SELECT thread_id, COALESCE(MAX(seq), 0) as last_seq "
+                "FROM vectora_native_thread_events "
+                "WHERE thread_id = ANY($1::text[]) "
+                "GROUP BY thread_id",
+                thread_ids,
+            )
+            max_seqs = {r["thread_id"]: r["last_seq"] for r in rows_max}
+
+            status_rows = await conn.fetch(
+                "SELECT thread_id, type, payload_json FROM ("
+                "  SELECT thread_id, type, payload_json, "
+                "  ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY seq DESC) AS rn "
+                "  FROM vectora_native_thread_events "
+                "  WHERE thread_id = ANY($1::text[]) "
+                "  AND type = ANY($2::text[])"
+                ") latest WHERE rn = 1",
+                thread_ids,
+                [
+                    "run_completed",
+                    "agent_turn_finished",
+                    "run_failed",
+                    "approval_resolved",
+                    "approval_requested",
+                    "agent_turn_started",
+                ],
+            )
+            cursor_rows = await conn.fetch(
+                "WITH requested AS (SELECT UNNEST($2::text[]) AS thread_id), "
+                "cursors AS (SELECT thread_id, COALESCE(MAX(last_seen_seq), 0) AS read_seq "
+                "FROM vectora_native_thread_event_cursors WHERE user_id = $1 "
+                "AND thread_id = ANY($2::text[]) GROUP BY thread_id) "
+                "SELECT r.thread_id, COALESCE(c.read_seq, 0) AS read_seq, "
+                "COALESCE(SUM(CASE WHEN e.seq > COALESCE(c.read_seq, 0) AND "
+                "(e.type = ANY($3::text[]) OR (e.type = 'message_created' AND "
+                "e.payload_json::jsonb->>'role' = 'assistant')) THEN 1 ELSE 0 END), 0) "
+                "AS unread_count FROM requested r "
+                "LEFT JOIN cursors c ON c.thread_id = r.thread_id "
+                "LEFT JOIN vectora_native_thread_events e ON e.thread_id = r.thread_id "
+                "GROUP BY r.thread_id, c.read_seq",
+                user_id,
+                thread_ids,
+                ["approval_requested", "run_failed"],
+            )
+            cursors = {r["thread_id"]: int(r["read_seq"]) for r in cursor_rows}
+            unread_counts = {
+                str(r["thread_id"]): int(r["unread_count"]) for r in cursor_rows
+            }
+
+            rows_last_msg = await conn.fetch(
+                "SELECT m.thread_id, m.id, m.role, m.content_json, m.created_at "
+                "FROM vectora_native_messages m "
+                "INNER JOIN ("
+                "  SELECT thread_id, MAX(id) as max_id FROM vectora_native_messages "
+                "  WHERE thread_id = ANY($1::text[]) GROUP BY thread_id"
+                ") latest ON m.thread_id = latest.thread_id AND m.id = latest.max_id",
+                thread_ids,
+            )
+            last_msgs = {}
+            for r in rows_last_msg:
+                try:
+                    blocks = json.loads(r["content_json"] or "[]")
+                    preview = "".join(
+                        b.get("text", "") for b in blocks if isinstance(b, dict)
+                    )
+                except Exception:
+                    preview = ""
+                last_msgs[r["thread_id"]] = ThreadLastMessage(
+                    role=r["role"],
+                    preview=preview,
+                    message_id=r["id"],
+                    created_at=r["created_at"],
+                )
+
+        status_by_thread = {
+            str(r["thread_id"]): (str(r["type"]), r["payload_json"])
+            for r in status_rows
+        }
+
+        summaries: list[ThreadSummary] = []
+        for tid in thread_ids:
+            read_seq = int(cursors.get(tid, 0))
+            last_seq = int(max_seqs.get(tid, 0))
+            status = "idle"
+            status_row = status_by_thread.get(tid)
+            if status_row:
+                event_type, payload_json = status_row
+                if event_type == "run_failed":
+                    status = "failed"
+                elif event_type == "approval_requested":
+                    status = "awaiting_approval"
+                elif event_type == "agent_turn_started":
+                    status = "running"
+                elif event_type == "approval_resolved":
+                    payload = json.loads(payload_json or "{}")
+                    status = "idle" if payload.get("expired", False) else "running"
+
+            unread_count = unread_counts.get(tid, 0)
+
+            summaries.append(
+                ThreadSummary(
+                    thread_id=tid,
+                    last_seq=last_seq,
+                    last_message=last_msgs.get(tid),
+                    status=status,
+                    read_seq=read_seq,
+                    unread_count=unread_count,
+                )
+            )
+        return summaries
+
+    async def upsert_run_draft(
+        self,
+        thread_id: str,
+        run_id: str,
+        *,
+        content: str = "",
+        tool_calls_json: str | None = None,
+    ) -> None:
+        await self.setup()
+        now = _now()
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO vectora_native_run_drafts (thread_id, run_id, content, tool_calls_json, updated_at) "
+                "VALUES ($1, $2, $3, $4, $5) "
+                "ON CONFLICT (thread_id, run_id) DO UPDATE SET "
+                "content = EXCLUDED.content, tool_calls_json = EXCLUDED.tool_calls_json, "
+                "updated_at = EXCLUDED.updated_at",
+                thread_id,
+                run_id,
+                content,
+                tool_calls_json,
+                now,
+            )
+
+    async def get_run_draft(self, thread_id: str, run_id: str) -> RunDraft | None:
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT thread_id, run_id, content, tool_calls_json, updated_at "
+                "FROM vectora_native_run_drafts WHERE thread_id = $1 AND run_id = $2",
+                thread_id,
+                run_id,
+            )
+        if row is None:
+            return None
+        return RunDraft(
+            thread_id=row["thread_id"],
+            run_id=row["run_id"],
+            content=row["content"],
+            tool_calls_json=row["tool_calls_json"],
+            updated_at=row["updated_at"],
+        )
+
+    async def delete_run_draft(self, thread_id: str, run_id: str) -> None:
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM vectora_native_run_drafts WHERE thread_id = $1 AND run_id = $2",
+                thread_id,
+                run_id,
+            )
+
+    async def find_orphan_runs(self) -> list[tuple[str, str]]:
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT DISTINCT e1.thread_id, e1.run_id FROM vectora_native_thread_events e1 "
+                "WHERE e1.type = 'agent_turn_started' AND e1.run_id IS NOT NULL "
+                "AND NOT EXISTS ("
+                "  SELECT 1 FROM vectora_native_thread_events e2 "
+                "  WHERE e2.thread_id = e1.thread_id AND e2.run_id = e1.run_id "
+                "  AND e2.type IN ('run_completed', 'run_failed', 'agent_turn_finished')"
+                ")"
+            )
+        return [(r["thread_id"], r["run_id"]) for r in rows]

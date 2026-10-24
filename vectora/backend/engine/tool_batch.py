@@ -12,12 +12,15 @@ uma das chamadas é a arriscada.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from backend.engine.guardrails import TurnBudget
@@ -69,6 +72,7 @@ async def _run_one(
     ctx: ToolContext,
     turn_budget: TurnBudget | None,
     on_event: EventSink | None,
+    on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> VMessage:
     """Executa uma chamada do lote com contexto correlacionado à própria tool."""
     spec = tool_registry.get(tool_call.name)
@@ -90,6 +94,16 @@ async def _run_one(
                 tool_call_id=tool_call.id,
                 name=tool_call.name,
                 is_error=True,
+            )
+
+    if on_tool_started is not None:
+        try:
+            await on_tool_started(tool_call)
+        except Exception:
+            # Telemetria/streaming não pode cancelar a execução da tool nem
+            # interromper o gather de chamadas independentes.
+            logger.exception(
+                "Falha ao publicar TOOL_STARTED para tool_call %s", tool_call.id
             )
 
     if spec is None:
@@ -134,6 +148,7 @@ async def execute_tool_batch(
     ctx: ToolContext,
     turn_budget: TurnBudget | None = None,
     on_event: EventSink | None = None,
+    on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> list[VMessage]:
     """Executa todas as `tool_calls` do turno, na ordem em que aparecem no
     resultado — paralelo se nenhuma é destrutiva, sequencial (mas ainda
@@ -157,6 +172,7 @@ async def execute_tool_batch(
                 ctx=ctx,
                 turn_budget=turn_budget,
                 on_event=on_event,
+                on_tool_started=on_tool_started,
             )
             for tc in tool_calls
         ]
@@ -170,6 +186,7 @@ async def execute_tool_batch(
                     ctx=ctx,
                     turn_budget=turn_budget,
                     on_event=on_event,
+                    on_tool_started=on_tool_started,
                 )
                 for tc in tool_calls
             )

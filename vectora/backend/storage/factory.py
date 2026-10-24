@@ -31,6 +31,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from backend.storage.protocols import StoreBackend
+    from backend.storage.vectorstore.base import VectorStoreHealth
 
 logger = logging.getLogger(__name__)
 
@@ -503,20 +504,27 @@ async def storage_health() -> dict[str, Any]:
     except Exception as exc:
         result["store"] = {"ok": False, "error": str(exc), "internal": True}
 
-    # LanceDB — testa conexão e listagem de tabelas
+    # LanceDB / Qdrant (Vector Store Backend)
     try:
-        from backend.storage.lancedb.connection import get_lancedb
+        from backend.storage.vectorstore.qdrant_backend import QdrantBackend
 
-        db = await get_lancedb()
-        tables = (await db.list_tables()).tables
-        result["lancedb"] = {
-            "ok": True,
-            "error": None,
-            "tables": list(tables),
-            "internal": True,
-        }
+        vs_backend = await get_vector_store_backend()
+        vs_health: VectorStoreHealth = await vs_backend.health()
+        health_dict = vs_health.model_dump(exclude_none=True)
+        if "error" not in health_dict:
+            health_dict["error"] = None
+        if isinstance(vs_backend, QdrantBackend):
+            result["qdrant"] = health_dict
+            result["lancedb"] = {
+                "ok": None,
+                "error": "modo complete ativo (usando Qdrant)",
+            }
+        else:
+            result["lancedb"] = health_dict
+            result["qdrant"] = {"ok": None, "error": "não configurado (modo lite)"}
     except Exception as exc:
         result["lancedb"] = {"ok": False, "error": str(exc), "internal": True}
+        result["qdrant"] = {"ok": False, "error": str(exc)}
 
     # Postgres — testado apenas no modo complete
     try:

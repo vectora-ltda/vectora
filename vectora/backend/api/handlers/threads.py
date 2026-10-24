@@ -27,12 +27,13 @@ import os
 import sqlite3
 import stat
 import uuid
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 
@@ -86,9 +87,15 @@ from backend.api.schemas import (
     StructuredQuestionAnswerRequest,
     StructuredQuestionResponse,
     Thread,
+    ThreadLastMessagePreview,
     ThreadPinsResponse,
     TodoItem,
     UpdateThreadRequest,
+)
+from backend.persistence.native.ledger import (
+    ThreadLedgerEvent,
+    ThreadSummary,
+    ensure_thread_backfilled,
 )
 from backend.persistence.thread_activity import get_remote_activity
 from backend.rbac.device_id import validate_device_id
@@ -878,24 +885,31 @@ async def get_thread(
         (request.thread_id,),
     ) as cur:
         row = await cur.fetchone()
+    session_store = await _get_session_store()
+    has_authenticated_user = (
+        http_request is not None
+        and getattr(http_request.state, "user", None) is not None
+    )
+    session_user_id = _user_id(http_request) if has_authenticated_user else None
+    user_id = session_user_id if session_user_id is not None else "local"
+
     if row is None:
         # `sessions.db` é a fonte de verdade do motor. A tabela de metadados
         # pode ficar defasada durante uma reconciliação ou quando a sidebar
         # ainda está usando uma resposta cacheada; não transforme isso em um
         # histórico vazio/404 se a sessão nativa e suas mensagens existem.
-        session_store = await _get_session_store()
         native = await session_store.get_session(
             request.thread_id,
-            user_id=(
-                _user_id(http_request)
-                if http_request is not None
-                and getattr(http_request.state, "user", None) is not None
-                else None
-            ),
+            user_id=session_user_id,
         )
         if native is None:
             raise HTTPException(
-                status_code=404, detail=f"Thread {request.thread_id!r} not found"
+                status_code=404,
+                detail={
+                    "code": "thread_not_found",
+                    "thread_id": request.thread_id,
+                    "deleted": True,
+                },
             )
         thread = Thread(
             id=str(native["thread_id"]),
@@ -904,13 +918,53 @@ async def get_thread(
             workspace_id=native["workspace_id"] or "",
             mode=_normalize_mode(native["mode"]),
         )
-        thread.unread_count = await _unread_count(thread.id, _user_id(http_request))
-        return thread
-    await _assert_owns_thread(request.thread_id, http_request)
-    thread = _row_to_thread(row)
-    thread.unread_count = await _unread_count(
-        thread.id, _user_id(http_request) if http_request is not None else "local"
-    )
+    else:
+        await _assert_owns_thread(request.thread_id, http_request)
+        thread = _row_to_thread(row)
+
+    # Derivações a partir do ledger de eventos
+    if hasattr(session_store, "get_thread_summaries"):
+        if hasattr(session_store, "_pool"):
+            legacy_count = 0
+            with contextlib.suppress(Exception):
+                async with db.execute(
+                    "SELECT read_count FROM thread_read_cursors WHERE thread_id = ? AND user_id = ?",
+                    (thread.id, user_id),
+                ) as cur_cursor:
+                    if cursor_row := await cur_cursor.fetchone():
+                        legacy_count = int(cursor_row[0] or 0)
+            try:
+                await ensure_thread_backfilled(
+                    session_store._pool,
+                    thread.id,
+                    user_id=user_id,
+                    legacy_read_count=legacy_count,
+                )
+            except Exception:
+                logger.exception(
+                    "threads: falha ao garantir backfill de ledger para thread %s",
+                    thread.id,
+                )
+        summaries = await session_store.get_thread_summaries(
+            [thread.id], user_id=user_id
+        )
+        if summaries and summaries[0].last_seq > 0:
+            s = summaries[0]
+            thread.unread_count = s.unread_count
+            thread.status = s.status
+            thread.last_seq = s.last_seq
+            thread.read_seq = s.read_seq
+            if s.last_message:
+                thread.last_message = ThreadLastMessagePreview(
+                    role=s.last_message.role,
+                    preview=s.last_message.preview,
+                    message_id=s.last_message.message_id,
+                    created_at=s.last_message.created_at,
+                )
+        else:
+            thread.unread_count = await _unread_count(thread.id, user_id)
+    else:
+        thread.unread_count = await _unread_count(thread.id, user_id)
     return thread
 
 
@@ -981,10 +1035,56 @@ async def list_threads(
         if current_device_id
         else {}
     )
+    thread_ids = [r[0] for r in rows]
+    summaries_by_id: dict[str, ThreadSummary] = {}
+    if hasattr(session_store, "get_thread_summaries"):
+        if hasattr(session_store, "_pool") and thread_ids:
+            # Buscar contagens legadas de thread_read_cursors para preservar no backfill
+            legacy_counts: dict[str, int] = {}
+            placeholders = ",".join("?" for _ in thread_ids)
+            with contextlib.suppress(Exception):
+                async with db.execute(
+                    f"SELECT thread_id, read_count FROM thread_read_cursors "  # noqa: S608  # nosec B608
+                    f"WHERE user_id = ? AND thread_id IN ({placeholders})",
+                    (user_id, *thread_ids),
+                ) as cur_cursors:
+                    for row_c in await cur_cursors.fetchall():
+                        legacy_counts[str(row_c[0])] = int(row_c[1] or 0)
+            for tid in thread_ids:
+                try:
+                    await ensure_thread_backfilled(
+                        session_store._pool,
+                        tid,
+                        user_id=user_id,
+                        legacy_read_count=legacy_counts.get(tid, 0),
+                    )
+                except Exception:
+                    logger.exception(
+                        "threads: falha ao garantir backfill de ledger para thread %s",
+                        tid,
+                    )
+        summaries_list = await session_store.get_thread_summaries(
+            thread_ids, user_id=user_id
+        )
+        summaries_by_id = {s.thread_id: s for s in summaries_list}
+
     threads = []
     for row in rows:
         thread = _row_to_thread(row)
-        thread.unread_count = await _unread_count(thread.id, user_id)
+        if (s := summaries_by_id.get(thread.id)) and s.last_seq > 0:
+            thread.unread_count = s.unread_count
+            thread.status = s.status
+            thread.last_seq = s.last_seq
+            thread.read_seq = s.read_seq
+            if s.last_message:
+                thread.last_message = ThreadLastMessagePreview(
+                    role=s.last_message.role,
+                    preview=s.last_message.preview,
+                    message_id=s.last_message.message_id,
+                    created_at=s.last_message.created_at,
+                )
+        else:
+            thread.unread_count = await _unread_count(thread.id, user_id)
         if activity := remote_activity.get(thread.id):
             thread.remote_activity = RemoteActivity(last_active_at=activity)
         threads.append(thread)
@@ -993,6 +1093,8 @@ async def list_threads(
 
 class MarkThreadReadRequest(BaseModel):
     read_message_id: int | None = None
+    seen_seq: int | None = None
+    device_id: str | None = None
 
 
 @router.post("/threads/{thread_id}/read")
@@ -1001,17 +1103,78 @@ async def mark_thread_read(
     request: Request,
     body: MarkThreadReadRequest | None = None,
 ) -> dict[str, int | str]:
-    """Confirma a leitura da thread de modo idempotente e por usuário."""
-    await _assert_owns_thread(thread_id, request)
+    """Confirma a leitura da thread de modo idempotente e por usuário/dispositivo."""
+    try:
+        await _assert_existing_thread_ownership(thread_id, request)
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "thread_not_found",
+                "thread_id": thread_id,
+                "deleted": True,
+            },
+        ) from exc
     user_id = _user_id(request)
-    # Serialize this short transaction with the other users of the shared
-    # handler connection. This keeps rollback scoped to our transaction and
-    # avoids undoing an unrelated pending write.
+    db = await _get_db()
+    if body and body.device_id is not None:
+        validated_dev = validate_device_id(body.device_id)
+        if validated_dev is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Identificador de dispositivo inválido",
+            )
+        device_id = validated_dev
+    else:
+        state_dev = getattr(request.state, "device_id", None)
+        device_id = validate_device_id(state_dev) or "default"
+
+    session_store = await _get_session_store()
+
+    # Se seen_seq foi fornecido ou SessionStore suporta ledger:
+    if (
+        body
+        and body.seen_seq is not None
+        and hasattr(session_store, "mark_events_seen")
+    ):
+        if hasattr(session_store, "_pool"):
+            legacy_count = 0
+            with contextlib.suppress(Exception):
+                async with db.execute(
+                    "SELECT read_count FROM thread_read_cursors WHERE thread_id = ? AND user_id = ?",
+                    (thread_id, user_id),
+                ) as cur_cursor:
+                    if cursor_row := await cur_cursor.fetchone():
+                        legacy_count = int(cursor_row[0] or 0)
+            try:
+                await ensure_thread_backfilled(
+                    session_store._pool,
+                    thread_id,
+                    user_id=user_id,
+                    legacy_read_count=legacy_count,
+                )
+            except Exception:
+                logger.exception(
+                    "threads: falha ao garantir backfill de ledger para thread %s",
+                    thread_id,
+                )
+        result = await session_store.mark_events_seen(
+            thread_id=thread_id,
+            user_id=user_id,
+            device_id=device_id,
+            seen_seq=body.seen_seq,
+        )
+        return {
+            "thread_id": thread_id,
+            "unread_count": result.get("unread_count", 0),
+            "read_seq": result.get("read_seq", body.seen_seq),
+        }
+
+    # Fallback / retrocompatibilidade com read_message_id
     db = await _get_db()
     async with _db_write_lock:
         for attempt in range(5):
             try:
-                session_store = await _get_session_store()
                 assistant_count = await session_store.count_assistant_messages(
                     thread_id
                 )
@@ -1023,7 +1186,12 @@ async def mark_thread_read(
                         legacy_row = await cur.fetchone()
                     if legacy_row is None:
                         raise HTTPException(
-                            status_code=404, detail="Thread não encontrada"
+                            status_code=404,
+                            detail={
+                                "code": "thread_not_found",
+                                "thread_id": thread_id,
+                                "deleted": True,
+                            },
                         )
                     assistant_count = int(legacy_row[0])
                 if hasattr(session_store, "latest_assistant_message_id"):
@@ -1044,10 +1212,6 @@ async def mark_thread_read(
                     if body and body.read_message_id is not None
                     else stored_cursor
                 )
-                # A client may only acknowledge messages it has actually
-                # rendered. Never move beyond the server's latest ID and
-                # never move backwards. Calls without a cursor are read-only
-                # compatibility calls and cannot clear a newer response.
                 confirmed_cursor = max(
                     stored_cursor, min(requested_cursor, latest_assistant or 0)
                 )
@@ -1087,6 +1251,36 @@ async def mark_thread_read(
                     },
                 )
                 await asyncio.sleep(delay)
+
+    # Sincroniza o fallback que processa read_message_id com o ledger
+    if hasattr(session_store, "mark_events_seen"):
+        try:
+            if hasattr(session_store, "_pool"):
+                await ensure_thread_backfilled(
+                    session_store._pool,
+                    thread_id,
+                    user_id=user_id,
+                    legacy_read_count=read_count,
+                )
+            target_seq = None
+            if hasattr(session_store, "get_event_seq_by_message_id"):
+                target_seq = await session_store.get_event_seq_by_message_id(
+                    thread_id, confirmed_cursor
+                )
+            if target_seq is not None and target_seq > 0:
+                ledger_res = await session_store.mark_events_seen(
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    device_id=device_id,
+                    seen_seq=target_seq,
+                )
+                unread_count = ledger_res.get("unread_count", unread_count)
+        except Exception:
+            logger.exception(
+                "threads: falha ao sincronizar fallback de read_message_id com ledger para thread %s",
+                thread_id,
+            )
+
     return {"thread_id": thread_id, "unread_count": unread_count}
 
 
@@ -1883,14 +2077,17 @@ async def get_thread_history_paginated(
     recentes), em ordem cronológica. ``has_more=True`` quando existem mensagens
     mais antigas além das retornadas.
     """
-    await _assert_owns_thread(
-        thread_id,
-        request,
-        require_existing=_user_id(request) != "local",
-    )
+    # Validate ownership when a native session is already present, but do not
+    # require that row before reconciliation.  ``get_thread`` below remains
+    # the canonical existence check.
+    await _assert_owns_thread(thread_id, request)
+
     try:
         from backend.services import agent_factory
 
+        # ``get_thread`` is the source of truth for both existence and
+        # ownership.  Resolving it first also supports reconciliation windows
+        # where the native ledger exists before the UI metadata row.
         thread = await get_thread(
             GetThreadRequest(thread_id=thread_id), http_request=request
         )
@@ -1957,6 +2154,8 @@ async def get_thread_history_paginated(
         messages=messages,
         has_more=has_more,
         total_count=total,
+        run_status=thread.status,
+        last_seq=thread.last_seq,
     )
 
 
@@ -2347,3 +2546,94 @@ async def remove_smart_approval_allowlist(
         rule_id=body.rule_id,
     )
     return SmartApprovalAllowlistResponse(allowlist=_allowlist_items(body.workspace_id))
+
+
+@router.get(
+    "/threads/{thread_id}/events",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": "Stream SSE de eventos do ledger da thread",
+            "content": {"text/event-stream": {}},
+        }
+    },
+)
+async def stream_thread_ledger_events(
+    thread_id: str,
+    request: Request,
+    from_seq: Annotated[int, Query(ge=0)] = 0,
+    last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
+) -> StreamingResponse:
+    """Stream SSE de eventos do ledger da thread com suporte a Last-Event-ID / from_seq."""
+    await _assert_owns_thread(thread_id, request, require_existing=True)
+    session_store = await _get_session_store()
+
+    # Validação e parsing de Last-Event-ID e from_seq
+    if from_seq < 0:
+        raise HTTPException(
+            status_code=422,
+            detail="from_seq deve ser maior ou igual a 0",
+        )
+
+    start_seq = from_seq
+    if last_event_id is not None:
+        try:
+            parsed_id = int(last_event_id)
+            if parsed_id < 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Last-Event-ID não pode ser negativo",
+                )
+            start_seq = parsed_id
+        except ValueError:
+            # Fallback para from_seq quando conversão numérica falhar
+            start_seq = from_seq
+
+    async def event_generator() -> AsyncGenerator[str]:
+        current_seq = start_seq
+        last_heartbeat = asyncio.get_event_loop().time()
+
+        while True:
+            if await request.is_disconnected():
+                break
+
+            had_events = False
+            if hasattr(session_store, "list_events"):
+                while True:
+                    if await request.is_disconnected():
+                        return
+                    batch: list[ThreadLedgerEvent] = await session_store.list_events(
+                        thread_id,
+                        after_seq=current_seq,
+                        limit=500,
+                    )
+                    if not batch:
+                        break
+                    had_events = True
+                    for ev in batch:
+                        current_seq = max(current_seq, ev.seq)
+                        data = json.dumps(
+                            ev.model_dump(mode="json"),
+                            ensure_ascii=False,
+                        )
+                        yield f"id: {ev.seq}\nevent: {ev.type}\ndata: {data}\n\n"
+                    if len(batch) < 500:
+                        break
+
+            now = asyncio.get_event_loop().time()
+            if now - last_heartbeat >= 15.0:
+                yield ": keep-alive\n\n"
+                last_heartbeat = now
+            elif not had_events:
+                # Pequena pausa antes de consultar novos eventos
+                await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
