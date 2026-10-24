@@ -408,6 +408,16 @@ class TestAgentRunLifecycle:
         assert len(loaded.tools_used) == 5
         assert len(loaded.evidence) == 5
 
+    async def test_evidence_lock_registry_releases_unknown_runs(
+        self, store: SessionStore
+    ) -> None:
+        """Uma execução ausente não pode deixar um lock retido para sempre."""
+        for index in range(100):
+            await store.record_run_evidence(
+                f"missing-run-{index}", evidence={"step": index}
+            )
+        assert len(store._run_evidence_locks) == 0
+
     async def test_rehydrate_after_restart(self, tmp_path: Path) -> None:
         db_path = str(tmp_path / "restart_test.db")
         # 1. Abre pool, cria e encerra
@@ -476,3 +486,34 @@ class TestAgentRunLifecycle:
         assert timeline[0].type == "agent_turn_started"
         assert timeline[1].type == "tool_started"
         assert timeline[1].payload.get("tool_name") == "bash"
+
+    async def test_upsert_preserves_untrusted_content_provenance(
+        self, store: SessionStore
+    ):
+        await store.create_session("thread-untrusted-preservation", user_id="user-xyz")
+        run_id = "run-untrusted-1"
+        await store.upsert_agent_run(
+            AgentRun(
+                run_id=run_id,
+                thread_id="thread-untrusted-preservation",
+                status="waiting_approval",
+                untrusted_content=True,
+            )
+        )
+        saved = await store.get_agent_run(run_id)
+        assert saved is not None
+        assert saved.untrusted_content is True
+
+        # Atualização subsequente com run sem flag explícita
+        await store.upsert_agent_run(
+            AgentRun(
+                run_id=run_id,
+                thread_id="thread-untrusted-preservation",
+                status="passed",
+                untrusted_content=False,
+            )
+        )
+        updated = await store.get_agent_run(run_id)
+        assert updated is not None
+        assert updated.status == "passed"
+        assert updated.untrusted_content is True

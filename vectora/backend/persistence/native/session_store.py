@@ -12,8 +12,10 @@ conversa nativo sobre ``aiosqlite``: schema append-only ``sessions`` +
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
@@ -56,6 +58,32 @@ if TYPE_CHECKING:
 _CHAIN_DEPTH_CAP = 100_000
 
 logger = logging.getLogger(__name__)
+
+
+class _RunEvidenceLockRegistry:
+    """Retém locks somente enquanto há escritores ou waiters ativos."""
+
+    def __init__(self) -> None:
+        self._entries: dict[str, tuple[asyncio.Lock, int]] = {}
+
+    @asynccontextmanager
+    async def acquire(self, run_id: str):
+        lock, users = self._entries.get(run_id, (asyncio.Lock(), 0))
+        self._entries[run_id] = (lock, users + 1)
+        try:
+            async with lock:
+                yield
+        finally:
+            current = self._entries.get(run_id)
+            if current is not None and current[0] is lock:
+                remaining = current[1] - 1
+                if remaining <= 0 and not lock.locked():
+                    self._entries.pop(run_id, None)
+                else:
+                    self._entries[run_id] = (lock, remaining)
+
+    def __len__(self) -> int:
+        return len(self._entries)
 
 
 def _now() -> str:
@@ -137,6 +165,7 @@ class SessionStore:
     def __init__(self, pool: AsyncConnectionPool) -> None:
         self._pool = pool
         self._is_setup = False
+        self._run_evidence_locks = _RunEvidenceLockRegistry()
 
     async def setup(self) -> None:
         """Cria as tabelas se não existirem. Idempotente — chamado
@@ -267,7 +296,36 @@ class SessionStore:
         tests_run = json.dumps(redact_sensitive_data(run.tests_run), ensure_ascii=False)
         artifacts = json.dumps(redact_sensitive_data(run.artifacts), ensure_ascii=False)
         metrics = json.dumps(run.metrics.model_dump(), ensure_ascii=False)
-        evidence = json.dumps(redact_sensitive_data(run.evidence), ensure_ascii=False)
+        evidence_list = list(run.evidence)
+        if run.untrusted_content and not any(
+            isinstance(item, dict) and item.get("untrusted_content") is True
+            for item in evidence_list
+        ):
+            evidence_list.append({"kind": "provenance", "untrusted_content": True})
+        if not any(
+            isinstance(item, dict) and item.get("untrusted_content") is True
+            for item in evidence_list
+        ):
+            previous_cursor = await conn.execute(
+                "SELECT evidence_json FROM agent_runs WHERE run_id = ?",
+                (run.run_id,),
+            )
+            previous = await previous_cursor.fetchone()
+            if previous and previous[0]:
+                try:
+                    old = json.loads(previous[0])
+                    if any(
+                        isinstance(item, dict) and item.get("untrusted_content") is True
+                        for item in old
+                    ):
+                        evidence_list.append(
+                            {"kind": "provenance", "untrusted_content": True}
+                        )
+                except Exception:
+                    logger.exception(
+                        "session_store: falha ao ler proveniência anterior"
+                    )
+        evidence = json.dumps(redact_sensitive_data(evidence_list), ensure_ascii=False)
 
         # Mantém paridade com session_runs legado
         mapped_status = _map_legacy_session_run_status(run.status)
@@ -458,54 +516,55 @@ class SessionStore:
     ) -> None:
         """Registra evidências incrementais em um AgentRun com sanitização de segredos de forma atômica."""
         await self.setup()
-        async with self._pool.acquire() as conn:
-            await conn.execute("BEGIN IMMEDIATE")
-            try:
-                run = await self._get_agent_run_on_conn(conn, run_id)
-                if run is None:
+        async with self._run_evidence_locks.acquire(run_id):
+            async with self._pool.acquire() as conn:
+                await conn.execute("BEGIN IMMEDIATE")
+                try:
+                    run = await self._get_agent_run_on_conn(conn, run_id)
+                    if run is None:
+                        await conn.commit()
+                        return
+                    if evidence:
+                        clean_evidence = redact_sensitive_data(evidence)
+                        evidence_id = (
+                            clean_evidence.get("projection_id")
+                            if isinstance(clean_evidence, dict)
+                            else None
+                        )
+                        if evidence_id is None or not any(
+                            isinstance(item, dict)
+                            and item.get("projection_id") == evidence_id
+                            for item in run.evidence
+                        ):
+                            run.evidence.append(clean_evidence)
+                    if artifact:
+                        clean_artifact = redact_sensitive_data(artifact)
+                        artifact_id = (
+                            clean_artifact.get("artifact_id")
+                            if isinstance(clean_artifact, dict)
+                            else None
+                        )
+                        if artifact_id is None or not any(
+                            isinstance(item, dict)
+                            and item.get("artifact_id") == artifact_id
+                            for item in run.artifacts
+                        ):
+                            run.artifacts.append(clean_artifact)
+                    if command:
+                        run.commands_run.append(redact_sensitive_data(command))
+                    if test_result:
+                        run.tests_run.append(redact_sensitive_data(test_result))
+                    if tool_used and tool_used not in run.tools_used:
+                        run.tools_used.append(tool_used)
+                    if approval:
+                        run.approvals.append(redact_sensitive_data(approval))
+                    if file_touched:
+                        run.files_touched.append(redact_sensitive_data(file_touched))
+                    await self._upsert_agent_run_on_conn(conn, run)
                     await conn.commit()
-                    return
-                if evidence:
-                    clean_evidence = redact_sensitive_data(evidence)
-                    evidence_id = (
-                        clean_evidence.get("projection_id")
-                        if isinstance(clean_evidence, dict)
-                        else None
-                    )
-                    if evidence_id is None or not any(
-                        isinstance(item, dict)
-                        and item.get("projection_id") == evidence_id
-                        for item in run.evidence
-                    ):
-                        run.evidence.append(clean_evidence)
-                if artifact:
-                    clean_artifact = redact_sensitive_data(artifact)
-                    artifact_id = (
-                        clean_artifact.get("artifact_id")
-                        if isinstance(clean_artifact, dict)
-                        else None
-                    )
-                    if artifact_id is None or not any(
-                        isinstance(item, dict)
-                        and item.get("artifact_id") == artifact_id
-                        for item in run.artifacts
-                    ):
-                        run.artifacts.append(clean_artifact)
-                if command:
-                    run.commands_run.append(redact_sensitive_data(command))
-                if test_result:
-                    run.tests_run.append(redact_sensitive_data(test_result))
-                if tool_used and tool_used not in run.tools_used:
-                    run.tools_used.append(tool_used)
-                if approval:
-                    run.approvals.append(redact_sensitive_data(approval))
-                if file_touched:
-                    run.files_touched.append(redact_sensitive_data(file_touched))
-                await self._upsert_agent_run_on_conn(conn, run)
-                await conn.commit()
-            except Exception:
-                await conn.execute("ROLLBACK")
-                raise
+                except Exception:
+                    await conn.execute("ROLLBACK")
+                    raise
 
     async def _get_agent_run_on_conn(
         self, conn: aiosqlite.Connection, run_id: str
@@ -557,6 +616,11 @@ class SessionStore:
                 terminal_at=str(leg[9]) if leg[9] else None,
             )
 
+        evidence_data = json.loads(row[19] or "[]")
+        is_untrusted = any(
+            isinstance(item, dict) and item.get("untrusted_content") is True
+            for item in evidence_data
+        )
         return AgentRun(
             run_id=str(row[0]),
             thread_id=str(row[1]),
@@ -577,7 +641,8 @@ class SessionStore:
             tests_run=json.loads(row[16] or "[]"),
             artifacts=json.loads(row[17] or "[]"),
             metrics=AgentRunMetrics(**json.loads(row[18] or "{}")),
-            evidence=json.loads(row[19] or "[]"),
+            evidence=evidence_data,
+            untrusted_content=is_untrusted,
             detail=str(row[20]) if row[20] else None,
             error_code=str(row[21]) if row[21] else None,
             started_at=str(row[22]),
@@ -609,36 +674,44 @@ class SessionStore:
                 (thread_id, safe_limit),
             )
             rows = await cur.fetchall()
-            return [
-                AgentRun(
-                    run_id=str(r[0]),
-                    thread_id=str(r[1]),
-                    contract_version=int(r[2] or 1),
-                    turn_id=str(r[3]) if r[3] else None,
-                    user_id=str(r[4] or ""),
-                    workspace_id=str(r[5]) if r[5] else None,
-                    model=str(r[6] or ""),
-                    provider=str(r[7] or ""),
-                    status=cast("AgentRunStatus", r[8]),
-                    plan_step=str(r[9]) if r[9] else None,
-                    checkpoint_id=str(r[10]) if r[10] else None,
-                    tools_available=json.loads(r[11] or "[]"),
-                    tools_used=json.loads(r[12] or "[]"),
-                    approvals=json.loads(r[13] or "[]"),
-                    files_touched=json.loads(r[14] or "[]"),
-                    commands_run=json.loads(r[15] or "[]"),
-                    tests_run=json.loads(r[16] or "[]"),
-                    artifacts=json.loads(r[17] or "[]"),
-                    metrics=AgentRunMetrics(**json.loads(r[18] or "{}")),
-                    evidence=json.loads(r[19] or "[]"),
-                    detail=str(r[20]) if r[20] else None,
-                    error_code=str(r[21]) if r[21] else None,
-                    started_at=str(r[22]),
-                    updated_at=str(r[23]),
-                    terminal_at=str(r[24]) if r[24] else None,
+            runs: list[AgentRun] = []
+            for r in rows:
+                evidence_data = json.loads(r[19] or "[]")
+                is_untrusted = any(
+                    isinstance(item, dict) and item.get("untrusted_content") is True
+                    for item in evidence_data
                 )
-                for r in rows
-            ]
+                runs.append(
+                    AgentRun(
+                        run_id=str(r[0]),
+                        thread_id=str(r[1]),
+                        contract_version=int(r[2] or 1),
+                        turn_id=str(r[3]) if r[3] else None,
+                        user_id=str(r[4] or ""),
+                        workspace_id=str(r[5]) if r[5] else None,
+                        model=str(r[6] or ""),
+                        provider=str(r[7] or ""),
+                        status=cast("AgentRunStatus", r[8]),
+                        plan_step=str(r[9]) if r[9] else None,
+                        checkpoint_id=str(r[10]) if r[10] else None,
+                        tools_available=json.loads(r[11] or "[]"),
+                        tools_used=json.loads(r[12] or "[]"),
+                        approvals=json.loads(r[13] or "[]"),
+                        files_touched=json.loads(r[14] or "[]"),
+                        commands_run=json.loads(r[15] or "[]"),
+                        tests_run=json.loads(r[16] or "[]"),
+                        artifacts=json.loads(r[17] or "[]"),
+                        metrics=AgentRunMetrics(**json.loads(r[18] or "{}")),
+                        evidence=evidence_data,
+                        untrusted_content=is_untrusted,
+                        detail=str(r[20]) if r[20] else None,
+                        error_code=str(r[21]) if r[21] else None,
+                        started_at=str(r[22]),
+                        updated_at=str(r[23]),
+                        terminal_at=str(r[24]) if r[24] else None,
+                    )
+                )
+            return runs
 
     async def get_agent_run_timeline(
         self, run_id: str, *, limit: int = 500, offset: int = 0

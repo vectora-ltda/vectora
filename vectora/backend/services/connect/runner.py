@@ -29,10 +29,10 @@ logger = logging.getLogger(__name__)
 #: mensagem inteira e o interlocutor fique sem resposta nenhuma.
 MAX_REPLY_CHARS = 1900
 
-#: Mensageria externa nunca pausa em HITL — o interlocutor (Telegram/Discord/
-#: Slack/Email) não tem UI de aprovar/rejeitar tool call. `permission_mode`
-#: fixo em "auto" faz o HITL dinâmico (`should_require_approval`) nunca
-#: interromper o turno; qualquer tool destrutiva roda direto.
+#: Mensageria externa opera sob escopo seguro e restrito: interlocutores
+#: externos (Telegram/Discord/Slack/Email) não possuem interface interativa
+#: de aprovação (HITL). Ferramentas destrutivas são desabilitadas e o conteúdo
+#: é classificado como untrusted_content via política compilada.
 _EXTERNAL_PERMISSION_MODE = "auto"
 
 
@@ -69,9 +69,14 @@ async def run_agent_for_thread(thread_id: str, text: str) -> str:
         "permission_mode": _EXTERNAL_PERMISSION_MODE,
     }
     run_ctx = ctx_from_config({"configurable": configurable})
+    run_ctx._extra["untrusted_content"] = True
     run_ctx.store = await agent_factory.get_store()
     chat_client = FallbackChatClient(primary_model_id="")
     loop_config = LoopConfig(max_iterations=50)
+
+    from backend.services.policy_compiler import compile_policy_snapshot
+
+    snapshot = compile_policy_snapshot(run_ctx, untrusted_content=True)
 
     if native_agent.subagent_catalog:
         from backend.tools.subagent_delegate import SubagentDeps
@@ -82,6 +87,7 @@ async def run_agent_for_thread(thread_id: str, text: str) -> str:
             chat_client=chat_client,
             config=loop_config,
             should_require_approval=should_require_approval,
+            policy_snapshot=snapshot,
         )
 
     result = await run_conversation(
@@ -93,6 +99,7 @@ async def run_agent_for_thread(thread_id: str, text: str) -> str:
         config=loop_config,
         should_require_approval=should_require_approval,
         approval_gate=approval_gate,
+        policy_snapshot=snapshot,
     )
 
     reply = result.final_message.text() if result.final_message else ""

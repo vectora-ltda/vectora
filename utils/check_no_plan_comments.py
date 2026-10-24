@@ -63,9 +63,12 @@ _TRACKER_PATTERN: re.Pattern[str] = re.compile(
     r"(?i:\b(?:issue|issues)\s*#?\d+\b|#(?![0-9a-f]{6}(?:[0-9a-f]{2})?\b)\d+\b|\bpull\s+requests?(?:\s*#?\d+)?\b|\b(?:pull\s*request|pr)\s*#?\d+\b|https?://github\.com/[^\s/]+/[^\s/]+/(?:issues|pull)/\d+|\bgha\b|\bgithub\s+actions\b)"
 )
 
-_PATTERN: re.Pattern[str] = re.compile(
+# Padrão único para metadados e comentários: planos artificiais,
+# ferramentas de IA e referências a rastreadores ou automações.
+_PR_METADATA_PATTERN: re.Pattern[str] = re.compile(
     f"{_PLAN_PATTERN.pattern}|{_AI_TOOL_PATTERN.pattern}|{_TRACKER_PATTERN.pattern}"
 )
+_PATTERN: re.Pattern[str] = _PR_METADATA_PATTERN
 
 
 def _python_comments(text: str) -> list[tuple[int, str]]:

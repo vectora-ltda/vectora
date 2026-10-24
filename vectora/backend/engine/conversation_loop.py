@@ -26,6 +26,7 @@ vocabulário nativo.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import math
@@ -47,9 +48,15 @@ from backend.engine.stream_events import (
     ToolResult,
     WorkbenchInvalidate,
 )
-from backend.engine.tool_batch import _is_tool_error, execute_tool_batch
-from backend.persistence.native.agent_run import AgentRunMetrics, AgentRunStatus
+from backend.engine.tool_batch import (
+    _apply_post_execute,
+    _apply_pre_execute,
+    _is_tool_error,
+    execute_tool_batch,
+)
+from backend.persistence.native.agent_run import AgentRunMetrics
 from backend.persistence.native.ledger import (
+    LedgerEventType,
     ThreadLedgerEvent,
     make_agent_turn_started_key,
     make_run_completed_key,
@@ -79,6 +86,7 @@ if TYPE_CHECKING:
     from backend.engine.stream_events import EventSink
     from backend.llm.base import ChatClient
     from backend.persistence.native.session_store import SessionStore
+    from backend.services.policy_compiler import PolicySnapshot
     from backend.tools.context import ToolContext
     from backend.tools.registry import ToolRegistry
 
@@ -118,33 +126,43 @@ async def _noop_event(_event: object) -> None:
 
 
 async def _safe_update_agent_run_status(
-    session_store: SessionStore | None,
+    session_store: Any,
     run_id: str | None,
     *,
-    status: AgentRunStatus,
-    plan_step: str | None = None,
+    status: str,
     detail: str | None = None,
     error_code: str | None = None,
     metrics: AgentRunMetrics | None = None,
 ) -> None:
-    """Atualiza o status de AgentRun com tolerância a falhas na camada de persistência."""
-    if (
-        not run_id
-        or not session_store
-        or not hasattr(session_store, "update_agent_run_status")
-    ):
+    """Persiste o estado do run sem deixar falha do storage interromper o turno."""
+    if not run_id or not hasattr(session_store, "update_agent_run_status"):
         return
     try:
         await session_store.update_agent_run_status(
             run_id,
             status=status,
-            plan_step=plan_step,
             detail=detail,
             error_code=error_code,
             metrics=metrics,
         )
     except Exception:
-        logger.exception("Falha ao persistir status %s de AgentRun %s", status, run_id)
+        logger.exception(
+            "conversation_loop: falha ao persistir status do run %s", run_id
+        )
+
+
+async def _safe_record_run_evidence(
+    session_store: Any, run_id: str | None, **evidence: Any
+) -> None:
+    """Persiste evidências de forma best-effort, sem perder o resultado da tool."""
+    if not run_id or not hasattr(session_store, "record_run_evidence"):
+        return
+    try:
+        await session_store.record_run_evidence(run_id, **evidence)
+    except Exception:
+        logger.exception(
+            "conversation_loop: falha ao persistir evidência do run %s", run_id
+        )
 
 
 _ARGS_PREVIEW_MAX_CHARS = 80
@@ -272,14 +290,42 @@ async def run_conversation(
     ]
     | None = None,
     approval_gate: ApprovalGate | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> LoopResult:
     # A origem de cobrança vem exclusivamente da credencial persistida do
     # usuário autenticado. O marcador é refeito a cada execução para impedir
     # que um contexto reidratado ou argumento de tool carregue uma isenção
     # não confirmada.
     from backend.services.media_billing import apply_media_billing_source
+    from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    if hasattr(session_store, "get_session") and not (
+        isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
+    ):
+        session_meta = await session_store.get_session(thread_id)
+        if session_meta and session_meta.get("mode") == "connect":
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
+
+    if hasattr(session_store, "list_agent_runs") and not (
+        isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
+    ):
+        runs = await session_store.list_agent_runs(thread_id, limit=5)
+        latest_run = runs[0] if runs else None
+        if latest_run and latest_run.untrusted_content:
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
+
+    if policy_snapshot is None:
+        policy_snapshot = compile_policy_snapshot(ctx)
+
+    if isinstance(ctx._extra, dict):
+        sub_deps = ctx._extra.get("subagent_deps")
+        if sub_deps is not None:
+            sub_deps.policy_snapshot = policy_snapshot
 
     emit = on_event or _noop_event
     tools = tool_registry.all()
@@ -314,7 +360,6 @@ async def run_conversation(
                 "conversation_loop: falha ao registrar agent_turn_started no ledger para thread %s",
                 thread_id,
             )
-
     assinaturas_anteriores: tuple[tuple[str, str], ...] | None = None
     repeticoes_seguidas = 0
     turn_budget = TurnBudget(config=config.loop_caps)
@@ -453,47 +498,21 @@ async def run_conversation(
                 )
             )
             await emit(MessageBreak())
-            iter_metrics = (
-                AgentRunMetrics(
-                    input_tokens=int(last_usage.get("input_tokens", 0) or 0),
-                    output_tokens=int(last_usage.get("output_tokens", 0) or 0),
-                    total_tokens=int(last_usage.get("total_tokens", 0) or 0),
-                )
-                if last_usage
-                else None
-            )
             await _safe_update_agent_run_status(
                 session_store,
                 config.run_id,
                 status="failed",
-                detail="O provedor LLM encerrou o stream sem retornar texto ou ferramenta.",
-                metrics=iter_metrics,
+                detail="O provedor encerrou o stream sem texto ou tool call.",
+                error_code="EMPTY_MODEL_RESPONSE",
             )
             if config.run_id:
-                try:
-                    if hasattr(session_store, "append_ledger_event"):
-                        await session_store.append_ledger_event(
-                            thread_id,
-                            event_key=make_run_failed_key(config.run_id),
-                            event_type="run_failed",
-                            run_id=config.run_id,
-                            payload={"error": "empty_model_response"},
-                        )
-                    elif hasattr(session_store, "append_event"):
-                        await session_store.append_event(
-                            thread_id,
-                            ThreadLedgerEvent(
-                                thread_id=thread_id,
-                                event_key=make_run_failed_key(config.run_id),
-                                type="run_failed",
-                                run_id=config.run_id,
-                                payload={"error": "empty_model_response"},
-                            ),
-                        )
-                except Exception:
-                    logger.exception(
-                        "Falha ao registrar RUN_FAILED (empty_model_response) no ledger para thread %s",
+                with contextlib.suppress(Exception):
+                    await session_store.append_ledger_event(
                         thread_id,
+                        event_key=make_run_failed_key(config.run_id),
+                        event_type=LedgerEventType.RUN_FAILED,
+                        run_id=config.run_id,
+                        payload={"error": "EMPTY_MODEL_RESPONSE"},
                     )
             return LoopResult(
                 stopped_reason="stop",
@@ -512,12 +531,6 @@ async def run_conversation(
             else [],
             tool_calls=tool_calls_for_history,
             finish_reason="tool_calls" if tool_calls else "stop",
-        )
-
-        iter_metrics = AgentRunMetrics(
-            input_tokens=int(last_usage.get("input_tokens", 0) if last_usage else 0),
-            output_tokens=int(last_usage.get("output_tokens", 0) if last_usage else 0),
-            total_tokens=int(last_usage.get("total_tokens", 0) if last_usage else 0),
         )
 
         # Do not persist an assistant tool-call message when the repetition
@@ -558,45 +571,23 @@ async def run_conversation(
                         "repetitions": repeticoes_seguidas,
                     },
                 )
+                await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
+                await emit(MessageBreak())
                 await _safe_update_agent_run_status(
                     session_store,
                     config.run_id,
                     status="failed",
                     detail=mensagem,
                     error_code="TOOL_CALL_REPEATED",
-                    metrics=iter_metrics,
                 )
-                await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
-                await emit(MessageBreak())
                 if config.run_id:
-                    try:
-                        if hasattr(session_store, "append_ledger_event"):
-                            await session_store.append_ledger_event(
-                                thread_id,
-                                event_key=make_run_failed_key(config.run_id),
-                                event_type="run_failed",
-                                run_id=config.run_id,
-                                payload={
-                                    "error": f"loop_cap_exceeded: tool_call_repeated ({nomes})"
-                                },
-                            )
-                        elif hasattr(session_store, "append_event"):
-                            await session_store.append_event(
-                                thread_id,
-                                ThreadLedgerEvent(
-                                    thread_id=thread_id,
-                                    event_key=make_run_failed_key(config.run_id),
-                                    type="run_failed",
-                                    run_id=config.run_id,
-                                    payload={
-                                        "error": f"loop_cap_exceeded: tool_call_repeated ({nomes})"
-                                    },
-                                ),
-                            )
-                    except Exception:
-                        logger.exception(
-                            "Falha ao registrar RUN_FAILED (tool_call_repeated) no ledger para thread %s",
+                    with contextlib.suppress(Exception):
+                        await session_store.append_ledger_event(
                             thread_id,
+                            event_key=make_run_failed_key(config.run_id),
+                            event_type=LedgerEventType.RUN_FAILED,
+                            run_id=config.run_id,
+                            payload={"error": "TOOL_CALL_REPEATED"},
                         )
                 return LoopResult(
                     stopped_reason="loop_cap_exceeded",
@@ -612,6 +603,12 @@ async def run_conversation(
         )
         await emit(MessageBreak())
 
+        iter_metrics = AgentRunMetrics(
+            input_tokens=int(last_usage.get("input_tokens", 0) if last_usage else 0),
+            output_tokens=int(last_usage.get("output_tokens", 0) if last_usage else 0),
+            total_tokens=int(last_usage.get("total_tokens", 0) if last_usage else 0),
+        )
+
         if not tool_calls:
             if config.run_id:
                 try:
@@ -619,7 +616,7 @@ async def run_conversation(
                         await session_store.append_ledger_event(
                             thread_id,
                             event_key=make_run_completed_key(config.run_id),
-                            event_type="run_completed",
+                            event_type=LedgerEventType.RUN_COMPLETED,
                             run_id=config.run_id,
                             payload={"stopped_reason": "stop"},
                         )
@@ -629,7 +626,7 @@ async def run_conversation(
                             ThreadLedgerEvent(
                                 thread_id=thread_id,
                                 event_key=make_run_completed_key(config.run_id),
-                                type="run_completed",
+                                type=LedgerEventType.RUN_COMPLETED,
                                 run_id=config.run_id,
                                 payload={"stopped_reason": "stop"},
                             ),
@@ -751,17 +748,17 @@ async def run_conversation(
                 # A falha na gravação de evidências ou atualização do run não pode impedir
                 # a emissão de HitlRequested para o cliente.
                 try:
-                    if hasattr(session_store, "record_run_evidence") and config.run_id:
-                        await session_store.record_run_evidence(
-                            config.run_id,
-                            approval={
-                                "interrupt_id": interrupt_id,
-                                "tool_name": pendente.name,
-                                "tool_call_id": stable_call_id,
-                                "options": options,
-                                "priority": priority,
-                            },
-                        )
+                    await _safe_record_run_evidence(
+                        session_store,
+                        config.run_id,
+                        approval={
+                            "interrupt_id": interrupt_id,
+                            "tool_name": pendente.name,
+                            "tool_call_id": stable_call_id,
+                            "options": options,
+                            "priority": priority,
+                        },
+                    )
                     await _safe_update_agent_run_status(
                         session_store,
                         config.run_id,
@@ -797,31 +794,24 @@ async def run_conversation(
 
         tool_started_at: dict[str, float] = {}
         tool_args_previews: dict[str, str] = {}
-
-        async def _record_tool_started(
-            tc: ToolCall,
-            *,
-            _started_at: dict[str, float] = tool_started_at,
-            _previews: dict[str, str] = tool_args_previews,
-        ) -> None:
+        for tc in tool_calls:
             spec = tool_registry.get(tc.name)
             extras = spec.extras if spec is not None else None
-            _started_at[tc.id] = time.monotonic()
+            tool_started_at[tc.id] = time.monotonic()
             preview = _args_preview(tc.args)
-            _previews[tc.id] = preview
+            tool_args_previews[tc.id] = preview
             if config.run_id:
-                sanitized_tc = _sanitize_tool_call(tc, ctx)
                 try:
                     if hasattr(session_store, "append_ledger_event"):
                         await session_store.append_ledger_event(
                             thread_id,
                             event_key=make_tool_started_key(config.run_id, tc.id),
-                            event_type="tool_started",
+                            event_type=LedgerEventType.TOOL_STARTED,
                             run_id=config.run_id,
                             tool_call_id=tc.id,
                             payload={
-                                "tool_name": sanitized_tc.name,
-                                "args": sanitized_tc.args,
+                                "tool_name": tc.name,
+                                "args": _sanitize_tool_call(tc, ctx).args,
                             },
                         )
                     elif hasattr(session_store, "append_event"):
@@ -830,12 +820,12 @@ async def run_conversation(
                             ThreadLedgerEvent(
                                 thread_id=thread_id,
                                 event_key=make_tool_started_key(config.run_id, tc.id),
-                                type="tool_started",
+                                type=LedgerEventType.TOOL_STARTED,
                                 run_id=config.run_id,
                                 tool_call_id=tc.id,
                                 payload={
-                                    "tool_name": sanitized_tc.name,
-                                    "args": sanitized_tc.args,
+                                    "tool_name": tc.name,
+                                    "args": _sanitize_tool_call(tc, ctx).args,
                                 },
                             ),
                         )
@@ -868,21 +858,20 @@ async def run_conversation(
             ctx=ctx,
             turn_budget=turn_budget,
             on_event=on_event,
-            on_tool_started=_record_tool_started,
+            policy_snapshot=policy_snapshot,
         )
         for resultado in resultados:
             parent_id = await session_store.append_message(
                 thread_id, resultado, parent_message_id=parent_id
             )
             call_id = resultado.tool_call_id or ""
-            was_started = call_id in tool_started_at
-            if config.run_id and call_id and was_started:
+            if config.run_id and call_id:
                 try:
                     if hasattr(session_store, "append_ledger_event"):
                         await session_store.append_ledger_event(
                             thread_id,
                             event_key=make_tool_finished_key(config.run_id, call_id),
-                            event_type="tool_finished",
+                            event_type=LedgerEventType.TOOL_FINISHED,
                             run_id=config.run_id,
                             tool_call_id=call_id,
                             payload={
@@ -898,7 +887,7 @@ async def run_conversation(
                                 event_key=make_tool_finished_key(
                                     config.run_id, call_id
                                 ),
-                                type="tool_finished",
+                                type=LedgerEventType.TOOL_FINISHED,
                                 run_id=config.run_id,
                                 tool_call_id=call_id,
                                 payload={
@@ -918,23 +907,16 @@ async def run_conversation(
                 and config.run_id
                 and resultado.name
             ):
-                try:
-                    await session_store.record_run_evidence(
-                        config.run_id,
-                        tool_used=resultado.name,
-                        evidence={
-                            "type": "tool_result",
-                            "tool_name": resultado.name,
-                            "tool_call_id": call_id,
-                            "is_error": resultado.is_error,
-                        },
-                    )
-                except Exception:
-                    logger.exception(
-                        "Falha ao registrar evidência de tool no store para run %s (tool %s)",
-                        config.run_id,
-                        resultado.name,
-                    )
+                await session_store.record_run_evidence(
+                    config.run_id,
+                    tool_used=resultado.name,
+                    evidence={
+                        "type": "tool_result",
+                        "tool_name": resultado.name,
+                        "tool_call_id": call_id,
+                        "is_error": resultado.is_error,
+                    },
+                )
             await emit(
                 ToolResult(
                     tool_call_id=call_id,
@@ -975,7 +957,7 @@ async def run_conversation(
                         await session_store.append_ledger_event(
                             thread_id,
                             event_key=make_run_failed_key(config.run_id),
-                            event_type="run_failed",
+                            event_type=LedgerEventType.RUN_FAILED,
                             run_id=config.run_id,
                             payload={
                                 "error": f"loop_cap_exceeded: {turn_budget.exceeded}"
@@ -987,7 +969,7 @@ async def run_conversation(
                             ThreadLedgerEvent(
                                 thread_id=thread_id,
                                 event_key=make_run_failed_key(config.run_id),
-                                type="run_failed",
+                                type=LedgerEventType.RUN_FAILED,
                                 run_id=config.run_id,
                                 payload={
                                     "error": f"loop_cap_exceeded: {turn_budget.exceeded}"
@@ -999,14 +981,14 @@ async def run_conversation(
                         "Falha ao registrar RUN_FAILED (loop_cap_exceeded) no ledger para thread %s",
                         thread_id,
                     )
-                await _safe_update_agent_run_status(
-                    session_store,
-                    config.run_id,
-                    status="failed",
-                    detail=f"Teto de guardrail excedido: {turn_budget.exceeded}",
-                    error_code="LOOP_CAP_EXCEEDED",
-                    metrics=iter_metrics,
-                )
+                if hasattr(session_store, "update_agent_run_status"):
+                    await session_store.update_agent_run_status(
+                        config.run_id,
+                        status="failed",
+                        detail=f"Teto de guardrail excedido: {turn_budget.exceeded}",
+                        error_code="LOOP_CAP_EXCEEDED",
+                        metrics=iter_metrics,
+                    )
             await emit(
                 ErrorSignal(
                     code="LOOP_CAP_EXCEEDED",
@@ -1031,7 +1013,7 @@ async def run_conversation(
                 await session_store.append_ledger_event(
                     thread_id,
                     event_key=make_run_failed_key(config.run_id),
-                    event_type="run_failed",
+                    event_type=LedgerEventType.RUN_FAILED,
                     run_id=config.run_id,
                     payload={"error": f"recursion_limit: {config.max_iterations}"},
                 )
@@ -1041,7 +1023,7 @@ async def run_conversation(
                     ThreadLedgerEvent(
                         thread_id=thread_id,
                         event_key=make_run_failed_key(config.run_id),
-                        type="run_failed",
+                        type=LedgerEventType.RUN_FAILED,
                         run_id=config.run_id,
                         payload={"error": f"recursion_limit: {config.max_iterations}"},
                     ),
@@ -1051,19 +1033,25 @@ async def run_conversation(
                 "Falha ao registrar RUN_FAILED (recursion_limit) no ledger para thread %s",
                 thread_id,
             )
-        final_metrics = AgentRunMetrics(
-            input_tokens=int(last_usage.get("input_tokens", 0) if last_usage else 0),
-            output_tokens=int(last_usage.get("output_tokens", 0) if last_usage else 0),
-            total_tokens=int(last_usage.get("total_tokens", 0) if last_usage else 0),
-        )
-        await _safe_update_agent_run_status(
-            session_store,
-            config.run_id,
-            status="failed",
-            detail=f"Limite de {config.max_iterations} iterações atingido.",
-            error_code="RECURSION_LIMIT",
-            metrics=final_metrics,
-        )
+        if hasattr(session_store, "update_agent_run_status"):
+            final_metrics = AgentRunMetrics(
+                input_tokens=int(
+                    last_usage.get("input_tokens", 0) if last_usage else 0
+                ),
+                output_tokens=int(
+                    last_usage.get("output_tokens", 0) if last_usage else 0
+                ),
+                total_tokens=int(
+                    last_usage.get("total_tokens", 0) if last_usage else 0
+                ),
+            )
+            await session_store.update_agent_run_status(
+                config.run_id,
+                status="failed",
+                detail=f"Limite de {config.max_iterations} iterações atingido.",
+                error_code="RECURSION_LIMIT",
+                metrics=final_metrics,
+            )
     await emit(
         ErrorSignal(
             code="RECURSION_LIMIT",
@@ -1085,11 +1073,27 @@ async def _execute_single_call(
     tool_registry: ToolRegistry,
     ctx: ToolContext,
     on_event: EventSink | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> VMessage:
     """Mesma lógica de execução de ``tool_batch._run_one``, sem
     ``TurnBudget`` (o teto de volume é do turno que gerou o lote original,
     já contabilizado ou não antes da pausa — reaplicá-lo no resume duplicaria
     ou perderia contagem)."""
+    allowed, deny_reason = _apply_pre_execute(tool_call, ctx, policy_snapshot)
+    if not allowed:
+        return VMessage(
+            role=MessageRole.TOOL,
+            content=[
+                ContentBlock(
+                    kind="text",
+                    text=f"Error: policy_denied: {deny_reason}",
+                )
+            ],
+            tool_call_id=tool_call.id,
+            name=tool_call.name,
+            is_error=True,
+        )
+
     spec = tool_registry.get(tool_call.name)
     if spec is None:
         texto = f"Error: tool '{tool_call.name}' não encontrada no registry"
@@ -1111,6 +1115,7 @@ async def _execute_single_call(
             tool_call.args,
             call_context,
         )
+        texto = _apply_post_execute(texto)
         is_error = _is_tool_error(texto)
         from backend.services.tool_usage import record_tool_usage
 
@@ -1138,6 +1143,7 @@ async def resume_conversation(
     interrupt_id: str | None = None,
     approval_gate: ApprovalGate | None = None,
     on_event: EventSink | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> bool:
     """Executa o lote de tool calls que ``run_conversation`` pausou —
     ``decision`` é ``"approve"`` | ``"reject"`` | ``"edit"``, aplicada só à
@@ -1157,8 +1163,29 @@ async def resume_conversation(
     cliente. ``True`` quando o lote foi executado e a pendência resolvida.
     """
     from backend.services.media_billing import apply_media_billing_source
+    from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    is_untrusted_thread = False
+    if hasattr(session_store, "get_session"):
+        session_meta = await session_store.get_session(thread_id)
+        if session_meta and session_meta.get("mode") == "connect":
+            is_untrusted_thread = True
+    if hasattr(session_store, "list_agent_runs"):
+        runs = await session_store.list_agent_runs(thread_id, limit=5)
+        paused_run = next(
+            (r for r in runs if r.status == "waiting_approval"),
+            runs[0] if runs else None,
+        )
+        if paused_run and paused_run.untrusted_content:
+            is_untrusted_thread = True
+    if is_untrusted_thread:
+        if not isinstance(ctx._extra, dict):
+            ctx._extra = {}
+        ctx._extra["untrusted_content"] = True
+
+    if policy_snapshot is None:
+        policy_snapshot = compile_policy_snapshot(ctx)
 
     emit = on_event or _noop_event
     requested_interrupt_id = interrupt_id
@@ -1183,7 +1210,9 @@ async def resume_conversation(
     resume_run_id = str(pending.get("run_id") or "") or None
 
     async def _execute_resume_tool(
-        tc: ToolCall, args: dict[str, Any] | None = None
+        tc: ToolCall,
+        args: dict[str, Any] | None = None,
+        policy_snapshot: PolicySnapshot | None = None,
     ) -> VMessage:
         call = replace(tc, args=args) if args is not None else tc
         call_id = call.id or f"{resume_run_id or thread_id}:tool:{uuid4().hex}"
@@ -1240,6 +1269,7 @@ async def resume_conversation(
                 tool_registry=tool_registry,
                 ctx=ctx,
                 on_event=on_event,
+                policy_snapshot=policy_snapshot,
             )
         except Exception as exc:
             await record(
@@ -1304,9 +1334,9 @@ async def resume_conversation(
                     is_error=True,
                 )
             else:
-                from backend.engine.hitl import _tool_requires_approval
+                from backend.engine.hitl import call_requires_separate_approval
 
-                if _tool_requires_approval(tc.name):
+                if call_requires_separate_approval(tc.name, tc.args):
                     resultado = VMessage(
                         role=MessageRole.TOOL,
                         content=[
@@ -1320,7 +1350,9 @@ async def resume_conversation(
                         is_error=True,
                     )
                 else:
-                    resultado = await _execute_resume_tool(tc)
+                    resultado = await _execute_resume_tool(
+                        tc, policy_snapshot=policy_snapshot
+                    )
         elif decision == "reject":
             resultado = VMessage(
                 role=MessageRole.TOOL,
@@ -1335,7 +1367,21 @@ async def resume_conversation(
                 args = ephemeral_args
             if decision in {"edit", "option"} and edited_args is not None:
                 args = edited_args
-            resultado = await _execute_resume_tool(tc, args)
+            call_snapshot = policy_snapshot
+            if (
+                tc.id == flagged_id
+                and tc.name == "git_push"
+                and bool(args.get("force", False))
+                and policy_snapshot is not None
+                and not policy_snapshot.allow_force_push
+            ):
+                from dataclasses import replace as dc_replace
+
+                call_snapshot = dc_replace(policy_snapshot, allow_force_push=True)
+
+            resultado = await _execute_resume_tool(
+                replace(tc, args=args), policy_snapshot=call_snapshot
+            )
 
         parent_id = await session_store.append_message(
             thread_id, resultado, parent_message_id=parent_id

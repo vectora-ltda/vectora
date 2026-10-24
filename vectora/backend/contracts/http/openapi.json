@@ -5507,7 +5507,7 @@
         "properties": {
           "evidence": {
             "default": "documented",
-            "description": "Evidência de compatibilidade verificada para este provedor e runtime.",
+            "description": "Nível de evidência declarado para este provedor e runtime.",
             "enum": ["documented", "observed", "unverified"],
             "title": "Evidence",
             "type": "string"

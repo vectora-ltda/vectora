@@ -84,6 +84,8 @@ REQUIRE_APPROVAL: frozenset[str] = frozenset(
         "kanban_create",
         "kanban_update_status",
         "apply_memory_consolidation",
+        "git_push",
+        "call_mcp_tool",
         # Operações com custo variável: a quota e o preço estimado são
         # apresentados ao usuário antes da execução do provider.
         "generate_image",
@@ -91,6 +93,9 @@ REQUIRE_APPROVAL: frozenset[str] = frozenset(
         "generate_video",
     }
 )
+
+#: Métodos HTTP considerados seguros (somente leitura / idempotentes) para allowlist
+SAFE_HTTP_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
 #: Tools auto-aprovadas no modo "accept_edits".
 _ACCEPT_EDITS_AUTO: frozenset[str] = frozenset(
@@ -209,7 +214,29 @@ def _tool_requires_approval(tool_name: str) -> bool:
     return spec is not None and spec.extras.destructive
 
 
-def should_require_approval(
+def call_requires_separate_approval(
+    tool_name: str, args: dict[str, Any] | None = None
+) -> bool:
+    """Verifica se uma invocação específica de ferramenta exige aprovação isolada.
+
+    Preserva a regra canônica de aprovação por metadados de ferramenta,
+    além de interceptar operações sensíveis baseadas em argumentos:
+    - git_push com force=True
+    - http_request com métodos mutáveis (POST, PUT, PATCH, DELETE)
+    """
+    if _tool_requires_approval(tool_name):
+        return True
+    call_args = args or {}
+    if tool_name == "git_push" and bool(call_args.get("force", False)):
+        return True
+    if tool_name == "http_request":
+        method = str(call_args.get("method", "GET")).strip().upper()
+        if method not in SAFE_HTTP_METHODS:
+            return True
+    return False
+
+
+def should_require_approval(  # noqa: PLR0911
     tool_name: str,
     ctx: ToolContext,
     args: dict[str, Any],
@@ -274,6 +301,37 @@ def should_require_approval(
             decision=True,
             mode=mode,
             reason="media_threshold_unavailable",
+        )
+        return True
+    if tool_name == "git_push":
+        force = bool(args.get("force", False))
+        if force:
+            _log_decision(
+                tool_name,
+                ctx,
+                decision=True,
+                mode=mode,
+                reason="git_force_push",
+            )
+            return True
+    if tool_name == "http_request":
+        method = str(args.get("method", "GET")).strip().upper()
+        if method not in SAFE_HTTP_METHODS and mode not in _NON_INTERRUPTING_MODES:
+            _log_decision(
+                tool_name,
+                ctx,
+                decision=True,
+                mode=mode,
+                reason="mutable_http_request",
+            )
+            return True
+    if tool_name == "call_mcp_tool" and mode not in _NON_INTERRUPTING_MODES:
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=True,
+            mode=mode,
+            reason="mcp_tool_invocation",
         )
         return True
     if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
