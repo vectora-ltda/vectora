@@ -68,6 +68,7 @@ jobs:
           OLLAMA_HOST: 127.0.0.1:11434
           OLLAMA_VERSION: "0.12.6"
           OLLAMA_MODEL: qwen2.5:0.5b
+          OLLAMA_MODEL_DIGEST: sha256:005f95c7475154a17e84b85cd497949d6dd2a4f9d77c096e3c66e4d9c32acaf5
         run: |
           sudo systemctl stop ollama.service 2>/dev/null || true
           curl --fail --location --retry 3 --retry-delay 2 https://ollama.com/install.sh | sh
@@ -78,9 +79,17 @@ jobs:
             sleep 2
           done
           curl --fail --silent http://127.0.0.1:11434/api/version
+          manifest_digest="$(curl --fail --silent \
+            -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+            "https://registry.ollama.ai/v2/library/qwen2.5/manifests/0.5b" \
+            | jq -r '.config.digest // empty')"
+          [[ "$manifest_digest" == "$OLLAMA_MODEL_DIGEST" ]] || {
+            echo "Ollama model manifest changed: expected $OLLAMA_MODEL_DIGEST, got $manifest_digest" >&2
+            exit 1
+          }
           ollama pull "$OLLAMA_MODEL"
           digest="$(ollama show --json "$OLLAMA_MODEL" | jq -r '.digest // empty')"
-          [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || {
+          [[ "$digest" == "$OLLAMA_MODEL_DIGEST" ]] || {
             echo "Ollama model digest is missing or invalid: $digest" >&2
             exit 1
           }
