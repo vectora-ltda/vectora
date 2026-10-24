@@ -530,9 +530,31 @@ class SessionStore:
                         await conn.commit()
                         return
                     if evidence:
-                        run.evidence.append(redact_sensitive_data(evidence))
+                        clean_evidence = redact_sensitive_data(evidence)
+                        evidence_id = (
+                            clean_evidence.get("projection_id")
+                            if isinstance(clean_evidence, dict)
+                            else None
+                        )
+                        if evidence_id is None or not any(
+                            isinstance(item, dict)
+                            and item.get("projection_id") == evidence_id
+                            for item in run.evidence
+                        ):
+                            run.evidence.append(clean_evidence)
                     if artifact:
-                        run.artifacts.append(redact_sensitive_data(artifact))
+                        clean_artifact = redact_sensitive_data(artifact)
+                        artifact_id = (
+                            clean_artifact.get("artifact_id")
+                            if isinstance(clean_artifact, dict)
+                            else None
+                        )
+                        if artifact_id is None or not any(
+                            isinstance(item, dict)
+                            and item.get("artifact_id") == artifact_id
+                            for item in run.artifacts
+                        ):
+                            run.artifacts.append(clean_artifact)
                     if command:
                         run.commands_run.append(redact_sensitive_data(command))
                     if test_result:
