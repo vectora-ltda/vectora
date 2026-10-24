@@ -170,6 +170,21 @@ async def test_probe_preserves_http_failure_status_for_diagnostics() -> None:
 
 
 @pytest.mark.asyncio
+async def test_docker_model_available_rejects_cli_with_unreachable_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def fake_run(*args: str, command_timeout: float = 10) -> str:
+        assert args == ("version",)
+        assert command_timeout == 10
+        return "Client Version v1.2.6\nServer Version (not reachable)"
+
+    monkeypatch.setattr(dmr, "run_docker_model", fake_run)
+    available, detail = await dmr.docker_model_available()
+    assert available is False
+    assert detail is not None and "not reachable" in detail
+
+
+@pytest.mark.asyncio
 async def test_probe_dmr_inference_supports_openai_and_ollama_contracts() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith("/chat/completions"):
