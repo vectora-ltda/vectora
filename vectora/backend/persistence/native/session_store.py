@@ -68,7 +68,7 @@ class _RunEvidenceLockRegistry:
         self._entries: dict[str, tuple[asyncio.Lock, int]] = {}
 
     @asynccontextmanager
-    async def acquire(self, run_id: str) -> AsyncGenerator[None, None]:
+    async def acquire(self, run_id: str) -> AsyncGenerator[None]:
         lock, users = self._entries.get(run_id, (asyncio.Lock(), 0))
         self._entries[run_id] = (lock, users + 1)
         try:
