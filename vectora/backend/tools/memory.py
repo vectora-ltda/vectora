@@ -118,7 +118,10 @@ async def _search_unexpired(
     if requested <= 0:
         return []
     wanted = min(requested, _MAX_MEMORY_SEARCH)
-    scan_limit = wanted
+    # Use a stable first page large enough for stores that apply expiration
+    # after retrieval. The caller's requested result count must not cause an
+    # expired record to consume the entire first page.
+    scan_limit = max(1_000, wanted)
     valid: list[Any] = []
     while scan_limit <= _MAX_MEMORY_SEARCH:
         if query:
