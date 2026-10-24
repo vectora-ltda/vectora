@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from backend.tools.context import ToolContext
 from backend.tools.web import _validate_http_egress, fetch_url, web_search
 
 
@@ -75,6 +76,23 @@ class TestWebSearchFallback:
 
 @pytest.mark.asyncio
 class TestFetchUrlFallback:
+    async def test_fallback_preserva_workspace_para_isolamento_da_pagina(self):
+        with (
+            patch("backend.tools.web.settings") as ms,
+            patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
+            patch(
+                "backend.browser.search_fallback.fetch_fallback",
+                return_value="conteúdo extraído",
+            ) as mock_fallback,
+        ):
+            ms.tavily_api_key = None
+            context = ToolContext(workspace_id="workspace-a")
+            await fetch_url(url="https://example.com", ctx=context)
+
+        mock_fallback.assert_called_once_with(
+            "https://example.com", workspace_id="workspace-a"
+        )
+
     async def test_sem_tavily_api_key_usa_fallback_via_chromium(self):
         with (
             patch("backend.tools.web.settings") as ms,

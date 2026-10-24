@@ -454,7 +454,7 @@ async def fetch_url(url: str, ctx: ToolContext | None = None) -> str:
 
     if not settings.tavily_api_key:
         logger.warning("provider externo não configurado — usando Browser Workbench")
-        return await _fetch_via_fallback(url)
+        return await _fetch_via_fallback(url, ctx)
 
     logger.info("fetch_url tool called", extra={"url": url})
 
