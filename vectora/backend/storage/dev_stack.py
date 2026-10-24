@@ -178,7 +178,7 @@ def _container_matches_spec(name: str, spec: ServiceSpec) -> bool:
     try:
         payload = json.loads(proc.stdout.strip())
         config = payload["Config"]
-        host_config = payload["HostConfig"]
+        network_settings = payload["NetworkSettings"]
     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
         return False
 
@@ -189,7 +189,11 @@ def _container_matches_spec(name: str, spec: ServiceSpec) -> bool:
     }
     if any(required not in actual_env for required in spec.env):
         return False
-    actual_bindings = host_config.get("PortBindings") or {}
+    # HostConfig records the requested mapping, while NetworkSettings.Ports
+    # records what Docker actually published for the running container.  The
+    # latter is authoritative: old containers can retain HostConfig bindings
+    # after being started without a host publication.
+    actual_bindings = network_settings.get("Ports") or {}
     for expected in spec.ports:
         host, host_port, container_port = _parse_port_spec(expected)
         bindings = actual_bindings.get(f"{container_port}/tcp") or []
