@@ -62,6 +62,49 @@ async def test_ollama_local_chat_contract() -> None:
 
 
 @pytest.mark.skipif(
+    not _OLLAMA_URL,
+    reason="VECTORA_OLLAMA_BASE_URL não aponta para um Ollama local real",
+)
+async def test_ollama_local_preserves_vectora_identity() -> None:
+    """Regressão contra respostas truncadas que ignoram a identidade do agente.
+
+    Readiness e HTTP 200 não provam que o prompt de sistema chegou ao modelo.
+    Esta prova usa o mesmo endpoint local, exige a identidade declarada e rejeita
+    o marcador corrompido observado nos testes manuais (``sável!``).
+    """
+
+    assert _OLLAMA_URL is not None
+    async with httpx.AsyncClient(
+        base_url=_OLLAMA_URL.rstrip("/"), timeout=_TIMEOUT
+    ) as client:
+        response = await client.post(
+            "/api/chat",
+            json={
+                "model": _OLLAMA_MODEL,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "Você é Vectora, uma assistente de engenharia. "
+                            "Quando perguntarem sua identidade, responda "
+                            "explicitamente que você é Vectora."
+                        ),
+                    },
+                    {"role": "user", "content": "Quem é você?"},
+                ],
+                "stream": False,
+                "options": {"temperature": 0, "num_predict": 64},
+            },
+        )
+        assert response.status_code == 200, response.text
+        content = response.json().get("message", {}).get("content", "")
+        assert isinstance(content, str) and content.strip()
+        normalized = " ".join(content.casefold().split())
+        assert normalized not in {"sável", "sável!"}
+        assert "vectora" in normalized
+
+
+@pytest.mark.skipif(
     not _LAYA_URL,
     reason="VECTORA_LAYA_BASE_URL não aponta para um laya-serve local real",
 )
