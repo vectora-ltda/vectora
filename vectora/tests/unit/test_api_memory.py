@@ -49,7 +49,7 @@ def client(monkeypatch, store):
 
 
 class TestMemoryList:
-    def test_list_empty(self, client):
+    def test_list_empty(self, client) -> None:
         """GET /memory retorna lista vazia inicialmente."""
         resp = client.get("/memory")
         assert resp.status_code == 200
@@ -57,7 +57,7 @@ class TestMemoryList:
         assert data["memories"] == []
         assert data["total"] == 0
 
-    def test_list_with_items(self, client):
+    def test_list_with_items(self, client) -> None:
         """Lista retorna itens após POST."""
         client.post(
             "/memory",
@@ -69,7 +69,7 @@ class TestMemoryList:
         assert len(data["memories"]) >= 1
         assert any(m["key"] == "test1" for m in data["memories"])
 
-    def test_list_hides_expired_items(self, client, store):
+    def test_list_hides_expired_items(self, client, store) -> None:
         import asyncio
 
         asyncio.run(
@@ -83,7 +83,7 @@ class TestMemoryList:
         assert resp.status_code == 200
         assert resp.json()["total"] == 0
 
-    def test_get_expired_item_returns_not_found(self, client, store):
+    def test_get_expired_item_returns_not_found(self, client, store) -> None:
         import asyncio
 
         asyncio.run(
@@ -95,7 +95,7 @@ class TestMemoryList:
         )
         assert client.get("/memory/old").status_code == 404
 
-    def test_journey_hides_expired_fact(self, client, store):
+    def test_journey_hides_expired_fact(self, client, store) -> None:
         import asyncio
 
         asyncio.run(
@@ -125,7 +125,7 @@ class TestMemoryList:
 
 
 class TestMemoryCreate:
-    def test_create_happy(self, client):
+    def test_create_happy(self, client) -> None:
         """POST /memory cria nova memória."""
         resp = client.post(
             "/memory",
@@ -145,7 +145,7 @@ class TestMemoryCreate:
         mem = get_resp.json()
         assert mem["content"] == "my content"
 
-    def test_create_duplicate_409(self, client):
+    def test_create_duplicate_409(self, client) -> None:
         """POST duplicada retorna 409 Conflict."""
         client.post("/memory", json={"key": "dup_key", "content": "first"})
         resp = client.post("/memory", json={"key": "dup_key", "content": "second"})
@@ -153,7 +153,7 @@ class TestMemoryCreate:
 
 
 class TestMemoryUpdate:
-    def test_update_happy(self, client):
+    def test_update_happy(self, client) -> None:
         """PUT /memory/{key} edita conteúdo."""
         client.post("/memory", json={"key": "edit_key", "content": "original"})
 
@@ -167,14 +167,14 @@ class TestMemoryUpdate:
         get_resp = client.get("/memory/edit_key")
         assert get_resp.json()["content"] == "updated"
 
-    def test_update_nonexistent_404(self, client):
+    def test_update_nonexistent_404(self, client) -> None:
         """PUT em chave inexistente retorna 404."""
         resp = client.put("/memory/nonexistent", json={"content": "should fail"})
         assert resp.status_code == 404
 
 
 class TestMemoryDelete:
-    def test_delete_happy(self, client):
+    def test_delete_happy(self, client) -> None:
         """DELETE /memory/{key} remove."""
         client.post("/memory", json={"key": "del_key", "content": "to delete"})
         resp = client.delete("/memory/del_key")
@@ -184,7 +184,7 @@ class TestMemoryDelete:
         get_resp = client.get("/memory/del_key")
         assert get_resp.status_code == 404
 
-    def test_delete_nonexistent_404(self, client):
+    def test_delete_nonexistent_404(self, client) -> None:
         """DELETE inexistente retorna 404."""
         resp = client.delete("/memory/nonexistent")
         assert resp.status_code == 404
@@ -303,7 +303,9 @@ class TestJourney:
         assert data["facts"][0]["source"] == "learn_from_session"
         assert [s["id"] for s in data["skills"]] == ["revisar-pr"]
 
-    def test_falha_ao_listar_skills_nao_derruba_o_painel(self, client, monkeypatch):
+    def test_falha_ao_listar_skills_nao_derruba_o_painel(
+        self, client, monkeypatch
+    ) -> None:
         def _explode(_u):
             raise OSError("índice de skills corrompido")
 
@@ -324,7 +326,9 @@ class TestJourney:
         assert [f["key"] for f in resp.json()["facts"]] == ["learned-fact-2"]
         assert resp.json()["skills"] == []
 
-    def test_journey_nao_e_capturado_pela_rota_de_chave(self, client, monkeypatch):
+    def test_journey_nao_e_capturado_pela_rota_de_chave(
+        self, client, monkeypatch
+    ) -> None:
         """Regressão de ordem de rota: se `/{key}` for declarada antes,
         "journey" vira uma busca por chave e devolve 404."""
         monkeypatch.setattr("backend.workspace.skills.list_skills", lambda _u: [])
