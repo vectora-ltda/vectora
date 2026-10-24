@@ -1104,12 +1104,13 @@ async def run_conversation(  # noqa: PLR0911
 
         tool_started_at: dict[str, float] = {}
         tool_args_previews: dict[str, str] = {}
-        for tc in tool_calls:
+
+        async def _record_tool_started(tc: ToolCall) -> None:
+            """Persist and publish one start event immediately before execution."""
             spec = tool_registry.get(tc.name)
             extras = spec.extras if spec is not None else None
-            tool_started_at[tc.id] = time.monotonic()
-            preview = _args_preview(tc.args)
-            tool_args_previews[tc.id] = preview
+            tool_started_at.setdefault(tc.id, time.monotonic())
+            preview = tool_args_previews.setdefault(tc.id, _args_preview(tc.args))
             if config.run_id:
                 try:
                     if hasattr(session_store, "append_ledger_event"):
@@ -1169,6 +1170,10 @@ async def run_conversation(  # noqa: PLR0911
                     thread_id,
                 )
 
+        for tc in tool_calls:
+            tool_started_at[tc.id] = time.monotonic()
+            tool_args_previews[tc.id] = _args_preview(tc.args)
+
         with contextlib.suppress(Exception):
             await _persist_context_checkpoint(
                 raw_history,
@@ -1185,6 +1190,7 @@ async def run_conversation(  # noqa: PLR0911
             turn_budget=turn_budget,
             on_event=on_event,
             policy_snapshot=policy_snapshot,
+            on_tool_started=_record_tool_started,
         )
         for resultado in resultados:
             parent_id = await session_store.append_message(
