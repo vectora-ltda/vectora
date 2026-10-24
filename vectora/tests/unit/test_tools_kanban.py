@@ -370,6 +370,7 @@ class TestKanbanList:
         ) as cur:
             row = await cur.fetchone()
         await conn.close()
+        assert row is not None
         assert datetime.fromisoformat(row["claim_expires_at"]) > datetime.now(
             UTC
         ) + timedelta(seconds=100)
