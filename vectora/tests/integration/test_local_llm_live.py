@@ -61,6 +61,9 @@ async def test_llamacpp_real_exposes_model_and_generates_completion() -> None:
         payload = completion.json()
         text = payload["choices"][0]["message"]["content"]
         assert isinstance(text, str) and text.strip()
+        # Regressão: respostas UTF-8 não podem chegar como texto Latin-1
+        # (por exemplo, ``ação`` transformado em ``aÃ§Ã£o``).
+        assert "Ã" not in text
 
 
 @pytest.mark.skipif(
@@ -102,8 +105,10 @@ async def test_llamacpp_systemone_endpoint_or_clef_adapter() -> None:
             assert "is_file_operation" in decide_res.answers
             assert isinstance(decide_res.answers["is_file_operation"], NoulAnswer)
         else:
-            assert res.status_code in {404, 405, 501}, res.text
-            pytest.skip(f"llama.cpp não expõe /v1/systemone (HTTP {res.status_code})")
+            pytest.fail(
+                "o servidor local não expõe o contrato SystemOne esperado "
+                f"(HTTP {res.status_code}): {res.text}"
+            )
 
 
 @pytest.mark.skipif(
