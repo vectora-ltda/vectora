@@ -5,10 +5,16 @@ from __future__ import annotations
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 
 from backend.tools.context import ToolContext
-from backend.tools.web import _validate_http_egress, fetch_url, web_search
+from backend.tools.web import (
+    _fetch_via_http,
+    _validate_http_egress,
+    fetch_url,
+    web_search,
+)
 
 
 @pytest.mark.asyncio
@@ -80,6 +86,10 @@ class TestFetchUrlFallback:
         with (
             patch("backend.tools.web.settings") as ms,
             patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
+            patch(
+                "backend.services.egress_policy.is_url_allowed",
+                return_value=(True, ""),
+            ),
             patch(
                 "backend.browser.search_fallback.fetch_fallback",
                 return_value="conteúdo extraído",
@@ -168,6 +178,10 @@ class TestFetchUrlSsrfGuard:
         with (
             patch("backend.tools.web.settings") as ms,
             patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
+            patch(
+                "backend.services.egress_policy.is_url_allowed",
+                return_value=(True, ""),
+            ),
             patch("backend.tools.web._get_extract_tool", return_value=backend),
             patch(
                 "backend.tools.web._invoke_backend",
@@ -223,6 +237,39 @@ class TestFetchUrlSsrfGuard:
             result = await fetch_url("https://example.com")
 
         assert "redirect recusado" in result
+
+    async def test_direct_http_validates_every_redirect_hop(self, monkeypatch) -> None:
+        """A chain cannot hide a private or denied destination after hop one."""
+        seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(str(request.url))
+            if request.url.path == "/start":
+                return httpx.Response(302, headers={"location": "/middle"})
+            if request.url.path == "/middle":
+                return httpx.Response(302, headers={"location": "/final"})
+            return httpx.Response(200, text="final content")
+
+        transport = httpx.MockTransport(handler)
+        original_async_client = httpx.AsyncClient
+        monkeypatch.setattr(
+            "backend.tools.web.httpx.AsyncClient",
+            lambda **_kwargs: original_async_client(transport=transport),
+        )
+        monkeypatch.setattr(
+            "backend.browser.ssrf_guard.is_url_ssrf_safe", lambda _u: True
+        )
+        monkeypatch.setattr(
+            "backend.services.egress_policy.is_url_allowed", lambda _u, _p: (True, "")
+        )
+        result = await _fetch_via_http("https://example.com/start")
+
+        assert "final content" in result
+        assert seen == [
+            "https://example.com/start",
+            "https://example.com/middle",
+            "https://example.com/final",
+        ]
 
 
 def test_direct_http_rejects_destination_denied_by_egress_policy() -> None:
