@@ -26,6 +26,7 @@ vocabulário nativo.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import json
 import logging
@@ -276,6 +277,41 @@ def _resolve_tool_calls(acumulado: dict[int, dict[str, Any]]) -> list[ToolCall]:
     return chamadas
 
 
+async def _workspace_changed_paths(ctx: ToolContext) -> set[str]:
+    """Obtém arquivos alterados do workspace, sem confiar nos argumentos da tool."""
+    root = getattr(ctx, "workspace_dir", None) or getattr(ctx, "cwd", None)
+    if not root:
+        return set()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "status",
+            "--porcelain",
+            cwd=str(root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=2.0)
+        if proc.returncode != 0:
+            return set()
+        paths: set[str] = set()
+        for line in (stdout or b"").decode("utf-8", errors="replace").splitlines():
+            if len(line) <= 3:
+                continue
+            path = line[3:].strip()
+            if " -> " in path:
+                path = path.split(" -> ", 1)[-1].strip()
+            if path:
+                paths.add(path)
+        return paths
+    except Exception:
+        logger.debug(
+            "conversation_loop: não foi possível obter arquivos alterados",
+            exc_info=True,
+        )
+        return set()
+
+
 async def run_conversation(
     *,
     session_store: SessionStore,
@@ -300,25 +336,19 @@ async def run_conversation(
     from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
-    if hasattr(session_store, "get_session") and not (
-        isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
-    ):
-        session_meta = await session_store.get_session(thread_id)
-        if session_meta and session_meta.get("mode") == "connect":
-            if not isinstance(ctx._extra, dict):
-                ctx._extra = {}
-            ctx._extra["untrusted_content"] = True
-
-    if hasattr(session_store, "list_agent_runs") and not (
-        isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
-    ):
+    if hasattr(session_store, "list_agent_runs"):
         runs = await session_store.list_agent_runs(thread_id, limit=5)
-        latest_run = runs[0] if runs else None
-        if latest_run and latest_run.untrusted_content:
+        if any(
+            bool(
+                run.get("untrusted_content")
+                if isinstance(run, dict)
+                else getattr(run, "untrusted_content", False)
+            )
+            for run in runs
+        ):
             if not isinstance(ctx._extra, dict):
                 ctx._extra = {}
             ctx._extra["untrusted_content"] = True
-
     if policy_snapshot is None:
         policy_snapshot = compile_policy_snapshot(ctx)
 
@@ -326,7 +356,6 @@ async def run_conversation(
         sub_deps = ctx._extra.get("subagent_deps")
         if sub_deps is not None:
             sub_deps.policy_snapshot = policy_snapshot
-
     emit = on_event or _noop_event
     tools = tool_registry.all()
     parent_id = await session_store.get_branch_head_id(thread_id)
@@ -367,6 +396,7 @@ async def run_conversation(
     usage_models: set[str] = set()
     usage_records: list[tuple[str | None, dict[str, int]]] = []
     observed_tools: set[str] = set()
+    files_touched: list[str] = []
 
     for _iteracao in range(config.max_iterations):
         historico = compact_messages(
@@ -636,13 +666,91 @@ async def run_conversation(
                         "Falha ao registrar RUN_COMPLETED no ledger para thread %s",
                         thread_id,
                     )
-                await _safe_update_agent_run_status(
-                    session_store,
-                    config.run_id,
-                    status="passed",
-                    detail="Execução completada com sucesso.",
-                    metrics=iter_metrics,
-                )
+                if hasattr(session_store, "update_agent_run_status"):
+                    verification_handled = True
+                    # 1. Transiciona atomicamente para o estado 'verifying'
+                    await _safe_update_agent_run_status(
+                        session_store,
+                        config.run_id,
+                        status="verifying",
+                        detail="Executando verificação de quality gates e snapshot criptográfico.",
+                        metrics=iter_metrics,
+                    )
+                    # 2. Despacha o motor de verificação pós-execução
+                    from backend.services.verification import run_verification
+
+                    ws_id = getattr(ctx, "workspace_id", None)
+                    ws_dir = getattr(ctx, "workspace_dir", None) or getattr(
+                        ctx, "cwd", None
+                    )
+                    v_res = None
+                    try:
+                        v_res = await run_verification(
+                            ws_id,
+                            ws_dir,
+                            files_touched=files_touched or None,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Falha ao executar verificação pós-execução para run %s (thread %s)",
+                            config.run_id,
+                            thread_id,
+                        )
+                        await _safe_update_agent_run_status(
+                            session_store,
+                            config.run_id,
+                            status="failed",
+                            detail="Erro interno durante a verificação pós-execução.",
+                            error_code="VERIFICATION_ERROR",
+                            metrics=iter_metrics,
+                        )
+
+                    # 3. Persiste o resultado da verificação e a evidência com SHA-256 no AgentRun
+                    if v_res is not None:
+                        try:
+                            if hasattr(session_store, "get_agent_run") and hasattr(
+                                session_store, "upsert_agent_run"
+                            ):
+                                agent_run = await session_store.get_agent_run(
+                                    config.run_id
+                                )
+                                if agent_run is not None:
+                                    agent_run.evidence.append(v_res.to_evidence_entry())
+                                    agent_run.status = v_res.status
+                                    agent_run.metrics = iter_metrics
+                                    agent_run.detail = (
+                                        "Verificação concluída com sucesso."
+                                        if v_res.passed
+                                        else f"Falha nos quality gates: {v_res.failure_feedback or ''}"
+                                    )
+                                    await session_store.upsert_agent_run(agent_run)
+                            else:
+                                await _safe_update_agent_run_status(
+                                    session_store,
+                                    config.run_id,
+                                    status=v_res.status,
+                                    detail=(
+                                        "Verificação concluída com sucesso."
+                                        if v_res.passed
+                                        else "Falha nos quality gates."
+                                    ),
+                                    metrics=iter_metrics,
+                                )
+                        except Exception:
+                            logger.exception(
+                                "Falha ao persistir evidências de verificação para run %s",
+                                config.run_id,
+                            )
+                else:
+                    verification_handled = False
+                if not verification_handled:
+                    await _safe_update_agent_run_status(
+                        session_store,
+                        config.run_id,
+                        status="passed",
+                        detail="Execução completada com sucesso.",
+                        metrics=iter_metrics,
+                    )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=assistant_msg,
@@ -950,6 +1058,12 @@ async def run_conversation(
                 if todos is not None:
                     await emit(TodosUpdated(todos=todos))
 
+        # Deriva a evidência do workspace após o lote. Isso exclui chamadas
+        # rejeitadas e leituras, e também detecta arquivos escritos via terminal.
+        for changed_path in await _workspace_changed_paths(ctx):
+            if changed_path not in files_touched:
+                files_touched.append(changed_path)
+
         if turn_budget.exceeded is not None:
             if config.run_id:
                 try:
@@ -1166,11 +1280,6 @@ async def resume_conversation(
     from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
-    is_untrusted_thread = False
-    if hasattr(session_store, "get_session"):
-        session_meta = await session_store.get_session(thread_id)
-        if session_meta and session_meta.get("mode") == "connect":
-            is_untrusted_thread = True
     if hasattr(session_store, "list_agent_runs"):
         runs = await session_store.list_agent_runs(thread_id, limit=5)
         paused_run = next(
@@ -1178,11 +1287,9 @@ async def resume_conversation(
             runs[0] if runs else None,
         )
         if paused_run and paused_run.untrusted_content:
-            is_untrusted_thread = True
-    if is_untrusted_thread:
-        if not isinstance(ctx._extra, dict):
-            ctx._extra = {}
-        ctx._extra["untrusted_content"] = True
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
 
     if policy_snapshot is None:
         policy_snapshot = compile_policy_snapshot(ctx)

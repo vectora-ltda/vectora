@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import socket
-
 import pytest
 
 from backend.services.egress_policy import EgressPolicy
@@ -15,25 +13,7 @@ from backend.tools.context import ToolContext
 from backend.vtypes.message import ToolCall
 
 
-@pytest.fixture(autouse=True)
-def mock_dns(monkeypatch: pytest.MonkeyPatch) -> None:
-    def _fake_getaddrinfo(
-        host: str, port: int, *args: object, **kwargs: object
-    ) -> list[tuple[object, ...]]:
-        return [
-            (
-                socket.AF_INET,
-                socket.SOCK_STREAM,
-                6,
-                "",
-                ("93.184.216.34", port),
-            )
-        ]
-
-    monkeypatch.setattr(socket, "getaddrinfo", _fake_getaddrinfo)
-
-
-def test_policy_snapshot_basic_allow() -> None:
+def test_policy_snapshot_basic_allow():
     snapshot = PolicySnapshot(
         user_id="alice",
         permission_mode="ask",
@@ -45,7 +25,7 @@ def test_policy_snapshot_basic_allow() -> None:
     assert ok is True
 
 
-def test_policy_snapshot_disabled_tool() -> None:
+def test_policy_snapshot_disabled_tool():
     snapshot = PolicySnapshot(
         disabled_tools=frozenset({"terminal"}),
     )
@@ -54,7 +34,7 @@ def test_policy_snapshot_disabled_tool() -> None:
     assert "desabilitada" in reason
 
 
-def test_policy_snapshot_untrusted_content_blocks_destructive_tools() -> None:
+def test_policy_snapshot_untrusted_content_blocks_destructive_tools():
     snapshot = PolicySnapshot(
         untrusted_content=True,
     )
@@ -69,7 +49,7 @@ def test_policy_snapshot_untrusted_content_blocks_destructive_tools() -> None:
         assert "untrusted_content" in reason
 
 
-def test_policy_snapshot_git_force_push() -> None:
+def test_policy_snapshot_git_force_push():
     snapshot = PolicySnapshot(allow_force_push=False)
 
     # Push normal
@@ -82,7 +62,7 @@ def test_policy_snapshot_git_force_push() -> None:
     assert "force" in reason
 
 
-def test_policy_snapshot_egress_violation() -> None:
+def test_policy_snapshot_egress_violation():
     policy = EgressPolicy(allowed_hosts=["allowed.com"])
     snapshot = PolicySnapshot(egress_policy=policy)
 
@@ -93,7 +73,7 @@ def test_policy_snapshot_egress_violation() -> None:
     assert "Egress policy violada" in reason
 
 
-def test_compile_policy_snapshot() -> None:
+def test_compile_policy_snapshot():
     ctx = ToolContext(
         workspace_id="ws-123",
         user_id="bob",
@@ -107,7 +87,7 @@ def test_compile_policy_snapshot() -> None:
     assert snapshot.untrusted_content is True
 
 
-def test_policy_snapshot_untrusted_content_mutable_http() -> None:
+def test_policy_snapshot_untrusted_content_mutable_http():
     snapshot = PolicySnapshot(untrusted_content=True)
 
     # GET e métodos seguros permitidos sob conteúdo não confiável
@@ -125,9 +105,7 @@ def test_policy_snapshot_untrusted_content_mutable_http() -> None:
         assert "mutável" in reason
 
 
-def test_policy_snapshot_call_mcp_tool_resolution(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_policy_snapshot_call_mcp_tool_resolution(monkeypatch):
     snapshot = PolicySnapshot()
 
     # Sem servidor e sem mapeamento -> bloqueado

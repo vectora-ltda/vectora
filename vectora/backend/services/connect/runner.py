@@ -90,6 +90,10 @@ async def run_agent_for_thread(thread_id: str, text: str) -> str:
             policy_snapshot=snapshot,
         )
 
+    from backend.services.policy_compiler import compile_policy_snapshot
+
+    snapshot = compile_policy_snapshot(run_ctx, untrusted_content=True)
+
     result = await run_conversation(
         session_store=session_store,
         chat_client=chat_client,
