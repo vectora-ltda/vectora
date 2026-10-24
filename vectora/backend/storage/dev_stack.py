@@ -197,7 +197,7 @@ def _container_matches_spec(name: str, spec: ServiceSpec) -> bool:
             str(binding.get("HostPort", "")) == host_port
             # Docker reports an omitted host address as 0.0.0.0; accept it
             # only for the explicitly requested port mapping.
-            and str(binding.get("HostIp", "")) in {host, "0.0.0.0"}  # nosec B104
+            and str(binding.get("HostIp", "")) in {host, "0.0.0.0"}  # noqa: S104  # nosec B104
             for binding in bindings
             if isinstance(binding, dict)
         ):
