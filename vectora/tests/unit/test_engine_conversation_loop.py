@@ -153,6 +153,58 @@ def _tool_call_chunk(*, index: int, id: str, name: str, args: str) -> VMessageCh
 
 
 class TestParadaNormal:
+    async def test_quality_gate_persiste_evidencia_antes_do_status_terminal(
+        self, session_store, ctx, monkeypatch
+    ):
+        """A evidência fica durável enquanto o run ainda está em verifying.
+
+        Isso evita que uma falha entre o upsert da evidência e a transição
+        terminal deixe o histórico com um status terminal sem o artefato que
+        explica a decisão do gate.
+        """
+        from backend.persistence.native.agent_run import AgentRun
+        from backend.services.verification import VerificationResult
+
+        await session_store.upsert_agent_run(
+            AgentRun(run_id="run-gate-order", thread_id="thread-1", status="running")
+        )
+        statuses_seen: list[str] = []
+        original_upsert = session_store.upsert_agent_run
+
+        async def record_upsert(run):
+            statuses_seen.append(run.status)
+            await original_upsert(run)
+
+        monkeypatch.setattr(session_store, "upsert_agent_run", record_upsert)
+
+        async def fake_verification(*_args, **_kwargs):
+            return VerificationResult(
+                passed=True,
+                status="passed",
+                outcome="passed",
+                snapshot_sha256="snapshot",
+            )
+
+        monkeypatch.setattr(
+            "backend.services.verification.run_verification", fake_verification
+        )
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=_ScriptedChatClient([[_texto_chunk("ok")]]),
+            tool_registry=ToolRegistry(),
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(run_id="run-gate-order"),
+        )
+
+        assert resultado.stopped_reason == "stop"
+        assert statuses_seen == ["verifying"]
+        stored = await session_store.get_agent_run("run-gate-order")
+        assert stored is not None
+        assert stored.status == "passed"
+        assert stored.evidence[-1]["snapshot_sha256"] == "snapshot"
+
     async def test_checkpoint_de_tool_impede_reexecucao_cego(self, session_store, ctx):
         await session_store.save_context_checkpoint(
             "thread-1",
