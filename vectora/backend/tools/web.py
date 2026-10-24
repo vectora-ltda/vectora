@@ -173,6 +173,14 @@ async def _fetch_via_fallback(url: str, ctx: ToolContext | None = None) -> str:
                 extra={"url": url, "pattern": pattern},
             )
         return envelope_untrusted(content, source=url)
+    except ValueError as exc:
+        # Security and ownership decisions are terminal.  A fallback must
+        # never turn an egress/SSRF/ownership refusal into another navigation
+        # path or hide it behind a generic provider error.
+        logger.warning(
+            "fetch_url fallback recusado", extra={"url": url, "error": str(exc)}
+        )
+        return f"Error: {exc}"
     except Exception:
         logger.exception("fetch_url fallback failed", extra={"url": url})
         return (
@@ -221,28 +229,31 @@ async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
             chunks.append(chunk)
         return b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
 
+    current_url = url
+    response_status = 0
     async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
-        async with client.stream("GET", url, headers=headers) as response:
-            if 300 <= response.status_code < 400:
+        for _redirect_count in range(11):
+            _validate_http_egress(current_url, ctx)
+            current = urlparse(current_url)
+            current_host = (current.hostname or "").lower()
+            request_headers = dict(headers)
+            if current.scheme != "https" or current_host not in github_hosts:
+                request_headers.pop("Authorization", None)
+            async with client.stream(
+                "GET", current_url, headers=request_headers
+            ) as response:
+                response_status = response.status_code
+                if not 300 <= response.status_code < 400:
+                    content = await _read_limited(response)
+                    break
                 location = response.headers.get("location")
                 if not location:
                     response.raise_for_status()
-                redirected = urljoin(url, location)
+                redirected = urljoin(current_url, location)
                 _validate_http_egress(redirected, ctx)
-                redirected_url = urlparse(redirected)
-                redirected_host = (redirected_url.hostname or "").lower()
-                redirected_headers = dict(headers)
-                if (
-                    redirected_url.scheme != "https"
-                    or redirected_host not in github_hosts
-                ):
-                    redirected_headers.pop("Authorization", None)
-                async with client.stream(
-                    "GET", redirected, headers=redirected_headers
-                ) as redirected_response:
-                    content = await _read_limited(redirected_response)
-            else:
-                content = await _read_limited(response)
+                current_url = redirected
+        else:
+            raise ValueError("cadeia de redirects excede o limite de 10 saltos")
     original_length = len(content)
     if len(content) > _MAX_TOOL_CONTENT:
         content = (
@@ -264,7 +275,7 @@ async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
         extra={
             "url": url,
             "content_length": len(content),
-            "status": response.status_code,
+            "status": response_status,
         },
     )
     return envelope_untrusted(content, source=url)
@@ -436,6 +447,13 @@ async def fetch_url(url: str, ctx: ToolContext | None = None) -> str:
             "Error: URL refused — resolves to a private/loopback/link-local/"
             "metadata IP address (blocked for security, SSRF)."
         )
+    try:
+        # Apply the same workspace policy before selecting Tavily, HTTP or
+        # Chromium.  Provider failure must not become a policy bypass.
+        _validate_http_egress(url, ctx)
+    except ValueError as exc:
+        logger.warning("fetch_url recusado pela política de egress", extra={"url": url})
+        return f"Error: {exc}"
 
     # GitHub pages and API responses are public HTTP resources.  Resolve them
     # directly instead of requiring Tavily or a local Electron browser; this

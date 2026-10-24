@@ -188,6 +188,42 @@ class TestFetchUrlSsrfGuard:
         direct.assert_awaited_once()
         assert "github" in result
 
+    async def test_egress_denial_is_terminal_and_does_not_call_provider_or_fallback(
+        self,
+    ) -> None:
+        """A policy refusal must not be reinterpreted as provider outage."""
+        with (
+            patch("backend.tools.web.settings") as ms,
+            patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
+            patch(
+                "backend.services.egress_policy.is_url_allowed",
+                return_value=(False, "host denied"),
+            ),
+            patch("backend.tools.web._get_extract_tool") as extract,
+            patch("backend.browser.search_fallback.fetch_fallback") as fallback,
+        ):
+            ms.tavily_api_key = "real-key"
+            result = await fetch_url("https://blocked.example", ToolContext())
+
+        assert "política de egress" in result
+        extract.assert_not_called()
+        fallback.assert_not_called()
+
+    async def test_fallback_preserves_security_refusal(self) -> None:
+        """Ownership/SSRF errors remain visible instead of generic outage text."""
+        with (
+            patch("backend.tools.web.settings") as ms,
+            patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
+            patch(
+                "backend.browser.search_fallback.fetch_fallback",
+                side_effect=ValueError("redirect recusado: URL privada"),
+            ),
+        ):
+            ms.tavily_api_key = None
+            result = await fetch_url("https://example.com")
+
+        assert "redirect recusado" in result
+
 
 def test_direct_http_rejects_destination_denied_by_egress_policy() -> None:
     with (
