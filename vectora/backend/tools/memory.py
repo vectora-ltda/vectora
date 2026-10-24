@@ -106,6 +106,7 @@ async def _search_unexpired(
     *,
     query: str,
     limit: int,
+    initial_scan_limit: int | None = None,
 ) -> list[Any]:
     """Busca candidatos até reunir ``limit`` itens válidos.
 
@@ -118,10 +119,11 @@ async def _search_unexpired(
     if requested <= 0:
         return []
     wanted = min(requested, _MAX_MEMORY_SEARCH)
-    # Use a stable first page large enough for stores that apply expiration
-    # after retrieval. The caller's requested result count must not cause an
-    # expired record to consume the entire first page.
-    scan_limit = max(1_000, wanted)
+    # Search tools start with a large page so expired records cannot consume
+    # the requested result count. Context hydration may opt into its smaller
+    # bounded page because it has a strict per-turn budget.
+    first_page = 1_000 if initial_scan_limit is None else max(1, initial_scan_limit)
+    scan_limit = min(_MAX_MEMORY_SEARCH, max(wanted, first_page))
     valid: list[Any] = []
     while scan_limit <= _MAX_MEMORY_SEARCH:
         if query:

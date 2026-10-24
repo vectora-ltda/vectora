@@ -106,6 +106,7 @@ async def _load_persistent_context_memories(ctx: ToolContext) -> list[MemoryReco
             ("user", owner, "memories"),
             query="",
             limit=5,
+            initial_scan_limit=5,
         )
         from backend.services.context_planner import memory_records_from_backend_items
 
