@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from backend.engine.conversation_loop import LoopConfig
     from backend.engine.hitl import ApprovalGate
     from backend.llm.base import ChatClient
+    from backend.llm.systemone.harness import SystemOneHarness
     from backend.persistence.native.session_store import SessionStore
     from backend.tools.context import ToolContext
     from backend.tools.registry import ToolRegistry
@@ -229,6 +230,78 @@ def _gate_failure_signature(
     return falhas or None
 
 
+async def evaluate_goal_with_systemone(
+    harness: SystemOneHarness,
+    *,
+    workspace_id: str,
+    goal: str,
+    turn_summary: str,
+    gate_results: list[GateResult],
+) -> tuple[str, bool, str]:
+    """Avalia cumprimento do objetivo via SystemOneHarness com evidências verificáveis.
+
+    Retorna `(disposition, completed, reason)` onde `disposition` é:
+    - `"completed"`: objetivo satisfeito com evidência suficiente E gates aprovados.
+    - `"not_completed"`: objetivo ainda não satisfeito ou gate reprovado.
+    - `"ambiguous"`: incerteza ou necessidade de revisão.
+    - `"unavailable"`: harness desligado, em modo shadow, ou falha de inferência.
+    """
+    gates_ok = all(g.passed for g in gate_results)
+    gate_summary = [
+        {
+            "command": " ".join(g.command),
+            "passed": g.passed,
+            "exit_code": g.exit_code,
+        }
+        for g in gate_results
+    ]
+    try:
+        res = await harness.evaluate_goal_progress(
+            workspace_id=workspace_id,
+            goal=goal,
+            turn_summary=turn_summary,
+            gates_passed=gates_ok,
+            gate_results_summary=gate_summary,
+        )
+    except Exception:
+        logger.warning("goal_mode: systemone evaluation failed", exc_info=True)
+        return "unavailable", False, "systemone_evaluation_unavailable"
+
+    if res.mode in ("off", "shadow") or res.response is None:
+        return "unavailable", False, ",".join(res.reason_codes)
+
+    if res.policy_result.outcome != "accepted" or not res.is_usable_recommendation:
+        return "ambiguous", False, res.policy_result.reason
+
+    # Nunca marca conclusão quando um quality gate falhar
+    if not gates_ok:
+        return "not_completed", False, "quality_gate_failed"
+
+    completed_ans = res.response.answers.get("goal_completed")
+    evidence_ans = res.response.answers.get("evidence_sufficient")
+    prob_completed = getattr(completed_ans, "probability", 0.0)
+    prob_evidence = getattr(evidence_ans, "probability", 0.0)
+
+    disposition, completed, reason = (
+        "ambiguous",
+        False,
+        "systemone_uncertain_probability",
+    )
+    if prob_completed >= 0.80 and prob_evidence >= 0.80:
+        disposition, completed, reason = (
+            "completed",
+            True,
+            f"systemone_verified(p_goal={prob_completed:.2f}, p_evidence={prob_evidence:.2f})",
+        )
+    elif prob_completed <= 0.30 or prob_evidence <= 0.30:
+        disposition, completed, reason = (
+            "not_completed",
+            False,
+            f"systemone_incomplete(p_goal={prob_completed:.2f}, p_evidence={prob_evidence:.2f})",
+        )
+    return disposition, completed, reason
+
+
 async def _run_goal_loop(
     *,
     session_store: SessionStore,
@@ -242,6 +315,7 @@ async def _run_goal_loop(
     max_goal_turns: int,
     should_require_approval: Callable[..., bool] | None,
     approval_gate: ApprovalGate | None,
+    systemone_harness: SystemOneHarness | None = None,
 ) -> GoalOutcome:
     consecutive_judge_failures = 0
     gate_failure_streak = 0
@@ -297,21 +371,46 @@ async def _run_goal_loop(
                     final_message=result.final_message,
                 )
 
-        try:
-            cumprido, motivo_judge = await _judge_goal(chat_client, goal, turn_summary)
+        s1_disposition = "unavailable"
+        s1_completed = False
+        s1_reason = ""
+        if systemone_harness is not None:
+            (
+                s1_disposition,
+                s1_completed,
+                s1_reason,
+            ) = await evaluate_goal_with_systemone(
+                systemone_harness,
+                workspace_id=getattr(ctx, "workspace_id", "default") or "default",
+                goal=goal,
+                turn_summary=turn_summary,
+                gate_results=gate_results,
+            )
+
+        if s1_disposition in ("completed", "not_completed"):
+            cumprido = s1_completed and gates_ok
+            motivo_judge = s1_reason
             consecutive_judge_failures = 0
-        except Exception as exc:
-            consecutive_judge_failures += 1
-            logger.warning("goal_mode: judge falhou (turno %s)", turno, exc_info=True)
-            if consecutive_judge_failures >= _CONSECUTIVE_JUDGE_FAILURE_THRESHOLD:
-                return GoalOutcome(
-                    status="error",
-                    reason=f"judge falhou {consecutive_judge_failures}x seguidas "
-                    f"(transporte/parse) — pausa automática: {exc}",
-                    turns_used=turno,
-                    final_message=result.final_message,
+        else:
+            try:
+                cumprido, motivo_judge = await _judge_goal(
+                    chat_client, goal, turn_summary
                 )
-            cumprido, motivo_judge = False, f"judge indisponível neste turno: {exc}"
+                consecutive_judge_failures = 0
+            except Exception as exc:
+                consecutive_judge_failures += 1
+                logger.warning(
+                    "goal_mode: judge falhou (turno %s)", turno, exc_info=True
+                )
+                if consecutive_judge_failures >= _CONSECUTIVE_JUDGE_FAILURE_THRESHOLD:
+                    return GoalOutcome(
+                        status="error",
+                        reason=f"judge falhou {consecutive_judge_failures}x seguidas "
+                        f"(transporte/parse) — pausa automática: {exc}",
+                        turns_used=turno,
+                        final_message=result.final_message,
+                    )
+                cumprido, motivo_judge = False, f"judge indisponível neste turno: {exc}"
 
         if cumprido and gates_ok:
             return GoalOutcome(
@@ -349,6 +448,7 @@ async def run_goal(
     max_goal_turns: int = 20,
     should_require_approval: Callable[..., bool] | None,
     approval_gate: ApprovalGate | None = None,
+    systemone_harness: SystemOneHarness | None = None,
 ) -> GoalOutcome:
     """Encadeia turnos de ``run_conversation`` até o objetivo ser cumprido
     (gates + judge, AND independente) ou o turn budget/guardrails de falha
@@ -376,6 +476,7 @@ async def run_goal(
             max_goal_turns=max_goal_turns,
             should_require_approval=should_require_approval,
             approval_gate=approval_gate,
+            systemone_harness=systemone_harness,
         )
     except Exception as exc:
         logger.exception("goal_mode: run_goal falhou de forma inesperada")
@@ -399,6 +500,7 @@ async def resume_goal(
     max_goal_turns: int = 20,
     should_require_approval: Callable[..., bool] | None,
     approval_gate: ApprovalGate | None = None,
+    systemone_harness: SystemOneHarness | None = None,
 ) -> GoalOutcome:
     """Resolve a pendência HITL do turno pausado (``resume_conversation``) e
     reentra no goal loop pelos turnos restantes — diferente de retomar só o
@@ -442,4 +544,5 @@ async def resume_goal(
         max_goal_turns=max_goal_turns,
         should_require_approval=should_require_approval,
         approval_gate=approval_gate,
+        systemone_harness=systemone_harness,
     )

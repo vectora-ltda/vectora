@@ -58,8 +58,13 @@ _AI_TOOL_PATTERN: re.Pattern[str] = re.compile(
     r"(?i:\b(?:coderabbit(?:ai)?|claude(?:\s*code)?|chatgpt|copilot|codex)\b)(?!\.md)"
 )
 
+# Proíbe referências a rastreadores de tarefas, revisões abertas e automações de CI em comentários.
+_TRACKER_PATTERN: re.Pattern[str] = re.compile(
+    r"(?i:\b(?:issue|issues)\s*#?\d+\b|#(?![0-9a-f]{6}(?:[0-9a-f]{2})?\b)\d+\b|\bpull\s+requests?(?:\s*#?\d+)?\b|\b(?:pull\s*request|pr)\s*#?\d+\b|https?://github\.com/[^\s/]+/[^\s/]+/(?:issues|pull)/\d+|\bgha\b|\bgithub\s+actions\b)"
+)
+
 _PATTERN: re.Pattern[str] = re.compile(
-    f"{_PLAN_PATTERN.pattern}|{_AI_TOOL_PATTERN.pattern}"
+    f"{_PLAN_PATTERN.pattern}|{_AI_TOOL_PATTERN.pattern}|{_TRACKER_PATTERN.pattern}"
 )
 
 
@@ -230,11 +235,10 @@ def main(argv: list[str]) -> int:
             print(f"{path}:{lineno}: proveniência de processo em comentário: {comment}")
     if had_violation:
         print(
-            "\nComentários de código não referenciam Sprint/Bloco/Fase nem "
-            "ferramenta/revisor de IA (CodeRabbit, Claude, Copilot, etc). "
-            "Reescreva descrevendo só o estado atual do código — histórico de "
-            "planejamento/revisão vai em docs/, .claude/plans/ ou na mensagem "
-            "do commit."
+            "\nComentários de código não referenciam Sprint/Bloco/Fase, ferramentas de IA "
+            "(CodeRabbit, Claude, Copilot, etc), nem issues, PRs ou GitHub Actions (GHA). "
+            "Reescreva descrevendo apenas o que o código faz atualmente — histórico de "
+            "planejamento, issues e revisões mora em markdown, PR description ou na mensagem do commit."
         )
         return 1
     return 0

@@ -429,6 +429,57 @@ class Settings(BaseSettings):
     em ``POST /rerank``."""
     """Modelo de texto-pra-voz via OpenRouter. None desabilita."""
 
+    # ── Decision Models / SystemOne (JEV & Clef) ──────────────────────────────
+    systemone_enabled: bool = False
+    """Habilita ou desabilita o uso de Decision Models no Vectora."""
+
+    systemone_provider: Literal["clef-local", "laya-local", "clef-api", "jev-api"] = (
+        "clef-local"
+    )
+    """Provedor ativo de Decision Models."""
+
+    systemone_local_base_url: str = "http://127.0.0.1:8080"
+    """Base URL da instância llama.cpp local servindo POST /v1/systemone."""
+
+    systemone_local_model: str = "clef-flash"
+    """Nome do modelo Clef servido no llama.cpp local."""
+
+    systemone_laya_base_url: str = "http://127.0.0.1:8000"
+    """Endpoint do servidor local laya-serve."""
+
+    systemone_laya_model: str = "convaiinnovations/laya"
+    """Checkpoint ou alias do modelo Laya servido localmente."""
+
+    systemone_laya_api_key: str | None = None
+    """Bearer opcional do servidor laya-serve."""
+
+    systemone_clef_api_base_url: str = "https://api.cloudflare.com/client/v4/accounts"
+    """Endpoint da API remota Cloudflare Clef."""
+
+    systemone_clef_account_id: str = ""
+    """Account ID da Cloudflare usado pelo provedor Clef remoto."""
+
+    systemone_clef_api_model: str = "@cf/cloudflare/clef-flash"
+    """Identificador do modelo na API Clef."""
+
+    systemone_jev_api_base_url: str = "https://api.jev.ai"
+    """Endpoint da API remota JEV."""
+
+    systemone_jev_api_model: str = "jev-fast"
+    """Identificador do modelo na API JEV."""
+
+    systemone_allow_remote_fallback: bool = False
+    """Permite fallback para API remota se local falhar (requer consentimento explícito)."""
+
+    systemone_confidence_threshold_hitl: float = Field(default=0.70, ge=0.0, le=1.0)
+    """Limiar de confiança para acionar revisão humana obrigatória (HITL)."""
+
+    clef_api_key: str | None = None
+    """Chave de API para o provedor Clef remoto."""
+
+    jev_api_key: str | None = None
+    """Chave de API para o provedor JEV remoto."""
+
     embedding_queue_enabled: bool = True
     """Enable asynchronous embedding queue processing."""
 

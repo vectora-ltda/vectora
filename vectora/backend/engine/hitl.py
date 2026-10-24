@@ -13,13 +13,17 @@ decide COMO persistir/esperar.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import MessageRole
 
 if TYPE_CHECKING:
+    from backend.llm.systemone.harness import SystemOneHarness
     from backend.persistence.native.session_store import SessionStore
     from backend.tools.context import ToolContext
     from backend.vtypes.message import VMessage
@@ -282,14 +286,130 @@ def should_require_approval(
         )
         return False
     decision = _mode_should_interrupt(mode, tool_name, history)
+    reason = "policy"
+    if not decision:
+        extra = getattr(ctx, "_extra", None)
+        if isinstance(extra, dict):
+            elevated = extra.get("systemone_risk_elevated_calls")
+            if (
+                isinstance(elevated, set)
+                and _risk_assessment_key(tool_name, args) in elevated
+            ) or (
+                elevated is None
+                and extra.get("systemone_risk_requires_approval") is True
+            ):
+                decision = True
+                reason = "systemone_risk_elevated"
     _log_decision(
         tool_name,
         ctx,
         decision=decision,
         mode=mode,
-        reason="policy",
+        reason=reason,
     )
     return decision
+
+
+def _risk_assessment_key(tool_name: str, args: dict[str, Any]) -> str:
+    payload = json.dumps(args, sort_keys=True, default=str)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"{tool_name}:{digest}"
+
+
+async def precompute_tool_risk_assessment(
+    harness: SystemOneHarness,
+    *,
+    tool_name: str,
+    ctx: ToolContext,
+    args: dict[str, Any],
+    risk_score_threshold: float = 0.70,
+) -> bool:
+    """Calcula a avaliação de risco no fluxo assíncrono anterior ao predicado síncrono `should_require_approval`.
+
+    A avaliação só pode AUMENTAR a exigência de revisão humana (nunca reduzir uma
+    aprovação já exigida pelas regras estáticas).
+    """
+    extra = getattr(ctx, "_extra", None)
+    if not isinstance(extra, dict):
+        return False
+
+    workspace_id = getattr(ctx, "workspace_id", None) or "default"
+    mode = getattr(ctx, "permission_mode", None) or "ask"
+    safe_keys = sorted(str(k) for k in args)
+    args_summary = f"keys={safe_keys}"
+
+    try:
+        res = await harness.assess_tool_risk(
+            workspace_id=workspace_id,
+            tool_name=tool_name,
+            args_summary=args_summary,
+            permission_mode=mode,
+        )
+    except Exception:
+        logger.warning("hitl: falha ao pré-calcular risco via SystemOne", exc_info=True)
+        return False
+
+    if res.mode in ("off", "shadow"):
+        return False
+
+    elevate = False
+    if res.policy_result.requires_hitl:
+        elevate = True
+    elif res.response is not None:
+        ans = res.response.answers.get("risk_score")
+        score = getattr(ans, "score", 0.0)
+        if isinstance(score, int | float) and score >= risk_score_threshold:
+            elevate = True
+
+    elevated = extra.setdefault("systemone_risk_elevated_calls", set())
+    key = _risk_assessment_key(tool_name, args)
+    if elevate:
+        elevated.add(key)
+        extra["systemone_risk_requires_approval"] = True
+    else:
+        elevated.discard(key)
+        extra["systemone_risk_requires_approval"] = bool(elevated)
+    return elevate
+
+
+_MAX_NON_TOOL_REVIEW_RECORDS = 500
+_NON_TOOL_REVIEW_RECORDS: deque[dict[str, Any]] = deque(
+    maxlen=_MAX_NON_TOOL_REVIEW_RECORDS
+)
+
+
+def record_non_tool_review_request(
+    *,
+    workspace_id: str,
+    consumer: str,
+    pattern_id: str,
+    decision_id: str,
+    state_version: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Registra em memória (buffer circular limitado ao processo atual) revisão para decisões sem tool call."""
+    record = {
+        "workspace_id": workspace_id,
+        "consumer": consumer,
+        "pattern_id": pattern_id,
+        "decision_id": decision_id,
+        "state_version": state_version,
+        "reason": reason,
+        "status": "pending_review",
+    }
+    _NON_TOOL_REVIEW_RECORDS.append(record)
+    return dict(record)
+
+
+def list_non_tool_review_requests(
+    workspace_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Lista registros de revisão pendentes para consumidores que não usam tool calls."""
+    if workspace_id is None:
+        return [dict(r) for r in _NON_TOOL_REVIEW_RECORDS]
+    return [
+        dict(r) for r in _NON_TOOL_REVIEW_RECORDS if r["workspace_id"] == workspace_id
+    ]
 
 
 class ApprovalGate:

@@ -26,7 +26,12 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+import aiosqlite
+
+if TYPE_CHECKING:
+    from backend.llm.systemone.harness import SystemOneHarness
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +85,7 @@ MANUAL_TRANSITIONS: dict[str, frozenset[str]] = {
 BLOCK_RECURRENCE_LIMIT = 3
 
 
-async def _get_db() -> Any:
+async def _get_db() -> aiosqlite.Connection:
     """Mesmo banco de `vectora_background_tasks` — não `checkpoints.db`.
 
     `vectora_background_tasks`/`vectora_task_links` vivem em
@@ -904,6 +909,7 @@ async def get_progress(task_id: str) -> dict[str, int] | None:
     total = row["total"] if row else 0
     if not total:
         return None
+    assert row is not None
     return {"done": row["done"], "total": total}
 
 
@@ -956,7 +962,7 @@ async def get_dependencies_batch(
 
 async def _depende_de(task_id: str) -> set[str]:
     """Ancestrais de `task_id` — usado pra detectar ciclo."""
-    db = await _get_db()
+    db: aiosqlite.Connection = await _get_db()
     vistos: set[str] = set()
     fila = [task_id]
     while fila:
@@ -1086,6 +1092,8 @@ async def add_comment(task_id: str, user_id: str, body: str) -> dict[str, Any]:
         (comment_id,),
     ) as cur:
         row = await cur.fetchone()
+    if row is None:
+        raise RuntimeError("comentário recém-criado não foi encontrado")
     return dict(row)
 
 
@@ -1114,3 +1122,178 @@ async def list_events(task_id: str) -> list[dict[str, Any]]:
     ) as cur:
         rows = await cur.fetchall()
     return [dict(r) for r in rows]
+
+
+async def get_card_version_snapshot(task_id: str) -> dict[str, Any]:
+    """Lê um snapshot curto do card fora de qualquer inferência e calcula `card_version`."""
+    db = await _get_db()
+    async with db.execute(
+        "SELECT id, status, block_kind, block_reason, block_count, "
+        "claim_lock, claim_expires_at, updated_at, session_id "
+        "FROM vectora_background_tasks WHERE id = ?",
+        (task_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise ValueError(f"task {task_id!r} não existe")
+    snapshot = dict(row)
+    version_token = (
+        f"{snapshot.get('status')}|{snapshot.get('updated_at')}|"
+        f"{snapshot.get('claim_lock')}|{snapshot.get('block_count')}"
+    )
+    snapshot["card_version"] = version_token
+    return snapshot
+
+
+async def classify_block_kind_with_systemone(
+    task_id: str,
+    error_summary: str,
+    *,
+    harness: SystemOneHarness | None,
+    workspace_id: str = "default",
+    default_kind: str = "needs_input",
+) -> tuple[str, str]:
+    """Classifica o tipo de bloqueio em modo consultivo/shadow sem manter transação aberta.
+
+    Retorna `(block_kind, template_justification)` preservando `default_kind` em falha
+    ou quando o harness estiver em modo `off`/`shadow`.
+    """
+    if default_kind not in BLOCK_KINDS:
+        default_kind = "needs_input"
+    if harness is None:
+        return default_kind, f"template:default_block_kind({default_kind})"
+
+    try:
+        res = await harness.classify_kanban_block(
+            workspace_id=workspace_id,
+            task_id=task_id,
+            error_summary=error_summary,
+        )
+    except Exception:
+        logger.warning(
+            "kanban: falha na classificação SystemOne de bloqueio", exc_info=True
+        )
+        return default_kind, f"template:fallback_on_error({default_kind})"
+
+    if not res.is_usable_recommendation or res.response is None:
+        return default_kind, f"template:non_enforced({','.join(res.reason_codes)})"
+
+    ans = res.response.answers.get("block_kind")
+    selection = getattr(ans, "selection", None)
+    if isinstance(selection, str) and selection in BLOCK_KINDS:
+        conf = getattr(ans, "confidence", 0.0) or 0.0
+        return (
+            selection,
+            f"template:systemone_block_kind(kind={selection},confidence={conf:.2f},decision_id={res.decision_id})",
+        )
+    return default_kind, f"template:invalid_selection_fallback({default_kind})"
+
+
+async def propose_transition_with_systemone(
+    task_id: str,
+    *,
+    harness: SystemOneHarness,
+    workspace_id: str = "default",
+    evidence_summary: str = "",
+    authorized_session_id: str | None = None,
+) -> dict[str, Any]:
+    """Gera uma proposta consultiva de transição vinculada à versão atual do card.
+
+    Nunca mantém transação aberta durante a inferência e restringe as opções a
+    `MANUAL_TRANSITIONS[current_status] + ['no_recommendation']`.
+    """
+    snapshot = await get_card_version_snapshot(task_id)
+    if (
+        authorized_session_id is not None
+        and snapshot.get("session_id") != authorized_session_id
+    ):
+        raise ValueError("task não pertence à sessão atual")
+
+    current_status = str(snapshot["status"])
+    card_version = str(snapshot["card_version"])
+    allowed_targets = sorted(MANUAL_TRANSITIONS.get(current_status, frozenset()))
+
+    if not allowed_targets:
+        return {
+            "task_id": task_id,
+            "current_status": current_status,
+            "recommended_status": "no_recommendation",
+            "card_version": card_version,
+            "is_usable": False,
+            "justification": f"template:no_manual_transitions_from({current_status})",
+        }
+
+    res = await harness.propose_kanban_transition(
+        workspace_id=workspace_id,
+        task_id=task_id,
+        current_status=current_status,
+        allowed_targets=allowed_targets,
+        card_version=card_version,
+        evidence_summary=evidence_summary,
+    )
+
+    recommended = "no_recommendation"
+    if res.is_usable_recommendation and res.response is not None:
+        ans = res.response.answers.get("target_status")
+        sel = getattr(ans, "selection", "no_recommendation")
+        if sel in allowed_targets:
+            recommended = sel
+
+    return {
+        "task_id": task_id,
+        "decision_id": res.decision_id,
+        "current_status": current_status,
+        "recommended_status": recommended,
+        "allowed_targets": allowed_targets,
+        "card_version": card_version,
+        "claim_lock": snapshot.get("claim_lock"),
+        "is_usable": res.is_usable_recommendation
+        and recommended != "no_recommendation",
+        "requires_hitl": res.policy_result.requires_hitl,
+        "justification": (
+            f"template:kanban_transition_proposal("
+            f"from={current_status},to={recommended},version={card_version},"
+            f"outcome={res.policy_result.outcome})"
+        ),
+    }
+
+
+async def apply_verified_transition_proposal(
+    proposal: dict[str, Any],
+    *,
+    authorized_session_id: str | None = None,
+    authorized_run_id: str | None = None,
+) -> bool:
+    """Revalida versão do card, estado, dependências e claim antes de aplicar uma proposta."""
+    task_id = str(proposal["task_id"])
+    target = str(proposal.get("recommended_status", "no_recommendation"))
+    expected_version = str(proposal["card_version"])
+
+    if target == "no_recommendation" or not proposal.get("is_usable", False):
+        return False
+
+    current_snapshot = await get_card_version_snapshot(task_id)
+    if current_snapshot["card_version"] != expected_version:
+        raise ValueError("card_version mudou durante a inferência; proposta invalidada")
+
+    if (
+        authorized_run_id is not None
+        and current_snapshot.get("claim_lock") != authorized_run_id
+    ):
+        raise ValueError("execução perdeu o claim da task antes de aplicar a proposta")
+
+    if target == "ready":
+        deps = await get_dependencies(task_id)
+        unresolved = [d["id"] for d in deps if d["status"] != "done"]
+        if unresolved:
+            raise ValueError(
+                f"dependências pendentes impedem transição para 'ready': {', '.join(unresolved)}"
+            )
+
+    await manual_transition(
+        task_id,
+        target,
+        authorized_session_id=authorized_session_id,
+        authorized_run_id=authorized_run_id,
+    )
+    return True

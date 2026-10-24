@@ -589,6 +589,43 @@ INTEGRATIONS_REGISTRY: list[dict[str, Any]] = [
         "icon": "sendgrid",
     },
     {
+        "id": "openrouter",
+        "name": "OpenRouter",
+        "env_var": "OPENROUTER_API_KEY",
+        "kind": "apikey",
+        "description": "Acesso a centenas de modelos abertos e proprietários via OpenRouter",
+        "docs_url": "https://openrouter.ai/keys",
+        "icon": "openrouter",
+    },
+    {
+        "id": "cloudflare",
+        "name": "Cloudflare Workers AI",
+        "env_var": "CLEF_API_KEY",
+        "kind": "apikey",
+        "description": "Cloudflare Workers AI (Clef e Clef-Flash Decision Models)",
+        "docs_url": "https://developers.cloudflare.com/workers-ai/models/clef-flash/",
+        "icon": "cloudflare",
+        "env_var_aliases": ["CLOUDFLARE_API_KEY", "CLOUDFLARE_API_TOKEN"],
+    },
+    {
+        "id": "ollama",
+        "name": "Ollama Web Search",
+        "env_var": "OLLAMA_API_KEY",
+        "kind": "apikey",
+        "description": "Chave para web search e serviços do Ollama.com",
+        "docs_url": "https://ollama.com/settings/keys",
+        "icon": "ollama",
+    },
+    {
+        "id": "llamacpp",
+        "name": "llama.cpp Server",
+        "env_var": "LLAMACPP_API_KEY",
+        "kind": "apikey",
+        "description": "Chave de autenticação Bearer para instâncias protegidas do llama.cpp",
+        "docs_url": "https://github.com/ggml-org/llama.cpp/tree/master/tools/server",
+        "icon": "cpu",
+    },
+    {
         "id": "mailgun",
         "name": "Mailgun",
         "env_var": "MAILGUN_API_KEY",
@@ -878,6 +915,57 @@ async def _verify_apikey(integration_id: str, token: str) -> tuple[bool, str]:  
                 name = r.json().get("name", "")
                 return True, f"Conectado como {name}"
             return False, f"Notion retornou {r.status_code}"
+
+        if integration_id == "openrouter":
+            r = await client.get(
+                "https://openrouter.ai/api/v1/auth/key",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if r.status_code == 200:
+                return True, "Chave OpenRouter válida"
+            return False, f"OpenRouter retornou {r.status_code}"
+
+        if integration_id == "cloudflare":
+            # Testa a chave via endpoint de verificação de token ou listagem mínima do Workers AI
+            r = await client.get(
+                "https://api.cloudflare.com/client/v4/user/tokens/verify",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if r.status_code == 200:
+                return True, "Token Cloudflare válido"
+            return False, f"Cloudflare retornou {r.status_code}"
+
+        if integration_id == "ollama":
+            # Validação via header Bearer em endpoint autenticado do ollama.com
+            r = await client.get(
+                "https://ollama.com/api/me",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if r.status_code == 200:
+                return True, "Chave Ollama válida"
+            if r.status_code in {401, 403}:
+                return False, f"Ollama rejeitou a chave ({r.status_code})"
+            return True, "Chave salva (verificação não disponível para este provedor)"
+
+        if integration_id == "llamacpp":
+            # Validação no servidor local configurado ou loopback padrão via endpoint protegido
+            base = os.environ.get("LLAMACPP_BASE_URL", "http://127.0.0.1:8080").rstrip(
+                "/"
+            )
+            if base.endswith("/v1"):
+                base = base[:-3].rstrip("/")
+            try:
+                r = await client.get(
+                    f"{base}/props",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                if r.status_code in {401, 403}:
+                    return False, "llama.cpp rejeitou a chave"
+                if r.status_code == 200:
+                    return True, "Servidor llama.cpp acessível com a chave"
+                return False, f"llama.cpp retornou {r.status_code}"
+            except Exception:
+                return True, "Chave salva (servidor llama.cpp offline no momento)"
 
     # Provedores sem verificação automática
     return True, "Chave salva (verificação não disponível para este provedor)"
