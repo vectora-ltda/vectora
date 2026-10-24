@@ -204,6 +204,17 @@
             "title": "Artifacts",
             "type": "array"
           },
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          },
           "commands_run": {
             "items": {
               "additionalProperties": {
@@ -213,6 +224,11 @@
             },
             "title": "Commands Run",
             "type": "array"
+          },
+          "contract_version": {
+            "default": 1,
+            "title": "Contract Version",
+            "type": "integer"
           },
           "detail": {
             "anyOf": [
@@ -292,13 +308,17 @@
             "default": "running",
             "enum": [
               "planned",
+              "admitted",
               "running",
               "waiting_approval",
+              "waiting_provider",
+              "tool_running",
               "verifying",
               "passed",
               "degraded",
               "failed",
-              "cancelled"
+              "cancelled",
+              "recovery_required"
             ],
             "title": "Status",
             "type": "string"
@@ -12629,9 +12649,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Health Live Health Live Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/HealthLiveResponse"
                 }
               }
             },
@@ -12650,9 +12668,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Health Ready Health Ready Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/HealthReadyResponse"
                 }
               }
             },
@@ -17010,6 +17026,29 @@
               "title": "Run Id",
               "type": "string"
             }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
           }
         ],
         "responses": {
@@ -19158,6 +19197,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "minimum": 0,
               "title": "From Seq",
               "type": "integer"
             }
@@ -19169,7 +19209,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer"
+                  "type": "string"
                 },
                 {
                   "type": "null"
@@ -19182,11 +19222,9 @@
         "responses": {
           "200": {
             "content": {
-              "application/json": {
-                "schema": {}
-              }
+              "text/event-stream": {}
             },
-            "description": "Successful Response"
+            "description": "Stream SSE de eventos do ledger da thread"
           },
           "422": {
             "content": {
