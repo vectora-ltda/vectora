@@ -47,13 +47,13 @@ class ClefLocalAdapter(SystemOneProvider):
         api_key: str | None = None,
         timeout: float = _DEFAULT_TIMEOUT_SECONDS,
         *,
-        model: str = "clef-flash",
+        model: str | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._timeout = timeout
-        self._model = model
+        self._model = model.strip() if model and model.strip() else None
         self._external_client = client
 
     @property
@@ -66,15 +66,16 @@ class ClefLocalAdapter(SystemOneProvider):
 
     async def capabilities(self) -> ProviderCapabilities:
         """Capacidades declaradas para Clef local (texto, noul, choice, score; sem mídias por padrão)."""
+        models = ["clef", "clef-flash", "default"]
+        if self._model is not None:
+            models.append(self._model)
         return ProviderCapabilities(
             supports_noul=True,
             supports_choice=True,
             supports_score=True,
             supports_image=False,
             supports_video=False,
-            supported_models=list(
-                dict.fromkeys(["clef", "clef-flash", "default", self._model])
-            ),
+            supported_models=list(dict.fromkeys(models)),
             evidence="observed",
         )
 

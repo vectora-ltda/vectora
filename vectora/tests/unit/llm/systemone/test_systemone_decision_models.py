@@ -234,6 +234,32 @@ class TestApiAdapters:
             await adapter.decide(req)
 
     @pytest.mark.asyncio
+    async def test_clef_api_uses_requested_model_in_endpoint(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        adapter = ClefApiAdapter(api_key="key", account_id="account-test")
+        req = SystemOneRequest(
+            model="@cf/custom/clef-test",
+            state="State",
+            questions={"q": NoulQuestion(criterion="crit")},
+        )
+        payload = {
+            "answers": {"q": {"type": "noul", "probability": 0.9, "confidence": 0.9}},
+            "usage": {"total_tokens": 1},
+        }
+        seen: dict[str, str] = {}
+
+        async def fake_post(
+            client: httpx.AsyncClient, url: str, **kwargs: object
+        ) -> httpx.Response:
+            seen["url"] = url
+            return httpx.Response(200, json=payload)
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+        await adapter.decide(req)
+        assert seen["url"].endswith("/account-test/ai/run/@cf/custom/clef-test")
+
+    @pytest.mark.asyncio
     async def test_jev_api_adapter_decide_success(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -389,3 +415,18 @@ class TestSettingsAndSecrets:
         s_jev = SystemOneSettings(provider="jev-api")
         p_jev = get_systemone_provider(s_jev, jev_api_key="jev_key")
         assert p_jev.provider_id == "jev-api"
+
+    @pytest.mark.asyncio
+    async def test_local_provider_advertises_configured_model(self) -> None:
+        settings = SystemOneSettings(
+            provider="clef-local", local_model="qwen-custom.gguf"
+        )
+        provider = get_systemone_provider(settings)
+        capabilities = await provider.capabilities()
+        assert "qwen-custom.gguf" in capabilities.supported_models
+
+    @pytest.mark.asyncio
+    async def test_local_provider_rejects_empty_model_configuration(self) -> None:
+        adapter = ClefLocalAdapter(model="")
+        capabilities = await adapter.capabilities()
+        assert "" not in capabilities.supported_models
