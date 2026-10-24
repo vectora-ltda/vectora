@@ -84,3 +84,29 @@ def test_redaction_preserves_paths_and_schema_map_keys() -> None:
     assert redacted["schemas"]["TokenResponse"]["properties"]["token"] == {
         "type": "string"
     }
+
+
+def test_redaction_preserves_map_keys_but_redacts_nested_values() -> None:
+    payload = {
+        "paths": {
+            "/auth/token": {
+                "post": {"security": {"api_key": "sk-123456789012345678901234"}}
+            }
+        },
+        "schemas": {
+            "TokenResponse": {
+                "example": {"access_token": "Bearer abcdefghijklmnopqrstuv"}
+            }
+        },
+    }
+
+    redacted = redact_payload(payload)
+
+    assert "/auth/token" in redacted["paths"]
+    assert "TokenResponse" in redacted["schemas"]
+    assert (
+        redacted["paths"]["/auth/token"]["post"]["security"]["api_key"] == "[REDACTED]"
+    )
+    assert (
+        redacted["schemas"]["TokenResponse"]["example"]["access_token"] == "[REDACTED]"
+    )
