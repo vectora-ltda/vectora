@@ -37,6 +37,8 @@ _LOG_EXTRA_FIELDS: frozenset[str] = frozenset(
         "topic",
         "query",
         "error",
+        "correlation_id",
+        "request_id",
     }
 )
 _SECRET_KEY_RE = re.compile(

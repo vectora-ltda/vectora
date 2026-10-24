@@ -27,6 +27,7 @@ import os
 import sys
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from typing import Literal
 
 import httpx
 from fastapi import FastAPI, Request
@@ -34,6 +35,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.responses import Response as FastAPIResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 from starlette.middleware.base import RequestResponseEndpoint
 
 from backend.api.handlers.admin import router as admin_router
@@ -661,7 +663,8 @@ def create_app(serve_static: bool = True) -> FastAPI:
 
         # The restore endpoint owns the maintenance window itself; counting
         # that request would make it wait for its own operation to finish.
-        if request.url.path == "/storage/backup/restore":
+        # Sonda de liveness não deve travar em operações/janelas de manutenção.
+        if request.url.path in ("/storage/backup/restore", "/health/live"):
             return await call_next(request)
         async with storage_operation():
             return await call_next(request)
@@ -721,10 +724,30 @@ def create_app(serve_static: bool = True) -> FastAPI:
         CORSMiddleware,
         allow_origins=_cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["X-Vectora-Chat-Persisted"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Accept",
+            "Authorization",
+            "Content-Type",
+            "X-Correlation-ID",
+            "X-Request-ID",
+            "X-Vectora-Device-Id",
+        ],
+        expose_headers=[
+            "X-Vectora-Chat-Persisted",
+            "X-Correlation-ID",
+            "X-Request-ID",
+            "X-Vectora-Contract-Version",
+        ],
     )
+
+    # ── Correlation & Contract Version Middleware ─────────────────────────────
+    # Registrado por último para ser o middleware mais externo na pilha do Starlette,
+    # garantindo que cabeçalhos de correlação estejam presentes em qualquer resposta
+    # (inclusive 401, 429, preflight CORS e erros não tratados).
+    from backend.api.middleware.correlation import CorrelationMiddleware
+
+    app.add_middleware(CorrelationMiddleware)
 
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(flags_router)
@@ -784,9 +807,80 @@ def create_app(serve_static: bool = True) -> FastAPI:
 
     # ── Health + Metrics ──────────────────────────────────────────────────────
 
+    class HealthLiveResponse(BaseModel):
+        """Contrato de resposta da sonda de liveness."""
+
+        status: Literal["live"]
+        version: str
+
+    class HealthReadyChecks(BaseModel):
+        """Estado detalhado das dependências vitais."""
+
+        store: bool
+        lancedb: bool
+
+    class HealthReadyResponse(BaseModel):
+        """Contrato de resposta da sonda de readiness."""
+
+        status: Literal["ready", "not_ready"]
+        version: str
+        checks: HealthReadyChecks
+
     @app.get("/health")
     async def health() -> dict:
         return {"status": "ok", "version": __version__}
+
+    @app.get("/health/live", response_model=HealthLiveResponse)
+    async def health_live() -> HealthLiveResponse:
+        """Liveness probe: processo está vivo e aceitando requisições."""
+        return HealthLiveResponse(status="live", version=__version__)
+
+    @app.get("/health/ready", response_model=HealthReadyResponse)
+    async def health_ready(response: FastAPIResponse) -> HealthReadyResponse:
+        """Readiness probe: verifica se os serviços de persistência e dependências vitais estão prontos."""
+        import asyncio
+
+        from backend.services import agent_factory
+        from backend.storage.lancedb.connection import get_lancedb
+
+        async def _check_dependencies() -> tuple[bool, bool]:
+            s_ok = False
+            l_ok = False
+            try:
+                ss = await agent_factory.get_session_store()
+                st = await agent_factory.get_store()
+                s_ok = bool(ss is not None and st is not None)
+            except Exception:
+                s_ok = False
+
+            try:
+                db = await get_lancedb()
+                _ = (await db.list_tables()).tables
+                l_ok = True
+            except Exception:
+                l_ok = False
+
+            return s_ok, l_ok
+
+        try:
+            store_ok, lancedb_ok = await asyncio.wait_for(
+                _check_dependencies(), timeout=3.0
+            )
+        except Exception:
+            store_ok = False
+            lancedb_ok = False
+
+        is_ready = bool(store_ok and lancedb_ok)
+        response.status_code = 200 if is_ready else 503
+
+        return HealthReadyResponse(
+            status="ready" if is_ready else "not_ready",
+            version=__version__,
+            checks=HealthReadyChecks(
+                store=store_ok,
+                lancedb=lancedb_ok,
+            ),
+        )
 
     @app.get("/api/updates/changelog")
     async def update_changelog() -> dict[str, str]:

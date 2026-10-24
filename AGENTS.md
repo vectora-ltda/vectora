@@ -17,6 +17,13 @@ git commit -m "<type>: <descriptive message>"
 
 Never use `git add .` without inspecting what is being staged. `.env` files, API keys, and sensitive data must never be committed.
 
+### 2.0. Branch synchronization
+
+Before every commit, run `git pull --ff-only origin <current-branch>` and
+re-check the working tree. Resolve any incoming changes and rerun the relevant
+tests before committing. Push the commit before switching branches. Worktrees
+are not used for Vectora development.
+
 ### 2.1. Conventional Commits — Required
 
 All commits must follow the [Conventional Commits](https://www.conventionalcommits.org/) specification:

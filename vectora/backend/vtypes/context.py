@@ -91,6 +91,12 @@ class VectoraContext:
     posicionais existentes para preservar a compatibilidade dos chamadores.
     """
 
+    correlation_id: str = ""
+    """Correlation ID ponta a ponta (para observabilidade e rastreabilidade)."""
+
+    request_id: str = ""
+    """Request ID da chamada HTTP ou evento originador."""
+
 
 def ctx_from_config(config: dict | None) -> VectoraContext:
     """Cria ``VectoraContext`` a partir de um dict ``{"configurable": {...}}``.
@@ -115,6 +121,8 @@ def ctx_from_config(config: dict | None) -> VectoraContext:
         locale=str(c.get("language") or c.get("locale") or ""),
         model=str(c.get("model") or ""),
         thread_id=str(c.get("thread_id") or ""),
+        correlation_id=str(c.get("correlation_id") or ""),
+        request_id=str(c.get("request_id") or ""),
         tool_call_id=str(c.get("tool_call_id") or ""),
         background_task_id=str(c.get("background_task_id") or ""),
         background_run_id=str(c.get("background_run_id") or ""),

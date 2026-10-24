@@ -1,0 +1,779 @@
+{
+  "$defs": {
+    "DiffHunk": {
+      "description": "Hunk de diff enviado pelo rastreador de arquivos de um turno.",
+      "properties": {
+        "header": {
+          "default": "",
+          "title": "Header",
+          "type": "string"
+        },
+        "lines": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Lines",
+          "type": "array"
+        }
+      },
+      "title": "DiffHunk",
+      "type": "object"
+    },
+    "DoneEvent": {
+      "properties": {
+        "message_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Message Id"
+        },
+        "run_id": {
+          "default": "",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "thread_id": {
+          "title": "Thread Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "done",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["thread_id", "type"],
+      "title": "DoneEvent",
+      "type": "object"
+    },
+    "ErrorEvent": {
+      "properties": {
+        "code": {
+          "default": "INTERNAL",
+          "title": "Code",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "type": {
+          "const": "error",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["message", "type"],
+      "title": "ErrorEvent",
+      "type": "object"
+    },
+    "HITLEvent": {
+      "properties": {
+        "affected_paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Affected Paths",
+          "type": "array"
+        },
+        "args_json": {
+          "title": "Args Json",
+          "type": "string"
+        },
+        "diff_preview": {
+          "default": "",
+          "title": "Diff Preview",
+          "type": "string"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "interrupt_id": {
+          "title": "Interrupt Id",
+          "type": "string"
+        },
+        "options": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ToolOption"
+          },
+          "title": "Options",
+          "type": "array"
+        },
+        "permission_mode": {
+          "$ref": "#/$defs/PermissionMode",
+          "default": "ask"
+        },
+        "pre_approved": {
+          "default": false,
+          "title": "Pre Approved",
+          "type": "boolean"
+        },
+        "priority": {
+          "default": 0,
+          "title": "Priority",
+          "type": "integer"
+        },
+        "reasoning": {
+          "default": "",
+          "title": "Reasoning",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "hitl",
+          "title": "Type",
+          "type": "string"
+        },
+        "workspace_id": {
+          "default": "",
+          "title": "Workspace Id",
+          "type": "string"
+        }
+      },
+      "required": ["args_json", "interrupt_id", "tool_name", "type"],
+      "title": "HITLEvent",
+      "type": "object"
+    },
+    "MessageBreakEvent": {
+      "description": "Sinaliza quebra de bolha: o agente começou a emitir tokens de um nó diferente.\n\nO frontend cria uma nova mensagem do assistente ao receber este evento.",
+      "properties": {
+        "type": {
+          "const": "message_break",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["type"],
+      "title": "MessageBreakEvent",
+      "type": "object"
+    },
+    "ModelSwitchedEvent": {
+      "description": "Provider trocado automaticamente por quota esgotada (fallback).\n\nO frontend mostra um toast e atualiza o model selector para o novo modelo.\nCampos ``from_model``/``to_model`` no formato ``\"provider:model\"``.",
+      "properties": {
+        "from_model": {
+          "title": "From Model",
+          "type": "string"
+        },
+        "to_model": {
+          "title": "To Model",
+          "type": "string"
+        },
+        "type": {
+          "const": "model_switched",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["from_model", "to_model", "type"],
+      "title": "ModelSwitchedEvent",
+      "type": "object"
+    },
+    "NodeEvent": {
+      "properties": {
+        "duration_ms": {
+          "default": 0,
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "node": {
+          "title": "Node",
+          "type": "string"
+        },
+        "node_label": {
+          "default": "",
+          "title": "Node Label",
+          "type": "string"
+        },
+        "status": {
+          "enum": ["started", "finished"],
+          "title": "Status",
+          "type": "string"
+        },
+        "type": {
+          "const": "node",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["node", "status", "type"],
+      "title": "NodeEvent",
+      "type": "object"
+    },
+    "PermissionMode": {
+      "enum": ["ask", "accept_edits", "plan", "auto", "bypass"],
+      "type": "string"
+    },
+    "RagCitation": {
+      "properties": {
+        "chunk": {
+          "default": "",
+          "title": "Chunk",
+          "type": "string"
+        },
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": ["index", "source"],
+      "title": "RagCitation",
+      "type": "object"
+    },
+    "RagCitationEvent": {
+      "description": "Emitido após busca RAG com a lista de fontes recuperadas.\n\nO campo ``citations`` expõe cada documento como um item numerado\n(índice 1-based), permitindo ao frontend renderizar referências\n``[1][2]`` como popovers clicáveis.",
+      "properties": {
+        "citations": {
+          "items": {
+            "$ref": "#/$defs/RagCitation"
+          },
+          "title": "Citations",
+          "type": "array"
+        },
+        "type": {
+          "const": "rag_citations",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["citations", "type"],
+      "title": "RagCitationEvent",
+      "type": "object"
+    },
+    "StructuredQuestionEvent": {
+      "description": "Pergunta aguardando uma resposta explícita do usuário no stream.",
+      "properties": {
+        "allow_free_text": {
+          "title": "Allow Free Text",
+          "type": "boolean"
+        },
+        "expires_at": {
+          "default": "",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "options": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Options",
+          "type": "array"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "question_id": {
+          "title": "Question Id",
+          "type": "string"
+        },
+        "thread_id": {
+          "title": "Thread Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "structured_question",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "allow_free_text",
+        "options",
+        "prompt",
+        "question_id",
+        "thread_id",
+        "type"
+      ],
+      "title": "StructuredQuestionEvent",
+      "type": "object"
+    },
+    "SubagentOutputEvent": {
+      "description": "Resultado de uma delegação via ``task()`` — popula o card 'Subagent Outputs'.\n\nEmitido no início (status='running', content vazio) e no fim (status=\n'complete'/'error', content = resposta do subagente) de cada chamada da\ntool ``task``. ``tool_call_id`` é a chave de dedupe no frontend (mesmo\nrun_id do ToolCallEvent), dando identidade — \"coder respondeu\" / \"search\nrespondeu\" — em vez do bloco genérico \"N ações\".",
+      "properties": {
+        "content": {
+          "default": "",
+          "title": "Content",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "is_delta": {
+          "default": false,
+          "title": "Is Delta",
+          "type": "boolean"
+        },
+        "status": {
+          "default": "running",
+          "title": "Status",
+          "type": "string"
+        },
+        "subagent_type": {
+          "title": "Subagent Type",
+          "type": "string"
+        },
+        "tool_call_id": {
+          "default": "",
+          "title": "Tool Call Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "subagent_output",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["subagent_type", "type"],
+      "title": "SubagentOutputEvent",
+      "type": "object"
+    },
+    "TerminalLineEvent": {
+      "description": "Linha de output emitida em tempo real pela tool ``terminal``.\n\nDiferente de ``ToolResultEvent`` (saída completa só ao fim da tool),\neste evento chega incrementalmente enquanto o comando ainda roda —\no frontend anexa cada linha a um bloco de output ao vivo, associado\nà ``tool_call_id`` da chamada de ``terminal`` em andamento.",
+      "properties": {
+        "line": {
+          "title": "Line",
+          "type": "string"
+        },
+        "type": {
+          "const": "terminal_line",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["line", "type"],
+      "title": "TerminalLineEvent",
+      "type": "object"
+    },
+    "ThreadEvent": {
+      "description": "Identifies the thread, workspace and run behind a new stream.",
+      "properties": {
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
+        "thread_id": {
+          "title": "Thread Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "thread",
+          "title": "Type",
+          "type": "string"
+        },
+        "workspace_id": {
+          "default": "",
+          "title": "Workspace Id",
+          "type": "string"
+        }
+      },
+      "required": ["thread_id", "type"],
+      "title": "ThreadEvent",
+      "type": "object"
+    },
+    "TodoItem": {
+      "description": "Um item da checklist de progresso mantida por ``write_todos``\n(``backend/tools/planning.py``, tool nativa exposta a todo agente).",
+      "properties": {
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "status": {
+          "enum": ["pending", "in_progress", "completed"],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": ["content", "status"],
+      "title": "TodoItem",
+      "type": "object"
+    },
+    "TodosUpdatedEvent": {
+      "description": "Emitido quando ``write_todos`` atualiza a checklist de tarefas.\n\n``write_todos`` substitui a lista inteira a cada chamada (não é\nincremental) — o payload aqui reflete o snapshot completo mais recente,\nnão um delta. Alimenta a seção \"Tasks\" do Plan tab em tempo real.",
+      "properties": {
+        "todos": {
+          "items": {
+            "$ref": "#/$defs/TodoItem"
+          },
+          "title": "Todos",
+          "type": "array"
+        },
+        "type": {
+          "const": "todos_updated",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["todos", "type"],
+      "title": "TodosUpdatedEvent",
+      "type": "object"
+    },
+    "TokenEvent": {
+      "properties": {
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "node": {
+          "default": "",
+          "title": "Node",
+          "type": "string"
+        },
+        "type": {
+          "const": "token",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["content", "type"],
+      "title": "TokenEvent",
+      "type": "object"
+    },
+    "ToolActivityEvent": {
+      "description": "Status da tool em execução — alimenta o AgentStatusLine no frontend.\n\nEmitido em ``on_tool_start`` (``elapsed_ms=None``) e em ``on_tool_end``\n(``elapsed_ms`` preenchido com a duração em ms). O frontend exibe a\nferramenta ativa enquanto ``elapsed_ms`` é ``None``; ao receber o evento\nde fim, atualiza a duração e encerra o indicador. ``tool_call_id`` permite\nao frontend enriquecer o ``ToolCall`` correspondente com o elapsed.",
+      "properties": {
+        "args_preview": {
+          "default": "",
+          "title": "Args Preview",
+          "type": "string"
+        },
+        "elapsed_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Elapsed Ms"
+        },
+        "tool_call_id": {
+          "default": "",
+          "title": "Tool Call Id",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "tool_activity",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["tool_name", "type"],
+      "title": "ToolActivityEvent",
+      "type": "object"
+    },
+    "ToolCallEvent": {
+      "properties": {
+        "args_json": {
+          "title": "Args Json",
+          "type": "string"
+        },
+        "category": {
+          "default": "general",
+          "title": "Category",
+          "type": "string"
+        },
+        "destructive": {
+          "default": false,
+          "title": "Destructive",
+          "type": "boolean"
+        },
+        "icon": {
+          "default": "tool",
+          "title": "Icon",
+          "type": "string"
+        },
+        "render_hint": {
+          "default": "json",
+          "title": "Render Hint",
+          "type": "string"
+        },
+        "tool_call_id": {
+          "title": "Tool Call Id",
+          "type": "string"
+        },
+        "tool_name": {
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "tool_call",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["args_json", "tool_call_id", "tool_name", "type"],
+      "title": "ToolCallEvent",
+      "type": "object"
+    },
+    "ToolOption": {
+      "description": "A single user-selectable option in a structured tool approval.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": ["label", "value"],
+      "title": "ToolOption",
+      "type": "object"
+    },
+    "ToolResultEvent": {
+      "properties": {
+        "content_json": {
+          "title": "Content Json",
+          "type": "string"
+        },
+        "is_error": {
+          "default": false,
+          "title": "Is Error",
+          "type": "boolean"
+        },
+        "tool_call_id": {
+          "title": "Tool Call Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "tool_result",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["content_json", "tool_call_id", "type"],
+      "title": "ToolResultEvent",
+      "type": "object"
+    },
+    "TurnFileChange": {
+      "description": "Arquivo alterado na resposta atual, pronto para o modal de diff.",
+      "properties": {
+        "additions": {
+          "default": 0,
+          "title": "Additions",
+          "type": "integer"
+        },
+        "deletions": {
+          "default": 0,
+          "title": "Deletions",
+          "type": "integer"
+        },
+        "hunks": {
+          "items": {
+            "$ref": "#/$defs/DiffHunk"
+          },
+          "title": "Hunks",
+          "type": "array"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "status": {
+          "default": "M",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": ["path"],
+      "title": "TurnFileChange",
+      "type": "object"
+    },
+    "TurnFilesChangedEvent": {
+      "description": "Publishes the current or finalized edited files for a run.",
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/$defs/TurnFileChange"
+          },
+          "title": "Files",
+          "type": "array"
+        },
+        "run_id": {
+          "default": "",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "default": "finalized",
+          "enum": ["active", "finalized"],
+          "title": "Status",
+          "type": "string"
+        },
+        "type": {
+          "const": "turn_files_changed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["type"],
+      "title": "TurnFilesChangedEvent",
+      "type": "object"
+    },
+    "UIMetricsEvent": {
+      "properties": {
+        "last_node": {
+          "default": "",
+          "title": "Last Node",
+          "type": "string"
+        },
+        "last_node_ms": {
+          "default": 0,
+          "title": "Last Node Ms",
+          "type": "integer"
+        },
+        "rag_hits": {
+          "default": 0,
+          "title": "Rag Hits",
+          "type": "integer"
+        },
+        "rag_misses": {
+          "default": 0,
+          "title": "Rag Misses",
+          "type": "integer"
+        },
+        "tool_calls": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "default": {},
+          "title": "Tool Calls",
+          "type": "object"
+        },
+        "type": {
+          "const": "ui_metrics",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["type"],
+      "title": "UIMetricsEvent",
+      "type": "object"
+    },
+    "WorkbenchInvalidateEvent": {
+      "description": "Notifica o frontend para recarregar abas específicas do workbench.\n\nEmitido automaticamente ao fim de tool calls que modificam o workspace.\n``tabs`` lista quais abas devem ser revalidadas: ``\"files\"``, ``\"git\"``,\n``\"plan\"``, ``\"background\"``.",
+      "properties": {
+        "tabs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Tabs",
+          "type": "array"
+        },
+        "tool_name": {
+          "default": "",
+          "title": "Tool Name",
+          "type": "string"
+        },
+        "type": {
+          "const": "workbench_invalidate",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": ["tabs", "type"],
+      "title": "WorkbenchInvalidateEvent",
+      "type": "object"
+    }
+  },
+  "anyOf": [
+    {
+      "$ref": "#/$defs/ThreadEvent"
+    },
+    {
+      "$ref": "#/$defs/TokenEvent"
+    },
+    {
+      "$ref": "#/$defs/ToolCallEvent"
+    },
+    {
+      "$ref": "#/$defs/ToolResultEvent"
+    },
+    {
+      "$ref": "#/$defs/NodeEvent"
+    },
+    {
+      "$ref": "#/$defs/UIMetricsEvent"
+    },
+    {
+      "$ref": "#/$defs/HITLEvent"
+    },
+    {
+      "$ref": "#/$defs/StructuredQuestionEvent"
+    },
+    {
+      "$ref": "#/$defs/SubagentOutputEvent"
+    },
+    {
+      "$ref": "#/$defs/RagCitationEvent"
+    },
+    {
+      "$ref": "#/$defs/ErrorEvent"
+    },
+    {
+      "$ref": "#/$defs/DoneEvent"
+    },
+    {
+      "$ref": "#/$defs/MessageBreakEvent"
+    },
+    {
+      "$ref": "#/$defs/WorkbenchInvalidateEvent"
+    },
+    {
+      "$ref": "#/$defs/TurnFilesChangedEvent"
+    },
+    {
+      "$ref": "#/$defs/ToolActivityEvent"
+    },
+    {
+      "$ref": "#/$defs/ModelSwitchedEvent"
+    },
+    {
+      "$ref": "#/$defs/TerminalLineEvent"
+    },
+    {
+      "$ref": "#/$defs/TodosUpdatedEvent"
+    }
+  ]
+}

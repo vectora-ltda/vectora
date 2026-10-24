@@ -1,0 +1,37 @@
+[
+  {
+    "auth": false,
+    "methods": ["GET"],
+    "path": "/health"
+  },
+  {
+    "auth": false,
+    "methods": ["GET"],
+    "path": "/health/live"
+  },
+  {
+    "auth": false,
+    "methods": ["GET"],
+    "path": "/health/ready"
+  },
+  {
+    "auth": false,
+    "methods": ["GET"],
+    "path": "/settings/flags"
+  },
+  {
+    "auth": true,
+    "methods": ["GET", "PATCH"],
+    "path": "/settings/prefs"
+  },
+  {
+    "auth": true,
+    "methods": ["POST"],
+    "path": "/vectora.chat.v1.ChatService/StreamChat"
+  },
+  {
+    "auth": true,
+    "methods": ["POST"],
+    "path": "/vectora.chat.v1.ChatService/ResumeChat"
+  }
+]
