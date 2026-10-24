@@ -31,6 +31,8 @@ from typing import TYPE_CHECKING, Any
 import aiosqlite
 
 if TYPE_CHECKING:
+    from aiosqlite import Connection as SQLiteConnection
+
     from backend.llm.systemone.harness import SystemOneHarness
 
 logger = logging.getLogger(__name__)
@@ -100,7 +102,7 @@ async def _get_db() -> aiosqlite.Connection:
     return await _tasks_db()
 
 
-async def _ensure_version_column(db: aiosqlite.Connection) -> None:
+async def _ensure_version_column(db: SQLiteConnection) -> None:
     """Upgrade legacy task connections before a fenced mutation/read."""
     try:
         async with db.execute("PRAGMA table_info(vectora_background_tasks)") as cur:
@@ -365,8 +367,8 @@ async def set_status(
                 if cur.rowcount:
                     break
                 async with db.execute(
-                    "SELECT trigger_config, claim_lock, claim_expires_at, "
-                    "status, updated_at, version "
+                    "SELECT trigger_config, status, updated_at, version, "
+                    "claim_lock, claim_expires_at "
                     "FROM vectora_background_tasks WHERE id = ?",
                     (task_id,),
                 ) as latest_cur:
@@ -380,6 +382,10 @@ async def set_status(
                 ):
                     await db.rollback()
                     raise ValueError("execução perdeu o claim da task")
+                # A failed CAS is a real conflict unless the interval
+                # configuration changed concurrently.  Retrying with the
+                # same snapshot would issue the identical UPDATE forever
+                # while the claim remains valid.
                 if expected_status is not None and latest["status"] != expected_status:
                     await db.rollback()
                     raise ValueError("concorrência detectada: status foi modificado")
@@ -396,8 +402,11 @@ async def set_status(
                 ):
                     await db.rollback()
                     raise ValueError("concorrência detectada: versão foi modificada")
-                # The claim and CAS still match, so the only valid reason for
-                # rowcount == 0 is a trigger edit. Recompute from that snapshot.
+                if latest["trigger_config"] == interval_config_raw:
+                    await db.rollback()
+                    raise ValueError(
+                        "concorrência detectada: registro foi modificado por outra operação"
+                    )
                 interval_config_raw = latest["trigger_config"]
                 next_run_at = _next_interval_run(interval_config_raw)
         else:
@@ -1157,7 +1166,7 @@ async def get_dependencies_batch(
     return out
 
 
-async def _depende_de(task_id: str, db: aiosqlite.Connection | None = None) -> set[str]:
+async def _depende_de(task_id: str, db: SQLiteConnection | None = None) -> set[str]:
     """Ancestrais de `task_id` — usado pra detectar ciclo."""
     if db is None:
         db = await _get_db()

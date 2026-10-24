@@ -10,6 +10,8 @@ Cobre:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import time
 from pathlib import Path
@@ -112,6 +114,27 @@ class TestListArtifacts:
 
         resp = await list_artifacts(session_id="typed")
         assert resp.artifacts[0].artifact_type == "plan"
+
+    async def test_exposes_integrity_metadata(self, fake_home):
+        from backend.api.handlers.artifacts import list_artifacts
+
+        path = _write_artifact(fake_home, "integrity-1", "plan", "conteúdo verificável")
+        path.with_suffix(".artifact.json").write_text(
+            json.dumps(
+                {
+                    "byte_size": path.stat().st_size,
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "retention_class": "run",
+                }
+            ),
+            encoding="utf-8",
+        )
+        response = await list_artifacts(session_id="integrity-1")
+
+        artifact = next(item for item in response.artifacts if item.path == str(path))
+        assert artifact.byte_size == path.stat().st_size
+        assert len(artifact.sha256) == 64
+        assert artifact.retention_class == "run"
 
     @pytest.mark.asyncio
     async def test_legacy_artifact_without_sidecar_defaults_to_other(self, fake_home):

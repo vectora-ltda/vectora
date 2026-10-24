@@ -8,10 +8,12 @@ disco produzido por ``create_artifact`` (``src/tools/fs.py``):
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from datetime import UTC
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypedDict
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
@@ -36,6 +38,15 @@ class ArtifactContent(BaseModel):
     created_at: str
     content: str
     artifact_type: str = DEFAULT_ARTIFACT_TYPE
+    byte_size: int = 0
+    sha256: str = ""
+    retention_class: str = "run"
+
+
+class _ArtifactIntegrity(TypedDict):
+    byte_size: int
+    sha256: str
+    retention_class: str
 
 
 def _artifacts_dir(session_id: str) -> Path:
@@ -76,6 +87,34 @@ def _read_artifact_type(path: Path) -> str:
         return DEFAULT_ARTIFACT_TYPE
 
 
+def _read_integrity(path: Path) -> _ArtifactIntegrity:
+    """Lê checksum persistido ou calcula integridade para artifacts legados."""
+    sidecar = path.with_suffix(".artifact.json")
+    try:
+        raw = json.loads(sidecar.read_text(encoding="utf-8"))
+        if (
+            isinstance(raw, dict)
+            and isinstance(raw.get("byte_size"), int)
+            and isinstance(raw.get("sha256"), str)
+            and isinstance(raw.get("retention_class"), str)
+        ):
+            return {
+                "byte_size": raw["byte_size"],
+                "sha256": raw["sha256"],
+                "retention_class": raw["retention_class"],
+            }
+    except (OSError, ValueError, TypeError):
+        pass
+    try:
+        return {
+            "byte_size": path.stat().st_size,
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "retention_class": "run",
+        }
+    except OSError:
+        return {"byte_size": 0, "sha256": "", "retention_class": "run"}
+
+
 @router.get("/", response_model=ListArtifactsResponse)
 async def list_artifacts(
     session_id: Annotated[str, Query()] = "",
@@ -114,6 +153,7 @@ async def list_artifacts(
                 created_at=_format_mtime(stat.st_mtime),
                 artifact_type=_read_artifact_type(path),
                 content_preview=_read_preview(path),
+                **_read_integrity(path),
             )
         )
 
@@ -142,6 +182,7 @@ def _media_artifacts(base: Path, session_id: str) -> list[ArtifactMetadata]:
     for path in files:
         try:
             stat = path.stat()
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
         except OSError:
             continue
         found.append(
@@ -154,6 +195,9 @@ def _media_artifacts(base: Path, session_id: str) -> list[ArtifactMetadata]:
                 # Binário não tem preview de texto — `None` em vez de tentar
                 # decodificar bytes, que encheria a lista de lixo.
                 content_preview=None,
+                byte_size=stat.st_size,
+                sha256=digest,
+                retention_class="run",
             )
         )
     return found
@@ -194,6 +238,7 @@ async def get_artifact(
         created_at=created,
         content=content,
         artifact_type=_read_artifact_type(path),
+        **_read_integrity(path),
     )
 
 

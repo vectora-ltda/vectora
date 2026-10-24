@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import ctypes
 import errno
+import hashlib
 import json
 import logging
 import os
@@ -1324,6 +1325,9 @@ def _rotate_artifact_history(artifact_dir: Path, slug: str, content: str) -> Pat
         while (artifact_dir / f"{slug}-{n}.md").exists():
             n += 1
         current.rename(artifact_dir / f"{slug}-{n}.md")
+        integrity = artifact_dir / f"{slug}.artifact.json"
+        if integrity.exists():
+            integrity.rename(artifact_dir / f"{slug}-{n}.artifact.json")
     current.write_text(content, encoding="utf-8")
     return current
 
@@ -1337,6 +1341,23 @@ def _write_artifact_type_sidecar(
     (`{slug}-N.md`) não têm sidecar próprio e caem no default ao serem
     listadas — aceitável, o histórico não é navegado por tipo."""
     (artifact_dir / f"{slug}.artifact_type").write_text(artifact_type, encoding="utf-8")
+
+
+def _write_artifact_integrity_sidecar(
+    path: Path, *, retention_class: str = "run"
+) -> dict[str, object]:
+    """Persiste checksum/tamanho fora do payload, para auditoria e GC futuro."""
+    metadata: dict[str, object] = {
+        "artifact_id": path.stem,
+        "byte_size": path.stat().st_size,
+        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+        "storage_uri": str(path),
+        "retention_class": retention_class,
+    }
+    path.with_suffix(".artifact.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, sort_keys=True), encoding="utf-8"
+    )
+    return metadata
 
 
 def _mirror_artifact_to_workspace(
@@ -1368,6 +1389,7 @@ def _create_artifact_sync(
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = _rotate_artifact_history(artifact_dir, slug, content)
     _write_artifact_type_sidecar(artifact_dir, slug, artifact_type)
+    _write_artifact_integrity_sidecar(path)
     _mirror_artifact_to_workspace(ctx, artifact_type, slug, content)
     return path
 
@@ -1459,6 +1481,9 @@ async def create_artifact(
         )
 
         created_at = datetime.now(UTC).isoformat()
+        integrity = json.loads(
+            path.with_suffix(".artifact.json").read_text(encoding="utf-8")
+        )
         logger.info(
             "create_artifact: salvo '%s' (%s) → %s",
             title,
@@ -1473,6 +1498,7 @@ async def create_artifact(
                 "artifact_type": artifact_type,
                 "session_id": session_id,
                 "created_at": created_at,
+                **integrity,
             },
             ensure_ascii=False,
         )

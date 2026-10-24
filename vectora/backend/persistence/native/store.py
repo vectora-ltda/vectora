@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+
+from backend.persistence.telemetry import telemetry
 
 if TYPE_CHECKING:
     from backend.storage.protocols import HealthResult
@@ -37,6 +40,25 @@ def _ns_to_str(namespace: tuple[str, ...]) -> str:
 
 def _ns_from_str(namespace: str) -> tuple[str, ...]:
     return tuple(namespace.split(_NS_SEP)) if namespace else ()
+
+
+def is_store_value_expired(
+    value: dict[str, Any], *, now: datetime | None = None
+) -> bool:
+    """Retorna se um item persistido passou do seu ``valid_until``."""
+    valid_until = value.get("valid_until")
+    if not isinstance(valid_until, str) or not valid_until:
+        return False
+    try:
+        expires_at = datetime.fromisoformat(valid_until)
+        # Older callers could persist ISO timestamps without an offset. Treat
+        # those values as UTC so one malformed legacy record cannot abort a
+        # namespace-wide read or search.
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        return expires_at <= (now or datetime.now(UTC))
+    except (TypeError, ValueError):
+        return False
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -277,6 +299,7 @@ class VectoraStore:
         self._is_setup = True
 
     async def aget(self, namespace: tuple[str, ...], key: str) -> Item | None:
+        started = time.perf_counter()
         await self.setup()
         async with self._pool.acquire() as conn:
             cur = await conn.execute(
@@ -286,10 +309,34 @@ class VectoraStore:
             )
             row = await cur.fetchone()
         if row is None:
+            await telemetry.record_storage_operation(
+                backend="sqlite",
+                operation="get",
+                namespace=namespace,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                result_count=0,
+            )
             return None
         value_json, created_at, updated_at = row
+        value = json.loads(value_json)
+        if is_store_value_expired(value):
+            await telemetry.record_storage_operation(
+                backend="sqlite",
+                operation="get",
+                namespace=namespace,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                result_count=0,
+            )
+            return None
+        await telemetry.record_storage_operation(
+            backend="sqlite",
+            operation="get",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            result_count=1,
+        )
         return Item(
-            value=json.loads(value_json),
+            value=value,
             key=key,
             namespace=namespace,
             created_at=datetime.fromisoformat(created_at),
@@ -299,6 +346,7 @@ class VectoraStore:
     async def aput(
         self, namespace: tuple[str, ...], key: str, value: dict[str, Any]
     ) -> None:
+        started = time.perf_counter()
         await self.setup()
         namespace_str = _ns_to_str(namespace)
         async with self._pool.acquire() as conn:
@@ -326,8 +374,16 @@ class VectoraStore:
                 ),
             )
             await conn.commit()
+        await telemetry.record_storage_operation(
+            backend="sqlite",
+            operation="put",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            bytes_written=len(json.dumps(value, ensure_ascii=False).encode()),
+        )
 
     async def adelete(self, namespace: tuple[str, ...], key: str) -> None:
+        started = time.perf_counter()
         await self.setup()
         async with self._pool.acquire() as conn:
             await conn.execute(
@@ -335,6 +391,12 @@ class VectoraStore:
                 (_ns_to_str(namespace), key),
             )
             await conn.commit()
+        await telemetry.record_storage_operation(
+            backend="sqlite",
+            operation="delete",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+        )
 
     async def asearch(
         self,
@@ -345,6 +407,7 @@ class VectoraStore:
         filter: dict[str, Any] | None = None,  # noqa: A002 — mesmo nome do protocolo
         offset: int = 0,
     ) -> list[SearchItem]:
+        started = time.perf_counter()
         await self.setup()
         prefix = _ns_to_str(namespace)
         async with self._pool.acquire() as conn:
@@ -366,6 +429,8 @@ class VectoraStore:
         candidates: list[tuple[float | None, SearchItem]] = []
         for ns, key, value_json, embedding_json, created_at, updated_at in rows:
             value = json.loads(value_json)
+            if is_store_value_expired(value):
+                continue
             if not _matches_filter(value, filter):
                 continue
             score: float | None = None
@@ -391,7 +456,15 @@ class VectoraStore:
             candidates.sort(key=lambda pair: pair[0] or 0.0, reverse=True)
 
         page = candidates[offset : offset + limit]
-        return [item for _, item in page]
+        result = [item for _, item in page]
+        await telemetry.record_storage_operation(
+            backend="sqlite",
+            operation="search",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            result_count=len(result),
+        )
+        return result
 
     async def health(self) -> HealthResult:
         from backend.storage.protocols import _err, _ok

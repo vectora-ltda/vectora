@@ -47,6 +47,28 @@ async def indexed_store(tmp_path):
 
 
 class TestPutGet:
+    async def test_item_expirado_nao_e_reprojetado(self, store: VectoraStore):
+        await store.aput(
+            ("user", "u1", "memories"),
+            "expired",
+            {"content": "não usar", "valid_until": "2000-01-01T00:00:00+00:00"},
+        )
+
+        assert await store.aget(("user", "u1", "memories"), "expired") is None
+        assert await store.asearch(("user", "u1", "memories")) == []
+
+    async def test_timestamp_sem_fuso_nao_interrompe_leitura(self, store: VectoraStore):
+        await store.aput(
+            ("user", "u1", "memories"),
+            "legacy",
+            {"content": "expirado", "valid_until": "2000-01-01T00:00:00"},
+        )
+        await store.aput(("user", "u1", "memories"), "live", {"content": "válido"})
+
+        assert await store.aget(("user", "u1", "memories"), "legacy") is None
+        results = await store.asearch(("user", "u1", "memories"))
+        assert [item.key for item in results] == ["live"]
+
     async def test_round_trip_grava_e_le_um_item(self, store: VectoraStore):
         await store.aput(("user", "u1", "memories"), "k1", {"fact": "gosta de café"})
 

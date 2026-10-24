@@ -188,3 +188,30 @@ def test_create_backup_copia_sessions_com_snapshot_sqlite(tmp_path: Path) -> Non
         == "confirmado"
     )
     restored_connection.close()
+
+
+def test_backup_restore_preserva_artifacts_e_sidecars(tmp_path: Path) -> None:
+    source_root = tmp_path / "source"
+    source_db = source_root / "data" / "vectora.db"
+    source_db.parent.mkdir(parents=True)
+    source_db.write_bytes(b"sqlite-placeholder")
+    artifact = source_root / "artifacts" / "thread" / "plan.md"
+    artifact.parent.mkdir(parents=True)
+    artifact.write_text("conteudo", encoding="utf-8")
+    artifact.with_suffix(".artifact.json").write_text(
+        '{"sha256":"abc","retention_class":"run"}', encoding="utf-8"
+    )
+
+    archive = tmp_path / "artifacts.zip"
+    preview = create_backup(source_db, archive)
+    assert preview.categories["artifacts"] == 2
+
+    target_root = tmp_path / "target"
+    target_db = target_root / "data" / "vectora.db"
+    target_db.parent.mkdir(parents=True)
+    target_db.write_bytes(b"old")
+    restore_backup(archive, target_db, categories={"artifacts"})
+
+    restored = target_root / "artifacts" / "thread" / "plan.md"
+    assert restored.read_text(encoding="utf-8") == "conteudo"
+    assert restored.with_suffix(".artifact.json").exists()
