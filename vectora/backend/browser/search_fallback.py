@@ -194,6 +194,11 @@ def browser_search(
                 "https://www.bing.com/search?q=" + quote_plus(query),
                 wait_until="domcontentloaded",
             )
+            from backend.browser.ssrf_guard import is_url_ssrf_safe
+
+            final_url = str(page.url)
+            if not is_url_ssrf_safe(final_url):
+                raise ValueError("redirect recusado pelo SSRF guard")
             rows = page.locator("li.b_algo")
             results: list[dict[str, str]] = []
             for index in range(min(rows.count(), max_results)):

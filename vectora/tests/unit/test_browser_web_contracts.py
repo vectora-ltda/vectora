@@ -131,6 +131,32 @@ def test_browser_fallback_requires_explicit_workspace_page_ownership() -> None:
 
     with pytest.raises(RuntimeError, match="Nenhuma aba"):
         _find_workbench_page(
-            cast(Any, _Browser([unowned, other_workspace])),
+            cast("Any", _Browser([unowned, other_workspace])),
             workspace_id="workspace-a",
         )
+
+
+def test_browser_search_rejects_unsafe_redirect() -> None:
+    from backend.browser import search_fallback
+
+    class _Page:
+        url = "https://example.com"
+
+        def set_default_timeout(self, _timeout: int) -> None:
+            return None
+
+        def goto(self, *_args: object, **_kwargs: object) -> None:
+            self.url = "http://127.0.0.1:8080/private"
+
+    page = _Page()
+    with (
+        patch.object(
+            search_fallback, "_get_browser", return_value=cast("Any", object())
+        ),
+        patch.object(search_fallback, "_find_workbench_page", return_value=page),
+        patch.object(search_fallback, "_install_ssrf_route", return_value=object()),
+        patch.object(search_fallback, "_remove_ssrf_route"),
+        patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=False),
+    ):
+        with pytest.raises(ValueError, match="redirect recusado"):
+            search_fallback.browser_search("vectora")
