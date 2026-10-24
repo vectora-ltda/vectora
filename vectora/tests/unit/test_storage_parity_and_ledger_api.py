@@ -18,6 +18,7 @@ from backend.storage.vectorstore.lancedb_backend import LanceDBBackend
 
 
 @pytest.mark.asyncio
+@pytest.mark.real_lancedb
 async def test_lancedb_upsert_idempotence():
     """Testa que LanceDBBackend.upsert com mesmo ID atualiza em vez de duplicar."""
     with tempfile.TemporaryDirectory() as td:
@@ -52,6 +53,7 @@ async def test_lancedb_upsert_idempotence():
 
 
 @pytest.mark.asyncio
+@pytest.mark.real_lancedb
 async def test_lancedb_delete_exact_count():
     """Testa que LanceDBBackend.delete retorna a contagem exata de deletados."""
     with tempfile.TemporaryDirectory() as td:
@@ -74,6 +76,7 @@ async def test_lancedb_delete_exact_count():
 
 
 @pytest.mark.asyncio
+@pytest.mark.real_lancedb
 async def test_lancedb_health() -> None:
     """Testa o método health() do LanceDBBackend."""
     with tempfile.TemporaryDirectory() as td:
