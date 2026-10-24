@@ -40,6 +40,7 @@ class SearchBackend:
 
 
 async def _search_tavily(query: str, max_results: int = 5) -> list[dict]:
+    """Execute a Tavily search with a short lived client."""
     from backend.settings import settings
     from backend.tools.tavily.client import TavilyClient
 
@@ -53,6 +54,7 @@ async def _search_tavily(query: str, max_results: int = 5) -> list[dict]:
 
 
 async def _search_ollama_web(query: str, max_results: int = 5) -> list[dict]:
+    """Execute web search through the configured Ollama web endpoint."""
     from backend.llm.ollama.web_search import ollama_web_search
     from backend.settings import settings
 
@@ -63,37 +65,106 @@ async def _search_ollama_web(query: str, max_results: int = 5) -> list[dict]:
     )
 
 
-async def _search_browser(query: str, max_results: int = 5) -> list[dict]:
+async def _search_browser(
+    query: str,
+    max_results: int = 5,
+    workspace_id: str | None = None,
+    egress_policy: Any = None,
+) -> list[dict]:
     """Busca no Chromium do Electron, reaproveitando os logins do usuário."""
-    from backend.browser.search_fallback import search_fallback
+    if workspace_id:
+        # Readiness only proves that Electron exposes a page. It cannot prove
+        # which workspace/profile owns that target. Never claim an unknown
+        # page here: ownership must have been established by the managed
+        # Browser Workbench session before Search/Fetch can reuse it.
+        from backend.browser.session import has_browser_session
 
-    return search_fallback(query, max_results=max_results)
+        if not has_browser_session(workspace_id):
+            raise RuntimeError(
+                "Nenhuma sessão Browser Workbench registrada para este workspace; "
+                "abra uma aba pelo Workbench antes de usar a busca Browser."
+            )
+    from backend.browser.search_fallback import browser_search
+
+    return await __import__("asyncio").to_thread(
+        browser_search,
+        query,
+        max_results=max_results,
+        workspace_id=workspace_id,
+        egress_policy=egress_policy,
+    )
 
 
 async def _search_duckduckgo(query: str, max_results: int = 5) -> list[dict]:
+    """Execute the keyless DuckDuckGo fallback search."""
     from backend.browser.search_fallback import search_fallback
 
     return search_fallback(query, max_results=max_results)
 
 
 def _tem_tavily() -> bool:
+    """Return whether Tavily credentials are configured."""
     from backend.settings import settings
 
     return bool((settings.tavily_api_key or "").strip())
 
 
 def _tem_ollama_cloud() -> bool:
+    """Return whether the Ollama web search service is available."""
     from backend.llm.ollama.web_search import web_search_available
 
     return web_search_available()
 
 
-#: Ordem de preferência quando o usuário não escolheu. Backends com
-#: credencial vêm primeiro (quem configurou uma chave espera usá-la), e entre
-#: os sem credencial o DuckDuckGo vem antes do browser: é o default histórico
-#: e não conecta ao Electron só pra buscar. O browser é escolha explícita — é o
-#: caso em que os logins da sessão importam.
+def _electron_is_ready(workspace_id: str | None = None) -> bool:
+    """Fast readiness probe used only for automatic provider selection."""
+    try:
+        if workspace_id:
+            from backend.browser.session import has_browser_session
+
+            if not has_browser_session(workspace_id):
+                return False
+        import httpx
+
+        from backend.browser.cdp import electron_cdp_endpoint, electron_cdp_headers
+
+        response = httpx.get(
+            electron_cdp_endpoint() + "/json/list",
+            headers=electron_cdp_headers(),
+            timeout=0.2,
+        )
+        if not response.is_success:
+            return False
+        payload = response.json()
+        if not isinstance(payload, list):
+            return False
+        return any(
+            isinstance(target, dict)
+            and target.get("type") == "page"
+            and isinstance(target.get("url"), str)
+            and not target["url"].startswith(
+                ("file://", "devtools://", "vectora-app://", "vscode://")
+            )
+            and "127.0.0.1:8080" not in target["url"]
+            and "localhost:8080" not in target["url"]
+            for target in payload
+        )
+    except Exception:
+        return False
+
+
+#: Ordem de preferência quando o usuário não escolheu. O Browser Workbench é
+#: a fonte canônica quando o Chromium do Electron está pronto: ele preserva
+#: cookies/perfis e não exige uma credencial paga. Providers externos só
+#: entram depois dele, ou quando o sidecar não está disponível.
 _BACKENDS: tuple[SearchBackend, ...] = (
+    SearchBackend(
+        name="browser",
+        label="Browser embutido",
+        is_available=lambda: True,
+        search=_search_browser,
+        keyless=True,
+    ),
     SearchBackend(
         name="tavily",
         label="Tavily",
@@ -113,13 +184,6 @@ _BACKENDS: tuple[SearchBackend, ...] = (
         search=_search_duckduckgo,
         keyless=True,
     ),
-    SearchBackend(
-        name="browser",
-        label="Browser embutido",
-        is_available=lambda: True,
-        search=_search_browser,
-        keyless=True,
-    ),
 )
 
 _POR_NOME = {b.name: b for b in _BACKENDS}
@@ -131,6 +195,7 @@ def available_backends() -> list[SearchBackend]:
 
 
 def _escolha_do_usuario() -> str:
+    """Read the explicit search backend selection from runtime settings."""
     try:
         from backend.workspace.runtime_settings import runtime_settings
 
@@ -141,7 +206,16 @@ def _escolha_do_usuario() -> str:
         return ""
 
 
-def resolve_backend() -> SearchBackend:
+def _browser_ready(workspace_id: str | None = None) -> bool:
+    """Call the readiness probe while preserving compatibility with test doubles."""
+    try:
+        return _electron_is_ready(workspace_id)
+    except TypeError:
+        # Older integrations monkeypatch the probe as a zero-argument callable.
+        return _electron_is_ready()  # type: ignore[call-arg]
+
+
+def resolve_backend(workspace_id: str | None = None) -> SearchBackend:
     """Backend a usar: escolha explícita do usuário, ou a ordem de preferência.
 
     Escolha explícita indisponível levanta em vez de cair em outro backend —
@@ -157,6 +231,14 @@ def resolve_backend() -> SearchBackend:
                 f"opções: {disponiveis}, auto"
             )
             raise SearchBackendUnavailableError(msg)
+        if (
+            backend.name == "browser"
+            and workspace_id
+            and not _browser_ready(workspace_id)
+        ):
+            raise SearchBackendUnavailableError(
+                "Browser Workbench não está pronto para este workspace; abra uma aba no Electron."
+            )
         if not backend.is_available():
             msg = (
                 f"backend de busca {escolhido!r} está selecionado mas não tem "
@@ -167,6 +249,10 @@ def resolve_backend() -> SearchBackend:
         return backend
 
     for backend in _BACKENDS:
+        # Browser is preferred when Electron is actually ready, but an
+        # unavailable sidecar must not make headless/server startup unusable.
+        if backend.name == "browser" and not _browser_ready(workspace_id):
+            continue
         if backend.is_available():
             return backend
 

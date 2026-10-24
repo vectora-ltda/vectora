@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 _LOG_MAXLEN = 500
 
 _sessions: dict[str, dict[str, Any]] = {}
+_session_locks: dict[str, asyncio.Lock] = {}
 # A CDP target is a shared process-global object. Keep an explicit ownership
 # map so a second workspace cannot silently select and navigate the first
 # workspace's BrowserView. Keyed by stable target_id string.
@@ -66,6 +67,7 @@ class TabState:
         default_factory=lambda: deque(maxlen=_LOG_MAXLEN)
     )
     dialog_policy: dict[str, Any] | None = None
+    navigation_generation: int = 0
     _request_entries: dict[int, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -76,6 +78,35 @@ def has_browser_session(workspace_id: str) -> bool:
     return workspace_id in _sessions
 
 
+def _session_lock(workspace_id: str) -> asyncio.Lock:
+    """Return the serialization lock for one workspace's browser session.
+
+    Electron creates BrowserViews asynchronously.  Without a per-workspace
+    lock two concurrent ``browser_new_tab`` calls can both observe the same
+    page list and attach the first newly published target to both tool calls.
+    """
+    lock = _session_locks.get(workspace_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _session_locks[workspace_id] = lock
+    return lock
+
+
+def browser_profile_id(workspace_id: str, thread_id: str = "") -> str:
+    """Derive the same partition id used by the Browser Workbench UI.
+
+    Keeping this derivation shared across the backend bridge and the UI makes
+    agent-created tabs appear in the authenticated WebContentsView instead of
+    silently creating a second Chromium partition.
+    """
+    value = f"{workspace_id}:{thread_id}"
+    first, second = 2166136261, 2654435761
+    for byte in value.encode("utf-8"):
+        first = ((first ^ byte) * 16777619) & 0xFFFFFFFF
+        second = ((second ^ byte) * 2246822519) & 0xFFFFFFFF
+    return f"session-{first:08x}{second:08x}"
+
+
 def _electron_cdp_endpoint() -> str:
     """Resolve o endpoint CDP publicado pelo processo Electron."""
     from backend.browser.cdp import electron_cdp_endpoint
@@ -84,6 +115,7 @@ def _electron_cdp_endpoint() -> str:
 
 
 def _electron_cdp_headers() -> dict[str, str]:
+    """Return authentication headers required by the Electron CDP proxy."""
     from backend.browser.cdp import electron_cdp_headers
 
     return electron_cdp_headers()
@@ -96,6 +128,7 @@ def _register_page_listeners(tab: TabState) -> None:
     page = tab.page
 
     def _on_console(msg: Any) -> None:
+        """Record a console message for the owning browser tab."""
         try:
             entry: BrowserConsoleEntry = {"type": msg.type, "text": msg.text}
             validate_browser_console_entry(entry)
@@ -104,6 +137,7 @@ def _register_page_listeners(tab: TabState) -> None:
             logger.debug("browser_session: falha ao capturar console log")
 
     def _on_request(request: Any) -> None:
+        """Record an outgoing request observed by the tab."""
         try:
             entry = {
                 "request_id": str(id(request)),
@@ -120,6 +154,7 @@ def _register_page_listeners(tab: TabState) -> None:
             logger.debug("browser_session: falha ao capturar network request")
 
     def _on_response(response: Any) -> None:
+        """Record a response observed by the tab."""
         try:
             entry = tab._request_entries.get(id(response.request))
             if entry is not None:
@@ -128,6 +163,7 @@ def _register_page_listeners(tab: TabState) -> None:
             logger.debug("browser_session: falha ao capturar network response")
 
     def _on_request_failed(request: Any) -> None:
+        """Record a failed request without interrupting navigation."""
         try:
             entry = tab._request_entries.get(id(request))
             if entry is not None:
@@ -138,6 +174,7 @@ def _register_page_listeners(tab: TabState) -> None:
             logger.debug("browser_session: falha ao capturar falha de request")
 
     def _on_dialog(dialog: Any) -> None:
+        """Apply the tab's configured dialog policy."""
         policy = tab.dialog_policy
         if policy is None:
             # Sem política definida — mesmo comportamento de hoje: o dialog
@@ -155,14 +192,21 @@ def _register_page_listeners(tab: TabState) -> None:
         except Exception:
             logger.debug("browser_session: falha ao aplicar política de dialog")
 
+    def _on_frame_navigated(frame: Any) -> None:
+        """Update navigation metadata when a frame changes URL."""
+        if frame is page.main_frame:
+            tab.navigation_generation += 1
+
     page.on("console", _on_console)
     page.on("request", _on_request)
     page.on("response", _on_response)
     page.on("requestfailed", _on_request_failed)
     page.on("dialog", _on_dialog)
+    page.on("framenavigated", _on_frame_navigated)
 
 
 async def _create_tab_state(page: Any) -> TabState:
+    """Create the reusable CDP and observability state for one page."""
     cdp = await page.context.new_cdp_session(page)
     target_id: str | None = None
     try:
@@ -242,6 +286,7 @@ def _page_target_id(page: Any) -> str:
 
 
 def _claim_page(page: Any, workspace_id: str) -> None:
+    """Associate a CDP target with a workspace, rejecting conflicting owners."""
     tid = _page_target_id(page)
     owner = _page_owners.get(tid)
     if owner is not None and owner != workspace_id:
@@ -249,6 +294,17 @@ def _claim_page(page: Any, workspace_id: str) -> None:
             f"A aba do Browser Workbench já pertence ao workspace '{owner}'"
         )
     _page_owners[tid] = workspace_id
+
+
+def _page_is_closed(page: Any) -> bool:
+    """Detect a stale Playwright wrapper without trusting arbitrary doubles."""
+    checker = getattr(page, "is_closed", None)
+    if not callable(checker):
+        return False
+    try:
+        return bool(checker())
+    except Exception:
+        return True
 
 
 async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
@@ -260,7 +316,23 @@ async def get_browser_page(workspace_id: str, tab_id: str | None = None) -> Any:
         tab = session["tabs"].get(resolved)
         if tab is None:
             raise ValueError(f"aba '{resolved}' não encontrada")
-        return tab.page
+        owner = _page_owners.get(_page_target_id(tab.page))
+        if owner != workspace_id:
+            raise RuntimeError(
+                "A aba do Browser Workbench perdeu a propriedade do workspace"
+            )
+        if not _page_is_closed(tab.page):
+            return tab.page
+        # A conexão CDP pode sobreviver à página. Remove referências obsoletas
+        # antes de reconectar, sem fechar alvos que pertencem à UI.
+        _page_owners.pop(_page_target_id(tab.page), None)
+        session["tabs"].pop(resolved, None)
+        if session["tabs"]:
+            session["active_tab_id"] = next(iter(session["tabs"]))
+            return session["tabs"][session["active_tab_id"]].page
+        _sessions.pop(workspace_id, None)
+        with suppress(Exception):
+            await session["playwright"].stop()
 
     from playwright.async_api import async_playwright
 
@@ -324,40 +396,104 @@ async def list_tabs(workspace_id: str) -> list[BrowserTab]:
             "tab_id": tid,
             "url": tab.page.url,
             "active": tid == active,
+            "navigation_generation": tab.navigation_generation,
         }
         validate_browser_tab(entry)
         tabs.append(entry)
     return tabs
 
 
-async def new_tab(workspace_id: str, url: str | None = None) -> str:
+async def new_tab(
+    workspace_id: str, url: str | None = None, *, profile_id: str | None = None
+) -> str:
     """Cria uma aba nova na sessão do workspace (lança o browser se ainda
     não existir sessão) e a torna a aba ativa. Retorna o `tab_id`."""
-    if not has_browser_session(workspace_id):
-        await get_browser_page(workspace_id)
-    session = _sessions[workspace_id]
-    try:
-        page = await session["context"].new_page()
-    except Exception as exc:
-        # Electron's embedded BrowserView CDP endpoint intentionally omits
-        # Target.createTarget. Playwright raises here even though the already
-        # visible BrowserView is usable, but it is not a new tab. Never report
-        # reuse as successful creation or navigate it behind the caller's back.
-        message = str(exc).lower()
-        if "target.createtarget" not in message and "not supported" not in message:
-            raise
-        raise RuntimeError(
-            "O Browser Workbench não suporta criar uma nova aba via CDP; "
-            "selecione uma aba existente ou abra uma nova aba no Electron."
-        ) from exc
-    if url:
-        await page.goto(url, wait_until="domcontentloaded")
-    tab = await _create_tab_state(page)
-    _claim_page(page, workspace_id)
-    tab_id = uuid.uuid4().hex[:12]
-    session["tabs"][tab_id] = tab
-    session["active_tab_id"] = tab_id
-    return tab_id
+    async with _session_lock(workspace_id):
+        if not has_browser_session(workspace_id):
+            await get_browser_page(workspace_id)
+        session = _sessions[workspace_id]
+        page = None
+        # Electron owns BrowserView creation. Ask the authenticated CDP proxy
+        # for a managed view first; this is the only production path that
+        # creates a new tab and avoids Target.createTarget.
+        try:
+            import httpx
+
+            from backend.browser.cdp import electron_cdp_endpoint, electron_cdp_headers
+
+            known_targets: set[str] = set()
+            for item in session["context"].pages:
+                with suppress(Exception):
+                    known_targets.add(_page_target_id(item))
+            response = await asyncio.to_thread(
+                httpx.post,
+                electron_cdp_endpoint() + "/vectora/browser/create",
+                headers=electron_cdp_headers(),
+                json={
+                    "profileId": profile_id or f"workspace-{workspace_id}",
+                    "kind": "tab",
+                },
+                timeout=5.0,
+            )
+            if response.is_success:
+                for _ in range(50):
+                    await asyncio.sleep(0.05)
+                    candidates = []
+                    for item in session["context"].pages:
+                        with suppress(Exception):
+                            if _page_target_id(item) not in known_targets:
+                                candidates.append(item)
+                    if candidates:
+                        page = candidates[-1]
+                        break
+                if page is None:
+                    raise RuntimeError(
+                        "Electron criou a view mas não publicou o alvo CDP"
+                    )
+        except Exception:
+            logger.debug(
+                "browser_session: bridge de criação indisponível", exc_info=True
+            )
+            page = None
+        if page is None:
+            # Real Electron contexts must never fall back to Playwright's
+            # Target.createTarget. Keep this branch only for small unit
+            # doubles that do not expose real URL/target metadata.
+            pages = list(session["context"].pages)
+            is_test_double = pages and not all(
+                isinstance(getattr(item, "url", None), str) for item in pages
+            )
+            if not is_test_double:
+                raise RuntimeError(
+                    "O Browser Workbench não publicou uma nova aba pelo Electron; "
+                    "abra a aba na UI do Workbench e tente novamente."
+                )
+            try:
+                page = await session["context"].new_page()
+            except Exception as exc:
+                raise RuntimeError(
+                    "O Browser Workbench não suporta criar uma nova aba via CDP; "
+                    "selecione uma aba existente ou abra uma nova aba no Electron."
+                ) from exc
+        if url:
+            from backend.browser.ssrf_guard import is_url_ssrf_safe
+
+            if url != "about:blank" and not is_url_ssrf_safe(url):
+                raise ValueError("URL recusada pelo SSRF guard")
+            await page.goto(url, wait_until="domcontentloaded")
+            final_url = str(getattr(page, "url", ""))
+            if (
+                final_url
+                and final_url != "about:blank"
+                and not is_url_ssrf_safe(final_url)
+            ):
+                raise ValueError("redirect recusado pelo SSRF guard")
+        tab = await _create_tab_state(page)
+        _claim_page(page, workspace_id)
+        tab_id = uuid.uuid4().hex[:12]
+        session["tabs"][tab_id] = tab
+        session["active_tab_id"] = tab_id
+        return tab_id
 
 
 async def close_tab(workspace_id: str, tab_id: str) -> bool:

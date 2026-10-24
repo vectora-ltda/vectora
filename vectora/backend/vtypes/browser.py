@@ -42,6 +42,7 @@ class BrowserTab(TypedDict):
     url: str
     active: bool
     title: NotRequired[str]
+    navigation_generation: NotRequired[int]
 
 
 class BrowserConsoleEntry(TypedDict):

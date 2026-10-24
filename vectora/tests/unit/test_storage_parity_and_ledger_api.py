@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import tempfile
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -174,8 +174,9 @@ async def test_thread_events_sse_stream_and_read(
                     if len(frames) >= n:
                         return frames[:n]
             finally:
-                if hasattr(it, "aclose"):
-                    await cast("Any", it).aclose()
+                close = getattr(it, "aclose", None)
+                if callable(close):
+                    await close()
             return frames
 
         chunks = await _read_frames(stream_resp, 2)

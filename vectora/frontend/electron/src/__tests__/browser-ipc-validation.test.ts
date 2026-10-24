@@ -11,6 +11,7 @@ describe("browser IPC validation", () => {
   it("accepts only bounded profile identifiers", () => {
     expect(isValidProfileId("default")).toBe(true);
     expect(isValidProfileId("session-d29ya3Nlcg")).toBe(true);
+    expect(isValidProfileId("workspace-e2e-agent-workspace")).toBe(true);
     expect(isValidProfileId("persist:browser-x")).toBe(false);
     expect(isValidProfileId("session/unsafe")).toBe(false);
   });

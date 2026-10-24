@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.browser.session import (
+    browser_profile_id,
     close_tab,
     get_tab_state,
     has_browser_session,
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 
 
 def _workspace_id(ctx: ToolContext) -> str:
+    """Return the workspace key used to isolate Browser Workbench tabs."""
     return ctx.workspace_id or "default"
 
 
@@ -107,8 +109,21 @@ async def browser_new_tab(ctx: ToolContext, url: str | None = None) -> str:
         JSON `{"status": "ok", "tab_id": "..."}` ou erro.
     """
     workspace_id = _workspace_id(ctx)
+    if url is not None:
+        from backend.tools.browser import _browser_url_allowed
+
+        allowed, reason = await _browser_url_allowed(ctx, url)
+        if not allowed:
+            return json.dumps(
+                {
+                    "status": "blocked",
+                    "error_code": "egress_denied",
+                    "error": reason,
+                }
+            )
     try:
-        tab_id = await new_tab(workspace_id, url=url)
+        profile_id = browser_profile_id(workspace_id, ctx.thread_id)
+        tab_id = await new_tab(workspace_id, url=url, profile_id=profile_id)
         logger.info(
             "browser_new_tab completed",
             extra={
@@ -320,6 +335,7 @@ def _build_ax_outline(nodes: list[dict[str, Any]], max_nodes: int = 500) -> str:
     count = 0
 
     def walk(node_id: str, depth: int) -> None:
+        """Walk one accessibility subtree up to the requested depth."""
         nonlocal count
         if count >= max_nodes:
             return
@@ -372,7 +388,11 @@ async def browser_snapshot(ctx: ToolContext, tab_id: str | None = None) -> str:
     try:
         await tab.cdp.send("Accessibility.enable")
         data = await tab.cdp.send("Accessibility.getFullAXTree")
-        return _build_ax_outline(data.get("nodes", []))
+        generation = getattr(tab, "navigation_generation", 0)
+        return (
+            _build_ax_outline(data.get("nodes", []))
+            + f"\n[document_generation: {generation}]"
+        )
     except Exception as exc:
         logger.exception("browser_snapshot failed")
         return json.dumps({"status": "error", "error": str(exc)})
@@ -601,6 +621,7 @@ async def browser_start_trace(ctx: ToolContext, tab_id: str | None = None) -> st
     _trace_buffers[key] = events
 
     def _on_data(params: dict[str, Any]) -> None:
+        """Collect one tracing chunk emitted by CDP."""
         events.extend(params.get("value", []))
 
     try:
@@ -650,6 +671,7 @@ async def browser_stop_trace(ctx: ToolContext, tab_id: str | None = None) -> str
         done = asyncio.Event()
 
         def _on_complete(_params: dict[str, Any]) -> None:
+            """Wake the trace waiter after CDP finishes writing data."""
             done.set()
 
         tab.cdp.on("Tracing.tracingComplete", _on_complete)
@@ -783,6 +805,7 @@ async def _take_heap_snapshot_via_cdp(cdp: Any) -> dict[str, Any]:
     chunks: list[str] = []
 
     def _on_chunk(params: dict[str, Any]) -> None:
+        """Collect one heap snapshot chunk emitted by CDP."""
         chunks.append(params.get("chunk", ""))
 
     cdp.on("HeapProfiler.addHeapSnapshotChunk", _on_chunk)
@@ -1100,6 +1123,7 @@ async def browser_screencast_start(ctx: ToolContext, tab_id: str | None = None) 
     _screencast_buffers[key] = frames
 
     def _on_frame(params: dict[str, Any]) -> None:
+        """Store one screencast frame for the active browser session."""
         frames.append(params.get("data", ""))
         session_id = params.get("sessionId")
         if session_id is not None:

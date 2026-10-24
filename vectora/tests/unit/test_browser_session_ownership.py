@@ -47,6 +47,26 @@ def test_page_target_id_without_stable_identifier_raises() -> None:
         session._page_target_id(page)
 
 
+def test_browser_profile_id_matches_workbench_partition_derivation() -> None:
+    assert session.browser_profile_id("ws-1", "thread-1") == (
+        "session-919eaa27da596297"
+    )
+
+
+def test_page_is_closed_treats_broken_probe_as_stale() -> None:
+    class _Closed:
+        def is_closed(self) -> bool:
+            return True
+
+    class _Broken:
+        def is_closed(self) -> bool:
+            raise ConnectionError("CDP disconnected")
+
+    assert session._page_is_closed(_Closed()) is True
+    assert session._page_is_closed(_Broken()) is True
+    assert session._page_is_closed(object()) is False
+
+
 @pytest.mark.asyncio
 async def test_create_tab_state_assigns_cdp_target_id() -> None:
     """_create_tab_state deve invocar Target.getTargetInfo e atribuir _target_id à página."""

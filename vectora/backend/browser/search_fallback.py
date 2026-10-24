@@ -17,9 +17,14 @@ uma URL específica reutiliza a sessão autenticada do Browser Workbench.
 from __future__ import annotations
 
 import logging
-from typing import Any
+import threading
+from typing import TYPE_CHECKING, Any
+from urllib.parse import quote_plus
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from playwright.sync_api import Browser, Page
 
 _DUCKDUCKGO_API_URL = "https://api.duckduckgo.com/"
 _HTTP_TIMEOUT_S = 10.0
@@ -27,9 +32,34 @@ _NAV_TIMEOUT_MS = 10_000
 
 _browser: Any = None
 _playwright: Any = None
+_BROWSER_LOCK = threading.RLock()
+
+
+def _validate_navigation_url(
+    url: str, policy: Any = None, *, redirect: bool = False
+) -> None:
+    """Validate a navigation and its redirects against SSRF and workspace egress.
+
+    The route handler protects requests emitted by the page, but a navigation
+    can still finish on a redirected URL before the caller inspects ``page.url``.
+    Keep the same policy check at those boundaries so every browser adapter has
+    an identical fail-closed contract.
+    """
+    from backend.browser.ssrf_guard import is_url_ssrf_safe
+    from backend.services.egress_policy import EgressPolicy, is_url_allowed
+
+    prefix = "redirect recusado: " if redirect else ""
+    if not is_url_ssrf_safe(url):
+        raise ValueError(f"{prefix}URL recusada pelo SSRF guard")
+    if isinstance(policy, dict):
+        policy = EgressPolicy.model_validate(policy)
+    allowed, reason = is_url_allowed(url, policy)
+    if not allowed:
+        raise ValueError(f"{prefix}URL recusada pela política de egress: {reason}")
 
 
 def _get_browser() -> Any:
+    """Connect to the Electron Chromium instance and cache the connection."""
     global _browser, _playwright
     if _browser is None:
         from playwright.sync_api import sync_playwright
@@ -124,30 +154,207 @@ def search_fallback(query: str, max_results: int = 5) -> list[dict[str, str]]:
     return results
 
 
-def fetch_fallback(url: str) -> str:
+def _install_ssrf_route(page: Page, policy: Any = None) -> Any:
+    """Block unsafe browser requests, including redirects and subresources."""
+    from backend.browser.ssrf_guard import is_url_ssrf_safe
+    from backend.services.egress_policy import EgressPolicy, is_url_allowed
+
+    if isinstance(policy, dict):
+        policy = EgressPolicy.model_validate(policy)
+
+    def _handle(route: Any) -> None:
+        """Abort requests that violate the run egress policy."""
+        request_url = str(route.request.url)
+        scheme = request_url.split(":", 1)[0].lower()
+        allowed = True
+        if scheme in {"http", "https"}:
+            allowed = (
+                is_url_allowed(request_url, policy)[0]
+                if isinstance(policy, EgressPolicy)
+                else is_url_ssrf_safe(request_url)
+            )
+        if not allowed:
+            route.abort("blockedbyclient")
+            return
+        route.continue_()
+
+    page.route("**/*", _handle)
+    return _handle
+
+
+def _remove_ssrf_route(page: Page, handler: Any) -> None:
+    """Remove a temporary SSRF route without masking the navigation result."""
+    try:
+        page.unroute("**/*", handler)
+    except Exception:
+        logger.debug("browser SSRF route cleanup failed", exc_info=True)
+
+
+def browser_search(
+    query: str,
+    max_results: int = 5,
+    *,
+    workspace_id: str | None = None,
+    egress_policy: Any = None,
+) -> list[dict[str, str]]:
+    """Search through the Electron Chromium session.
+
+    This deliberately reuses an existing Browser Workbench page. Electron's
+    embedded CDP proxy does not implement ``Target.createTarget``; opening a
+    hidden Playwright page here would either fail or create a second browser
+    runtime. The visible page is therefore the authoritative navigation
+    surface and failures are returned to the provider for a clear diagnostic.
+    """
+    if not query.strip():
+        return []
+    with _BROWSER_LOCK:
+        browser = _get_browser()
+        page = _find_workbench_page(browser, workspace_id=workspace_id)
+        route = _install_ssrf_route(page, egress_policy)
+        page.set_default_timeout(_NAV_TIMEOUT_MS)
+        try:
+            page.goto(
+                "https://www.bing.com/search?q=" + quote_plus(query),
+                wait_until="domcontentloaded",
+            )
+            final_url = str(page.url)
+            _validate_navigation_url(final_url, egress_policy, redirect=True)
+            rows = page.locator("li.b_algo")
+            results: list[dict[str, str]] = []
+            for index in range(min(rows.count(), max_results)):
+                row = rows.nth(index)
+                anchor = row.locator("h2 a").first
+                if anchor.count() == 0:
+                    continue
+                title = anchor.inner_text().strip()
+                url = anchor.get_attribute("href") or ""
+                content = ""
+                snippet = row.locator(".b_caption p").first
+                if snippet.count():
+                    content = snippet.inner_text().strip()
+                if url:
+                    results.append(
+                        {
+                            "title": title,
+                            "content": content,
+                            "url": url,
+                            "provider": "browser",
+                        }
+                    )
+        finally:
+            _remove_ssrf_route(page, route)
+    logger.info(
+        "browser_search_completed",
+        extra={"query": query, "num_results": len(results)},
+    )
+    return results
+
+
+def _find_workbench_page(browser: Browser, *, workspace_id: str | None = None) -> Page:
+    """Return a user-visible page and reject the Vectora shell target."""
+    from backend.browser.session import _page_owners, _page_target_id
+
+    contexts = list(browser.contexts)
+    if not contexts:
+        raise RuntimeError("Chromium do Electron não expôs contexto CDP")
+    pages = list(contexts[0].pages)
+    candidates = [
+        page
+        for page in pages
+        if isinstance(getattr(page, "url", None), str)
+        and not str(page.url).startswith(
+            ("file://", "devtools://", "vectora-app://", "vscode://")
+        )
+        and "127.0.0.1:8080" not in str(page.url)
+        and "localhost:8080" not in str(page.url)
+    ]
+    owned: list[Page] = []
+    for page in candidates:
+        try:
+            owner = _page_owners.get(_page_target_id(page))
+        except Exception:
+            owner = None
+        # Um fallback sem workspace só pode usar uma página sem dono. Um
+        # fallback escopado só pode usar a página do próprio workspace.
+        if owner == workspace_id:
+            owned.append(page)
+    candidates = owned
+    if not candidates:
+        raise RuntimeError(
+            "Nenhuma aba do Browser Workbench está aberta; abra uma aba no Electron "
+            "antes de usar o provider browser"
+        )
+    return candidates[0]
+
+
+def fetch_fallback(
+    url: str, *, workspace_id: str | None = None, egress_policy: Any = None
+) -> str:
     """Navega até `url` num Chromium real e retorna o texto visível da
     página. Levanta em caso de falha — mesmo contrato de `search_fallback`.
     """
-    from backend.browser.ssrf_guard import is_url_ssrf_safe
+    _validate_navigation_url(url, egress_policy)
 
-    if not is_url_ssrf_safe(url):
-        raise ValueError(
-            f"URL recusada: {url!r} resolve para um IP privado/loopback/"
-            "link-local/metadata — bloqueado por segurança (SSRF)."
-        )
+    with _BROWSER_LOCK:
+        browser = _get_browser()
+        if not browser.contexts:
+            raise RuntimeError("Chromium do Electron não expôs contexto CDP")
+        page = _find_workbench_page(browser, workspace_id=workspace_id)
+        route = _install_ssrf_route(page, egress_policy)
+        try:
+            page.set_default_timeout(_NAV_TIMEOUT_MS)
+            page.goto(url)
+            final_url = str(page.url)
+            _validate_navigation_url(final_url, egress_policy, redirect=True)
+            text = page.inner_text("body")
+            logger.info(
+                "fetch_fallback_completed",
+                extra={"url": final_url, "content_length": len(text)},
+            )
+            return text
+        finally:
+            _remove_ssrf_route(page, route)
 
-    browser = _get_browser()
-    if not browser.contexts:
-        raise RuntimeError("Chromium do Electron não expôs contexto CDP")
-    page = browser.contexts[0].new_page()
-    try:
-        page.set_default_timeout(_NAV_TIMEOUT_MS)
-        page.goto(url)
-        text = page.inner_text("body")
-        logger.info(
-            "fetch_fallback_completed",
-            extra={"url": url, "content_length": len(text)},
-        )
-        return text
-    finally:
-        page.close()
+
+def browser_map(
+    url: str,
+    limit: int = 50,
+    *,
+    workspace_id: str | None = None,
+    egress_policy: Any = None,
+) -> list[str]:
+    """Return normalized links from a page using the shared BrowserView."""
+    from urllib.parse import urljoin, urlparse
+
+    _validate_navigation_url(url, egress_policy)
+    with _BROWSER_LOCK:
+        browser = _get_browser()
+        page = _find_workbench_page(browser, workspace_id=workspace_id)
+        route = _install_ssrf_route(page, egress_policy)
+        try:
+            page.set_default_timeout(_NAV_TIMEOUT_MS)
+            page.goto(url, wait_until="domcontentloaded")
+            final_url = str(page.url)
+            _validate_navigation_url(final_url, egress_policy, redirect=True)
+            origin = urlparse(final_url)
+            links: list[str] = []
+            for href in page.locator("a").evaluate_all(
+                "els => els.map(el => el.href).filter(Boolean)"
+            ):
+                normalized = urljoin(final_url, str(href).split("#", 1)[0])
+                parsed = urlparse(normalized)
+                if parsed.scheme not in {"http", "https"}:
+                    continue
+                if parsed.netloc != origin.netloc:
+                    continue
+                try:
+                    _validate_navigation_url(normalized, egress_policy)
+                except ValueError:
+                    continue
+                if normalized not in links:
+                    links.append(normalized)
+                if len(links) >= limit:
+                    break
+            return links
+        finally:
+            _remove_ssrf_route(page, route)

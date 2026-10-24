@@ -128,18 +128,41 @@ app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
 app.commandLine.appendSwitch("remote-debugging-port", electronCdpPort);
 
 let electronCdpProxy: import("node:http").Server | null = null;
-void app.whenReady().then(async () => {
-  try {
-    await waitForElectronCdpTarget(Number(electronCdpPort));
-    electronCdpProxy = await startElectronCdpProxy(
-      Number(electronCdpPort),
-      Number(electronCdpProxyPort),
-      electronCdpAuthToken,
-    );
-  } catch (error) {
-    console.error("Falha ao validar o alvo CDP do Electron", error);
-  }
-});
+
+async function startElectronBrowserBridge(): Promise<void> {
+  if (electronCdpProxy) return;
+  await waitForElectronCdpTarget(Number(electronCdpPort));
+  electronCdpProxy = await startElectronCdpProxy(
+    Number(electronCdpPort),
+    Number(electronCdpProxyPort),
+    electronCdpAuthToken,
+    {
+      createBrowserView: (options) => {
+        const profileId = options.profileId;
+        if (typeof profileId !== "string" || !isValidProfileId(profileId)) {
+          throw new Error("profileId inválido");
+        }
+        const allowPopups = options.allowPopups;
+        const zoomPercent = options.zoomPercent;
+        if (allowPopups !== undefined && typeof allowPopups !== "boolean") {
+          throw new Error("allowPopups inválido");
+        }
+        if (
+          zoomPercent !== undefined &&
+          (typeof zoomPercent !== "number" || !Number.isFinite(zoomPercent))
+        ) {
+          throw new Error("zoomPercent inválido");
+        }
+        if (!mainWindow)
+          throw new Error("janela principal ainda não está pronta");
+        return getBrowserViewManager().createView(profileId, "tab", null, {
+          allowPopups,
+          zoomPercent,
+        });
+      },
+    },
+  );
+}
 
 const ELECTRON_RESTART_EXIT_CODE = 42;
 
@@ -1425,6 +1448,7 @@ app.whenReady().then(async () => {
     // In `vectora web`, keep a hidden renderer alive so BrowserViews/CDP use
     // the bundled Chromium, but leave the visible UI to the user's browser.
     createWindow({ visible: !webMode });
+    await startElectronBrowserBridge();
     if (!webMode) createTray();
     setupAutoUpdater();
     if (await isAutoUpdateEnabled()) {

@@ -11,6 +11,7 @@ import pytest
 
 from backend.tools.search_registry import (
     SearchBackendUnavailableError,
+    _electron_is_ready,
     available_backends,
     resolve_backend,
 )
@@ -36,6 +37,9 @@ def _sem_credenciais(monkeypatch):
     monkeypatch.setattr(_s, "tavily_api_key", "", raising=False)
     monkeypatch.setattr(_s, "ollama_api_key", "", raising=False)
     _escolhe(monkeypatch, "")
+    monkeypatch.setattr(
+        "backend.tools.search_registry._electron_is_ready", lambda: False
+    )
 
 
 def _liga_tavily(monkeypatch):
@@ -72,7 +76,16 @@ class TestDisponibilidade:
 
 
 class TestResolucaoAutomatica:
-    def test_com_tavily_configurado_ele_e_o_preferido(self, monkeypatch):
+    def test_com_electron_pronto_browser_e_preferido_mesmo_com_tavily(
+        self, monkeypatch
+    ):
+        _liga_tavily(monkeypatch)
+        monkeypatch.setattr(
+            "backend.tools.search_registry._electron_is_ready", lambda: True
+        )
+        assert resolve_backend().name == "browser"
+
+    def test_com_tavily_sem_electron_ele_e_o_preferido(self, monkeypatch):
         _liga_tavily(monkeypatch)
         assert resolve_backend().name == "tavily"
 
@@ -86,6 +99,44 @@ class TestResolucaoAutomatica:
         busca com credencial ganha da sem credencial."""
         _liga_ollama_cloud(monkeypatch)
         assert resolve_backend().name == "ollama-web"
+
+    def test_browser_electron_pronto_entra_antes_do_duckduckgo(self, monkeypatch):
+        monkeypatch.setattr(
+            "backend.tools.search_registry._electron_is_ready", lambda: True
+        )
+        assert resolve_backend().name == "browser"
+
+    def test_electron_readiness_requires_a_real_page_target(self, monkeypatch):
+        class _Response:
+            def __init__(self, payload, status_code=200):
+                self._payload = payload
+                self.status_code = status_code
+
+            @property
+            def is_success(self):
+                return 200 <= self.status_code < 300
+
+            def json(self):
+                return self._payload
+
+        monkeypatch.setattr(
+            "httpx.get",
+            lambda *args, **kwargs: _Response(
+                [{"type": "page", "url": "vectora-app://shell"}]
+            ),
+        )
+        monkeypatch.setattr(
+            "backend.browser.cdp.electron_cdp_endpoint", lambda: "http://127.0.0.1:1"
+        )
+        assert not _electron_is_ready()
+
+        monkeypatch.setattr(
+            "httpx.get",
+            lambda *args, **kwargs: _Response(
+                [{"type": "page", "url": "https://example.com"}]
+            ),
+        )
+        assert _electron_is_ready()
 
 
 class TestEscolhaExplicita:
@@ -147,3 +198,22 @@ class TestExecucao:
         backend = resolve_backend()
         with pytest.raises(RuntimeError, match="rede fora"):
             await backend.search("q")
+
+    @pytest.mark.asyncio
+    async def test_browser_refuses_unregistered_workspace_before_sync_adapter(
+        self, monkeypatch
+    ):
+        monkeypatch.setattr(
+            "backend.tools.search_registry._electron_is_ready", lambda: True
+        )
+        _escolhe(monkeypatch, "browser")
+        monkeypatch.setattr(
+            "backend.browser.session.has_browser_session", lambda _: False
+        )
+        monkeypatch.setattr(
+            "backend.browser.search_fallback.browser_search",
+            lambda *args, **kwargs: pytest.fail("unowned target must not be used"),
+        )
+
+        with pytest.raises(RuntimeError, match="registrada"):
+            await resolve_backend().search("q", workspace_id="workspace-a")

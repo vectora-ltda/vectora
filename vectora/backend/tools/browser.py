@@ -41,6 +41,25 @@ _NO_PAGE_ERROR = (
 _ALLOWED_SCHEMES = ("http", "https")
 
 
+async def _browser_url_allowed(ctx: ToolContext, url: str) -> tuple[bool, str]:
+    """Apply the run egress policy, with SSRF-only compatibility fallback."""
+    from backend.browser.ssrf_guard import is_url_ssrf_safe
+
+    extra = getattr(ctx, "_extra", {}) or {}
+    policy = extra.get("egress_policy") if isinstance(extra, dict) else None
+    if policy is not None:
+        from backend.services.egress_policy import EgressPolicy, async_is_url_allowed
+
+        if isinstance(policy, dict):
+            policy = EgressPolicy.model_validate(policy)
+        if isinstance(policy, EgressPolicy):
+            allowed, reason, _ = await async_is_url_allowed(url, policy)
+            return allowed, reason
+    if not is_url_ssrf_safe(url):
+        return False, "URL recusada pelo SSRF guard"
+    return True, ""
+
+
 async def _resolve_page(ctx: ToolContext) -> tuple[Any, str]:
     """Retorna (page, "") em sucesso, ou (None, error) se não houver página
     resolvível — nem já navegada, nem dev server ativo do workspace.
@@ -96,14 +115,21 @@ async def browser_navigate(url: str, ctx: ToolContext) -> str:
             f"Error: esquema {scheme!r} não permitido — só http:// e "
             "https:// são aceitos pra navegação."
         )
+    allowed, reason = await _browser_url_allowed(ctx, url)
+    if not allowed:
+        return f"Error: navegação bloqueada pela política de egress: {reason}"
     try:
         page = await get_browser_page(ctx.workspace_id or "default")
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        final_url = str(getattr(page, "url", ""))
+        final_allowed, final_reason = await _browser_url_allowed(ctx, final_url)
+        if not final_allowed:
+            return f"Error: redirecionamento bloqueado pela política de egress: {final_reason}"
         logger.info(
             "browser_navigate completed",
             extra={
                 "tool": "browser_navigate",
-                "url": page.url,
+                "url": final_url,
                 "workspace_id": ctx.workspace_id,
                 "status": "ok",
             },
@@ -165,6 +191,7 @@ async def browser_click(
     ctx: ToolContext,
     selector: str | None = None,
     uid: str | None = None,
+    snapshot_generation: int | None = None,
 ) -> str:
     """Clica no elemento da página atual — por seletor CSS ou por `uid` (de
     `browser_snapshot`, mais confiável em markup sem classe/id estável).
@@ -174,6 +201,7 @@ async def browser_click(
             Ignorado se `uid` for informado.
         uid: uid de `browser_snapshot` (`backendDOMNodeId`) — usa CDP em vez
             de seletor, mais resistente a componentes gerados dinamicamente.
+        snapshot_generation: geração exibida pelo último `browser_snapshot`.
 
     Returns:
         Confirmação ou mensagem de erro (elemento não encontrado, nem
@@ -186,6 +214,17 @@ async def browser_click(
         tab = get_tab_state(ctx.workspace_id)
         if tab is None:
             return _NO_PAGE_ERROR
+        if (
+            snapshot_generation is not None
+            and snapshot_generation != tab.navigation_generation
+        ):
+            return json.dumps(
+                {
+                    "status": "error",
+                    "error_code": "stale_reference",
+                    "error": "o snapshot pertence a uma geração de documento antiga",
+                }
+            )
         center = await resolve_uid_center(tab.cdp, int(uid)) if uid.isdigit() else None
         if center is None:
             return (
@@ -257,6 +296,7 @@ async def browser_fill(
     ctx: ToolContext,
     selector: str | None = None,
     uid: str | None = None,
+    snapshot_generation: int | None = None,
 ) -> str:
     """Preenche um campo da página atual (input/textarea) — por seletor CSS
     ou por `uid` (de `browser_snapshot`).
@@ -265,6 +305,7 @@ async def browser_fill(
         value: Texto a preencher.
         selector: Seletor CSS do campo. Ignorado se `uid` for informado.
         uid: uid de `browser_snapshot` (`backendDOMNodeId`).
+        snapshot_generation: geração exibida pelo último `browser_snapshot`.
 
     Returns:
         Confirmação ou mensagem de erro.
@@ -276,6 +317,17 @@ async def browser_fill(
         tab = get_tab_state(ctx.workspace_id)
         if tab is None:
             return _NO_PAGE_ERROR
+        if (
+            snapshot_generation is not None
+            and snapshot_generation != tab.navigation_generation
+        ):
+            return json.dumps(
+                {
+                    "status": "error",
+                    "error_code": "stale_reference",
+                    "error": "o snapshot pertence a uma geração de documento antiga",
+                }
+            )
         ok = (
             await set_value_by_uid(tab.cdp, int(uid), value) if uid.isdigit() else False
         )

@@ -37,7 +37,7 @@ jobs:
           fi
 
   local-llm:
-    name: Ollama Qwen + llama.cpp Jev + Laya SystemOne
+    name: Ollama Qwen + llama.cpp Qwen + Laya SystemOne
     needs: detect
     if: needs.detect.outputs.requested == 'true'
     runs-on: ubuntu-24.04
@@ -99,15 +99,15 @@ jobs:
             --target llama-server --parallel 2
           test -x "$LLAMA_CPP_DIR/build/bin/llama-server"
           echo "LLAMA_SERVER=$LLAMA_CPP_DIR/build/bin/llama-server" >> "$GITHUB_ENV"
-      - name: Download pinned Qwen model for Jev/llama.cpp
+      - name: Download pinned Qwen2.5 model
         env:
-          MODEL_URL: https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q2_k.gguf?download=true
-          MODEL_PATH: ${{ runner.temp }}/qwen2.5-0.5b-instruct-q2_k.gguf
-          MODEL_SHA256: 9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8
+          MODEL_URL: https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF/resolve/41ba88dbac95fed2528c92514c131d73eb5a174b/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf?download=true
+          MODEL_PATH: ${{ runner.temp }}/qwen2.5-0.5b-instruct-q4_k_m.gguf
+          MODEL_SHA256: 6eb923e7d26e9cea28811e1a8e852009b21242fb157b26149d3b188f3a8c8653
         run: |
           curl --fail --location --retry 3 --retry-delay 2 --output "$MODEL_PATH" "$MODEL_URL"
           echo "$MODEL_SHA256  $MODEL_PATH" | sha256sum --check --status
-          test "$(stat --format=%s "$MODEL_PATH")" -eq 415182688
+          test "$(stat --format=%s "$MODEL_PATH")" -eq 397808192
           echo "MODEL_PATH=$MODEL_PATH" >> "$GITHUB_ENV"
       - name: Start llama.cpp and wait for readiness
         run: |
