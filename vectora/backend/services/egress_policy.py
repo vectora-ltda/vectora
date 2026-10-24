@@ -56,7 +56,7 @@ class EgressPolicy(BaseModel):
     allow_localhost_dev_ports: list[int] = Field(default_factory=list)
 
     @classmethod
-    def for_workspace(cls, workspace_id: str | None) -> "EgressPolicy":
+    def for_workspace(cls, workspace_id: str | None) -> EgressPolicy:
         """Carrega a política persistida do workspace, com fallback seguro."""
         raw: object = None
         try:
