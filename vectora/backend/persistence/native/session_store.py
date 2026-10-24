@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypedDict, cast
@@ -67,7 +68,7 @@ class _RunEvidenceLockRegistry:
         self._entries: dict[str, tuple[asyncio.Lock, int]] = {}
 
     @asynccontextmanager
-    async def acquire(self, run_id: str):
+    async def acquire(self, run_id: str) -> AsyncGenerator[None, None]:
         lock, users = self._entries.get(run_id, (asyncio.Lock(), 0))
         self._entries[run_id] = (lock, users + 1)
         try:
@@ -2255,7 +2256,7 @@ class SessionStore:
             )
             status_placeholders = ",".join("?" for _ in status_types)
             cur_status = await conn.execute(
-                "SELECT thread_id, type, payload_json FROM ("  # nosec B608
+                "SELECT thread_id, type, payload_json FROM ("  # nosec B608  # noqa: S608
                 " SELECT thread_id, type, payload_json, "
                 " ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY seq DESC) AS rn "
                 f" FROM thread_events WHERE thread_id IN ({placeholders}) "
@@ -2272,7 +2273,7 @@ class SessionStore:
             )
             notifiable_placeholders = ",".join("?" for _ in notifiable_types)
             cur_unread = await conn.execute(
-                "SELECT e.thread_id, COUNT(*) FROM thread_events e "  # nosec B608
+                "SELECT e.thread_id, COUNT(*) FROM thread_events e "  # nosec B608  # noqa: S608
                 "LEFT JOIN (SELECT thread_id, MAX(last_seen_seq) AS read_seq "
                 "FROM thread_event_cursors WHERE user_id = ? "
                 f"AND thread_id IN ({placeholders}) GROUP BY thread_id) c "
