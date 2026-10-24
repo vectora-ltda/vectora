@@ -277,4 +277,5 @@ async def test_run_verification_target_gate_missing_fails(
     )
     assert res.passed is False
     assert res.status == "failed"
+    assert res.outcome == "failed"
     assert "Quality gates solicitados não existem" in (res.failure_feedback or "")

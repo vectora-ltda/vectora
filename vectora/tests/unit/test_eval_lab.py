@@ -83,6 +83,44 @@ async def test_replay_chat_client():
     assert any(c.delta_text == "Vou listar os arquivos" for c in chunks)
 
 
+@pytest.mark.asyncio
+async def test_replay_chat_client_rejects_different_history() -> None:
+    cassette = Cassette(
+        cassette_id="cas-history",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="int-1",
+                messages=[{"role": "user", "content": "comando autorizado"}],
+                response_text="ok",
+            )
+        ],
+    )
+    client = ReplayChatClient(cassette)
+    with pytest.raises(RuntimeError, match="histórico não corresponde"):
+        await client.agenerate([text_message(MessageRole.USER, "comando diferente")])
+
+
+@pytest.mark.asyncio
+async def test_replay_chat_client_accepts_native_usage_keys() -> None:
+    cassette = Cassette(
+        cassette_id="cas-usage",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="int-1",
+                messages=[],
+                response_text="ok",
+                usage={"input_tokens": 12, "output_tokens": 3, "total_tokens": 15},
+            )
+        ],
+    )
+    client = ReplayChatClient(cassette)
+    chunks = [chunk async for chunk in client.astream([])]
+    usage = next(chunk.usage for chunk in chunks if chunk.usage is not None)
+    assert usage["input_tokens"] == 12
+    assert usage["output_tokens"] == 3
+    assert usage["total_tokens"] == 15
+
+
 def test_compare_cassettes():
     b_cassette = Cassette(
         cassette_id="baseline",
