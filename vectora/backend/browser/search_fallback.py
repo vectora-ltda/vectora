@@ -61,7 +61,9 @@ def _validate_navigation_url(
 def _get_browser() -> Any:
     """Connect to the Electron Chromium instance and cache the connection."""
     global _browser, _playwright
-    if _browser is None:
+    with _BROWSER_LOCK:
+        if _browser is not None:
+            return _browser
         from playwright.sync_api import sync_playwright
 
         from backend.browser.cdp import electron_cdp_endpoint, electron_cdp_headers
@@ -96,16 +98,17 @@ def _get_browser() -> Any:
 def close_search_fallback_browser() -> None:
     """Fecha o Chromium do fallback, se estiver aberto. Idempotente."""
     global _browser, _playwright
-    if _browser is None and _playwright is None:
-        return
-    try:
-        if _playwright is not None:
-            _playwright.stop()
-    except Exception:
-        logger.exception("search_fallback_browser_close_failed")
-    finally:
-        _browser = None
-        _playwright = None
+    with _BROWSER_LOCK:
+        if _browser is None and _playwright is None:
+            return
+        try:
+            if _playwright is not None:
+                _playwright.stop()
+        except Exception:
+            logger.exception("search_fallback_browser_close_failed")
+        finally:
+            _browser = None
+            _playwright = None
 
 
 def search_fallback(query: str, max_results: int = 5) -> list[dict[str, str]]:

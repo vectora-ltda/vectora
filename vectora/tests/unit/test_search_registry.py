@@ -30,7 +30,7 @@ def _escolhe(monkeypatch, valor: str) -> None:
 
 
 @pytest.fixture(autouse=True)
-def _sem_credenciais(monkeypatch):
+def _sem_credenciais(monkeypatch: pytest.MonkeyPatch) -> None:
     """Nenhum backend com credencial, salvo o que cada teste ligar."""
     from backend.settings import settings as _s
 
