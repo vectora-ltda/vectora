@@ -178,7 +178,7 @@ def _container_matches_spec(name: str, spec: ServiceSpec) -> bool:
     try:
         payload = json.loads(proc.stdout.strip())
         config = payload["Config"]
-        host_config = payload["HostConfig"]
+        network_settings = payload["NetworkSettings"]
     except (json.JSONDecodeError, KeyError, TypeError, ValueError):
         return False
 
@@ -189,7 +189,11 @@ def _container_matches_spec(name: str, spec: ServiceSpec) -> bool:
     }
     if any(required not in actual_env for required in spec.env):
         return False
-    actual_bindings = host_config.get("PortBindings") or {}
+    # HostConfig records the requested mapping, while NetworkSettings.Ports
+    # records what Docker actually published for the running container.  The
+    # latter is authoritative: old containers can retain HostConfig bindings
+    # after being started without a host publication.
+    actual_bindings = network_settings.get("Ports") or {}
     for expected in spec.ports:
         host, host_port, container_port = _parse_port_spec(expected)
         bindings = actual_bindings.get(f"{container_port}/tcp") or []
@@ -197,7 +201,7 @@ def _container_matches_spec(name: str, spec: ServiceSpec) -> bool:
             str(binding.get("HostPort", "")) == host_port
             # Docker reports an omitted host address as 0.0.0.0; accept it
             # only for the explicitly requested port mapping.
-            and str(binding.get("HostIp", "")) in {host, "0.0.0.0"}  # nosec B104
+            and str(binding.get("HostIp", "")) in {host, "0.0.0.0"}  # noqa: S104  # nosec B104
             for binding in bindings
             if isinstance(binding, dict)
         ):
