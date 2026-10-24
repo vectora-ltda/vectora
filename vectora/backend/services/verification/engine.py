@@ -194,6 +194,7 @@ async def run_verification(
     *,
     files_touched: list[str] | None = None,
     profile: WorkspaceVerificationProfile | None = None,
+    target_gate_ids: list[str] | set[str] | None = None,
 ) -> VerificationResult:
     """Executa o ciclo completo de verificação pós-execução.
 
@@ -203,21 +204,42 @@ async def run_verification(
     root_dir = Path(cwd) if cwd else Path.cwd()
     prof = profile or get_verification_profile(workspace_id)
 
-    # 1. Checagem de require_clean_git quando habilitado
+    # 1. Checagem de require_clean_git quando habilitado na verificação final
     git_unclean_reason: str | None = None
-    if prof.enabled and prof.require_clean_git:
+    if prof.enabled and prof.require_clean_git and target_gate_ids is None:
         is_clean, unclean_details = await _is_git_working_tree_clean(root_dir)
         if not is_clean:
             git_unclean_reason = f"Git working tree não está limpo:\n{unclean_details}"
 
-    # 2. Filtragem dos gates relevantes aos arquivos alterados
+    # 2. Filtragem dos gates relevantes aos arquivos alterados ou especificados
+    target_set = set(target_gate_ids) if target_gate_ids is not None else None
+    if prof.enabled and target_set is not None:
+        existing_gate_ids = {g.id for g in prof.gates} if prof.gates else set()
+        missing_gate_ids = target_set - existing_gate_ids
+        if missing_gate_ids:
+            snapshot_sha256, file_hashes = await asyncio.to_thread(
+                compute_files_snapshot, root_dir, files=files_touched
+            )
+            return VerificationResult(
+                passed=False,
+                status="failed",
+                outcome="failed",
+                snapshot_sha256=snapshot_sha256,
+                file_hashes=file_hashes,
+                gate_results=[],
+                failure_feedback=f"Quality gates solicitados não existem no perfil: {sorted(missing_gate_ids)}",
+            )
+
     applicable_gates: list[QualityGateSpec] = (
         [
             g
             for g in prof.gates
-            if not g.file_patterns
-            or not files_touched
-            or any(_matches_any_pattern(f, g.file_patterns) for f in files_touched)
+            if (target_set is None or g.id in target_set)
+            and (
+                not g.file_patterns
+                or not files_touched
+                or any(_matches_any_pattern(f, g.file_patterns) for f in files_touched)
+            )
         ]
         if prof.enabled and prof.gates
         else []

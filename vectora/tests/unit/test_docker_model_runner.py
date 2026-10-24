@@ -523,7 +523,7 @@ async def test_dmr_live_pull_run_and_infer_when_explicitly_enabled() -> None:
         pytest.skip(
             "ative VECTORA_TEST_DMR_LIVE=1 para testar Docker Model Runner real"
         )
-    reference = os.getenv("VECTORA_TEST_DMR_MODEL", "ai/smollm2")
+    reference = os.getenv("VECTORA_TEST_DMR_MODEL", "hf.co/Qwen/Qwen3-0.6B")
     base_url = os.getenv("DMR_BASE_URL")
     available, detail = await dmr.docker_model_available()
     assert available, detail

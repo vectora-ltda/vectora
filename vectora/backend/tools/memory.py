@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
+from backend.storage.protocols import StoreBackend
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 #: Literal nunca chega ao corpo da função (rejeitado na camada de parsing
 #: da tool, ver `tests/unit/test_memory.py`).
 FactCategory = Literal["gotcha", "decision", "preference", "rule"]
+_MAX_MEMORY_SEARCH = 100_000
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +62,20 @@ def _memory_namespace(ctx: ToolContext) -> tuple[str, ...]:
     return ("user", user_id, "memories")
 
 
+def _is_memory_expired(value: dict[str, Any]) -> bool:
+    """Aplica expiração persistida sem confiar no contador informativo legado."""
+    valid_until = value.get("valid_until")
+    if not isinstance(valid_until, str) or not valid_until:
+        return False
+    try:
+        expires_at = datetime.fromisoformat(valid_until)
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        return expires_at <= datetime.now(UTC)
+    except (TypeError, ValueError):
+        return False
+
+
 async def list_fact_contents(user_id: str) -> list[str]:
     """Conteúdo de todos os fatos salvos de um usuário — usado por
     `backend/services/remember_trigger.py` pra deduplicar propostas do
@@ -77,7 +93,48 @@ async def list_fact_contents(user_id: str) -> list[str]:
     store = await get_agent_store()
     ns = _memory_namespace(ToolContext(user_id=user_id))
     items = await store.asearch(ns)
-    return [item.value.get("content", "") for item in items]
+    return [
+        item.value.get("content", "")
+        for item in items
+        if not _is_memory_expired(item.value)
+    ]
+
+
+async def _search_unexpired(
+    store: StoreBackend,
+    namespace: tuple[str, ...],
+    *,
+    query: str,
+    limit: int,
+) -> list[Any]:
+    """Busca candidatos até reunir ``limit`` itens válidos.
+
+    Backends nativos filtram expiração antes da paginação. Implementações
+    externas podem paginar primeiro; nesse caso aumentamos a janela até ela
+    não estar mais cheia ou até o limite de segurança, evitando que registros
+    expirados escondam memórias válidas.
+    """
+    requested = int(limit)
+    if requested <= 0:
+        return []
+    wanted = min(requested, _MAX_MEMORY_SEARCH)
+    scan_limit = wanted
+    valid: list[Any] = []
+    while scan_limit <= _MAX_MEMORY_SEARCH:
+        if query:
+            candidates = await store.asearch(namespace, query=query, limit=scan_limit)
+        else:
+            candidates = await store.asearch(namespace, limit=scan_limit)
+        valid = [item for item in candidates if not _is_memory_expired(item.value)]
+        if len(valid) >= wanted or len(candidates) < scan_limit:
+            return valid[:wanted]
+        if scan_limit >= _MAX_MEMORY_SEARCH:
+            return valid[:wanted]
+        next_limit = min(_MAX_MEMORY_SEARCH, scan_limit * 2)
+        if next_limit == scan_limit:
+            return valid[:wanted]
+        scan_limit = next_limit
+    return valid[:wanted]
 
 
 def _get_store(ctx: ToolContext) -> Any:
@@ -129,7 +186,7 @@ async def save_memory(
         key: Chave única da memória (ex: 'user_preferences', 'project_context')
         content: Conteúdo da memória (string com informações a recordar)
         metadata: Metadados adicionais
-        ttl_days: Dias até expiração (informativo — store básico não garante TTL)
+        ttl_days: Dias até expiração; memórias expiradas são removidas ao ler
         category: Categoria do fato (gotcha/decision/preference/rule) — opcional,
             None quando não classificado
 
@@ -141,6 +198,11 @@ async def save_memory(
         ns = _memory_namespace(ctx)
         now = datetime.now(UTC).isoformat()
 
+        if ttl_days is not None and ttl_days <= 0:
+            return json.dumps(
+                {"status": "failed", "error": "ttl_days deve ser positivo", "key": key}
+            )
+
         value: dict[str, Any] = {
             "key": key,
             "content": content,
@@ -150,6 +212,9 @@ async def save_memory(
         }
         if ttl_days is not None:
             value["ttl_days"] = ttl_days
+            value["valid_until"] = (
+                datetime.now(UTC) + timedelta(days=ttl_days)
+            ).isoformat()
 
         await store.aput(ns, key, value)
 
@@ -204,6 +269,9 @@ async def get_memory(ctx: ToolContext, key: str | None = None) -> str:
                 return json.dumps({"status": "not_found", "key": key})
 
             val = item.value
+            if _is_memory_expired(val):
+                await store.adelete(ns, key)
+                return json.dumps({"status": "not_found", "key": key})
             logger.debug("memory_retrieved key=%s", key)
             return json.dumps(
                 {
@@ -218,6 +286,7 @@ async def get_memory(ctx: ToolContext, key: str | None = None) -> str:
 
         # Sem key: lista todas as memórias do namespace
         items = await store.asearch(ns)
+        items = [item for item in items if not _is_memory_expired(item.value)]
         memories = [
             {
                 "key": item.key,
@@ -268,7 +337,7 @@ async def search_memory(ctx: ToolContext, query: str, limit: int = 5) -> str:
         store = _get_store(ctx)
         ns = _memory_namespace(ctx)
 
-        items = await store.asearch(ns, query=query, limit=limit)
+        items = await _search_unexpired(store, ns, query=query, limit=limit)
         has_scores = any(getattr(item, "score", None) is not None for item in items)
 
         memories = [

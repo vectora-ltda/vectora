@@ -25,6 +25,7 @@ import asyncio
 import logging
 import os
 import sys
+import threading
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Literal
@@ -386,6 +387,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
     # sidebar por muito mais de 1h, seja qual for a causa da divergência.
     thread_cleanup_task: asyncio.Task[None] | None = None
     reconcile_runs_task: asyncio.Task[None] | None = None
+    storage_maintenance_task: asyncio.Task[None] | None = None
     try:
         from backend.api.handlers.threads import (
             cleanup_empty_threads,
@@ -461,6 +463,45 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
     except Exception as exc:
         logger.warning("api/server: falha ao iniciar cleanup de threads: %s", exc)
 
+    # Maintenance is deliberately outside the request path.  It uses the
+    # shared storage gate coordinates maintenance with backup/restore and
+    # state-file operations; artifact collection remains dry-run until an
+    # explicit retention policy opts into deletion.
+    try:
+        from backend.services.storage_maintenance import run_storage_maintenance
+
+        storage_maintenance_stop = threading.Event()
+
+        async def _storage_maintenance_loop() -> None:
+            from backend.settings import get_settings as _get_settings
+
+            settings = _get_settings()
+            while True:
+                try:
+                    result = await run_storage_maintenance(
+                        settings.vectora_home / "sessions.db",
+                        artifact_root=settings.vectora_home / "artifacts",
+                        stop_event=storage_maintenance_stop,
+                    )
+                    logger.info(
+                        "api/server: storage maintenance concluída wal=%s "
+                        "artifacts=%s bytes=%s",
+                        result.wal_checkpoint,
+                        result.artifact_gc.scanned,
+                        result.artifact_gc.bytes_freed,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        "api/server: falha na manutenção de storage: %s", exc
+                    )
+                await asyncio.sleep(6 * 3600)
+
+        storage_maintenance_task = asyncio.create_task(_storage_maintenance_loop())
+    except Exception as exc:
+        logger.warning("api/server: falha ao iniciar manutenção de storage: %s", exc)
+
     # Gateway client (ex-relay) — WebSocket persistente para receber webhooks
     # e callbacks OAuth. Só inicia quando GATEWAY_ENABLED=true (padrão);
     # VECTORA_APP_SECRET é um secret fixo por produto (settings.py), igual
@@ -502,7 +543,15 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             thread_cleanup_task.cancel()
         if reconcile_runs_task is not None:
             reconcile_runs_task.cancel()
-        for task in (thread_cleanup_task, reconcile_runs_task, consolidation_task):
+        if storage_maintenance_task is not None:
+            storage_maintenance_stop.set()
+            storage_maintenance_task.cancel()
+        for task in (
+            thread_cleanup_task,
+            reconcile_runs_task,
+            consolidation_task,
+            storage_maintenance_task,
+        ):
             if task is not None:
                 with suppress(asyncio.CancelledError):
                     await task

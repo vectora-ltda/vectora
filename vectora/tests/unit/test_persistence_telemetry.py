@@ -55,6 +55,54 @@ def captured() -> Generator[_ListHandler]:
 
 
 class TestRecordToolCall:
+    async def test_retrieval_registra_hash_sem_persistir_consulta(
+        self, captured: _ListHandler
+    ) -> None:
+        telemetry = VectoraTelemetry()
+
+        await telemetry.record_retrieval(
+            query="segredo de usuário",
+            collections=["articles"],
+            result_count=2,
+            retrieval_method="hybrid_rrf",
+            reranker="CohereRerank",
+            reranker_status="applied",
+        )
+
+        record = captured.records[0]
+        assert _field(record, "telemetry_event") == "retrieval"
+        assert _field(record, "query_hash")
+        assert _field(record, "query_hash") != "segredo de usuário"
+        assert _field(record, "collection_count") == 1
+        assert _field(record, "result_count") == 2
+        assert _field(record, "retrieval_method") == "hybrid_rrf"
+        assert _field(record, "reranker") == "CohereRerank"
+        assert not hasattr(record, "query")
+        assert _field(record, "reranker_status") == "applied"
+
+    async def test_storage_operation_registra_custo_sem_namespace_plano(
+        self, captured: _ListHandler
+    ) -> None:
+        telemetry = VectoraTelemetry()
+
+        await telemetry.record_storage_operation(
+            backend="sqlite",
+            operation="put",
+            namespace=("workspace-secreto", "memory"),
+            duration_ms=12.345,
+            bytes_written=128,
+            result_count=1,
+        )
+
+        record = captured.records[0]
+        assert _field(record, "telemetry_event") == "storage_operation"
+        assert _field(record, "storage_backend") == "sqlite"
+        assert _field(record, "operation") == "put"
+        assert _field(record, "bytes_written") == 128
+        assert _field(record, "result_count") == 1
+        assert _field(record, "namespace_hash")
+        assert "workspace-secreto" not in record.getMessage()
+
     def test_record_media_quota_descarta_payload_sensivel(
         self, captured: _ListHandler
     ) -> None:

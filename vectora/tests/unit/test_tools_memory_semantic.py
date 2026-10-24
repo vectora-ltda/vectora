@@ -18,15 +18,23 @@ class _FakeStoreItem:
     com índice vetorial retorna score; sem índice, score é None).
     """
 
-    def __init__(self, key: str, content: str, score: float | None = None) -> None:
+    def __init__(
+        self,
+        key: str,
+        content: str,
+        score: float | None = None,
+        valid_until: str | None = None,
+    ) -> None:
         self.key = key
         self.value = {"content": content, "updated_at": "2025"}
+        if valid_until is not None:
+            self.value["valid_until"] = valid_until
         self.score = score
 
 
 class TestSearchMemoryTool:
     @pytest.mark.asyncio
-    async def test_search_with_scores_is_semantic(self):
+    async def test_search_with_scores_is_semantic(self) -> None:
         """Itens com score (store indexado) → semantic=True e score exposto."""
         from backend.tools.memory import search_memory
 
@@ -47,7 +55,7 @@ class TestSearchMemoryTool:
         assert data["memories"][0]["score"] == 0.9
 
     @pytest.mark.asyncio
-    async def test_search_without_scores_is_not_semantic(self):
+    async def test_search_without_scores_is_not_semantic(self) -> None:
         """Itens sem score (store sem índice) → semantic=False, sem ranqueamento."""
         from backend.tools.memory import search_memory
 
@@ -66,7 +74,7 @@ class TestSearchMemoryTool:
         assert data["count"] == 2
 
     @pytest.mark.asyncio
-    async def test_search_empty_results(self):
+    async def test_search_empty_results(self) -> None:
         """Store vazio → success com count 0."""
         from backend.tools.memory import search_memory
 
@@ -82,7 +90,64 @@ class TestSearchMemoryTool:
         assert data["count"] == 0
 
     @pytest.mark.asyncio
-    async def test_error_returns_failed(self):
+    async def test_search_ignora_expiradas_sem_consumir_limit(self) -> None:
+        from backend.tools.memory import search_memory
+
+        ctx = ToolContext(thread_id="t5")
+        store = AsyncMock()
+        store.asearch = AsyncMock(
+            return_value=[
+                _FakeStoreItem(
+                    "old", "expirada", score=1.0, valid_until="2000-01-01T00:00:00"
+                ),
+                _FakeStoreItem("live", "válida", score=0.5),
+            ]
+        )
+
+        with patch("backend.tools.memory._get_store", return_value=store):
+            data = json.loads(await search_memory(ctx=ctx, query="x", limit=1))
+
+        assert data["count"] == 1
+        assert data["memories"][0]["key"] == "live"
+        store.asearch.assert_awaited_once_with(
+            ("user", "session_t5", "memories"), query="x", limit=1000
+        )
+
+    @pytest.mark.asyncio
+    async def test_search_expande_janela_quando_primeira_pagina_expira(self) -> None:
+        from backend.tools.memory import search_memory
+
+        ctx = ToolContext(thread_id="t6")
+        expired = [
+            _FakeStoreItem(
+                f"old-{index}",
+                "expirada",
+                score=1.0,
+                valid_until="2000-01-01T00:00:00",
+            )
+            for index in range(1000)
+        ]
+        live = _FakeStoreItem("live", "válida", score=0.5)
+        store = AsyncMock()
+
+        async def paged_search(_namespace, *, query, limit):
+            assert query == "x"
+            return [*expired, live][:limit]
+
+        store.asearch.side_effect = paged_search
+
+        with patch("backend.tools.memory._get_store", return_value=store):
+            data = json.loads(await search_memory(ctx=ctx, query="x", limit=1))
+
+        assert data["count"] == 1
+        assert data["memories"][0]["key"] == "live"
+        assert [call.kwargs["limit"] for call in store.asearch.await_args_list] == [
+            1000,
+            2000,
+        ]
+
+    @pytest.mark.asyncio
+    async def test_error_returns_failed(self) -> None:
         """Exceção ao obter o store retorna status failed com a mensagem."""
         from backend.tools.memory import search_memory
 
@@ -97,3 +162,32 @@ class TestSearchMemoryTool:
         data = json.loads(raw)
         assert data["status"] == "failed"
         assert "db error" in data["error"]
+
+    @pytest.mark.asyncio
+    async def test_search_limit_zero_nao_retorna_memorias(self) -> None:
+        from backend.tools.memory import search_memory
+
+        ctx = ToolContext(thread_id="t7")
+        store = AsyncMock()
+        with patch("backend.tools.memory._get_store", return_value=store):
+            data = json.loads(await search_memory(ctx=ctx, query="x", limit=0))
+
+        assert data["status"] == "success"
+        assert data["count"] == 0
+        store.asearch.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_search_limit_muito_alto_tem_teto_deterministico(self) -> None:
+        from backend.tools.memory import search_memory
+
+        ctx = ToolContext(thread_id="t8")
+        store = AsyncMock()
+        store.asearch = AsyncMock(return_value=[])
+        with patch("backend.tools.memory._get_store", return_value=store):
+            data = json.loads(await search_memory(ctx=ctx, query="x", limit=200_000))
+
+        assert data["status"] == "success"
+        assert data["count"] == 0
+        store.asearch.assert_awaited_once_with(
+            ("user", "session_t8", "memories"), query="x", limit=100_000
+        )

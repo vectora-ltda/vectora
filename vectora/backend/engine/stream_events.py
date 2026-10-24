@@ -151,6 +151,8 @@ class TurnFilesChanged:
 class TodoItem:
     content: str
     status: Literal["pending", "in_progress", "completed"]
+    step_id: str | None = None
+    quality_gate: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

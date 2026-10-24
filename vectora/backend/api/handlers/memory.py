@@ -25,6 +25,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from backend.persistence.native.store import is_store_value_expired
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/memory", tags=["memory"])
@@ -186,6 +188,7 @@ async def list_memories(
                 updated_at=item.value.get("updated_at", ""),
             )
             for item in items
+            if not is_store_value_expired(item.value)
         ]
         all_mems.sort(key=lambda m: m.updated_at, reverse=True)
 
@@ -217,6 +220,8 @@ async def get_journey(request: Request) -> JourneyResponse:
         ns = _namespace(request)
         store = await _store()
         for item in await store.asearch(ns, limit=_LIST_ALL_LIMIT):
+            if is_store_value_expired(item.value):
+                continue
             metadata = item.value.get("metadata") or {}
             if metadata.get("tag") != "user_model":
                 continue
@@ -260,6 +265,10 @@ async def get_memory_by_key(request: Request, key: str) -> MemoryItem:
         store = await _store()
         item = await store.aget(ns, key)
         if item is None:
+            raise HTTPException(
+                status_code=404, detail=f"Memória '{key}' não encontrada"
+            )
+        if is_store_value_expired(item.value):
             raise HTTPException(
                 status_code=404, detail=f"Memória '{key}' não encontrada"
             )

@@ -547,6 +547,8 @@ class TodoItem(BaseModel):
 
     content: str
     status: Literal["pending", "in_progress", "completed"]
+    step_id: str | None = None
+    quality_gate: str | None = None
 
 
 class TodosUpdatedEvent(BaseModel):
@@ -793,7 +795,7 @@ class UsernameAvailableResponse(BaseModel):
     # Forma canônica do que foi consultado (minúsculas, sem acento).
     normalized: str
     available: bool
-    # Sugestão livre quando o consultado está em uso (ex.: "bruno#4821");
+    # Sugestão livre quando o consultado está em uso (ex.: "bruno_4821");
     # igual a `normalized` quando já está livre.
     suggestion: str
 
@@ -937,7 +939,7 @@ class EnvOverrideRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Contratos de AgentRun (Issue #368)
+# Contratos de AgentRun
 # ---------------------------------------------------------------------------
 from backend.persistence.native.agent_run import (
     AgentRun,

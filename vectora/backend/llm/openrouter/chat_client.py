@@ -189,7 +189,7 @@ class OpenRouterChatClient:
             # Tiny local models often enter a deterministic repetition loop
             # at temperature 0 when the prompt contains identity/tool rules.
             # A small floor keeps coding deterministic enough while avoiding
-            # the known ``meu meu meu`` degeneration in DMR SmolLM2.
+            # known repetition loops in tiny local models.
             corpo["temperature"] = (
                 max(0.2, temperature) if self.compact_system_prompt else temperature
             )

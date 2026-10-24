@@ -28,28 +28,28 @@ from backend.tools.context import ToolContext
 class TestUserIdFromCtx:
     """_user_id_from_ctx deve priorizar user_id autenticado."""
 
-    def test_returns_user_namespace_when_user_id_present(self):
+    def test_returns_user_namespace_when_user_id_present(self) -> None:
         from backend.tools.memory import _user_id_from_ctx
 
         ctx = ToolContext(user_id="abc123", thread_id="t1")
         result = _user_id_from_ctx(ctx)
         assert result == "abc123"
 
-    def test_returns_workspace_namespace_when_no_user_id(self):
+    def test_returns_workspace_namespace_when_no_user_id(self) -> None:
         from backend.tools.memory import _user_id_from_ctx
 
         ctx = ToolContext(workspace_id="ws1", thread_id="t1")
         result = _user_id_from_ctx(ctx)
         assert result == "workspace_ws1"
 
-    def test_workspace_takes_precedence_over_thread_when_no_user(self):
+    def test_workspace_takes_precedence_over_thread_when_no_user(self) -> None:
         from backend.tools.memory import _user_id_from_ctx
 
         ctx = ToolContext(workspace_id="ws1", thread_id="t1")  # sem user_id
         result = _user_id_from_ctx(ctx)
         assert result == "workspace_ws1"
 
-    def test_user_id_takes_precedence_over_workspace(self):
+    def test_user_id_takes_precedence_over_workspace(self) -> None:
         """user_id autenticado supera workspace quando ambos presentes."""
         from backend.tools.memory import _user_id_from_ctx
 
@@ -57,20 +57,20 @@ class TestUserIdFromCtx:
         result = _user_id_from_ctx(ctx)
         assert result == "user_abc"
 
-    def test_returns_session_namespace_when_only_thread_id(self):
+    def test_returns_session_namespace_when_only_thread_id(self) -> None:
         from backend.tools.memory import _user_id_from_ctx
 
         ctx = ToolContext(thread_id="thread-xyz")
         result = _user_id_from_ctx(ctx)
         assert result == "session_thread-xyz"
 
-    def test_returns_default_when_ctx_is_bare(self):
+    def test_returns_default_when_ctx_is_bare(self) -> None:
         from backend.tools.memory import _user_id_from_ctx
 
         result = _user_id_from_ctx(ToolContext())
         assert result == "local"
 
-    def test_user_namespace_format(self):
+    def test_user_namespace_format(self) -> None:
         """Com user_id, o id retornado é o valor cru (sem prefixo); o prefixo
         de namespace ("user", <id>, "memories") vem de _memory_namespace."""
         from backend.tools.memory import _memory_namespace, _user_id_from_ctx
@@ -88,23 +88,23 @@ class TestUserIdFromCtx:
 class TestMemoryHandlerExists:
     """src/api/handlers/memory.py deve existir com os endpoints esperados."""
 
-    def test_memory_handler_module_exists(self):
+    def test_memory_handler_module_exists(self) -> None:
         import backend.api.handlers.memory as mem_mod
 
         assert mem_mod is not None
 
-    def test_router_exists(self):
+    def test_router_exists(self) -> None:
         from backend.api.handlers.memory import router
 
         assert router is not None
 
-    def test_list_memories_route_registered(self):
+    def test_list_memories_route_registered(self) -> None:
         from backend.api.handlers.memory import router
 
         routes = [r.path for r in router.routes]  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
         assert any("/memory" in r for r in routes)
 
-    def test_delete_memory_route_registered(self):
+    def test_delete_memory_route_registered(self) -> None:
         from backend.api.handlers.memory import router
 
         routes = [r.path for r in router.routes]  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
@@ -119,7 +119,7 @@ class TestMemoryHandlerExists:
 class TestNamespaceIsolation:
     """Namespaces user:, workspace_, session_ são distintos e não se sobrepõem."""
 
-    def test_user_namespace_not_equal_to_session_namespace(self):
+    def test_user_namespace_not_equal_to_session_namespace(self) -> None:
         from backend.tools.memory import _user_id_from_ctx
 
         user_ns = _user_id_from_ctx(ToolContext(user_id="u1", thread_id="t1"))
@@ -127,7 +127,7 @@ class TestNamespaceIsolation:
 
         assert user_ns != session_ns
 
-    def test_user_namespace_not_equal_to_workspace_namespace(self):
+    def test_user_namespace_not_equal_to_workspace_namespace(self) -> None:
         from backend.tools.memory import _user_id_from_ctx
 
         user_ns = _user_id_from_ctx(ToolContext(user_id="u1", workspace_id="ws1"))
@@ -135,7 +135,7 @@ class TestNamespaceIsolation:
 
         assert user_ns != workspace_ns
 
-    def test_different_users_have_different_namespaces(self):
+    def test_different_users_have_different_namespaces(self) -> None:
         from backend.tools.memory import _user_id_from_ctx
 
         ns_a = _user_id_from_ctx(ToolContext(user_id="alice"))
@@ -150,7 +150,7 @@ class TestNamespaceIsolation:
 
 
 class TestGetStore:
-    def test_usa_ctx_store_quando_presente(self):
+    def test_usa_ctx_store_quando_presente(self) -> None:
         """Happy: `ctx.store` populado pelo motor nativo — usado direto."""
         from backend.tools.memory import _get_store
 
@@ -161,7 +161,7 @@ class TestGetStore:
 
         assert result is injected_store
 
-    def test_sem_ctx_store_levanta_runtime_error(self):
+    def test_sem_ctx_store_levanta_runtime_error(self) -> None:
         """Erro/borda: sem `ctx.store` (execução fora do motor nativo) →
         RuntimeError tipado."""
         from backend.tools.memory import _get_store
@@ -192,7 +192,47 @@ def store(monkeypatch):
 
 
 class TestSaveMemoryCategory:
-    async def test_category_e_persistida_e_volta_no_get(self, store):
+    async def test_ttl_persiste_valid_until_e_rejeita_valor_invalido(
+        self, store
+    ) -> None:
+        from backend.tools.memory import get_memory, save_memory
+
+        ctx = ToolContext(user_id="u1")
+        saved = json.loads(
+            await save_memory(ctx=ctx, key="temporary", content="x", ttl_days=2)
+        )
+        assert saved["status"] == "saved"
+        item = await store.aget(("user", "u1", "memories"), "temporary")
+        assert item is not None
+        assert "valid_until" in item.value
+        assert (
+            json.loads(
+                await save_memory(ctx=ctx, key="invalid", content="x", ttl_days=0)
+            )["status"]
+            == "failed"
+        )
+
+        assert (
+            json.loads(await get_memory(ctx=ctx, key="temporary"))["status"] == "found"
+        )
+
+    async def test_memoria_expirada_nao_aparece_e_e_removida(self, store) -> None:
+        from backend.tools.memory import get_memory
+
+        ctx = ToolContext(user_id="u1")
+        await store.aput(
+            ("user", "u1", "memories"),
+            "expired",
+            {"content": "x", "valid_until": "2000-01-01T00:00:00+00:00"},
+        )
+
+        assert (
+            json.loads(await get_memory(ctx=ctx, key="expired"))["status"]
+            == "not_found"
+        )
+        assert await store.aget(("user", "u1", "memories"), "expired") is None
+
+    async def test_category_e_persistida_e_volta_no_get(self, store) -> None:
         from backend.tools.memory import get_memory, save_memory
 
         ctx = ToolContext(user_id="u1")
@@ -204,7 +244,7 @@ class TestSaveMemoryCategory:
 
         assert out["category"] == "preference"
 
-    async def test_sem_category_fica_none_retrocompativel(self, store):
+    async def test_sem_category_fica_none_retrocompativel(self, store) -> None:
         """Chamadas existentes sem `category` continuam funcionando —
         parâmetro é opcional, não quebra nenhum caller atual."""
         from backend.tools.memory import get_memory, save_memory
@@ -216,7 +256,7 @@ class TestSaveMemoryCategory:
 
         assert out["category"] is None
 
-    async def test_category_invalida_e_rejeitada_sem_persistir(self, store):
+    async def test_category_invalida_e_rejeitada_sem_persistir(self, store) -> None:
         """Erro/borda: categoria fora do conjunto válido não é aceita
         silenciosamente. `save_memory` chamada via `TOOL_REGISTRY` (caminho
         real de uma tool call do LLM) valida os argumentos contra o schema
@@ -239,7 +279,7 @@ class TestSaveMemoryCategory:
         item = await store.aget(("user", "u1", "memories"), "categoria_ruim")
         assert item is None
 
-    async def test_listar_todas_inclui_category_de_cada_uma(self, store):
+    async def test_listar_todas_inclui_category_de_cada_uma(self, store) -> None:
         from backend.tools.memory import get_memory, save_memory
 
         ctx = ToolContext(user_id="u1")
@@ -260,7 +300,7 @@ class TestListFactContents:
     `_get_store()` (contextvar só válido durante a execução do motor
     nativo), por isso usa `agent_factory.get_store()` em vez disso."""
 
-    async def test_retorna_conteudo_de_todos_os_fatos_do_usuario(self, store):
+    async def test_retorna_conteudo_de_todos_os_fatos_do_usuario(self, store) -> None:
         from backend.tools.memory import list_fact_contents, save_memory
 
         ctx = ToolContext(user_id="u1")
@@ -271,14 +311,30 @@ class TestListFactContents:
 
         assert sorted(result) == ["Fato A", "Fato B"]
 
-    async def test_usuario_sem_nenhum_fato_retorna_lista_vazia(self, store):
+    async def test_usuario_sem_nenhum_fato_retorna_lista_vazia(self, store) -> None:
         from backend.tools.memory import list_fact_contents
 
         result = await list_fact_contents("usuario-novo")
 
         assert result == []
 
-    async def test_funciona_fora_do_contexto_de_execucao_do_grafo(self, monkeypatch):
+    async def test_nao_retorna_fatos_expirados(self, store) -> None:
+        from backend.tools.memory import list_fact_contents
+
+        await store.aput(
+            ("user", "u1", "memories"),
+            "old",
+            {"content": "Fato expirado", "valid_until": "2000-01-01T00:00:00"},
+        )
+        await store.aput(
+            ("user", "u1", "memories"), "live", {"content": "Fato vigente"}
+        )
+
+        assert await list_fact_contents("u1") == ["Fato vigente"]
+
+    async def test_funciona_fora_do_contexto_de_execucao_do_grafo(
+        self, monkeypatch
+    ) -> None:
         """Regressão: `_get_store()` levanta RuntimeError fora de uma
         execução do motor nativo em andamento — exatamente o cenário real
         do caller (`remember_trigger.py`, disparado via

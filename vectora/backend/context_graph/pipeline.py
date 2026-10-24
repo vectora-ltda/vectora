@@ -36,6 +36,8 @@ class GraphResult:
     god_nodes: list[str] = field(default_factory=list)
     suggested_questions: list[str] = field(default_factory=list)
     error: str | None = None
+    indexing_degraded: bool = False
+    indexing_error: str | None = None
 
 
 def _graph_out_dir(workspace_path: Path) -> Path:
@@ -356,7 +358,13 @@ async def build_workspace_graph(
         # ── Passo 8: exportar grafo + manifesto ───────────────────────────────
         _progress(8, "Exportando...", _files_total)
         try:
-            await asyncio.to_thread(to_json, graph, communities, str(graph_json))
+            await asyncio.to_thread(
+                to_json,
+                graph,
+                communities,
+                str(graph_json),
+                community_labels=community_labels,
+            )
         except Exception:
             logger.exception(
                 "context_graph: falha ao exportar graph.json",
@@ -364,7 +372,13 @@ async def build_workspace_graph(
             )
 
         try:
-            await asyncio.to_thread(to_html, graph, communities, str(graph_html))
+            await asyncio.to_thread(
+                to_html,
+                graph,
+                communities,
+                str(graph_html),
+                community_labels=community_labels,
+            )
         except Exception:
             logger.exception(
                 "context_graph: falha ao exportar graph.html",
@@ -393,12 +407,23 @@ async def build_workspace_graph(
             graph_data = json.loads(graph_json.read_text(encoding="utf-8"))
             if not update:
                 await purge_graph_index(workspace_id)
-            await index_graph_nodes(workspace_id, graph_data)
-        except Exception:
+            nodes_count = len(graph_data.get("nodes") or [])
+            indexed_count = await index_graph_nodes(workspace_id, graph_data)
+            if nodes_count > 0 and indexed_count == 0:
+                result.indexing_degraded = True
+                result.indexing_error = f"Falha na indexação: {nodes_count} nós para indexar, mas 0 foram indexados no LanceDB"
+                logger.error(
+                    "context_graph: falha na indexação de nós no LanceDB — %d nós esperados, 0 indexados",
+                    nodes_count,
+                    extra={"workspace_id": workspace_id},
+                )
+        except Exception as exc:
             logger.exception(
                 "context_graph: falha ao indexar nós no LanceDB",
                 extra={"workspace_id": workspace_id},
             )
+            result.indexing_degraded = True
+            result.indexing_error = str(exc)
 
         logger.info(
             "context_graph: build completo — %d nós, %d arestas, %d tokens",

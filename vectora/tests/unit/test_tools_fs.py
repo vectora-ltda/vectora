@@ -440,6 +440,9 @@ class TestCreateArtifact:
         assert Path(data["path"]).exists()
         content = Path(data["path"]).read_text(encoding="utf-8")
         assert "Auth" in content
+        assert data["byte_size"] == Path(data["path"]).stat().st_size
+        assert len(data["sha256"]) == 64
+        assert Path(data["path"]).with_suffix(".artifact.json").exists()
 
     async def test_saved_under_session_dir(self, tmp_path, monkeypatch):
         from backend.tools.fs import create_artifact
@@ -491,6 +494,7 @@ class TestCreateArtifact:
         history = current.with_name(f"{current.stem}-1.md")
         assert history.exists()
         assert history.read_text(encoding="utf-8") == "versão 1"
+        assert history.with_suffix(".artifact.json").exists()
 
     async def test_third_write_rotates_history_without_losing_the_first(
         self, tmp_path, monkeypatch
