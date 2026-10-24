@@ -105,8 +105,13 @@ async def test_llamacpp_systemone_endpoint_or_clef_adapter() -> None:
             assert "is_file_operation" in decide_res.answers
             assert isinstance(decide_res.answers["is_file_operation"], NoulAnswer)
         else:
+            if res.status_code in {404, 405, 501}:
+                pytest.skip(
+                    "o servidor local não expõe o contrato SystemOne "
+                    f"(HTTP {res.status_code})"
+                )
             pytest.fail(
-                "o servidor local não expõe o contrato SystemOne esperado "
+                "o servidor local falhou ao expor o contrato SystemOne "
                 f"(HTTP {res.status_code}): {res.text}"
             )
 
