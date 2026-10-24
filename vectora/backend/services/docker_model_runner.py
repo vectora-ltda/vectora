@@ -521,7 +521,13 @@ async def docker_model_available() -> tuple[bool, str | None]:
         output = await run_docker_model("version", command_timeout=10)
     except (OSError, RuntimeError, ValueError) as exc:
         return False, str(exc)
-    return True, output[-1000:] or None
+    detail = output[-1000:] or None
+    # The Docker CLI may exit zero while the Desktop proxy reports that the
+    # inference server is unreachable. Treat that as unavailable so callers do
+    # not start a pull/run workflow that can only fail with a later 502.
+    if detail and "not reachable" in detail.casefold():
+        return False, detail
+    return True, detail
 
 
 async def prepare_model(reference: str) -> str:
