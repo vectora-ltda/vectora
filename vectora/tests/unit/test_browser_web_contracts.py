@@ -149,6 +149,7 @@ def test_browser_search_rejects_unsafe_redirect() -> None:
             self.url = "http://127.0.0.1:8080/private"
 
     page = _Page()
+
     with (
         patch.object(
             search_fallback, "_get_browser", return_value=cast("Any", object())
@@ -160,3 +161,86 @@ def test_browser_search_rejects_unsafe_redirect() -> None:
     ):
         with pytest.raises(ValueError, match="redirect recusado"):
             search_fallback.browser_search("vectora")
+
+
+def test_fetch_rejects_redirect_denied_by_workspace_egress() -> None:
+    """A redirect to a public host can still violate the workspace allowlist."""
+    from backend.browser import search_fallback
+
+    class _Page:
+        url = "https://allowed.example"
+
+        def set_default_timeout(self, _timeout: int) -> None:
+            return None
+
+        def goto(self, *_args: object, **_kwargs: object) -> None:
+            self.url = "https://denied.example/private"
+
+        def inner_text(self, _selector: str) -> str:
+            return "should never be read"
+
+    page = _Page()
+
+    class _Browser:
+        contexts = [object()]
+
+    def _allowed(url: str, _policy: object) -> tuple[bool, str]:
+        return ("denied.example" not in url, "host denied")
+
+    with (
+        patch.object(
+            search_fallback, "_get_browser", return_value=cast("Any", _Browser())
+        ),
+        patch.object(search_fallback, "_find_workbench_page", return_value=page),
+        patch.object(search_fallback, "_install_ssrf_route", return_value=object()),
+        patch.object(search_fallback, "_remove_ssrf_route"),
+        patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
+        patch("backend.services.egress_policy.is_url_allowed", side_effect=_allowed),
+    ):
+        with pytest.raises(ValueError, match="política de egress"):
+            search_fallback.fetch_fallback(
+                "https://allowed.example",
+                egress_policy={"allowed_hosts": ["*.example"]},
+            )
+
+
+def test_browser_map_omits_links_denied_by_workspace_egress() -> None:
+    from backend.browser import search_fallback
+
+    class _Locator:
+        def evaluate_all(self, _script: str) -> list[str]:
+            return ["https://allowed.example/a", "https://denied.example/b"]
+
+    class _Page:
+        url = "https://allowed.example"
+
+        def set_default_timeout(self, _timeout: int) -> None:
+            return None
+
+        def goto(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+        def locator(self, _selector: str) -> _Locator:
+            return _Locator()
+
+    class _Browser:
+        contexts = [object()]
+
+    def _allowed(url: str, _policy: object) -> tuple[bool, str]:
+        return ("denied.example" not in url, "host denied")
+
+    with (
+        patch.object(
+            search_fallback, "_get_browser", return_value=cast("Any", _Browser())
+        ),
+        patch.object(search_fallback, "_find_workbench_page", return_value=_Page()),
+        patch.object(search_fallback, "_install_ssrf_route", return_value=object()),
+        patch.object(search_fallback, "_remove_ssrf_route"),
+        patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
+        patch("backend.services.egress_policy.is_url_allowed", side_effect=_allowed),
+    ):
+        links = search_fallback.browser_map(
+            "https://allowed.example", egress_policy={"allowed_hosts": ["*.example"]}
+        )
+
+    assert links == ["https://allowed.example/a"]

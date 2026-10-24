@@ -35,6 +35,29 @@ _playwright: Any = None
 _BROWSER_LOCK = threading.RLock()
 
 
+def _validate_navigation_url(
+    url: str, policy: Any = None, *, redirect: bool = False
+) -> None:
+    """Validate a navigation and its redirects against SSRF and workspace egress.
+
+    The route handler protects requests emitted by the page, but a navigation
+    can still finish on a redirected URL before the caller inspects ``page.url``.
+    Keep the same policy check at those boundaries so every browser adapter has
+    an identical fail-closed contract.
+    """
+    from backend.browser.ssrf_guard import is_url_ssrf_safe
+    from backend.services.egress_policy import EgressPolicy, is_url_allowed
+
+    prefix = "redirect recusado: " if redirect else ""
+    if not is_url_ssrf_safe(url):
+        raise ValueError(f"{prefix}URL recusada pelo SSRF guard")
+    if isinstance(policy, dict):
+        policy = EgressPolicy.model_validate(policy)
+    allowed, reason = is_url_allowed(url, policy)
+    if not allowed:
+        raise ValueError(f"{prefix}URL recusada pela política de egress: {reason}")
+
+
 def _get_browser() -> Any:
     """Connect to the Electron Chromium instance and cache the connection."""
     global _browser, _playwright
@@ -194,11 +217,8 @@ def browser_search(
                 "https://www.bing.com/search?q=" + quote_plus(query),
                 wait_until="domcontentloaded",
             )
-            from backend.browser.ssrf_guard import is_url_ssrf_safe
-
             final_url = str(page.url)
-            if not is_url_ssrf_safe(final_url):
-                raise ValueError("redirect recusado pelo SSRF guard")
+            _validate_navigation_url(final_url, egress_policy, redirect=True)
             rows = page.locator("li.b_algo")
             results: list[dict[str, str]] = []
             for index in range(min(rows.count(), max_results)):
@@ -272,13 +292,7 @@ def fetch_fallback(
     """Navega até `url` num Chromium real e retorna o texto visível da
     página. Levanta em caso de falha — mesmo contrato de `search_fallback`.
     """
-    from backend.browser.ssrf_guard import is_url_ssrf_safe
-
-    if not is_url_ssrf_safe(url):
-        raise ValueError(
-            f"URL recusada: {url!r} resolve para um IP privado/loopback/"
-            "link-local/metadata — bloqueado por segurança (SSRF)."
-        )
+    _validate_navigation_url(url, egress_policy)
 
     with _BROWSER_LOCK:
         browser = _get_browser()
@@ -290,8 +304,7 @@ def fetch_fallback(
             page.set_default_timeout(_NAV_TIMEOUT_MS)
             page.goto(url)
             final_url = str(page.url)
-            if not is_url_ssrf_safe(final_url):
-                raise ValueError("redirect recusado pelo SSRF guard")
+            _validate_navigation_url(final_url, egress_policy, redirect=True)
             text = page.inner_text("body")
             logger.info(
                 "fetch_fallback_completed",
@@ -312,10 +325,7 @@ def browser_map(
     """Return normalized links from a page using the shared BrowserView."""
     from urllib.parse import urljoin, urlparse
 
-    from backend.browser.ssrf_guard import is_url_ssrf_safe
-
-    if not is_url_ssrf_safe(url):
-        raise ValueError("URL recusada pelo SSRF guard")
+    _validate_navigation_url(url, egress_policy)
     with _BROWSER_LOCK:
         browser = _get_browser()
         page = _find_workbench_page(browser, workspace_id=workspace_id)
@@ -324,8 +334,7 @@ def browser_map(
             page.set_default_timeout(_NAV_TIMEOUT_MS)
             page.goto(url, wait_until="domcontentloaded")
             final_url = str(page.url)
-            if not is_url_ssrf_safe(final_url):
-                raise ValueError("redirect recusado pelo SSRF guard")
+            _validate_navigation_url(final_url, egress_policy, redirect=True)
             origin = urlparse(final_url)
             links: list[str] = []
             for href in page.locator("a").evaluate_all(
@@ -335,7 +344,11 @@ def browser_map(
                 parsed = urlparse(normalized)
                 if parsed.scheme not in {"http", "https"}:
                     continue
-                if parsed.netloc != origin.netloc or not is_url_ssrf_safe(normalized):
+                if parsed.netloc != origin.netloc:
+                    continue
+                try:
+                    _validate_navigation_url(normalized, egress_policy)
+                except ValueError:
                     continue
                 if normalized not in links:
                     links.append(normalized)
