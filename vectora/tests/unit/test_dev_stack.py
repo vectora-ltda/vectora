@@ -226,6 +226,11 @@ def test_container_matches_spec_quando_cmd_igual(
                             "6379/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6379"}]
                         }
                     },
+                    "NetworkSettings": {
+                        "Ports": {
+                            "6379/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6379"}]
+                        }
+                    },
                 }
             )
 
@@ -261,6 +266,11 @@ def test_container_nao_bate_quando_falta_requirepass(
                             "6379/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6379"}]
                         }
                     },
+                    "NetworkSettings": {
+                        "Ports": {
+                            "6379/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6379"}]
+                        }
+                    },
                 }
             )
 
@@ -286,7 +296,13 @@ def test_container_sem_porta_publicada_e_variavel_obrigatoria_recria(
             stdout = json.dumps(
                 {
                     "Config": {"Cmd": [], "Env": []},
-                    "HostConfig": {"PortBindings": {}},
+                    "HostConfig": {
+                        "PortBindings": {
+                            "6333/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6333"}],
+                            "6334/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6334"}],
+                        }
+                    },
+                    "NetworkSettings": {"Ports": {}},
                 }
             )
 
@@ -314,6 +330,12 @@ def test_container_matches_spec_rejeita_env_incompleto(
                     "Config": {"Cmd": [], "Env": []},
                     "HostConfig": {
                         "PortBindings": {
+                            "6333/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6333"}],
+                            "6334/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6334"}],
+                        }
+                    },
+                    "NetworkSettings": {
+                        "Ports": {
                             "6333/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6333"}],
                             "6334/tcp": [{"HostIp": "127.0.0.1", "HostPort": "6334"}],
                         }
