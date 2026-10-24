@@ -409,13 +409,17 @@ async def run_conversation(  # noqa: PLR0911
             if not isinstance(ctx._extra, dict):
                 ctx._extra = {}
             ctx._extra["untrusted_content"] = True
+    refreshed_policy_snapshot = compile_policy_snapshot(ctx)
     if policy_snapshot is None:
-        policy_snapshot = compile_policy_snapshot(ctx)
+        policy_snapshot = refreshed_policy_snapshot
 
     if isinstance(ctx._extra, dict):
         sub_deps = ctx._extra.get("subagent_deps")
         if sub_deps is not None:
-            sub_deps.policy_snapshot = policy_snapshot
+            # The parent context can be reused for several goal turns. Refresh
+            # the dependency snapshot every time so RBAC and trust changes are
+            # visible to the next delegated call.
+            sub_deps.policy_snapshot = refreshed_policy_snapshot
     emit = on_event or _noop_event
     tools = tool_registry.all()
     parent_id = await session_store.get_branch_head_id(thread_id)
