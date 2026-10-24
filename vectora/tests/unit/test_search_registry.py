@@ -56,11 +56,10 @@ def _liga_ollama_cloud(monkeypatch):
 
 class TestDisponibilidade:
     def test_backends_sem_credencial_ficam_de_fora(self):
-        """`browser` e `duckduckgo` não precisam de chave — sempre estão lá.
-        `tavily` e `ollama-web` precisam."""
+        """Browser só aparece quando o sidecar fornece um alvo navegável."""
         nomes = {b.name for b in available_backends()}
 
-        assert "browser" in nomes
+        assert "browser" not in nomes
         assert "duckduckgo" in nomes
         assert "tavily" not in nomes
         assert "ollama-web" not in nomes
@@ -83,6 +82,7 @@ class TestResolucaoAutomatica:
         monkeypatch.setattr(
             "backend.tools.search_registry._electron_is_ready", lambda: True
         )
+        assert "browser" in {b.name for b in available_backends()}
         assert resolve_backend().name == "browser"
 
     def test_com_tavily_sem_electron_ele_e_o_preferido(self, monkeypatch):
@@ -145,6 +145,9 @@ class TestEscolhaExplicita:
         automática, mesmo com Tavily configurado."""
         _liga_tavily(monkeypatch)
         _escolhe(monkeypatch, "browser")
+        monkeypatch.setattr(
+            "backend.tools.search_registry._electron_is_ready", lambda: True
+        )
 
         assert resolve_backend().name == "browser"
 

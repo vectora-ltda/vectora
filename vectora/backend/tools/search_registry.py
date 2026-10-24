@@ -161,7 +161,7 @@ _BACKENDS: tuple[SearchBackend, ...] = (
     SearchBackend(
         name="browser",
         label="Browser embutido",
-        is_available=lambda: True,
+        is_available=lambda: _electron_is_ready(),
         search=_search_browser,
         keyless=True,
     ),
