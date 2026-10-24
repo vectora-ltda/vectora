@@ -99,12 +99,23 @@ async def _load_persistent_context_memories(ctx: ToolContext) -> list[MemoryReco
     else:
         owner = "local"
     try:
-        items = await ctx.store.asearch(("user", owner, "memories"), limit=5)
+        from backend.tools.memory import _search_unexpired
+
+        items = await _search_unexpired(
+            ctx.store,
+            ("user", owner, "memories"),
+            query="",
+            limit=5,
+        )
         from backend.services.context_planner import memory_records_from_backend_items
 
-        return memory_records_from_backend_items(
-            items, default_scope_id=ctx.workspace_id or ctx.thread_id or "global"
-        )
+        return [
+            record
+            for record in memory_records_from_backend_items(
+                items, default_scope_id=ctx.workspace_id or ctx.thread_id or "global"
+            )
+            if record.active
+        ]
     except Exception:
         logger.exception("conversation_loop: falha ao carregar memórias persistentes")
         return []
@@ -486,12 +497,22 @@ async def run_conversation(
             )
             state = checkpoint.get("state", {}) if checkpoint else {}
             current_history = await session_store.get_history(thread_id)
+            checkpoint_sequence = (
+                int(checkpoint.get("last_sequence", 0))
+                if checkpoint is not None
+                else -1
+            )
+            checkpoint_hash_matches = bool(
+                checkpoint
+                and checkpoint_sequence >= 0
+                and checkpoint_sequence <= len(current_history)
+                and checkpoint.get("source_hash")
+                == compute_transcript_hash(current_history[:checkpoint_sequence])
+            )
             checkpoint_is_current = bool(
                 checkpoint
                 and checkpoint.get("schema_version") == "context.v1"
-                and checkpoint.get("source_hash")
-                and checkpoint.get("source_hash")
-                == compute_transcript_hash(current_history)
+                and checkpoint_hash_matches
             )
             if (
                 checkpoint_is_current

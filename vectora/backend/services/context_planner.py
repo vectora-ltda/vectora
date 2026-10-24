@@ -10,7 +10,7 @@ import hashlib
 import json
 import math
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from typing import cast
 
 from backend.services.context_compaction import (
@@ -548,6 +548,29 @@ class ContextPlanner:
                     preserved_approvals=preserved_approvals,
                     budget=max(1, max_tokens - fixed_tokens),
                 )
+                # The marker cost depends on the preserved decision/error
+                # text, so reserving the cost of the one-token baseline
+                # marker is insufficient.  If the fitted marker still leaves
+                # the final context over budget, discard the oldest selected
+                # messages and fit it again until the complete payload fits.
+                while (
+                    len(selected_non_system) > 1
+                    and sum(_message_tokens(m) for m in systems)
+                    + sum(_message_tokens(m) for m in selected_non_system)
+                    + _message_tokens(marker_msg)
+                    > max_tokens
+                ):
+                    selected_non_system.pop(0)
+                    omitted += 1
+                    fixed_tokens = sum(_message_tokens(m) for m in systems)
+                    fixed_tokens += sum(_message_tokens(m) for m in selected_non_system)
+                    marker_msg = _fit_compaction_marker(
+                        omitted,
+                        preserved_decisions=preserved_decisions,
+                        preserved_errors=preserved_errors,
+                        preserved_approvals=preserved_approvals,
+                        budget=max(1, max_tokens - fixed_tokens),
+                    )
             final_messages = [*systems, marker_msg, *selected_non_system]
         else:
             final_messages = [*systems, *selected_non_system]

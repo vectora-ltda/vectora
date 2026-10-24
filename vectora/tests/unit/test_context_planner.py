@@ -429,6 +429,44 @@ def test_context_planner_does_not_cross_workspace_or_trust_boundaries() -> None:
     assert "Instrução injetada" not in system_text
 
 
+def test_context_planner_ignora_memoria_persistida_expirada() -> None:
+    persistent = memory_records_from_backend_items(
+        [
+            SimpleNamespace(
+                key="expired",
+                value={
+                    "content": "Regra vencida",
+                    "valid_until": "2000-01-01T00:00:00+00:00",
+                    "metadata": {"domain": "project", "scope_id": "ws-1"},
+                },
+            ),
+            SimpleNamespace(
+                key="active",
+                value={
+                    "content": "Regra vigente",
+                    "metadata": {"domain": "project", "scope_id": "ws-1"},
+                },
+            ),
+        ],
+        default_scope_id="ws-1",
+    )
+
+    planned = plan_context(
+        [_msg(MessageRole.SYSTEM, "Instruções"), _msg(MessageRole.USER, "Ajude")],
+        max_tokens=4000,
+        workspace_id="ws-1",
+        persistent_memory_records=persistent,
+    )
+
+    system_text = " ".join(
+        message.text()
+        for message in planned.messages
+        if message.role is MessageRole.SYSTEM
+    )
+    assert "Regra vigente" in system_text
+    assert "Regra vencida" not in system_text
+
+
 def test_context_planner_compacts_and_creates_projection() -> None:
     planner = ContextPlanner(memory_store=MemoryStore())
     messages = [_msg(MessageRole.SYSTEM, "Instruções do sistema")]

@@ -16,6 +16,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
+from backend.storage.protocols import StoreBackend
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
@@ -100,7 +101,7 @@ async def list_fact_contents(user_id: str) -> list[str]:
 
 
 async def _search_unexpired(
-    store: Any,
+    store: StoreBackend,
     namespace: tuple[str, ...],
     *,
     query: str,
@@ -117,18 +118,22 @@ async def _search_unexpired(
     if requested <= 0:
         return []
     wanted = min(requested, _MAX_MEMORY_SEARCH)
-    scan_limit = max(wanted, 1000)
-    previous_count = -1
+    scan_limit = wanted
     valid: list[Any] = []
     while scan_limit <= _MAX_MEMORY_SEARCH:
-        candidates = await store.asearch(namespace, query=query, limit=scan_limit)
+        if query:
+            candidates = await store.asearch(namespace, query=query, limit=scan_limit)
+        else:
+            candidates = await store.asearch(namespace, limit=scan_limit)
         valid = [item for item in candidates if not _is_memory_expired(item.value)]
         if len(valid) >= wanted or len(candidates) < scan_limit:
             return valid[:wanted]
-        if len(candidates) <= previous_count:
+        if scan_limit >= _MAX_MEMORY_SEARCH:
             return valid[:wanted]
-        previous_count = len(candidates)
-        scan_limit *= 2
+        next_limit = min(_MAX_MEMORY_SEARCH, scan_limit * 2)
+        if next_limit == scan_limit:
+            return valid[:wanted]
+        scan_limit = next_limit
     return valid[:wanted]
 
 
