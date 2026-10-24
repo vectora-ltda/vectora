@@ -292,11 +292,20 @@ class TestCrawlEMapExigemKey:
     async def test_crawl_sem_key_devolve_erro_claro(self):
         from backend.tools.web import web_crawl
 
-        with patch("backend.tools.web.settings") as ms:
+        with (
+            patch("backend.tools.web.settings") as ms,
+            patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
+            patch(
+                "backend.services.egress_policy.is_url_allowed",
+                return_value=(True, ""),
+            ),
+        ):
             ms.tavily_api_key = None
             resultado = json.loads(await web_crawl(url="https://x.test"))
 
-        assert "TAVILY_API_KEY" in resultado["error"]
+        assert resultado["provider"] == "browser"
+        assert resultado["status"] == "error"
+        assert resultado["errors"]
 
     async def test_crawl_com_url_invalida_nem_chega_a_checar_a_key(self):
         """Erro/borda: validar a URL antes evita mensagem enganosa sobre
@@ -317,6 +326,11 @@ class TestCrawlEMapExigemKey:
         with (
             patch("backend.tools.web.settings") as ms,
             patch("backend.tools.web._tavily_client", return_value=mock_client),
+            patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
+            patch(
+                "backend.services.egress_policy.is_url_allowed",
+                return_value=(True, ""),
+            ),
         ):
             ms.tavily_api_key = "real-key"
             resultado = json.loads(await web_map(url="https://x.test"))

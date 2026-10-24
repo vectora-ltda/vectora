@@ -589,6 +589,12 @@ async def web_crawl(
     """
     if not url.startswith(("http://", "https://")):
         return json.dumps({"error": "URL deve começar com http:// ou https://"})
+    try:
+        _validate_http_egress(url, ctx)
+    except ValueError as exc:
+        return json.dumps(
+            {"status": "blocked", "provider": "browser", "error": str(exc)}
+        )
     if not settings.tavily_api_key:
         from backend.browser.search_fallback import browser_map, fetch_fallback
         from backend.browser.ssrf_guard import is_url_ssrf_safe
@@ -701,6 +707,12 @@ async def web_map(url: str, limit: int = 50, ctx: ToolContext | None = None) -> 
     """
     if not url.startswith(("http://", "https://")):
         return json.dumps({"error": "URL deve começar com http:// ou https://"})
+    try:
+        _validate_http_egress(url, ctx)
+    except ValueError as exc:
+        return json.dumps(
+            {"status": "blocked", "provider": "browser", "error": str(exc)}
+        )
     if not settings.tavily_api_key:
         from backend.browser.search_fallback import browser_map
 
