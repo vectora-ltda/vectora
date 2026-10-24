@@ -27,6 +27,17 @@ def _contracts_root() -> Path:
     return Path(__file__).resolve().parents[2] / "backend" / "contracts"
 
 
+def _contract_baseline_ref() -> str:
+    """Return the pull request base used for compatibility checks."""
+    explicit = os.environ.get("VECTORA_CONTRACT_BASE_REF", "").strip()
+    if explicit:
+        return explicit
+    github_base = os.environ.get("GITHUB_BASE_REF", "").strip()
+    if github_base:
+        return f"origin/{github_base}"
+    return "origin/release/0.3"
+
+
 def export_http(contracts_dir: Path) -> None:
     """Exporta o schema OpenAPI e o inventário de rotas."""
     _setup_isolation_env()
@@ -657,6 +668,7 @@ def check_all(contracts_dir: Path) -> int:
             prettier = frontend_dir / "node_modules" / ".bin" / "prettier.cmd"
             if not prettier.exists():
                 prettier = frontend_dir / "node_modules" / ".bin" / "prettier"
+            prettier_failed = False
             if prettier.exists():
                 try:
                     subprocess.run(  # nosec B603 # noqa: S603
@@ -667,12 +679,16 @@ def check_all(contracts_dir: Path) -> int:
                         check=True,
                     )
                 except subprocess.CalledProcessError as exc:
+                    prettier_failed = True
                     print(
                         f"WARNING: Prettier falhou: {exc.stderr}; "
-                        "comparação literal usada"
+                        "a verificação não pode confirmar a equivalência"
                     )
             else:
+                prettier_failed = True
                 print("WARNING: Prettier não encontrado; comparação literal usada")
+            if prettier_failed:
+                has_diff = True
             if tracked_ts.read_text(encoding="utf-8") != generated_ts.read_text(
                 encoding="utf-8"
             ):
@@ -695,6 +711,7 @@ def check_all(contracts_dir: Path) -> int:
 
             # Se for schema OpenAPI ou SSE, executa check_schema_compatibility
             baseline_data: dict[str, Any] | None = None
+            baseline_ref = _contract_baseline_ref()
             try:
                 if rel.is_absolute() or ".." in rel.parts:
                     print(f"WARNING: caminho de baseline inválido: {rel}")
@@ -705,7 +722,7 @@ def check_all(contracts_dir: Path) -> int:
                     [  # noqa: S607
                         "git",
                         "show",
-                        f"origin/release/0.3:{git_rel.as_posix()}",
+                        f"{baseline_ref}:{git_rel.as_posix()}",
                     ],
                     cwd=repo_root,
                     capture_output=True,
@@ -716,11 +733,11 @@ def check_all(contracts_dir: Path) -> int:
                     baseline_data = json.loads(res.stdout)
                 else:
                     print(
-                        f"WARNING: Baseline para {rel.as_posix()} não encontrado em origin/release/0.3; comparação de compatibilidade ignorada."
+                        f"WARNING: Baseline para {rel.as_posix()} não encontrado em {baseline_ref}; comparação de compatibilidade ignorada."
                     )
             except Exception as exc:
                 print(
-                    f"WARNING: Falha ao carregar baseline de origin/release/0.3 para {rel.as_posix()}: {exc}; comparação ignorada."
+                    f"WARNING: Falha ao carregar baseline de {baseline_ref} para {rel.as_posix()}: {exc}; comparação ignorada."
                 )
 
             if baseline_data is None:
@@ -754,15 +771,18 @@ def check_all(contracts_dir: Path) -> int:
                     has_diff = True
 
                 # 3. Comparação de schemas existentes em ambas as versões
+                old_req_schemas, old_resp_schemas = _classify_openapi_schemas(
+                    baseline_data
+                )
                 req_schemas, resp_schemas = _classify_openapi_schemas(expected_data)
 
                 for s_name, old_s in old_schemas.items():
                     if s_name in new_schemas:
                         new_s = new_schemas[s_name]
                         directions: list[str] = []
-                        if s_name in req_schemas:
+                        if s_name in req_schemas or s_name in old_req_schemas:
                             directions.append("request")
-                        if s_name in resp_schemas:
+                        if s_name in resp_schemas or s_name in old_resp_schemas:
                             directions.append("response")
                         if not directions:
                             directions = ["request", "response"]
