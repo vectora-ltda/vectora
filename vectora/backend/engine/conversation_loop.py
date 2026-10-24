@@ -362,7 +362,7 @@ async def _workspace_changed_paths(ctx: ToolContext) -> set[str]:
         return set()
 
 
-async def run_conversation(
+async def run_conversation(  # noqa: PLR0911
     *,
     session_store: SessionStore,
     chat_client: ChatClient,

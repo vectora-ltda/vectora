@@ -1112,7 +1112,8 @@ async def get_progress(task_id: str) -> dict[str, int] | None:
     total = row["total"] if row else 0
     if not total:
         return None
-    assert row is not None
+    if row is None:
+        return None
     return {"done": row["done"], "total": total}
 
 
