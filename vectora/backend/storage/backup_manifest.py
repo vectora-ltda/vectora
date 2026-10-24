@@ -430,9 +430,25 @@ def restore_backup(
     """Restaura categorias selecionadas com staging, snapshots e rollback total."""
     archive_file = Path(archive_path)
     if archive_file.suffix == ".gz" and not zipfile.is_zipfile(archive_file):
+        # Legacy exports contain only the database payload.  Treat them with
+        # the same promotion/rollback guarantees as manifest backups: never
+        # truncate the active database before the compressed payload has been
+        # fully read, and restore the previous file if publication fails.
         destination = Path(db_path)
-        with gzip.open(archive_file, "rb") as source:
-            _atomic_write(destination, source.read())
+        _assert_safe_destination(destination)
+        previous = destination.read_bytes() if destination.is_file() else None
+        try:
+            with gzip.open(archive_file, "rb") as source:
+                payload = source.read(MAX_ENTRY_BYTES + 1)
+            if len(payload) > MAX_ENTRY_BYTES:
+                raise ValueError("entrada de backup excede o limite")
+            _atomic_write(destination, payload)
+        except Exception:
+            if previous is None:
+                destination.unlink(missing_ok=True)
+            else:
+                _atomic_write(destination, previous)
+            raise
         return BackupPreview(0, "", archive_file.stat().st_size, {"database": 0}, True)
     preview = inspect_backup(archive_file)
     with zipfile.ZipFile(archive_file) as archive:

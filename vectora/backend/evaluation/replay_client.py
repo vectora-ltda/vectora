@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from backend.evaluation.cassette import Cassette, CassetteInteraction
 from backend.llm.base import ChatClient
@@ -35,12 +35,61 @@ class ReplayChatClient(ChatClient):
         """Reinicia o cursor sequencial de interações."""
         self._interaction_cursor = 0
 
+    @staticmethod
+    def _message_key(message: VMessage | dict[str, Any]) -> str:
+        """Canonicaliza apenas o conteúdo observável usado pelo replay.
+
+        IDs de mensagens e campos de transporte variam entre clientes; papel,
+        texto, chamadas e argumentos formam a entrada determinística da cassete.
+        """
+        if isinstance(message, VMessage):
+            value: dict[str, Any] = {
+                "role": message.role.value,
+                "content": message.text(),
+                "tool_calls": [
+                    {"name": call.name, "args": call.args}
+                    for call in message.tool_calls
+                ],
+                "tool_call_id": message.tool_call_id,
+                "name": message.name,
+            }
+        else:
+            content = message.get("content", "")
+            if isinstance(content, list):
+                content = "".join(
+                    str(block.get("text", ""))
+                    for block in content
+                    if isinstance(block, dict)
+                )
+            value = {
+                "role": str(message.get("role", "user")),
+                "content": str(content),
+                "tool_calls": [
+                    {
+                        "name": str(call.get("name", "")),
+                        "args": call.get("args", {}),
+                    }
+                    for call in message.get("tool_calls", [])
+                    if isinstance(call, dict)
+                ],
+                "tool_call_id": message.get("tool_call_id"),
+                "name": message.get("name"),
+            }
+        return json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
+
     def _resolve_next_interaction(
         self, messages: list[VMessage]
     ) -> CassetteInteraction | None:
         """Resolve a interação correspondente por cursor sequencial ou chave."""
         if self._interaction_cursor < len(self.cassette.interactions):
             interaction = self.cassette.interactions[self._interaction_cursor]
+            expected = [self._message_key(item) for item in interaction.messages]
+            actual = [self._message_key(item) for item in messages]
+            if expected and expected != actual:
+                raise RuntimeError(
+                    "ReplayChatClient: histórico não corresponde à interação "
+                    f"'{interaction.interaction_id}'"
+                )
             self._interaction_cursor += 1
             return interaction
         return None

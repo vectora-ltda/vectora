@@ -177,6 +177,40 @@ def test_memory_store_expiry_is_reversible_only_by_new_version() -> None:
     )
 
 
+def test_memory_store_conflicts_when_expiry_or_confidence_changes() -> None:
+    store = MemoryStore()
+    store.store(
+        "versioned",
+        domain="project",
+        scope_id="ws-1",
+        content="regra",
+        confidence=0.8,
+        valid_until="2030-01-01T00:00:00-03:00",
+    )
+    with pytest.raises(MemoryConflictError):
+        store.store(
+            "versioned",
+            domain="project",
+            scope_id="ws-1",
+            content="regra",
+            confidence=0.9,
+            valid_until="2030-01-01T03:00:00Z",
+        )
+
+
+def test_memory_store_expire_compares_instants_not_iso_text() -> None:
+    store = MemoryStore()
+    store.store(
+        "instant",
+        domain="session",
+        scope_id="thread-1",
+        content="expira",
+        valid_until="2030-01-01T00:30:00-03:00",
+    )
+    assert store.expire(before="2030-01-01T02:00:00Z") == 0
+    assert store.expire(before="2030-01-01T04:00:00Z") == 1
+
+
 def test_context_planner_injects_project_memory_and_manifest() -> None:
     mem_store = MemoryStore()
     mem_store.store(

@@ -44,10 +44,7 @@ class MemoryRecord:
         if self.valid_until is None:
             return True
         try:
-            expiry = datetime.fromisoformat(self.valid_until)
-            if expiry.tzinfo is None:
-                expiry = expiry.replace(tzinfo=UTC)
-            return expiry.astimezone(UTC) > datetime.now(UTC)
+            return MemoryStore._parse_datetime(self.valid_until) > datetime.now(UTC)
         except ValueError:
             return False
 
@@ -112,6 +109,9 @@ class MemoryStore:
                 and existing.provenance == provenance
                 and existing.metadata == (metadata or {})
                 and existing.trust_level == trust_level
+                and existing.importance == importance
+                and existing.confidence == confidence
+                and existing.valid_until == valid_until
                 and existing.supersedes_id == supersedes_id
             )
             if same:
@@ -210,17 +210,27 @@ class MemoryStore:
 
     def expire(self, *, before: str | None = None) -> int:
         """Invalida registros expirados ou anteriores ao limite informado."""
-        cutoff = before or datetime.now(UTC).isoformat()
+        cutoff_dt = self._parse_datetime(before) if before else datetime.now(UTC)
+        cutoff = cutoff_dt.isoformat()
         changed = 0
         for record in self._records.values():
-            if (
-                record.active
-                and record.valid_until is not None
-                and record.valid_until <= cutoff
-            ):
+            if not record.active or record.valid_until is None:
+                continue
+            try:
+                expires_at = self._parse_datetime(record.valid_until)
+            except ValueError:
+                continue
+            if expires_at <= cutoff_dt:
                 record.invalidated_at = cutoff
                 changed += 1
         return changed
+
+    @staticmethod
+    def _parse_datetime(value: str) -> datetime:
+        parsed = datetime.fromisoformat(value)
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
 
     def metrics(self) -> dict[str, int]:
         """Retorna contadores de auditoria sem expor o armazenamento interno."""

@@ -1637,7 +1637,10 @@ class PostgresSessionStore:
         }
         if not isinstance(clean, dict) or not clean.get("projection_id"):
             raise ValueError("projeção sem projection_id")
-        storage_projection_id = f"{thread_id}:{clean['projection_id']}"
+        # ``thread_id`` already participates in the table primary key.  Keep
+        # the projection identity opaque and stable so SQLite and PostgreSQL
+        # expose the same persisted key.
+        storage_projection_id = str(clean["projection_id"])
         async with self._pool.acquire() as conn:
             await conn.execute(
                 "INSERT INTO vectora_native_context_projections ("
@@ -1706,7 +1709,7 @@ class PostgresSessionStore:
             return None
         value = row.get
         return {
-            "projection_id": str(value("projection_id")).split(":", 1)[-1],
+            "projection_id": str(value("projection_id")),
             "run_id": value("run_id"),
             "source_hash": value("source_hash"),
             "covered_from_sequence": value("covered_from_sequence"),

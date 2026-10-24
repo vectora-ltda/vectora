@@ -223,6 +223,7 @@ async def run_verification(
             return VerificationResult(
                 passed=False,
                 status="failed",
+                outcome="failed",
                 snapshot_sha256=snapshot_sha256,
                 file_hashes=file_hashes,
                 gate_results=[],
