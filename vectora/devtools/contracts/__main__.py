@@ -644,6 +644,30 @@ def check_all(contracts_dir: Path) -> int:
 
     _setup_isolation_env()
 
+    repo_root = _contracts_root().parents[2]
+    baseline_ref = _contract_baseline_ref()
+    head_sha = subprocess.run(  # nosec B603, B607 # noqa: S603
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    ).stdout.strip()
+    baseline_sha_result = subprocess.run(  # nosec B603, B607 # noqa: S603
+        ["git", "rev-parse", baseline_ref],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    baseline_sha = baseline_sha_result.stdout.strip()
+    print(f"CONTRACT_HEAD_SHA: {head_sha or 'unknown'}")
+    print(f"CONTRACT_BASELINE_REF: {baseline_ref}")
+    print(
+        "CONTRACT_BASELINE_SHA: "
+        f"{baseline_sha or 'unavailable (compatibility checks skipped)'}"
+    )
+
     with tempfile.TemporaryDirectory() as tmp_str:
         temp_dir = Path(tmp_str)
         temp_ts_dir = temp_dir / "typescript"
@@ -711,7 +735,6 @@ def check_all(contracts_dir: Path) -> int:
 
             # Se for schema OpenAPI ou SSE, executa check_schema_compatibility
             baseline_data: dict[str, Any] | None = None
-            baseline_ref = _contract_baseline_ref()
             try:
                 if rel.is_absolute() or ".." in rel.parts:
                     print(f"WARNING: caminho de baseline inválido: {rel}")
