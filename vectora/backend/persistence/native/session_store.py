@@ -696,10 +696,14 @@ class SessionStore:
             raise ValueError("checkpoint sem checkpoint_id")
         async with self._pool.acquire() as conn:
             await conn.execute(
-                "INSERT OR REPLACE INTO context_checkpoints ("
+                "INSERT INTO context_checkpoints ("
                 "checkpoint_id, thread_id, run_id, last_sequence, source_hash, "
                 "schema_version, state_json, artifact_refs_json, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(thread_id, last_sequence, source_hash) DO UPDATE SET "
+                "checkpoint_id=excluded.checkpoint_id, run_id=excluded.run_id, "
+                "schema_version=excluded.schema_version, state_json=excluded.state_json, "
+                "artifact_refs_json=excluded.artifact_refs_json, created_at=excluded.created_at",
                 (
                     str(clean["checkpoint_id"]),
                     thread_id,

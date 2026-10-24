@@ -183,7 +183,7 @@ def _media_artifacts(base: Path, session_id: str) -> list[ArtifactMetadata]:
         try:
             stat = path.stat()
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        except OSError:
+        except (OSError, ValueError):
             continue
         found.append(
             ArtifactMetadata(
@@ -271,6 +271,6 @@ async def get_media_artifact(
 
 
 def _format_mtime(ts: float) -> str:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     return datetime.fromtimestamp(ts, tz=UTC).isoformat()
