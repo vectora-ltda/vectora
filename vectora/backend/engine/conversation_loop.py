@@ -324,7 +324,7 @@ async def run_conversation(
 
     if isinstance(ctx._extra, dict):
         sub_deps = ctx._extra.get("subagent_deps")
-        if sub_deps is not None and getattr(sub_deps, "policy_snapshot", None) is None:
+        if sub_deps is not None:
             sub_deps.policy_snapshot = policy_snapshot
 
     emit = on_event or _noop_event
