@@ -243,7 +243,7 @@ class TestLanceDBBackendUpsert:
                 ]
             )
         )
-        query_mock = cast(AsyncMock, table.query)
+        query_mock = cast("AsyncMock", table.query)
         query_mock.return_value.select.return_value.to_pandas = AsyncMock(
             return_value=pd.DataFrame(
                 [{"id": "legacy"}, {"id": "legacy"}, {"id": "stable"}]
@@ -256,7 +256,7 @@ class TestLanceDBBackendUpsert:
         merge.execute = AsyncMock()
         merge_insert = MagicMock(return_value=merge)
         table.merge_insert = merge_insert  # type: ignore[assignment]
-        cast(AsyncMock, mock_db.open_table).return_value = table
+        cast("AsyncMock", mock_db.open_table).return_value = table
 
         await backend.upsert(
             "articles",
@@ -264,7 +264,7 @@ class TestLanceDBBackendUpsert:
         )
 
         table.delete.assert_awaited_once_with("id = 'legacy'")
-        assert cast(AsyncMock, table.add).await_count == 0
+        assert cast("AsyncMock", table.add).await_count == 0
         merge_insert.assert_called_once_with("id")
         merge.execute.assert_awaited_once()
         execute_mock = merge.execute
