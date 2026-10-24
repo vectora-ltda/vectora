@@ -4,6 +4,7 @@ resposta errada) sem depender de um banco LanceDB real em disco."""
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -19,12 +20,12 @@ from ._lancedb_fakes import fake_async_connection, fake_async_table
 
 
 @pytest.fixture
-def backend():
+def backend() -> LanceDBBackend:
     return LanceDBBackend(lancedb_dir="/tmp/fake-lancedb")
 
 
 @pytest.fixture
-def mock_db():
+def mock_db() -> Iterator[lancedb.AsyncConnection]:
     db = fake_async_connection()
     with patch(
         "backend.storage.vectorstore.lancedb_backend.lancedb.connect_async",
@@ -243,7 +244,7 @@ class TestLanceDBBackendUpsert:
                 ]
             )
         )
-        query_mock = cast(AsyncMock, table.query)
+        query_mock = cast("AsyncMock", table.query)
         query_mock.return_value.select.return_value.to_pandas = AsyncMock(
             return_value=pd.DataFrame(
                 [{"id": "legacy"}, {"id": "legacy"}, {"id": "stable"}]
@@ -256,7 +257,7 @@ class TestLanceDBBackendUpsert:
         merge.execute = AsyncMock()
         merge_insert = MagicMock(return_value=merge)
         table.merge_insert = merge_insert  # type: ignore[assignment]
-        cast(AsyncMock, mock_db.open_table).return_value = table
+        cast("AsyncMock", mock_db.open_table).return_value = table
 
         await backend.upsert(
             "articles",
@@ -264,7 +265,7 @@ class TestLanceDBBackendUpsert:
         )
 
         table.delete.assert_awaited_once_with("id = 'legacy'")
-        assert cast(AsyncMock, table.add).await_count == 0
+        assert cast("AsyncMock", table.add).await_count == 0
         merge_insert.assert_called_once_with("id")
         merge.execute.assert_awaited_once()
         execute_mock = merge.execute
