@@ -39,6 +39,21 @@ def _ctx_egress_policy(ctx: ToolContext | None) -> Any:
     return extra.get("egress_policy") if isinstance(extra, dict) else None
 
 
+def _validate_http_egress(url: str, ctx: ToolContext | None = None) -> None:
+    """Apply the run's egress policy to direct HTTP navigation boundaries."""
+    from backend.browser.ssrf_guard import is_url_ssrf_safe
+    from backend.services.egress_policy import EgressPolicy, is_url_allowed
+
+    if not is_url_ssrf_safe(url):
+        raise ValueError("URL recusada pelo SSRF guard")
+    policy = _ctx_egress_policy(ctx)
+    if isinstance(policy, dict):
+        policy = EgressPolicy.model_validate(policy)
+    allowed, reason = is_url_allowed(url, policy)
+    if not allowed:
+        raise ValueError(f"URL recusada pela política de egress: {reason}")
+
+
 def _tavily_client() -> Any:
     """Cliente Tavily novo por chamada — barato (só monta o httpx sob demanda)
     e evita segurar conexão entre turnos do agente."""
@@ -168,8 +183,9 @@ async def _fetch_via_fallback(url: str, ctx: ToolContext | None = None) -> str:
 
 async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
     """Busca uma URL diretamente quando o backend de extração falha."""
-    from backend.browser.ssrf_guard import is_url_ssrf_safe
     from backend.services.prompt_injection import detect_injection, envelope_untrusted
+
+    _validate_http_egress(url, ctx)
 
     headers = {
         "User-Agent": "Vectora/1.0",
@@ -212,8 +228,7 @@ async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
                 if not location:
                     response.raise_for_status()
                 redirected = urljoin(url, location)
-                if not is_url_ssrf_safe(redirected):
-                    raise ValueError("redirect recusado pelo SSRF guard")
+                _validate_http_egress(redirected, ctx)
                 redirected_url = urlparse(redirected)
                 redirected_host = (redirected_url.hostname or "").lower()
                 redirected_headers = dict(headers)

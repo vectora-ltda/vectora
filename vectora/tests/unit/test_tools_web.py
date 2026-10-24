@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.tools.web import fetch_url, web_search
+from backend.tools.web import _validate_http_egress, fetch_url, web_search
 
 
 @pytest.mark.asyncio
@@ -169,6 +169,18 @@ class TestFetchUrlSsrfGuard:
 
         direct.assert_awaited_once()
         assert "github" in result
+
+
+def test_direct_http_rejects_destination_denied_by_egress_policy() -> None:
+    with (
+        patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
+        patch(
+            "backend.services.egress_policy.is_url_allowed",
+            return_value=(False, "host denied"),
+        ),
+    ):
+        with pytest.raises(ValueError, match="política de egress"):
+            _validate_http_egress("https://public.example")
 
 
 @pytest.mark.asyncio
