@@ -845,22 +845,29 @@ async def run_conversation(
                         tc.name,
                         thread_id,
                     )
-            await emit(
-                ToolCallStarted(
-                    tool_name=tc.name,
-                    tool_call_id=tc.id,
-                    args_json=json.dumps(tc.args, ensure_ascii=False),
-                    render_hint=extras.render_hint if extras else "json",
-                    category=extras.category if extras else "general",
-                    destructive=extras.destructive if extras else False,
-                    icon=extras.icon if extras else "tool",
+            try:
+                await emit(
+                    ToolCallStarted(
+                        tool_name=tc.name,
+                        tool_call_id=tc.id,
+                        args_json=json.dumps(tc.args, ensure_ascii=False),
+                        render_hint=extras.render_hint if extras else "json",
+                        category=extras.category if extras else "general",
+                        destructive=extras.destructive if extras else False,
+                        icon=extras.icon if extras else "tool",
+                    )
                 )
-            )
-            await emit(
-                ToolActivity(
-                    tool_name=tc.name, tool_call_id=tc.id, args_preview=preview
+                await emit(
+                    ToolActivity(
+                        tool_name=tc.name, tool_call_id=tc.id, args_preview=preview
+                    )
                 )
-            )
+            except Exception:
+                logger.exception(
+                    "Falha ao emitir TOOL_STARTED para tool %s (thread %s)",
+                    tc.name,
+                    thread_id,
+                )
 
         resultados = await execute_tool_batch(
             tool_calls,
