@@ -252,6 +252,8 @@ def browser_search(
 
 def _find_workbench_page(browser: Browser, *, workspace_id: str | None = None) -> Page:
     """Return a user-visible page and reject the Vectora shell target."""
+    from backend.browser.session import _page_owners, _page_target_id
+
     contexts = list(browser.contexts)
     if not contexts:
         raise RuntimeError("Chromium do Electron não expôs contexto CDP")
@@ -266,18 +268,17 @@ def _find_workbench_page(browser: Browser, *, workspace_id: str | None = None) -
         and "127.0.0.1:8080" not in str(page.url)
         and "localhost:8080" not in str(page.url)
     ]
-    if workspace_id is not None:
-        from backend.browser.session import _page_owners, _page_target_id
-
-        owned = []
-        for page in candidates:
-            try:
-                owner = _page_owners.get(_page_target_id(page))
-            except Exception:
-                owner = None
-            if owner == workspace_id:
-                owned.append(page)
-        candidates = owned
+    owned: list[Page] = []
+    for page in candidates:
+        try:
+            owner = _page_owners.get(_page_target_id(page))
+        except Exception:
+            owner = None
+        # Um fallback sem workspace só pode usar uma página sem dono. Um
+        # fallback escopado só pode usar a página do próprio workspace.
+        if owner == workspace_id:
+            owned.append(page)
+    candidates = owned
     if not candidates:
         raise RuntimeError(
             "Nenhuma aba do Browser Workbench está aberta; abra uma aba no Electron "
