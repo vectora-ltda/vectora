@@ -870,7 +870,9 @@ async def _require_existing_thread(thread_id: str, request: Request) -> None:
 
 async def _assert_existing_thread_ownership(thread_id: str, request: Request) -> None:
     """Apply ownership checks and reject authenticated requests without a session."""
-    await _assert_owns_thread(thread_id, request)
+    # A read acknowledgement must never create an implicit ownership path for
+    # an unknown thread.  Require the session row before mutating its cursor.
+    await _assert_owns_thread(thread_id, request, require_existing=True)
     store = await _get_session_store()
     if await store.get_session(thread_id) is None:
         raise HTTPException(status_code=404, detail="Thread não encontrada")
