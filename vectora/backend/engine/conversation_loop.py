@@ -875,7 +875,6 @@ async def run_conversation(
                                 )
                                 if agent_run is not None:
                                     agent_run.evidence.append(v_res.to_evidence_entry())
-                                    agent_run.status = v_res.status
                                     agent_run.metrics = iter_metrics
                                     agent_run.detail = (
                                         "Verificação concluída com sucesso."
@@ -883,6 +882,17 @@ async def run_conversation(
                                         else f"Falha nos quality gates: {v_res.failure_feedback or ''}"
                                     )
                                     await session_store.upsert_agent_run(agent_run)
+                                    # A persistência da evidência não deve alterar a
+                                    # máquina de estados. O motor de verificação é a
+                                    # única fonte do desfecho terminal e a transição
+                                    # ocorre depois que a evidência está durável.
+                                    await _safe_update_agent_run_status(
+                                        session_store,
+                                        config.run_id,
+                                        status=v_res.status,
+                                        detail=agent_run.detail,
+                                        metrics=iter_metrics,
+                                    )
                             else:
                                 await _safe_update_agent_run_status(
                                     session_store,
