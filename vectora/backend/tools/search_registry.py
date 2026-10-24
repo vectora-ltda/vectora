@@ -154,6 +154,12 @@ def _electron_is_ready(workspace_id: str | None = None) -> bool:
 
 
 #: Ordem de preferência quando o usuário não escolheu. O Browser Workbench é
+#: Compatibilidade para doubles de teste e integrações antigas que expõem
+#: readiness sem argumento de workspace.
+def _browser_available() -> bool:
+    return _electron_is_ready()
+
+
 #: a fonte canônica quando o Chromium do Electron está pronto: ele preserva
 #: cookies/perfis e não exige uma credencial paga. Providers externos só
 #: entram depois dele, ou quando o sidecar não está disponível.
@@ -161,7 +167,7 @@ _BACKENDS: tuple[SearchBackend, ...] = (
     SearchBackend(
         name="browser",
         label="Browser embutido",
-        is_available=lambda: _electron_is_ready(),
+        is_available=_browser_available,
         search=_search_browser,
         keyless=True,
     ),
