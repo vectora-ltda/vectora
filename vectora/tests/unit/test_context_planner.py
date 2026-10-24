@@ -251,6 +251,21 @@ def test_memory_store_persistence_keeps_expiry_auditable(tmp_path) -> None:
     assert row is not None and row["invalidated_at"]
 
 
+def test_memory_store_persistent_expiry_compares_offsets_as_instants(tmp_path) -> None:
+    path = tmp_path / "context-memory-offset.db"
+    store = MemoryStore(path)
+    store.store(
+        "offset-1",
+        domain="session",
+        scope_id="thread-1",
+        content="offset-aware",
+        valid_until="2030-01-01T00:30:00-03:00",
+    )
+    assert store.expire(before="2030-01-01T02:00:00Z") == 0
+    assert store.expire(before="2030-01-01T04:00:00Z") == 1
+    assert MemoryStore(path).retrieve(scope_id="thread-1").records == []
+
+
 def test_memory_store_expire_compares_instants_not_iso_text() -> None:
     store = MemoryStore()
     store.store(
