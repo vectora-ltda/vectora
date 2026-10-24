@@ -283,7 +283,7 @@ class ProviderCapabilities(BaseModel):
     supported_models: list[str] = Field(default_factory=list)
     evidence: CapabilityEvidenceLevel = Field(
         default="documented",
-        description="Evidência de compatibilidade verificada para este provedor e runtime.",
+        description="Nível de evidência declarado para este provedor e runtime.",
     )
 
 
