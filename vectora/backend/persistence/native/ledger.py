@@ -328,6 +328,15 @@ async def ensure_thread_backfilled(
 ) -> bool:
     """Garante de forma preguiçosa que o ledger da thread está populado."""
     async with pool.acquire() as conn:
+        # A FK de ``ledger_backfill`` aponta para ``sessions``.  Verificar a
+        # sessão antes de delegar ao backfill evita retornar sucesso para IDs
+        # inexistentes e preserva o erro original quando o chamador tenta
+        # gravar uma thread que não foi criada.
+        cur_session = await conn.execute(
+            "SELECT 1 FROM sessions WHERE thread_id = ? LIMIT 1", (thread_id,)
+        )
+        if await cur_session.fetchone() is None:
+            return False
         cur = await conn.execute(
             "SELECT status FROM ledger_backfill WHERE thread_id = ?", (thread_id,)
         )
