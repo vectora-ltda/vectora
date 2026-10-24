@@ -100,7 +100,7 @@ async def _get_db() -> aiosqlite.Connection:
     return await _tasks_db()
 
 
-async def _ensure_version_column(db: Any) -> None:
+async def _ensure_version_column(db: aiosqlite.Connection) -> None:
     """Upgrade legacy task connections before a fenced mutation/read."""
     try:
         async with db.execute("PRAGMA table_info(vectora_background_tasks)") as cur:
@@ -365,7 +365,8 @@ async def set_status(
                 if cur.rowcount:
                     break
                 async with db.execute(
-                    "SELECT trigger_config, claim_lock, claim_expires_at "
+                    "SELECT trigger_config, claim_lock, claim_expires_at, "
+                    "status, updated_at, version "
                     "FROM vectora_background_tasks WHERE id = ?",
                     (task_id,),
                 ) as latest_cur:
@@ -379,6 +380,24 @@ async def set_status(
                 ):
                     await db.rollback()
                     raise ValueError("execução perdeu o claim da task")
+                if expected_status is not None and latest["status"] != expected_status:
+                    await db.rollback()
+                    raise ValueError("concorrência detectada: status foi modificado")
+                if (
+                    expected_updated_at is not None
+                    and latest["updated_at"] != expected_updated_at
+                ):
+                    await db.rollback()
+                    raise ValueError(
+                        "concorrência detectada: updated_at foi modificado"
+                    )
+                if expected_version is not None and str(latest["version"]) != str(
+                    expected_version
+                ):
+                    await db.rollback()
+                    raise ValueError("concorrência detectada: versão foi modificada")
+                # The claim and CAS still match, so the only valid reason for
+                # rowcount == 0 is a trigger edit. Recompute from that snapshot.
                 interval_config_raw = latest["trigger_config"]
                 next_run_at = _next_interval_run(interval_config_raw)
         else:
