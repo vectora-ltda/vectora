@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import json
+import sqlite3
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Literal
 
 from backend.services.context_manifest import ContextDomain
@@ -62,8 +66,10 @@ class MemoryRetrievalResult:
 class MemoryStore:
     """Repositório de memória unificado separando domínios operacionais e semânticos."""
 
-    def __init__(self) -> None:
+    def __init__(self, path: str | Path | None = None) -> None:
         self._records: dict[str, MemoryRecord] = {}
+        self._path = Path(path).expanduser() if path is not None else None
+        self._lock = threading.RLock()
         self._metrics = {
             "writes": 0,
             "idempotent_writes": 0,
@@ -71,6 +77,130 @@ class MemoryStore:
             "retrievals": 0,
             "hits": 0,
         }
+        if self._path is not None:
+            self._initialize_persistence()
+
+    def _connect(self) -> sqlite3.Connection:
+        if self._path is None:
+            raise RuntimeError("este MemoryStore não possui persistência configurada")
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        connection = sqlite3.connect(str(self._path), timeout=10.0)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    def _initialize_persistence(self) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS context_memory_records (
+                    record_id TEXT PRIMARY KEY,
+                    domain TEXT NOT NULL,
+                    scope_id TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    importance REAL NOT NULL,
+                    trust_level TEXT NOT NULL,
+                    provenance TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    accessed_at TEXT NOT NULL,
+                    metadata_json TEXT NOT NULL,
+                    confidence REAL NOT NULL,
+                    valid_until TEXT,
+                    invalidated_at TEXT,
+                    supersedes_id TEXT
+                )
+                """
+            )
+            rows = connection.execute("SELECT * FROM context_memory_records").fetchall()
+        with self._lock:
+            for row in rows:
+                record = self._record_from_row(row)
+                if record is not None:
+                    self._records[record.id] = record
+
+    @staticmethod
+    def _record_from_row(row: sqlite3.Row) -> MemoryRecord | None:
+        try:
+            metadata = json.loads(str(row["metadata_json"]))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        if not isinstance(metadata, dict):
+            return None
+        try:
+            return MemoryRecord(
+                id=str(row["record_id"]),
+                domain=row["domain"],
+                scope_id=str(row["scope_id"]),
+                content=str(row["content"]),
+                importance=float(row["importance"]),
+                trust_level=row["trust_level"],
+                provenance=str(row["provenance"]),
+                created_at=str(row["created_at"]),
+                accessed_at=str(row["accessed_at"]),
+                metadata=metadata,
+                confidence=float(row["confidence"]),
+                valid_until=(
+                    str(row["valid_until"]) if row["valid_until"] is not None else None
+                ),
+                invalidated_at=(
+                    str(row["invalidated_at"])
+                    if row["invalidated_at"] is not None
+                    else None
+                ),
+                supersedes_id=(
+                    str(row["supersedes_id"])
+                    if row["supersedes_id"] is not None
+                    else None
+                ),
+            )
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _record_parameters(record: MemoryRecord) -> tuple[object, ...]:
+        return (
+            record.id,
+            record.domain,
+            record.scope_id,
+            record.content,
+            record.importance,
+            record.trust_level,
+            record.provenance,
+            record.created_at,
+            record.accessed_at,
+            json.dumps(record.metadata, ensure_ascii=False, sort_keys=True),
+            record.confidence,
+            record.valid_until,
+            record.invalidated_at,
+            record.supersedes_id,
+        )
+
+    def _same_record(
+        self,
+        existing: MemoryRecord,
+        *,
+        domain: ContextDomain,
+        scope_id: str,
+        content: str,
+        importance: float,
+        trust_level: MemoryTrustLevel,
+        provenance: str,
+        metadata: JsonObject,
+        confidence: float,
+        valid_until: str | None,
+        supersedes_id: str | None,
+    ) -> bool:
+        return (
+            existing.domain == domain
+            and existing.scope_id == scope_id
+            and existing.content == content
+            and existing.provenance == provenance
+            and existing.metadata == metadata
+            and existing.trust_level == trust_level
+            and existing.importance == importance
+            and existing.confidence == confidence
+            and existing.valid_until == valid_until
+            and existing.supersedes_id == supersedes_id
+        )
 
     def store(
         self,
@@ -99,43 +229,65 @@ class MemoryStore:
             raise ValueError("importance deve estar entre 0 e 1")
         if not 0.0 <= confidence <= 1.0:
             raise ValueError("confidence deve estar entre 0 e 1")
-        self._metrics["writes"] += 1
-        existing = self._records.get(record_id)
-        if existing is not None:
-            same = (
-                existing.domain == domain
-                and existing.scope_id == scope_id
-                and existing.content == content
-                and existing.provenance == provenance
-                and existing.metadata == (metadata or {})
-                and existing.trust_level == trust_level
-                and existing.importance == importance
-                and existing.confidence == confidence
-                and existing.valid_until == valid_until
-                and existing.supersedes_id == supersedes_id
+        clean_metadata = metadata or {}
+        with self._lock:
+            self._metrics["writes"] += 1
+            existing = self._records.get(record_id)
+            if existing is None and self._path is not None:
+                with self._connect() as connection:
+                    row = connection.execute(
+                        "SELECT * FROM context_memory_records WHERE record_id = ?",
+                        (record_id,),
+                    ).fetchone()
+                if row is not None:
+                    existing = self._record_from_row(row)
+                    if existing is not None:
+                        self._records[record_id] = existing
+            if existing is not None:
+                if self._same_record(
+                    existing,
+                    domain=domain,
+                    scope_id=scope_id,
+                    content=content,
+                    importance=importance,
+                    trust_level=trust_level,
+                    provenance=provenance,
+                    metadata=clean_metadata,
+                    confidence=confidence,
+                    valid_until=valid_until,
+                    supersedes_id=supersedes_id,
+                ):
+                    self._metrics["idempotent_writes"] += 1
+                    return existing
+                self._metrics["conflicts"] += 1
+                raise MemoryConflictError(
+                    f"memória {record_id!r} já existe com conteúdo ou proveniência diferente"
+                )
+            record = MemoryRecord(
+                id=record_id,
+                domain=domain,
+                scope_id=scope_id,
+                content=content,
+                importance=importance,
+                trust_level=trust_level,
+                provenance=provenance,
+                metadata=clean_metadata,
+                confidence=confidence,
+                valid_until=valid_until,
+                supersedes_id=supersedes_id,
             )
-            if same:
-                self._metrics["idempotent_writes"] += 1
-                return existing
-            self._metrics["conflicts"] += 1
-            raise MemoryConflictError(
-                f"memória {record_id!r} já existe com conteúdo ou proveniência diferente"
-            )
-        record = MemoryRecord(
-            id=record_id,
-            domain=domain,
-            scope_id=scope_id,
-            content=content,
-            importance=importance,
-            trust_level=trust_level,
-            provenance=provenance,
-            metadata=metadata or {},
-            confidence=confidence,
-            valid_until=valid_until,
-            supersedes_id=supersedes_id,
-        )
-        self._records[record_id] = record
-        return record
+            if self._path is not None:
+                with self._connect() as connection:
+                    connection.execute(
+                        """INSERT INTO context_memory_records
+                        (record_id, domain, scope_id, content, importance,
+                         trust_level, provenance, created_at, accessed_at,
+                         metadata_json, confidence, valid_until, invalidated_at,
+                         supersedes_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        self._record_parameters(record),
+                    )
+            self._records[record_id] = record
+            return record
 
     def retrieve(
         self,
@@ -147,7 +299,8 @@ class MemoryStore:
         if limit < 0:
             raise ValueError("limit não pode ser negativo")
         t0 = time.perf_counter()
-        self._metrics["retrievals"] += 1
+        with self._lock:
+            self._metrics["retrievals"] += 1
         now = datetime.now(UTC)
         terms = {term for term in (query or "").casefold().split() if term}
         ranked: list[tuple[float, MemoryRecord]] = []
@@ -192,6 +345,12 @@ class MemoryStore:
         accessed_at = datetime.now(UTC).isoformat()
         for rec in selected:
             rec.accessed_at = accessed_at
+        if self._path is not None and selected:
+            with self._connect() as connection:
+                connection.executemany(
+                    "UPDATE context_memory_records SET accessed_at = ? WHERE record_id = ?",
+                    [(accessed_at, rec.id) for rec in selected],
+                )
         latency_ms = int((time.perf_counter() - t0) * 1000)
 
         return MemoryRetrievalResult(
@@ -202,27 +361,43 @@ class MemoryStore:
 
     def invalidate(self, record_id: str) -> bool:
         """Invalida uma versão sem removê-la do histórico auditável."""
-        record = self._records.get(record_id)
-        if record is None or not record.active:
-            return False
-        record.invalidated_at = datetime.now(UTC).isoformat()
-        return True
+        with self._lock:
+            record = self._records.get(record_id)
+            if record is None or not record.active:
+                return False
+            record.invalidated_at = datetime.now(UTC).isoformat()
+            if self._path is not None:
+                with self._connect() as connection:
+                    connection.execute(
+                        "UPDATE context_memory_records SET invalidated_at = ? WHERE record_id = ?",
+                        (record.invalidated_at, record_id),
+                    )
+            return True
 
     def expire(self, *, before: str | None = None) -> int:
         """Invalida registros expirados ou anteriores ao limite informado."""
         cutoff_dt = self._parse_datetime(before) if before else datetime.now(UTC)
         cutoff = cutoff_dt.isoformat()
         changed = 0
-        for record in self._records.values():
-            if not record.active or record.valid_until is None:
-                continue
-            try:
-                expires_at = self._parse_datetime(record.valid_until)
-            except ValueError:
-                continue
-            if expires_at <= cutoff_dt:
-                record.invalidated_at = cutoff
-                changed += 1
+        with self._lock:
+            for record in self._records.values():
+                if not record.active or record.valid_until is None:
+                    continue
+                try:
+                    expires_at = self._parse_datetime(record.valid_until)
+                except ValueError:
+                    continue
+                if expires_at <= cutoff_dt:
+                    record.invalidated_at = cutoff
+                    changed += 1
+            if self._path is not None and changed:
+                with self._connect() as connection:
+                    connection.execute(
+                        "UPDATE context_memory_records SET invalidated_at = ? "
+                        "WHERE valid_until IS NOT NULL AND valid_until <= ? "
+                        "AND invalidated_at IS NULL",
+                        (cutoff, cutoff),
+                    )
         return changed
 
     @staticmethod
@@ -237,7 +412,13 @@ class MemoryStore:
         return dict(self._metrics)
 
 
-_DEFAULT_MEMORY_STORE = MemoryStore()
+def _default_memory_store_path() -> Path:
+    from backend.settings import settings
+
+    return settings.vectora_home / "context-memory.db"
+
+
+_DEFAULT_MEMORY_STORE = MemoryStore(_default_memory_store_path())
 
 
 def get_memory_store() -> MemoryStore:

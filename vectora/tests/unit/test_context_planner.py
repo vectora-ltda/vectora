@@ -198,6 +198,59 @@ def test_memory_store_conflicts_when_expiry_or_confidence_changes() -> None:
         )
 
 
+def test_memory_store_persists_across_instances_and_keeps_idempotence(tmp_path) -> None:
+    path = tmp_path / "context-memory.db"
+    first = MemoryStore(path)
+    record = first.store(
+        "durable-1",
+        domain="project",
+        scope_id="workspace-1",
+        content="Use o storage completo",
+        provenance="test",
+        metadata={"source": "fixture"},
+    )
+
+    second = MemoryStore(path)
+    loaded = second.retrieve(domain="project", scope_id="workspace-1").records
+    assert [item.id for item in loaded] == [record.id]
+    assert loaded[0].content == record.content
+    assert (
+        second.store(
+            "durable-1",
+            domain="project",
+            scope_id="workspace-1",
+            content="Use o storage completo",
+            provenance="test",
+            metadata={"source": "fixture"},
+        )
+        is loaded[0]
+    )
+    assert second.metrics()["idempotent_writes"] == 1
+
+
+def test_memory_store_persistence_keeps_expiry_auditable(tmp_path) -> None:
+    path = tmp_path / "context-memory.db"
+    store = MemoryStore(path)
+    store.store(
+        "expired-1",
+        domain="session",
+        scope_id="thread-1",
+        content="temporary",
+        valid_until="2030-01-01T00:00:00+00:00",
+    )
+    assert store.expire(before="2031-01-01T00:00:00+00:00") == 1
+    assert store.retrieve(scope_id="thread-1").records == []
+
+    reloaded = MemoryStore(path)
+    assert reloaded.retrieve(scope_id="thread-1").records == []
+    with store._connect() as connection:
+        row = connection.execute(
+            "SELECT invalidated_at FROM context_memory_records WHERE record_id = ?",
+            ("expired-1",),
+        ).fetchone()
+    assert row is not None and row["invalidated_at"]
+
+
 def test_memory_store_expire_compares_instants_not_iso_text() -> None:
     store = MemoryStore()
     store.store(
