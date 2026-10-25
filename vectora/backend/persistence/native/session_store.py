@@ -46,12 +46,14 @@ logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
+    """Executa a operação now."""
     return datetime.now(UTC).isoformat()
 
 
 def _message_to_row(
     msg: VMessage,
 ) -> tuple[str, str, str | None, str | None, str | None, int]:
+    """Executa a operação message to row."""
     data = msg.to_dict()
     for block in data["content"]:
         if block.get("kind") == "image_url" and (
@@ -77,6 +79,7 @@ def _message_to_row(
 
 
 def _row_to_message(row: Any) -> VMessage:
+    """Executa a operação row to message."""
     _id, _parent, role, content_json, tool_calls_json, tool_call_id, name, is_error = (
         row
     )
@@ -110,6 +113,7 @@ class SessionStore:
     PRAGMAs de hardening já aplicados por conexão."""
 
     def __init__(self, pool: AsyncConnectionPool) -> None:
+        """Inicializa o estado da instância."""
         self._pool = pool
         self._is_setup = False
 
@@ -131,6 +135,7 @@ class SessionStore:
         mode: str = "chat",
         permission_mode: str = "ask",
     ) -> None:
+        """Executa a operação create session."""
         await self.setup()
         agora = _now()
         async with self._pool.acquire() as conn:
@@ -901,6 +906,7 @@ class SessionStore:
         return [r[0] for r in rows if r[0]]
 
     async def get_pending_approval(self, thread_id: str) -> dict[str, Any] | None:
+        """Executa a operação get pending approval."""
         await self.setup()
         async with self._pool.acquire() as conn:
             cur = await conn.execute(
@@ -1162,6 +1168,7 @@ class SessionStore:
                 raise
 
     async def clear_pending_approval(self, thread_id: str) -> None:
+        """Executa a operação clear pending approval."""
         await self.setup()
         async with self._pool.acquire() as conn:
             await conn.execute(

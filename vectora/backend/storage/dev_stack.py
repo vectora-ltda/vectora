@@ -125,6 +125,7 @@ class StackResult:
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """Executa a operação run."""
     return subprocess.run(  # noqa: S603 — comandos docker montados internamente  # nosec B603
         cmd, capture_output=True, text=True, timeout=60, check=False
     )
@@ -148,6 +149,7 @@ def _run_detached(cmd: list[str]) -> int:
 
 
 def _docker_available() -> bool:
+    """Executa a operação docker available."""
     try:
         return (
             _run(["docker", "version", "--format", "{{.Server.Version}}"]).returncode
@@ -158,6 +160,7 @@ def _docker_available() -> bool:
 
 
 def _existing_containers() -> set[str]:
+    """Executa a operação existing containers."""
     proc = _run(["docker", "ps", "-a", "--format", "{{.Names}}"])
     if proc.returncode != 0:
         return set()
@@ -322,6 +325,7 @@ def stack_down() -> StackResult:
 
 
 def _running_containers() -> set[str]:
+    """Executa a operação running containers."""
     proc = _run(["docker", "ps", "--format", "{{.Names}}"])
     if proc.returncode != 0:
         return set()

@@ -113,7 +113,8 @@ class LoopResult:
 
 
 async def _noop_event(_event: object) -> None:
-    return None
+    """Executa a operação noop event."""
+    return
 
 
 _ARGS_PREVIEW_MAX_CHARS = 80
@@ -246,6 +247,7 @@ async def run_conversation(
     # usuário autenticado. O marcador é refeito a cada execução para impedir
     # que um contexto reidratado ou argumento de tool carregue uma isenção
     # não confirmada.
+    """Executa a operação run conversation."""
     from backend.services.media_billing import apply_media_billing_source
 
     await apply_media_billing_source(ctx)
@@ -713,6 +715,7 @@ async def run_conversation(
             _started_at: dict[str, float] = tool_started_at,
             _previews: dict[str, str] = tool_args_previews,
         ) -> None:
+            """Executa a operação record tool started."""
             spec = tool_registry.get(tc.name)
             extras = spec.extras if spec is not None else None
             _started_at[tc.id] = time.monotonic()
@@ -1058,12 +1061,14 @@ async def resume_conversation(
     async def _execute_resume_tool(
         tc: ToolCall, args: dict[str, Any] | None = None
     ) -> VMessage:
+        """Executa a operação execute resume tool."""
         call = replace(tc, args=args) if args is not None else tc
         call_id = call.id or f"{resume_run_id or thread_id}:tool:{uuid4().hex}"
         call = replace(call, id=call_id)
         sanitized = _sanitize_tool_call(call, ctx)
 
         async def record(event_type: str, payload: dict[str, Any]) -> None:
+            """Executa a operação record."""
             if not resume_run_id:
                 return
             try:

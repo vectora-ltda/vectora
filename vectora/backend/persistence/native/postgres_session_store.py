@@ -44,12 +44,14 @@ logger = logging.getLogger(__name__)
 
 
 def _now() -> str:
+    """Executa a operação now."""
     return datetime.now(UTC).isoformat()
 
 
 def _message_to_row(
     msg: VMessage,
 ) -> tuple[str, str, str | None, str | None, str | None]:
+    """Executa a operação message to row."""
     data = msg.to_dict()
     for block in data["content"]:
         if block.get("kind") == "image_url" and (
@@ -74,6 +76,7 @@ def _message_to_row(
 
 
 def _row_to_message(row: Any) -> VMessage:
+    """Executa a operação row to message."""
     data = {
         "role": row["role"],
         "content": json.loads(row["content_json"]),
@@ -93,10 +96,12 @@ class PostgresSessionStore:
     de ``backend.storage.factory.get_pg_pool()``)."""
 
     def __init__(self, pool: asyncpg.Pool) -> None:
+        """Inicializa o estado da instância."""
         self._pool = pool
         self._is_setup = False
 
     async def setup(self) -> None:
+        """Executa a operação setup."""
         if self._is_setup:
             return
         await setup_postgres_session_schema(self._pool)
@@ -112,6 +117,7 @@ class PostgresSessionStore:
         mode: str = "chat",
         permission_mode: str = "ask",
     ) -> None:
+        """Executa a operação create session."""
         await self.setup()
         agora = _now()
         async with self._pool.acquire() as conn:
@@ -602,6 +608,7 @@ class PostgresSessionStore:
         return result
 
     async def get_pending_approval(self, thread_id: str) -> dict[str, Any] | None:
+        """Executa a operação get pending approval."""
         await self.setup()
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -763,6 +770,7 @@ class PostgresSessionStore:
         priority: int = 0,
         expires_at: str | None = None,
     ) -> None:
+        """Executa a operação put pending approval."""
         await self.setup()
         agora = _now()
         async with self._pool.acquire() as conn, conn.transaction():
@@ -830,6 +838,7 @@ class PostgresSessionStore:
             )
 
     async def clear_pending_approval(self, thread_id: str) -> None:
+        """Executa a operação clear pending approval."""
         await self.setup()
         async with self._pool.acquire() as conn:
             await conn.execute(
@@ -1239,6 +1248,7 @@ class PostgresSessionStore:
         content: str = "",
         tool_calls_json: str | None = None,
     ) -> None:
+        """Executa a operação upsert run draft."""
         await self.setup()
         now = _now()
         async with self._pool.acquire() as conn:
@@ -1256,6 +1266,7 @@ class PostgresSessionStore:
             )
 
     async def get_run_draft(self, thread_id: str, run_id: str) -> RunDraft | None:
+        """Executa a operação get run draft."""
         await self.setup()
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -1275,6 +1286,7 @@ class PostgresSessionStore:
         )
 
     async def delete_run_draft(self, thread_id: str, run_id: str) -> None:
+        """Executa a operação delete run draft."""
         await self.setup()
         async with self._pool.acquire() as conn:
             await conn.execute(
@@ -1284,6 +1296,7 @@ class PostgresSessionStore:
             )
 
     async def find_orphan_runs(self) -> list[tuple[str, str]]:
+        """Executa a operação find orphan runs."""
         await self.setup()
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(

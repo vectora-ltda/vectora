@@ -301,6 +301,7 @@ class ApprovalGate:
     persistência síncrona é quem garante."""
 
     def __init__(self, session_store: SessionStore) -> None:
+        """Inicializa o estado da instância."""
         self._session_store = session_store
         self._events: dict[str, Any] = {}
         self._ephemeral_args: dict[str, dict[str, Any]] = {}
@@ -320,6 +321,7 @@ class ApprovalGate:
         expires_at: str | None = None,
         approval_metadata: dict[str, Any] | None = None,
     ) -> None:
+        """Executa a operação request approval."""
         import asyncio
 
         safe_args = dict(args)

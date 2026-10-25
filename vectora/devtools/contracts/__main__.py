@@ -77,6 +77,7 @@ def export_http(contracts_dir: Path) -> None:
         routes_map.setdefault(path, set()).update(methods)
 
     def _methods_str(r: dict[str, object]) -> str:
+        """Normaliza a representação dos métodos HTTP do inventário."""
         m = r.get("methods")
         return "".join(str(x) for x in m) if isinstance(m, list) else ""
 

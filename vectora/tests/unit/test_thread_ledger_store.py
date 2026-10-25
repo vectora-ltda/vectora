@@ -38,6 +38,7 @@ from backend.vtypes.message import MessageRole, text_message
 
 @pytest.fixture
 async def store(tmp_path: Path) -> AsyncGenerator[SessionStore]:
+    """Executa a operação store."""
     pool = AsyncConnectionPool(str(tmp_path / "sessions.db"), min_size=1, max_size=5)
     await pool.open()
     store = SessionStore(pool)
