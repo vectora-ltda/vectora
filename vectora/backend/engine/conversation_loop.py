@@ -315,8 +315,7 @@ async def run_conversation(
         isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
     ):
         runs = await session_store.list_agent_runs(thread_id, limit=5)
-        latest_run = runs[0] if runs else None
-        if latest_run and latest_run.untrusted_content:
+        if any(run.untrusted_content for run in runs):
             if not isinstance(ctx._extra, dict):
                 ctx._extra = {}
             ctx._extra["untrusted_content"] = True
@@ -924,7 +923,8 @@ async def run_conversation(
                 and config.run_id
                 and resultado.name
             ):
-                await session_store.record_run_evidence(
+                await _safe_record_run_evidence(
+                    session_store,
                     config.run_id,
                     tool_used=resultado.name,
                     evidence={
