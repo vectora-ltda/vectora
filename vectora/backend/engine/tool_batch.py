@@ -46,6 +46,7 @@ def _is_tool_error(text: str) -> bool:
 
 
 def _redact_secrets(texto: str) -> str:
+    """Executa a operação redact secrets."""
     for pattern in _SECRET_PATTERNS:
         texto = pattern.sub("[REDACTED]", texto)
     return texto
@@ -60,6 +61,7 @@ _POST_EXECUTE: tuple[Callable[[str], str], ...] = (_redact_secrets,)
 
 
 def _apply_post_execute(texto: str) -> str:
+    """Executa a operação apply post execute."""
     for hook in _POST_EXECUTE:
         texto = hook(texto)
     return texto

@@ -329,12 +329,14 @@ class EmbeddingDimensionMismatchError(Exception):
 
 
 async def _embedding_meta_db() -> Any:
+    """Executa a operação embedding meta db."""
     from backend.api.handlers.threads import _get_db as _threads_db
 
     return await _threads_db()
 
 
 async def _ensure_embedding_meta_table(db: Any) -> None:
+    """Executa a operação ensure embedding meta table."""
     await db.execute("""
         CREATE TABLE IF NOT EXISTS embedding_index_meta (
             collection TEXT PRIMARY KEY,

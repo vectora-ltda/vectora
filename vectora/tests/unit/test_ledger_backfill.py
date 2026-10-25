@@ -24,6 +24,7 @@ from backend.vtypes.message import MessageRole, text_message
 
 @pytest.fixture
 async def pool(tmp_path: Path) -> AsyncGenerator[AsyncConnectionPool]:
+    """Executa a operação pool."""
     p = AsyncConnectionPool(str(tmp_path / "sessions.db"), min_size=1, max_size=5)
     await p.open()
     store = SessionStore(p)
@@ -36,6 +37,7 @@ async def pool(tmp_path: Path) -> AsyncGenerator[AsyncConnectionPool]:
 
 class TestLedgerBackfill:
     async def test_backfill_idempotent(self, pool: AsyncConnectionPool) -> None:
+        """Verifica o comportamento de backfill idempotent."""
         store = SessionStore(pool)
         await store.create_session("thread-old", user_id="alice")
 
@@ -95,6 +97,7 @@ class TestLedgerBackfill:
     async def test_ensure_thread_backfilled_lazy(
         self, pool: AsyncConnectionPool
     ) -> None:
+        """Verifica o comportamento de ensure thread backfilled lazy."""
         store = SessionStore(pool)
         await store.create_session("thread-lazy", user_id="bob")
         await store.append_message(
