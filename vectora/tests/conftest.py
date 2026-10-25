@@ -109,6 +109,7 @@ _diag_test_count = 0
 
 
 def pytest_runtest_teardown(item: Any) -> None:
+    """Executa a operação pytest runtest teardown."""
     global _diag_test_count
     _diag_test_count += 1
     if _diag_test_count % 20 != 0:
@@ -177,12 +178,14 @@ def pytest_unconfigure(config: Any) -> None:
 
 
 def _free_port() -> int:
+    """Executa a operação free port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
 
 async def _wait_port_open(port: int, timeout_s: float) -> None:
+    """Executa a operação wait port open."""
     loop = asyncio.get_event_loop()
     deadline = loop.time() + timeout_s
     last_error: OSError | None = None
@@ -213,6 +216,7 @@ _background_tasks: set[asyncio.Task[None]] = set()
 
 
 def _track(task: asyncio.Task[None]) -> None:
+    """Executa a operação track."""
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
 

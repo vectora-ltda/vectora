@@ -4,6 +4,7 @@ from devtools.contracts.compat import check_schema_compatibility
 
 
 def test_schema_compat_identical() -> None:
+    """Verifica o comportamento de schema compat identical."""
     s1 = {"type": "object", "properties": {"a": {"type": "string"}}}
     s2 = {"type": "object", "properties": {"a": {"type": "string"}}}
     report = check_schema_compatibility(s1, s2)
@@ -13,6 +14,7 @@ def test_schema_compat_identical() -> None:
 
 
 def test_schema_compat_added_field() -> None:
+    """Verifica o comportamento de schema compat added field."""
     old = {"type": "object", "properties": {"a": {"type": "string"}}}
     new = {
         "type": "object",
@@ -26,6 +28,7 @@ def test_schema_compat_added_field() -> None:
 
 
 def test_schema_compat_removed_field() -> None:
+    """Verifica o comportamento de schema compat removed field."""
     old = {
         "type": "object",
         "properties": {"a": {"type": "string"}, "b": {"type": "integer"}},
@@ -38,6 +41,7 @@ def test_schema_compat_removed_field() -> None:
 
 
 def test_schema_compat_type_changed() -> None:
+    """Verifica o comportamento de schema compat type changed."""
     old = {"type": "object", "properties": {"a": {"type": "string"}}}
     new = {"type": "object", "properties": {"a": {"type": "integer"}}}
     report = check_schema_compatibility(old, new)
@@ -47,6 +51,7 @@ def test_schema_compat_type_changed() -> None:
 
 
 def test_schema_compat_required_fields_by_direction() -> None:
+    """Verifica o comportamento de schema compat required fields by direction."""
     old = {"type": "object", "properties": {"a": {"type": "string"}}}
     new = {
         "type": "object",
@@ -65,6 +70,7 @@ def test_schema_compat_required_fields_by_direction() -> None:
 
 
 def test_schema_compat_removed_required_fields_by_direction() -> None:
+    """Verifica o comportamento de schema compat removed required fields by direction."""
     old = {
         "type": "object",
         "properties": {"a": {"type": "string"}},
@@ -89,6 +95,7 @@ def test_schema_compat_removed_required_fields_by_direction() -> None:
 
 
 def test_schema_compat_nested_schemas_and_refs() -> None:
+    """Verifica o comportamento de schema compat nested schemas and refs."""
     old = {
         "type": "object",
         "properties": {
@@ -107,6 +114,7 @@ def test_schema_compat_nested_schemas_and_refs() -> None:
 
 
 def test_openapi_endpoint_and_request_schema_removal_detection() -> None:
+    """Verifica o comportamento de openapi endpoint and request schema removal detection."""
     from devtools.contracts.__main__ import (
         _classify_openapi_schemas,
         _removed_operations,
@@ -198,12 +206,14 @@ def test_openapi_endpoint_and_request_schema_removal_detection() -> None:
 
 
 def test_python_union_type_to_ts_preserves_nullability() -> None:
+    """Verifica o comportamento de python union type to ts preserves nullability."""
     from devtools.contracts.__main__ import _python_type_to_ts
 
     assert _python_type_to_ts(str | None) == "string | null"
 
 
 def test_schema_compat_combinators_compare_content_and_direction() -> None:
+    """Verifica o comportamento de schema compat combinators compare content and direction."""
     old = {"anyOf": [{"type": "string"}, {"type": "integer"}]}
     removed = {"anyOf": [{"type": "string"}]}
     request_report = check_schema_compatibility(old, removed, direction="request")
@@ -217,6 +227,7 @@ def test_schema_compat_combinators_compare_content_and_direction() -> None:
 
 
 def test_schema_compat_response_enum_expansion_is_breaking() -> None:
+    """Verifica o comportamento de schema compat response enum expansion is breaking."""
     report = check_schema_compatibility(
         {"type": "string", "enum": ["a"]},
         {"type": "string", "enum": ["a", "b"]},
@@ -226,6 +237,7 @@ def test_schema_compat_response_enum_expansion_is_breaking() -> None:
 
 
 def test_schema_compat_combinator_removal_from_middle() -> None:
+    """Verifica o comportamento de schema compat combinator removal from middle."""
     old = {"anyOf": [{"type": "string"}, {"type": "integer"}, {"type": "boolean"}]}
     new = {"anyOf": [{"type": "string"}, {"type": "boolean"}]}
 
@@ -238,6 +250,7 @@ def test_schema_compat_combinator_removal_from_middle() -> None:
 
 
 def test_contract_baseline_prefers_ci_base_and_explicit_override(monkeypatch) -> None:
+    """Verifica o comportamento de contract baseline prefers ci base and explicit override."""
     from devtools.contracts.__main__ import _contract_baseline_ref
 
     monkeypatch.delenv("VECTORA_CONTRACT_BASE_REF", raising=False)
