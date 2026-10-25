@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,8 @@ import aiosqlite
 
 from backend.services.artifact_retention import ArtifactGcResult, collect_artifacts
 from backend.services.maintenance import storage_operation
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,22 @@ async def run_storage_maintenance(
                 await connection.execute("PRAGMA incremental_vacuum")
                 incremental_vacuum = True
             await connection.commit()
+
+        # Expired memory records are filtered at read time, but must also be
+        # physically removed during maintenance so retention is bounded for
+        # both the SQLite and PostgreSQL store implementations.  Keep this
+        # optional: maintenance can run before the provider factory is ready.
+        try:
+            from backend.storage.factory import get_store
+
+            store = await get_store()
+            purge = getattr(store, "purge_expired", None)
+            if callable(purge):
+                await purge()
+        except Exception:
+            logger.warning(
+                "storage maintenance: failed to purge expired records", exc_info=True
+            )
 
         root = (
             Path(artifact_root)

@@ -160,6 +160,31 @@ class VectoraPostgresStore:
             duration_ms=(time.perf_counter() - started) * 1000,
         )
 
+    async def purge_expired(self) -> int:
+        """Remove itens expirados em uma passagem de manutenção limitada."""
+        await self.setup()
+        now = datetime.now(UTC)
+        removed = 0
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT namespace, key, value FROM vectora_store_items"
+            )
+            for row in rows:
+                value = row["value"]
+                if isinstance(value, str):
+                    try:
+                        value = json.loads(value)
+                    except (TypeError, ValueError):
+                        continue
+                if isinstance(value, dict) and is_store_value_expired(value, now=now):
+                    await conn.execute(
+                        "DELETE FROM vectora_store_items WHERE namespace = $1 AND key = $2",
+                        row["namespace"],
+                        row["key"],
+                    )
+                    removed += 1
+        return removed
+
     async def asearch(
         self,
         namespace: tuple[str, ...],

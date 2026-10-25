@@ -49,6 +49,21 @@ async def indexed_store(tmp_path):
 
 
 class TestPutGet:
+    async def test_purge_expired_remove_registros_fisicamente(
+        self, store: VectoraStore
+    ):
+        """A manutenção não deixa registros expirados acumularem no banco."""
+        await store.aput(
+            ("user", "u1", "memories"),
+            "expired",
+            {"content": "não usar", "valid_until": "2000-01-01T00:00:00+00:00"},
+        )
+        await store.aput(("user", "u1", "memories"), "live", {"content": "usar"})
+
+        assert await store.purge_expired() == 1
+        assert await store.aget(("user", "u1", "memories"), "expired") is None
+        assert await store.aget(("user", "u1", "memories"), "live") is not None
+
     async def test_item_expirado_nao_e_reprojetado(self, store: VectoraStore):
         """Verifica o comportamento de item expirado nao e reprojetado."""
         await store.aput(

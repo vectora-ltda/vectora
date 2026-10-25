@@ -408,6 +408,28 @@ class VectoraStore:
             duration_ms=(time.perf_counter() - started) * 1000,
         )
 
+    async def purge_expired(self) -> int:
+        """Remove itens expirados em uma passagem de manutenção limitada."""
+        await self.setup()
+        now = datetime.now(UTC)
+        removed = 0
+        async with self._pool.acquire() as conn:
+            cursor = await conn.execute("SELECT namespace, key, value FROM store_items")
+            rows = await cursor.fetchall()
+            for namespace, key, value_json in rows:
+                try:
+                    value = json.loads(value_json)
+                except (TypeError, ValueError):
+                    continue
+                if is_store_value_expired(value, now=now):
+                    await conn.execute(
+                        "DELETE FROM store_items WHERE namespace = ? AND key = ?",
+                        (namespace, key),
+                    )
+                    removed += 1
+            await conn.commit()
+        return removed
+
     async def asearch(
         self,
         namespace: tuple[str, ...],
