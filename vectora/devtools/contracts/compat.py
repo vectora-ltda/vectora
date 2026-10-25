@@ -10,11 +10,13 @@ from typing import Any
 
 class CompatibilityReport:
     def __init__(self) -> None:
+        """Inicializa o estado da instância."""
         self.breaking: list[str] = []
         self.non_breaking: list[str] = []
 
     @property
     def is_compatible(self) -> bool:
+        """Executa a operação is compatible."""
         return len(self.breaking) == 0
 
 

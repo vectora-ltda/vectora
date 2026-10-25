@@ -71,7 +71,9 @@ router = APIRouter()
 class _SessionStore(Protocol):
     async def get_session(
         self, thread_id: str, *, user_id: str | None = None
-    ) -> dict[str, object] | None: ...
+    ) -> dict[str, object] | None:
+        """Recupera uma sessão pelo identificador e proprietário."""
+        ...
 
 
 _CHAT_PERSISTED_HEADER = "X-Vectora-Chat-Persisted"
@@ -1127,6 +1129,7 @@ async def stream_chat(
     run_id = uuid.uuid4().hex
 
     async def run(on_event: EventSink) -> str:
+        """Executa a operação run."""
         chat_client = FallbackChatClient(primary_model_id=configurable.get("model", ""))
         run_ctx = ctx_from_config(config)
         run_ctx.store = await agent_factory.get_store()
@@ -1372,6 +1375,7 @@ async def resume_chat(
     run_id = uuid.uuid4().hex
 
     async def run(on_event: EventSink) -> str:
+        """Executa a operação run."""
         run_ctx = ctx_from_config(config)
         run_ctx.store = await agent_factory.get_store()
         if hasattr(session_store, "list_agent_runs"):
