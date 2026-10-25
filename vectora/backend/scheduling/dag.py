@@ -303,3 +303,17 @@ class DAGStore:
                 _now(),
             ),
         )
+
+
+async def recover_expired_dag_claims() -> int:
+    """Reconcilia leases de etapas após reinício do scheduler."""
+    from backend.scheduling.background_tasks import _get_db
+
+    db = await _get_db()
+    try:
+        db.row_factory = aiosqlite.Row
+        store = DAGStore(db)
+        await store.setup()
+        return await store.recover_expired_claims()
+    finally:
+        await db.close()
