@@ -11,11 +11,53 @@ from pathlib import Path
 
 import pytest
 
+from backend.storage import backup_manifest as backup_module
 from backend.storage.backup_manifest import (
     create_backup,
     inspect_backup,
     restore_backup,
 )
+
+
+def test_restore_rejeita_limite_agregado_antes_de_publicar(
+    tmp_path: Path, monkeypatch
+) -> None:
+    payload_a = b"1234"
+    payload_b = b"5678"
+    archive = tmp_path / "aggregate-limit.zip"
+    manifest = {
+        "format_version": 1,
+        "storage_mode": "lite",
+        "files": {
+            "artifacts": [
+                {
+                    "path": "artifacts/a.bin",
+                    "sha256": hashlib.sha256(payload_a).hexdigest(),
+                    "size": len(payload_a),
+                    "count": 1,
+                },
+                {
+                    "path": "artifacts/b.bin",
+                    "sha256": hashlib.sha256(payload_b).hexdigest(),
+                    "size": len(payload_b),
+                    "count": 1,
+                },
+            ]
+        },
+    }
+    with zipfile.ZipFile(archive, "w") as handle:
+        handle.writestr("manifest.json", json.dumps(manifest))
+        handle.writestr("artifacts/a.bin", payload_a)
+        handle.writestr("artifacts/b.bin", payload_b)
+
+    database = tmp_path / "data" / "vectora.db"
+    database.parent.mkdir()
+    database.write_bytes(b"unchanged")
+    monkeypatch.setattr(backup_module, "MAX_RESTORE_BYTES", 7)
+
+    with pytest.raises(ValueError, match="limite agregado"):
+        restore_backup(archive, database, categories={"artifacts"})
+    assert database.read_bytes() == b"unchanged"
 
 
 def test_create_and_inspect_preserva_manifesto_lite(tmp_path: Path) -> None:

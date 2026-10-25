@@ -365,7 +365,7 @@ def test_context_planner_injects_persistent_project_memory() -> None:
                 key="persisted-rule",
                 value={
                     "content": "Sempre validar o schema antes do commit",
-                    "metadata": {"domain": "project"},
+                    "metadata": {"domain": "project", "trust_level": "trusted"},
                 },
             )
         ],
@@ -437,14 +437,22 @@ def test_context_planner_ignora_memoria_persistida_expirada() -> None:
                 value={
                     "content": "Regra vencida",
                     "valid_until": "2000-01-01T00:00:00+00:00",
-                    "metadata": {"domain": "project", "scope_id": "ws-1"},
+                    "metadata": {
+                        "domain": "project",
+                        "scope_id": "ws-1",
+                        "trust_level": "trusted",
+                    },
                 },
             ),
             SimpleNamespace(
                 key="active",
                 value={
                     "content": "Regra vigente",
-                    "metadata": {"domain": "project", "scope_id": "ws-1"},
+                    "metadata": {
+                        "domain": "project",
+                        "scope_id": "ws-1",
+                        "trust_level": "trusted",
+                    },
                 },
             ),
         ],

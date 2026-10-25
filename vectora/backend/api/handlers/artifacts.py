@@ -17,10 +17,14 @@ from typing import Annotated, TypedDict
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from backend.settings import settings
-from backend.vtypes.documents import DEFAULT_ARTIFACT_TYPE, ArtifactMetadata
+from backend.vtypes.documents import (
+    DEFAULT_ARTIFACT_TYPE,
+    ArtifactIntegrity,
+    ArtifactMetadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +47,7 @@ class ArtifactContent(BaseModel):
     retention_class: str = "run"
 
 
-class _ArtifactIntegrity(TypedDict):
+class _IntegrityFields(TypedDict):
     byte_size: int
     sha256: str
     retention_class: str
@@ -87,28 +91,31 @@ def _read_artifact_type(path: Path) -> str:
         return DEFAULT_ARTIFACT_TYPE
 
 
-def _read_integrity(path: Path) -> _ArtifactIntegrity:
+def _sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _read_integrity(path: Path) -> _IntegrityFields:
     """Lê checksum persistido ou calcula integridade para artifacts legados."""
     sidecar = path.with_suffix(".artifact.json")
     try:
         raw = json.loads(sidecar.read_text(encoding="utf-8"))
-        if (
-            isinstance(raw, dict)
-            and isinstance(raw.get("byte_size"), int)
-            and isinstance(raw.get("sha256"), str)
-            and isinstance(raw.get("retention_class"), str)
-        ):
-            return {
-                "byte_size": raw["byte_size"],
-                "sha256": raw["sha256"],
-                "retention_class": raw["retention_class"],
-            }
-    except (OSError, ValueError, TypeError):
+        parsed = ArtifactIntegrity.model_validate(raw)
+        return {
+            "byte_size": parsed.byte_size,
+            "sha256": parsed.sha256,
+            "retention_class": parsed.retention_class,
+        }
+    except (OSError, ValueError, TypeError, ValidationError):
         pass
     try:
         return {
             "byte_size": path.stat().st_size,
-            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "sha256": _sha256_file(path),
             "retention_class": "run",
         }
     except OSError:
@@ -182,7 +189,7 @@ def _media_artifacts(base: Path, session_id: str) -> list[ArtifactMetadata]:
     for path in files:
         try:
             stat = path.stat()
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            digest = _sha256_file(path)
         except (OSError, ValueError):
             continue
         found.append(

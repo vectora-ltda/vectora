@@ -17,6 +17,10 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from pydantic import ValidationError
+
+from backend.vtypes.documents import ArtifactIntegrity
+
 
 @dataclass(frozen=True)
 class ArtifactGcResult:
@@ -52,10 +56,10 @@ def _retention_class(sidecar: Path) -> str:
         payload = json.loads(sidecar.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
         return "run"
-    if not isinstance(payload, dict):
+    try:
+        return ArtifactIntegrity.model_validate(payload).retention_class
+    except (TypeError, ValueError, ValidationError):
         return "run"
-    value = payload.get("retention_class")
-    return value if isinstance(value, str) and value else "run"
 
 
 def _iter_payloads(

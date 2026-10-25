@@ -933,8 +933,8 @@ class SystemOneHarness:
         correlation_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Ordena candidatos já autorizados via Score, preservando o ranking original em falha ou modo shadow."""
+        self.last_rerank_status = "not_called"
         if not candidates:
-            self.last_rerank_status = "not_called"
             return []
         limit = top_k if top_k is not None and top_k > 0 else len(candidates)
         mode = self.get_mode("rag_rerank_scoring", workspace_id=workspace_id)
@@ -978,6 +978,7 @@ class SystemOneHarness:
         except TimeoutError:
             # A single deadline covers queue admission, provider calls and semaphore
             # waits. Preserve the source order when the aggregate budget expires.
+            self.last_rerank_status = "fallback"
             return list(candidates[:limit])
         scored: list[tuple[float, int, str, dict[str, Any]]] = []
         for entry in results:

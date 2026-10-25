@@ -20,7 +20,9 @@ def test_cold_archive_round_trip_is_hashed_and_rehydratable(tmp_path: Path) -> N
         archive.path, expected_sha256=archive.sha256, expected_thread_id="thread-1"
     )
     assert records[0]["kind"] == "metadata"
-    assert records[1]["value"]["sequence"] == 1
+    value = records[1]["value"]
+    assert isinstance(value, dict)
+    assert value["sequence"] == 1
 
 
 def test_cold_archive_rejects_tampering_and_wrong_thread(tmp_path: Path) -> None:

@@ -43,7 +43,7 @@ from backend.services.security import (
 from backend.services.terminal_stream import emit_terminal_line
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
-from backend.vtypes.documents import VALID_ARTIFACT_TYPES
+from backend.vtypes.documents import VALID_ARTIFACT_TYPES, ArtifactIntegrity
 
 logger = logging.getLogger(__name__)
 
@@ -1347,13 +1347,13 @@ def _write_artifact_integrity_sidecar(
     path: Path, *, retention_class: str = "run"
 ) -> dict[str, object]:
     """Persiste checksum/tamanho fora do payload, para auditoria e GC futuro."""
-    metadata: dict[str, object] = {
-        "artifact_id": path.stem,
-        "byte_size": path.stat().st_size,
-        "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "storage_uri": str(path),
-        "retention_class": retention_class,
-    }
+    metadata = ArtifactIntegrity(
+        artifact_id=path.stem,
+        byte_size=path.stat().st_size,
+        sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+        storage_uri=str(path),
+        retention_class=retention_class,
+    ).model_dump()
     path.with_suffix(".artifact.json").write_text(
         json.dumps(metadata, ensure_ascii=False, sort_keys=True), encoding="utf-8"
     )

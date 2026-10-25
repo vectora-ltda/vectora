@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -38,6 +39,10 @@ from backend.persistence.native.ledger import (
     make_message_created_key,
 )
 from backend.persistence.native.schema import setup_postgres_session_schema
+from backend.services.context_manifest import (
+    ContextCheckpointContract,
+    ContextProjectionContract,
+)
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import VMessage
 
@@ -1638,14 +1643,22 @@ class PostgresSessionStore:
                 await self._upsert_agent_run_on_conn(conn, run)
 
     async def save_context_projection(
-        self, thread_id: str, run_id: str, projection: dict[str, Any]
+        self,
+        thread_id: str,
+        run_id: str,
+        projection: ContextProjectionContract | Mapping[str, object],
     ) -> None:
         """Persiste a projeção versionada fora do transcript canônico."""
         await self.setup()
         # Preserve numeric sequence/token metadata; the generic redactor marks
         # any key containing ``token`` as sensitive, which would corrupt the
         # projection budget counters.
-        clean = {
+        projection_values = (
+            projection.model_dump()
+            if isinstance(projection, ContextProjectionContract)
+            else projection
+        )
+        clean: dict[str, object] = {
             key: value
             if key
             in {
@@ -1655,7 +1668,7 @@ class PostgresSessionStore:
                 "tokens_after",
             }
             else redact_sensitive_data(value)
-            for key, value in projection.items()
+            for key, value in projection_values.items()
         }
         if not isinstance(clean, dict) or not clean.get("projection_id"):
             raise ValueError("projeção sem projection_id")
@@ -1677,12 +1690,12 @@ class PostgresSessionStore:
                 thread_id,
                 run_id,
                 str(clean.get("source_transcript_hash", "")),
-                int(clean.get("start_seq", 0)),
-                int(clean.get("end_seq", 0)),
+                int(cast("int", clean.get("start_seq", 0))),
+                int(cast("int", clean.get("end_seq", 0))),
                 str(clean.get("model", "")),
                 str(clean.get("policy_version", "")),
-                int(clean.get("tokens_before", 0)),
-                int(clean.get("tokens_after", 0)),
+                int(cast("int", clean.get("tokens_before", 0))),
+                int(cast("int", clean.get("tokens_after", 0))),
                 json.dumps(clean.get("preserved_decisions", []), ensure_ascii=False),
                 json.dumps(clean.get("preserved_errors", []), ensure_ascii=False),
                 json.dumps(clean.get("preserved_approvals", []), ensure_ascii=False),
@@ -1700,7 +1713,7 @@ class PostgresSessionStore:
         *,
         policy_version: str | None = None,
         source_transcript_hash: str | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, object] | None:
         """Carrega projeção compatível com política e hash, se informados."""
         await self.setup()
         async with self._pool.acquire() as conn:
@@ -1756,11 +1769,22 @@ class PostgresSessionStore:
         }
 
     async def save_context_checkpoint(
-        self, thread_id: str, run_id: str, checkpoint: dict[str, Any]
+        self,
+        thread_id: str,
+        run_id: str,
+        checkpoint: ContextCheckpointContract | Mapping[str, object],
     ) -> None:
         """Persiste o estado mínimo para retomada por snapshot + deltas."""
         await self.setup()
-        clean = {key: redact_sensitive_data(value) for key, value in checkpoint.items()}
+        checkpoint_values = (
+            checkpoint.model_dump()
+            if isinstance(checkpoint, ContextCheckpointContract)
+            else checkpoint
+        )
+        clean: dict[str, object] = {
+            key: redact_sensitive_data(value)
+            for key, value in checkpoint_values.items()
+        }
         if not clean.get("checkpoint_id"):
             raise ValueError("checkpoint sem checkpoint_id")
         async with self._pool.acquire() as conn, conn.transaction():
@@ -1778,7 +1802,7 @@ class PostgresSessionStore:
                 str(clean["checkpoint_id"]),
                 thread_id,
                 run_id,
-                int(clean.get("last_sequence", 0)),
+                int(cast("int", clean.get("last_sequence", 0))),
                 str(clean.get("source_hash", "")),
                 str(clean.get("schema_version", "context.v1")),
                 json.dumps(clean.get("state", {}), ensure_ascii=False),
@@ -1792,7 +1816,7 @@ class PostgresSessionStore:
         *,
         source_hash: str | None = None,
         run_id: str | None = None,
-    ) -> dict[str, Any] | None:
+    ) -> dict[str, object] | None:
         """Carrega o checkpoint mais recente compatível com o transcript."""
         await self.setup()
         async with self._pool.acquire() as conn:

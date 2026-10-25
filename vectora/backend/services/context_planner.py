@@ -102,7 +102,7 @@ def memory_records_from_backend_items(
         trust_level = (
             raw_trust
             if isinstance(raw_trust, str) and raw_trust in _MEMORY_TRUST_LEVELS
-            else "trusted"
+            else "untrusted"
         )
         provenance = metadata.get("provenance") or metadata.get("source") or "store"
         records.append(

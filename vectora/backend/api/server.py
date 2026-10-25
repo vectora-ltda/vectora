@@ -388,6 +388,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
     thread_cleanup_task: asyncio.Task[None] | None = None
     reconcile_runs_task: asyncio.Task[None] | None = None
     storage_maintenance_task: asyncio.Task[None] | None = None
+    storage_maintenance_stop = threading.Event()
     try:
         from backend.api.handlers.threads import (
             cleanup_empty_threads,
@@ -469,8 +470,6 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
     # explicit retention policy opts into deletion.
     try:
         from backend.services.storage_maintenance import run_storage_maintenance
-
-        storage_maintenance_stop = threading.Event()
 
         async def _storage_maintenance_loop() -> None:
             from backend.settings import get_settings as _get_settings

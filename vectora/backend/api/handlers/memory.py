@@ -310,6 +310,11 @@ async def update_memory(
                 "content": body.content,
                 "metadata": body.metadata or existing.value.get("metadata") or {},
                 "updated_at": datetime.now(UTC).isoformat(),
+                **{
+                    field: existing.value[field]
+                    for field in ("valid_until", "ttl_days", "category")
+                    if field in existing.value
+                },
             },
         )
         return UpdateMemoryResponse(status="updated", key=key)

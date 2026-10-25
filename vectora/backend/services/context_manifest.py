@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Literal, TypedDict
 
+from pydantic import BaseModel, ConfigDict, Field
+
 ContextDomain = Literal[
     "system",
     "short_term",
@@ -15,6 +17,42 @@ ContextDomain = Literal[
     "vector_rag",
     "structural_graph",
 ]
+
+
+class ContextProjectionContract(BaseModel):
+    """Contrato serializável comum para projeções persistidas."""
+
+    model_config = ConfigDict(extra="allow")
+
+    projection_id: str
+    source_transcript_hash: str = ""
+    start_seq: int = 0
+    end_seq: int = 0
+    tokens_before: int = 0
+    tokens_after: int = 0
+    model: str = ""
+    policy_version: str = "v1"
+    preserved_decisions: list[str] = Field(default_factory=list)
+    preserved_errors: list[str] = Field(default_factory=list)
+    preserved_approvals: list[str] = Field(default_factory=list)
+    pending_tool_calls: list[str] = Field(default_factory=list)
+    omitted_sequences: list[int] = Field(default_factory=list)
+    content: object | None = None
+    created_at: str = ""
+
+
+class ContextCheckpointContract(BaseModel):
+    """Contrato serializável comum para checkpoints persistidos."""
+
+    model_config = ConfigDict(extra="allow")
+
+    checkpoint_id: str
+    last_sequence: int = 0
+    source_hash: str = ""
+    schema_version: str = "context.v1"
+    state: dict[str, object] = Field(default_factory=dict)
+    artifact_refs: list[str] = Field(default_factory=list)
+    created_at: str = ""
 
 
 class ContextBlockDict(TypedDict):

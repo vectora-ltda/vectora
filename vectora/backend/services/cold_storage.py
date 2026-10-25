@@ -16,9 +16,28 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+
+from pydantic import BaseModel, Field
 
 _MAX_DECOMPRESSED_BYTES = 512 * 1024 * 1024
+
+type JsonValue = (
+    bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"] | None
+)
+
+
+class ColdArchiveRecord(BaseModel):
+    kind: str
+    thread_id: str
+    value: dict[str, JsonValue]
+
+
+class ColdArchiveManifest(BaseModel):
+    thread_id: str
+    sha256: str
+    record_count: int = Field(ge=0)
+    created_at: str
+    retention_class: str = "cold"
 
 
 @dataclass(frozen=True)
@@ -37,9 +56,14 @@ def _safe_thread_id(thread_id: str) -> str:
     return value
 
 
-def _canonical_record(record: dict[str, Any]) -> bytes:
+def _canonical_record(record: ColdArchiveRecord) -> bytes:
     return (
-        json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        json.dumps(
+            record.model_dump(),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
         + "\n"
     ).encode("utf-8")
 
@@ -48,9 +72,9 @@ def export_cold_archive(
     root: str | Path,
     thread_id: str,
     *,
-    metadata: dict[str, Any],
-    transcript: Iterable[dict[str, Any]],
-    events: Iterable[dict[str, Any]] = (),
+    metadata: dict[str, JsonValue],
+    transcript: Iterable[dict[str, JsonValue]],
+    events: Iterable[dict[str, JsonValue]] = (),
 ) -> ColdArchive:
     """Write one immutable archive and its retention metadata atomically."""
     safe_id = _safe_thread_id(thread_id)
@@ -58,15 +82,16 @@ def export_cold_archive(
     destination_root.mkdir(parents=True, exist_ok=True)
     final_path = destination_root / f"{safe_id}.jsonl.gz"
     temporary = final_path.with_suffix(final_path.suffix + ".tmp")
-    records: list[dict[str, Any]] = [
-        {"kind": "metadata", "thread_id": safe_id, "value": metadata}
+    records: list[ColdArchiveRecord] = [
+        ColdArchiveRecord(kind="metadata", thread_id=safe_id, value=metadata)
     ]
     records.extend(
-        {"kind": "transcript", "thread_id": safe_id, "value": item}
+        ColdArchiveRecord(kind="transcript", thread_id=safe_id, value=item)
         for item in transcript
     )
     records.extend(
-        {"kind": "event", "thread_id": safe_id, "value": item} for item in events
+        ColdArchiveRecord(kind="event", thread_id=safe_id, value=item)
+        for item in events
     )
     digest = hashlib.sha256()
     with gzip.open(temporary, "wb", compresslevel=6) as stream:
@@ -92,17 +117,22 @@ def export_cold_archive(
             final_path.unlink(missing_ok=True)
             raise
     created_at = datetime.now(UTC).isoformat()
-    manifest = {
-        "thread_id": safe_id,
-        "sha256": digest.hexdigest(),
-        "record_count": len(records),
-        "created_at": created_at,
-        "retention_class": "cold",
-    }
-    manifest_path = final_path.with_suffix(final_path.suffix + ".artifact.json")
-    manifest_path.write_text(
-        json.dumps(manifest, ensure_ascii=False, sort_keys=True), encoding="utf-8"
+    manifest = ColdArchiveManifest(
+        thread_id=safe_id,
+        sha256=digest.hexdigest(),
+        record_count=len(records),
+        created_at=created_at,
     )
+    manifest_path = final_path.with_suffix(final_path.suffix + ".artifact.json")
+    manifest_tmp = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
+    manifest_tmp.write_text(
+        json.dumps(manifest.model_dump(), ensure_ascii=False, sort_keys=True),
+        encoding="utf-8",
+    )
+    with manifest_tmp.open("r+b") as stream:
+        stream.flush()
+        os.fsync(stream.fileno())
+    manifest_tmp.replace(manifest_path)
     return ColdArchive(
         thread_id=safe_id,
         path=final_path,
@@ -114,11 +144,11 @@ def export_cold_archive(
 
 def read_cold_archive(
     path: str | Path, *, expected_sha256: str, expected_thread_id: str | None = None
-) -> list[dict[str, Any]]:
+) -> list[dict[str, JsonValue]]:
     """Read and validate an archive before returning its logical records."""
     archive = Path(path).resolve(strict=True)
     digest = hashlib.sha256()
-    records: list[dict[str, Any]] = []
+    records: list[dict[str, JsonValue]] = []
     total_bytes = 0
     try:
         with gzip.open(archive, "rb") as stream:
@@ -128,14 +158,13 @@ def read_cold_archive(
                     raise ValueError("cold archive excede o limite descompactado")
                 digest.update(line)
                 value = json.loads(line.decode("utf-8"))
-                if not isinstance(value, dict):
-                    raise ValueError("cold archive contém registro inválido")
+                parsed = ColdArchiveRecord.model_validate(value)
                 if (
                     expected_thread_id is not None
-                    and value.get("thread_id") != expected_thread_id
+                    and parsed.thread_id != expected_thread_id
                 ):
                     raise ValueError("cold archive pertence a outra thread")
-                records.append(value)
+                records.append(parsed.model_dump())
     except (EOFError, gzip.BadGzipFile, OSError, zlib.error) as exc:
         raise ValueError("cold archive comprimido inválido ou truncado") from exc
     actual = digest.hexdigest()
@@ -144,4 +173,10 @@ def read_cold_archive(
     return records
 
 
-__all__ = ["ColdArchive", "export_cold_archive", "read_cold_archive"]
+__all__ = [
+    "ColdArchive",
+    "ColdArchiveManifest",
+    "ColdArchiveRecord",
+    "export_cold_archive",
+    "read_cold_archive",
+]

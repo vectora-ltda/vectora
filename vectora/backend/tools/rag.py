@@ -631,7 +631,11 @@ async def vector_search(
                     {
                         "id": doc.metadata.get("_retrieval_id", ""),
                         "content": doc.page_content,
-                        "metadata": doc.metadata,
+                        "metadata": {
+                            key: value
+                            for key, value in doc.metadata.items()
+                            if not key.startswith("_retrieval_")
+                        },
                         "collection": doc.metadata.get("_retrieval_collection", ""),
                         "score": doc.metadata.get("_retrieval_score"),
                         "relevance_score": doc.metadata.get("relevance_score"),

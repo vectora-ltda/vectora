@@ -78,3 +78,13 @@ class ArtifactMetadata(BaseModel):
 
     def get(self, item: str, default: Any = None) -> Any:
         return getattr(self, item, default)
+
+
+class ArtifactIntegrity(BaseModel):
+    """Contrato compartilhado do sidecar de integridade de um artifact."""
+
+    artifact_id: str = ""
+    byte_size: int = Field(default=0, ge=0)
+    sha256: str = ""
+    storage_uri: str = ""
+    retention_class: str = "run"

@@ -24,6 +24,7 @@ MANIFEST = "manifest.json"
 FORMAT_VERSION = 1
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 MAX_ENTRY_BYTES = 256 * 1024 * 1024
+MAX_RESTORE_BYTES = 512 * 1024 * 1024
 
 _CATEGORY_PATHS: dict[str, tuple[str, ...]] = {
     "database": ("vectora.db",),
@@ -473,6 +474,7 @@ def restore_backup(
         _assert_safe_destination(target)
     snapshots = snapshot_targets(destination, selected)
     staged: dict[Path, bytes] = {}
+    staged_bytes = 0
     try:
         with zipfile.ZipFile(archive_file) as archive:
             manifest = json.loads(archive.read(MANIFEST))
@@ -483,11 +485,19 @@ def restore_backup(
                     for item in declared[category]:
                         archive_path = Path(item["path"])
                         relative = archive_path.relative_to("artifacts")
-                        staged[root / relative] = archive.read(item["path"])
+                        payload = archive.read(item["path"])
+                        staged_bytes += len(payload)
+                        if staged_bytes > MAX_RESTORE_BYTES:
+                            raise ValueError(
+                                "restore excede o limite agregado de dados"
+                            )
+                        staged[root / relative] = payload
                 else:
-                    staged[targets[category]] = archive.read(
-                        declared[category][0]["path"]
-                    )
+                    payload = archive.read(declared[category][0]["path"])
+                    staged_bytes += len(payload)
+                    if staged_bytes > MAX_RESTORE_BYTES:
+                        raise ValueError("restore excede o limite agregado de dados")
+                    staged[targets[category]] = payload
         # Validação e migração do SQLite ocorrem no staging, antes de tocar no
         # banco ativo. O arquivo promovido é o staging migrado, nunca o payload
         # original do ZIP.

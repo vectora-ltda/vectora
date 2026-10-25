@@ -419,7 +419,7 @@ async def run_conversation(  # noqa: PLR0911
             # The parent context can be reused for several goal turns. Refresh
             # the dependency snapshot every time so RBAC and trust changes are
             # visible to the next delegated call.
-            sub_deps.policy_snapshot = refreshed_policy_snapshot
+            sub_deps.policy_snapshot = policy_snapshot
     emit = on_event or _noop_event
     tools = tool_registry.all()
     parent_id = await session_store.get_branch_head_id(thread_id)
@@ -500,10 +500,11 @@ async def run_conversation(  # noqa: PLR0911
             checkpoint = await session_store.get_latest_context_checkpoint(
                 thread_id, run_id=config.run_id
             )
-            state = checkpoint.get("state", {}) if checkpoint else {}
+            raw_state = checkpoint.get("state", {}) if checkpoint else {}
+            state = raw_state if isinstance(raw_state, dict) else {}
             current_history = await session_store.get_history(thread_id)
             checkpoint_sequence = (
-                int(checkpoint.get("last_sequence", 0))
+                int(cast("int", checkpoint.get("last_sequence", 0)))
                 if checkpoint is not None
                 else -1
             )

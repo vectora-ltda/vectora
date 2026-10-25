@@ -87,6 +87,31 @@ MANUAL_TRANSITIONS: dict[str, frozenset[str]] = {
 BLOCK_RECURRENCE_LIMIT = 3
 
 
+def _cas_conditions(
+    expected_status: str | None,
+    expected_updated_at: str | None,
+    expected_version: int | str | None,
+) -> tuple[list[str], list[str | int]]:
+    """Monta predicados e parâmetros CAS de forma única para o Kanban."""
+    where_parts = ["id = ?"]
+    params: list[str | int] = []
+    if expected_status is not None:
+        where_parts.append("status = ?")
+        params.append(expected_status)
+    if expected_updated_at is not None:
+        where_parts.append("updated_at = ?")
+        params.append(expected_updated_at)
+    if expected_version is not None:
+        where_parts.append("version = ?")
+        params.append(
+            int(expected_version)
+            if isinstance(expected_version, int)
+            or (isinstance(expected_version, str) and expected_version.isdecimal())
+            else expected_version
+        )
+    return where_parts, params
+
+
 async def _get_db() -> aiosqlite.Connection:
     """Mesmo banco de `vectora_background_tasks` — não `checkpoints.db`.
 
@@ -306,22 +331,9 @@ async def set_status(
 
         next_run_at = _next_interval_run(interval_config_raw)
 
-    where_parts = ["id = ?"]
-    extra_params: list[Any] = []
-    if expected_status is not None:
-        where_parts.append("status = ?")
-        extra_params.append(expected_status)
-    if expected_updated_at is not None:
-        where_parts.append("updated_at = ?")
-        extra_params.append(expected_updated_at)
-    if expected_version is not None:
-        where_parts.append("version = ?")
-        extra_params.append(
-            int(expected_version)
-            if isinstance(expected_version, int)
-            or (isinstance(expected_version, str) and expected_version.isdigit())
-            else expected_version
-        )
+    where_parts, extra_params = _cas_conditions(
+        expected_status, expected_updated_at, expected_version
+    )
 
     if status in ("ready", "done"):
         # Saída bem-sucedida do ciclo de bloqueio — zera o contador de
@@ -1015,22 +1027,9 @@ async def unblock_task(
         row = await cur.fetchone()
     from_status = row["status"] if row else None
 
-    where_parts = ["id = ?"]
-    extra_params: list[Any] = []
-    if expected_status is not None:
-        where_parts.append("status = ?")
-        extra_params.append(expected_status)
-    if expected_updated_at is not None:
-        where_parts.append("updated_at = ?")
-        extra_params.append(expected_updated_at)
-    if expected_version is not None:
-        where_parts.append("version = ?")
-        extra_params.append(
-            int(expected_version)
-            if isinstance(expected_version, int)
-            or (isinstance(expected_version, str) and expected_version.isdigit())
-            else expected_version
-        )
+    where_parts, extra_params = _cas_conditions(
+        expected_status, expected_updated_at, expected_version
+    )
 
     if authorized_run_id is None:
         query = (
@@ -1385,7 +1384,7 @@ async def get_card_version_snapshot(task_id: str) -> dict[str, Any]:
     await _ensure_version_column(db)
     async with db.execute(
         "SELECT id, status, block_kind, block_reason, block_count, "
-        "claim_lock, claim_expires_at, updated_at, session_id "
+        "claim_lock, claim_expires_at, updated_at, session_id, version "
         "FROM vectora_background_tasks WHERE id = ?",
         (task_id,),
     ) as cur:
@@ -1394,7 +1393,7 @@ async def get_card_version_snapshot(task_id: str) -> dict[str, Any]:
         raise ValueError(f"task {task_id!r} não existe")
     snapshot = dict(row)
     version_token = (
-        f"{snapshot.get('status')}|{snapshot.get('updated_at')}|"
+        f"{snapshot.get('status')}|{snapshot.get('version')}|"
         f"{snapshot.get('claim_lock')}|{snapshot.get('block_count')}"
     )
     snapshot["card_version"] = version_token
@@ -1523,13 +1522,13 @@ async def apply_verified_transition_proposal(
     """Revalida versão do card, estado, dependências e claim antes de aplicar uma proposta."""
     task_id = str(proposal["task_id"])
     target = str(proposal.get("recommended_status", "no_recommendation"))
-    expected_version = str(proposal["card_version"])
+    expected_card_version = str(proposal["card_version"])
 
     if target == "no_recommendation" or not proposal.get("is_usable", False):
         return False
 
     current_snapshot = await get_card_version_snapshot(task_id)
-    if current_snapshot["card_version"] != expected_version:
+    if current_snapshot["card_version"] != expected_card_version:
         raise ValueError("card_version mudou durante a inferência; proposta invalidada")
 
     if (
@@ -1549,6 +1548,8 @@ async def apply_verified_transition_proposal(
     await manual_transition(
         task_id,
         target,
+        expected_status=str(current_snapshot["status"]),
+        expected_version=current_snapshot.get("version"),
         authorized_session_id=authorized_session_id,
         authorized_run_id=authorized_run_id,
     )
