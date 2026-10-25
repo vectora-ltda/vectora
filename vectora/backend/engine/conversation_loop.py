@@ -904,7 +904,14 @@ async def run_conversation(
 
         tool_started_at: dict[str, float] = {}
         tool_args_previews: dict[str, str] = {}
-        for tc in tool_calls:
+
+        async def _record_tool_started(
+            tc: ToolCall,
+            *,
+            _started_at: dict[str, float] = tool_started_at,
+            _previews: dict[str, str] = tool_args_previews,
+        ) -> None:
+            """Executa a operação record tool started."""
             spec = tool_registry.get(tc.name)
             extras = spec.extras if spec is not None else None
             tool_started_at[tc.id] = time.monotonic()
@@ -975,6 +982,7 @@ async def run_conversation(
             ctx=ctx,
             turn_budget=turn_budget,
             on_event=on_event,
+            on_tool_started=_record_tool_started,
             policy_snapshot=policy_snapshot,
         )
         for resultado in resultados:
