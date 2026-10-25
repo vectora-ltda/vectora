@@ -7,6 +7,7 @@ Também define os modelos de resumo da thread e do rascunho de execução.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from datetime import UTC, datetime
@@ -14,11 +15,10 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
 
+logger = logging.getLogger(__name__)
+
 if TYPE_CHECKING:
     from backend.storage.sqlite.pool import AsyncConnectionPool
-
-
-logger = logging.getLogger(__name__)
 
 
 class LedgerEventType:
@@ -312,9 +312,15 @@ async def backfill_thread_ledger(
                 )
                 await conn.commit()
             except Exception:
-                await conn.rollback()
+                # A failure while recording the diagnostic state must not hide
+                # the original backfill error. Roll back the reused connection
+                # and keep the original exception as the one raised to the
+                # caller.
+                with contextlib.suppress(Exception):
+                    await conn.rollback()
                 logger.exception(
-                    "Falha ao registrar backfill failed para thread %s", thread_id
+                    "ledger backfill: failed to persist failure state for %s",
+                    thread_id,
                 )
             raise
 

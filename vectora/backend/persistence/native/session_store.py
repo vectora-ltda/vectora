@@ -17,6 +17,7 @@ import json
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, TypedDict, cast
 
@@ -61,27 +62,34 @@ _CHAIN_DEPTH_CAP = 100_000
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class _RunEvidenceLockEntry:
+    lock: asyncio.Lock
+    users: int = 0
+
+
 class _RunEvidenceLockRegistry:
     """Retém locks somente enquanto há escritores ou waiters ativos."""
 
     def __init__(self) -> None:
-        self._entries: dict[str, tuple[asyncio.Lock, int]] = {}
+        self._entries: dict[str, _RunEvidenceLockEntry] = {}
 
     @asynccontextmanager
-    async def acquire(self, run_id: str) -> AsyncGenerator[None, None]:
-        lock, users = self._entries.get(run_id, (asyncio.Lock(), 0))
-        self._entries[run_id] = (lock, users + 1)
+    async def acquire(self, run_id: str) -> AsyncGenerator[None]:
+        entry = self._entries.get(run_id)
+        if entry is None:
+            entry = _RunEvidenceLockEntry(lock=asyncio.Lock())
+            self._entries[run_id] = entry
+        entry.users += 1
         try:
-            async with lock:
+            async with entry.lock:
                 yield
         finally:
             current = self._entries.get(run_id)
-            if current is not None and current[0] is lock:
-                remaining = current[1] - 1
-                if remaining <= 0 and not lock.locked():
+            if current is entry:
+                entry.users -= 1
+                if entry.users == 0:
                     self._entries.pop(run_id, None)
-                else:
-                    self._entries[run_id] = (lock, remaining)
 
     def __len__(self) -> int:
         return len(self._entries)

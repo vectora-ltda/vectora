@@ -161,7 +161,16 @@ def test_is_url_allowed_no_resolve_dns_allows_literal_public_ip() -> None:
     assert reason == ""
 
 
-@pytest.mark.parametrize("host", ["localhost", "service.internal", "127.1"])
+@pytest.mark.parametrize(
+    "host",
+    [
+        "localhost",
+        "service.internal",
+        "metadata.google.internal",
+        "127.1",
+        "2130706433",
+    ],
+)
 def test_is_url_allowed_no_resolve_dns_rejects_non_public_aliases(host: str) -> None:
     ok, reason = is_url_allowed(
         f"https://{host}", EgressPolicy(block_private_ips=False), resolve_dns=False

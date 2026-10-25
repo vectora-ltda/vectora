@@ -24,7 +24,10 @@ from backend.persistence.native.agent_run import (
     redact_sensitive_data,
 )
 from backend.persistence.native.ledger import LedgerEventType, make_tool_started_key
-from backend.persistence.native.session_store import SessionStore
+from backend.persistence.native.session_store import (
+    SessionStore,
+    _RunEvidenceLockRegistry,
+)
 from backend.storage.sqlite.pool import AsyncConnectionPool
 
 
@@ -77,6 +80,40 @@ class TestRedaction:
         assert res["normal_field"] == "conteudo livre"
         assert res["nested"]["token"] == "[REDACTED]"
         assert res["nested"]["safe"] == "ok"
+
+
+class TestRunEvidenceLockRegistry:
+    async def test_registry_shares_lock_with_waiters_and_releases_entries(self) -> None:
+        registry = _RunEvidenceLockRegistry()
+        entered: list[str] = []
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+
+        async def writer(label: str) -> None:
+            async with registry.acquire("run-1"):
+                entered.append(label)
+                if label == "first":
+                    first_started.set()
+                    await release_first.wait()
+
+        first = asyncio.create_task(writer("first"))
+        await first_started.wait()
+        second = asyncio.create_task(writer("second"))
+        await asyncio.sleep(0)
+        assert entered == ["first"]
+        assert len(registry) == 1
+
+        release_first.set()
+        await asyncio.gather(first, second)
+        assert entered == ["first", "second"]
+        assert len(registry) == 0
+
+    async def test_registry_keeps_different_runs_independent(self) -> None:
+        registry = _RunEvidenceLockRegistry()
+        async with registry.acquire("run-a"):
+            async with registry.acquire("run-b"):
+                assert len(registry) == 2
+        assert len(registry) == 0
 
 
 class TestAgentRunLifecycle:
