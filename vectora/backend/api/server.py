@@ -370,6 +370,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
         )
 
         async def _consolidation_loop() -> None:
+            """Executa a operação consolidation loop."""
             while True:
                 await asyncio.sleep(6 * 3600)
                 await run_consolidation_for_all_users()
@@ -398,12 +399,14 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             # (ex.: app headless sem motor nativo configurado) ou qualquer
             # outra falha, a reconciliação não pode derrubar a task e
             # impedir cleanup_empty_threads de rodar.
+            """Executa a operação reconcile safe."""
             try:
                 await reconcile_vectora_sessions()
             except Exception as exc:
                 logger.warning("api/server: falha ao reconciliar threads: %s", exc)
 
         async def _reconcile_runs_safe() -> None:
+            """Executa a operação reconcile runs safe."""
             try:
                 from backend.services import agent_factory
 
@@ -420,18 +423,21 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
                 logger.warning("api/server: falha ao reconciliar runs: %s", exc)
 
         async def _cleanup_safe() -> None:
+            """Executa a operação cleanup safe."""
             try:
                 await cleanup_empty_threads()
             except Exception as exc:
                 logger.warning("api/server: falha ao limpar threads vazias: %s", exc)
 
         async def _activity_cleanup_safe() -> None:
+            """Executa a operação activity cleanup safe."""
             try:
                 await prune_thread_activity()
             except Exception as exc:
                 logger.warning("api/server: falha ao limpar atividade remota: %s", exc)
 
         async def _thread_cleanup_loop() -> None:
+            """Executa a operação thread cleanup loop."""
             nonlocal reconcile_runs_task
             # Reconcilia ANTES de limpar: uma thread real com message_count
             # zerado por alguma falha (upsert perdido) e mais velha que o
@@ -681,6 +687,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
     async def _log_unhandled_exception(
         request: Request, exc: Exception
     ) -> FastAPIResponse:
+        """Executa a operação log unhandled exception."""
         logging.getLogger(__name__).error(
             "api/server: exceção não tratada em %s %s",
             request.method,
@@ -788,6 +795,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
     # ── Discovery Layer — schema das tools ─────────────────────────────────
     @app.get("/api/tools/schema")
     async def tools_schema() -> dict:
+        """Executa a operação tools schema."""
         from backend.nodes.tools import ALL_TOOL_SPECS
 
         tools_data = []
@@ -827,6 +835,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
 
     @app.get("/health")
     async def health() -> dict:
+        """Executa a operação health."""
         return {"status": "ok", "version": __version__}
 
     @app.get("/health/live", response_model=HealthLiveResponse)
@@ -843,6 +852,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
         from backend.storage.lancedb.connection import get_lancedb
 
         async def _check_dependencies() -> tuple[bool, bool]:
+            """Executa a operação check dependencies."""
             s_ok = False
             l_ok = False
             try:
@@ -892,6 +902,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
         )
 
         def read_latest() -> str:
+            """Executa a operação read latest."""
             changelog_path = next(
                 (candidate for candidate in candidates if candidate.is_file()),
                 None,
@@ -914,6 +925,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
 
     @app.get("/metrics")
     async def metrics() -> list:
+        """Executa a operação metrics."""
         try:
             from backend.persistence.tracer import tracer
 
@@ -944,6 +956,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
         @app.get("/{filename:path}", include_in_schema=False)
         async def _spa_or_static(request: Request, filename: str) -> FastAPIResponse:
             # Se for arquivo real na raiz do bundle, serve direto.
+            """Executa a operação spa or static."""
             candidate = (chat_static / filename).resolve()
             try:
                 candidate.relative_to(chat_static.resolve())

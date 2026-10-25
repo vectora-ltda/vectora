@@ -5,6 +5,7 @@ from pathlib import Path
 
 
 def test_sse_schema_exists_and_valid() -> None:
+    """Verifica o comportamento de sse schema exists and valid."""
     schema_path = (
         Path(__file__).resolve().parents[3]
         / "backend"
@@ -35,6 +36,7 @@ def test_sse_schema_exists_and_valid() -> None:
 
 
 def test_sse_wire_format_deterministic_encoding() -> None:
+    """Verifica o comportamento de sse wire format deterministic encoding."""
     from backend.api.schemas import DoneEvent, TokenEvent, ToolCallEvent, encode_event
 
     # 1. TokenEvent
@@ -72,6 +74,7 @@ def test_sse_wire_format_deterministic_encoding() -> None:
 
 
 def test_sse_error_codes_in_matrix() -> None:
+    """Verifica o comportamento de sse error codes in matrix."""
     matrix_path = (
         Path(__file__).resolve().parents[3]
         / "backend"
