@@ -31,7 +31,8 @@ class _PinIPBackend(AutoBackend):
         port: int,
         timeout: float | None = None,  # noqa: ASYNC109
         local_address: str | None = None,
-        socket_options: Any | None = None,
+        socket_options: Any
+        | None = None,  # Any justified: assinatura herdada de httpcore.AutoBackend.connect_tcp
     ) -> httpcore.AsyncNetworkStream:
         """Executa a operação connect tcp."""
         return await super().connect_tcp(
@@ -46,7 +47,11 @@ class _PinIPBackend(AutoBackend):
 class PinIPTransport(httpx.AsyncHTTPTransport):
     """Transporte HTTP assíncrono que reutiliza IP validado contra DNS rebinding."""
 
-    def __init__(self, pinned_ip: str, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        pinned_ip: str,
+        **kwargs: Any,  # Any justified: repasse transparente de opções de httpx.AsyncHTTPTransport
+    ) -> None:
         """Inicializa o estado da instância."""
         super().__init__(**kwargs)
         pool = self._pool

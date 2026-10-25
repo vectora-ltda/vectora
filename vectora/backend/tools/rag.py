@@ -118,6 +118,7 @@ class SystemOneRerank:
         top_n: int = 5,
         workspace_id: str = "default",
     ) -> None:
+        """Inicializa o estado da instância."""
         self.harness = harness
         self.top_n = max(1, int(top_n))
         self.workspace_id = workspace_id
@@ -125,6 +126,7 @@ class SystemOneRerank:
     async def acompress_documents(
         self, documents: Any, query: str, callbacks: Any = None
     ) -> list[Document]:
+        """Executa a operação acompress documents."""
         docs = list(documents)
         if not docs:
             return []
@@ -165,6 +167,7 @@ class SystemOneRerank:
     def compress_documents(
         self, documents: Any, query: str, callbacks: Any = None
     ) -> list[Document]:
+        """Executa a operação compress documents."""
         try:
             asyncio.get_running_loop()
         except RuntimeError:
@@ -938,6 +941,7 @@ async def manage_retriever(
     needle = (source or "").lower()
 
     def _meta_matches(m: dict[str, Any]) -> bool:
+        """Executa a operação meta matches."""
         return (
             needle in str(m.get("source", "")).lower()
             or needle in str(m.get("url", "")).lower()

@@ -42,6 +42,7 @@ class TestSystemOneTypesValidation:
     """Validação de schemas Pydantic de tipos canônicos (Noul, Choice, Score)."""
 
     def test_noul_question_and_answer_valid(self) -> None:
+        """Verifica o comportamento de noul question and answer valid."""
         q = NoulQuestion(
             criterion="A solicitação envolve exclusão permanente de dados?"
         )
@@ -53,6 +54,7 @@ class TestSystemOneTypesValidation:
         assert ans.confidence == 0.92
 
     def test_noul_answer_bounds_and_finite(self) -> None:
+        """Verifica o comportamento de noul answer bounds and finite."""
         with pytest.raises(ValidationError):
             NoulAnswer(probability=1.5)
 
@@ -61,6 +63,7 @@ class TestSystemOneTypesValidation:
 
     def test_choice_question_options_integrity(self) -> None:
         # Pelo menos 2 opções únicas
+        """Verifica o comportamento de choice question options integrity."""
         q = ChoiceQuestion(
             instructions="Escolha a categoria",
             options=["code", "architecture", "security"],
@@ -80,6 +83,7 @@ class TestSystemOneTypesValidation:
             ChoiceQuestion(options=["code", "   "])
 
     def test_choice_answer_distribution_bounds(self) -> None:
+        """Verifica o comportamento de choice answer distribution bounds."""
         ans = ChoiceAnswer(
             selection="code",
             distribution={"code": 0.8, "architecture": 0.2},
@@ -94,6 +98,7 @@ class TestSystemOneTypesValidation:
             )
 
     def test_score_question_and_answer_bounds(self) -> None:
+        """Verifica o comportamento de score question and answer bounds."""
         q = ScoreQuestion(
             criterion="Severidade de risco da alteração",
             min_score=1.0,
@@ -117,6 +122,7 @@ class TestClefLocalAdapter:
     async def test_clef_local_decide_success(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Verifica o comportamento de clef local decide success."""
         adapter = ClefLocalAdapter(base_url="http://127.0.0.1:8080")
 
         req = SystemOneRequest(
@@ -159,6 +165,7 @@ class TestClefLocalAdapter:
         async def fake_post(
             client: httpx.AsyncClient, url: str, **kwargs: object
         ) -> httpx.Response:
+            """Executa a operação fake post."""
             assert url == "http://127.0.0.1:8080/v1/systemone"
             return httpx.Response(200, json=mock_response_json)
 
@@ -177,6 +184,7 @@ class TestClefLocalAdapter:
 
     @pytest.mark.asyncio
     async def test_clef_local_rejects_unsupported_media(self) -> None:
+        """Verifica o comportamento de clef local rejects unsupported media."""
         adapter = ClefLocalAdapter()
         req = SystemOneRequest(
             model="clef-flash",
@@ -191,6 +199,7 @@ class TestClefLocalAdapter:
     async def test_clef_local_handles_http_errors(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Verifica o comportamento de clef local handles http errors."""
         adapter = ClefLocalAdapter()
         req = SystemOneRequest(
             model="clef-flash",
@@ -199,6 +208,7 @@ class TestClefLocalAdapter:
         )
 
         async def fake_429(*args: object, **kwargs: object) -> httpx.Response:
+            """Executa a operação fake 429."""
             return httpx.Response(429, text="Rate limit exceeded")
 
         monkeypatch.setattr(httpx.AsyncClient, "post", fake_429)
@@ -206,6 +216,7 @@ class TestClefLocalAdapter:
             await adapter.decide(req)
 
         async def fake_timeout(*args: object, **kwargs: object) -> httpx.Response:
+            """Executa a operação fake timeout."""
             raise httpx.TimeoutException("Timeout")
 
         monkeypatch.setattr(httpx.AsyncClient, "post", fake_timeout)
@@ -217,6 +228,7 @@ class TestApiAdapters:
     """Testes de contrato para os adapters JEV API e Clef API."""
 
     def test_clef_api_adapter_requires_account_id(self) -> None:
+        """Verifica o comportamento de clef api adapter requires account id."""
         parameter = inspect.signature(ClefApiAdapter.__init__).parameters["account_id"]
         assert parameter.default is inspect.Parameter.empty
         with pytest.raises(ValueError, match="account_id é obrigatório"):
@@ -224,6 +236,7 @@ class TestApiAdapters:
 
     @pytest.mark.asyncio
     async def test_clef_api_adapter_requires_key(self) -> None:
+        """Verifica o comportamento de clef api adapter requires key."""
         adapter = ClefApiAdapter(api_key="", account_id="test-account")
         req = SystemOneRequest(
             model="@cf/cloudflare/clef-flash",
@@ -237,6 +250,7 @@ class TestApiAdapters:
     async def test_clef_api_uses_requested_model_in_endpoint(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Verifica o comportamento de clef api uses requested model in endpoint."""
         adapter = ClefApiAdapter(api_key="key", account_id="account-test")
         req = SystemOneRequest(
             model="@cf/custom/clef-test",
@@ -252,6 +266,7 @@ class TestApiAdapters:
         async def fake_post(
             client: httpx.AsyncClient, url: str, **kwargs: object
         ) -> httpx.Response:
+            """Executa a operação fake post."""
             seen["url"] = url
             return httpx.Response(200, json=payload)
 
@@ -263,6 +278,7 @@ class TestApiAdapters:
     async def test_jev_api_adapter_decide_success(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """Verifica o comportamento de jev api adapter decide success."""
         adapter = JevApiAdapter(api_key="jev_secret_test_key")
         req = SystemOneRequest(
             model="jev-fast",
@@ -280,6 +296,7 @@ class TestApiAdapters:
         async def fake_post(
             client: httpx.AsyncClient, url: str, **kwargs: object
         ) -> httpx.Response:
+            """Executa a operação fake post."""
             headers = kwargs.get("headers", {})
             assert isinstance(headers, dict)
             assert headers.get("Authorization") == "Bearer jev_secret_test_key"
@@ -297,6 +314,7 @@ class TestDecisionPolicyEngine:
 
     @pytest.mark.asyncio
     async def test_high_impact_always_requires_hitl(self) -> None:
+        """Verifica o comportamento de high impact always requires hitl."""
         settings = SystemOneSettings(enabled=True)
         engine = DecisionPolicyEngine(settings)
 
@@ -316,6 +334,7 @@ class TestDecisionPolicyEngine:
 
     @pytest.mark.asyncio
     async def test_low_confidence_requires_hitl(self) -> None:
+        """Verifica o comportamento de low confidence requires hitl."""
         settings = SystemOneSettings(enabled=True, confidence_threshold_hitl=0.80)
         engine = DecisionPolicyEngine(settings)
 
@@ -334,6 +353,7 @@ class TestDecisionPolicyEngine:
 
     @pytest.mark.asyncio
     async def test_choice_tie_triggers_hitl(self) -> None:
+        """Verifica o comportamento de choice tie triggers hitl."""
         settings = SystemOneSettings(enabled=True)
         engine = DecisionPolicyEngine(settings)
 
@@ -361,10 +381,12 @@ class TestDecisionPolicyEngine:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # Fallback desabilitado por padrão
+        """Verifica o comportamento de remote fallback policy disabled by default."""
         settings = SystemOneSettings(enabled=True, allow_remote_fallback=False)
         engine = DecisionPolicyEngine(settings)
 
         async def fake_post(*args: object, **kwargs: object) -> httpx.Response:
+            """Executa a operação fake post."""
             raise httpx.ConnectError("Local provider down")
 
         monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
@@ -393,6 +415,7 @@ class TestSettingsAndSecrets:
     """Testes de configurações e mascaramento de credenciais."""
 
     def test_mask_secret(self) -> None:
+        """Verifica o comportamento de mask secret."""
         assert mask_secret(None) is None
         short_mask = mask_secret("short")
         assert short_mask is not None
@@ -404,6 +427,7 @@ class TestSettingsAndSecrets:
         assert "6789" not in long_mask
 
     def test_provider_factory(self) -> None:
+        """Verifica o comportamento de provider factory."""
         s_local = SystemOneSettings(provider="clef-local")
         p_local = get_systemone_provider(s_local)
         assert p_local.provider_id == "clef-local"
@@ -418,6 +442,7 @@ class TestSettingsAndSecrets:
 
     @pytest.mark.asyncio
     async def test_local_provider_advertises_configured_model(self) -> None:
+        """Verifica o comportamento de local provider advertises configured model."""
         settings = SystemOneSettings(
             provider="clef-local", local_model="qwen-custom.gguf"
         )
@@ -427,6 +452,7 @@ class TestSettingsAndSecrets:
 
     @pytest.mark.asyncio
     async def test_local_provider_rejects_empty_model_configuration(self) -> None:
+        """Verifica o comportamento de local provider rejects empty model configuration."""
         adapter = ClefLocalAdapter(model="")
         capabilities = await adapter.capabilities()
         assert "" not in capabilities.supported_models

@@ -180,12 +180,14 @@ class DecisionPatternRegistry:
     """Catálogo imutável em tempo de execução para consulta de patterns versionados."""
 
     def __init__(self, patterns: list[DecisionPatternSpec] | None = None) -> None:
+        """Inicializa o estado da instância."""
         self._patterns: dict[tuple[str, str], DecisionPatternSpec] = {}
         self._latest_by_id: dict[str, DecisionPatternSpec] = {}
         for spec in patterns or []:
             self.register(spec)
 
     def register(self, spec: DecisionPatternSpec) -> None:
+        """Executa a operação register."""
         key = (spec.pattern_id, spec.version)
         if key in self._patterns:
             raise ValueError(
@@ -195,6 +197,7 @@ class DecisionPatternRegistry:
         self._latest_by_id[spec.pattern_id] = spec
 
     def get(self, pattern_id: str, version: str | None = None) -> DecisionPatternSpec:
+        """Executa a operação get."""
         if version is not None:
             spec = self._patterns.get((pattern_id, version))
             if spec is None:
@@ -208,6 +211,7 @@ class DecisionPatternRegistry:
         return spec
 
     def list_patterns(self) -> list[DecisionPatternSpec]:
+        """Executa a operação list patterns."""
         return list(self._patterns.values())
 
 

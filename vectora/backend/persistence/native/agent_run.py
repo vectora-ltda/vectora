@@ -178,6 +178,7 @@ def redact_sensitive_data(value: Any) -> Any:
 
 
 def _now() -> str:
+    """Executa a operação now."""
     return datetime.now(UTC).isoformat()
 
 

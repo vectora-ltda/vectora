@@ -60,6 +60,7 @@ from backend.llm.systemone.types import (
 )
 @pytest.mark.parametrize("conf", [0.0, 0.5, 1.0])
 def test_noul_answer_valid_probabilities(prob: float, conf: float) -> None:
+    """Verifica o comportamento de noul answer valid probabilities."""
     ans = NoulAnswer(probability=prob, confidence=conf)
     assert ans.type == "noul"
     assert ans.probability == prob
@@ -71,12 +72,14 @@ def test_noul_answer_valid_probabilities(prob: float, conf: float) -> None:
     [-1.0, -0.001, 1.0001, 2.0, 100.0, float("nan"), float("inf"), float("-inf")],
 )
 def test_noul_answer_invalid_probabilities(invalid_prob: float) -> None:
+    """Verifica o comportamento de noul answer invalid probabilities."""
     with pytest.raises(ValidationError):
         NoulAnswer(probability=invalid_prob)
 
 
 @pytest.mark.parametrize("invalid_conf", [-0.5, 1.01, 10.0, float("nan"), float("inf")])
 def test_noul_answer_invalid_confidence(invalid_conf: float) -> None:
+    """Verifica o comportamento de noul answer invalid confidence."""
     with pytest.raises(ValidationError):
         NoulAnswer(probability=0.5, confidence=invalid_conf)
 
@@ -91,12 +94,14 @@ def test_noul_answer_invalid_confidence(invalid_conf: float) -> None:
     ],
 )
 def test_noul_question_valid_criterion(criterion: str) -> None:
+    """Verifica o comportamento de noul question valid criterion."""
     q = NoulQuestion(criterion=criterion)
     assert q.type == "noul"
     assert q.criterion == criterion
 
 
 def test_noul_question_empty_criterion() -> None:
+    """Verifica o comportamento de noul question empty criterion."""
     with pytest.raises(ValidationError):
         NoulQuestion(criterion="")
 
@@ -116,6 +121,7 @@ def test_noul_question_empty_criterion() -> None:
     ],
 )
 def test_choice_question_valid_options(options: list[str]) -> None:
+    """Verifica o comportamento de choice question valid options."""
     q = ChoiceQuestion(instructions="Selecione uma opção", options=options)
     assert q.type == "choice"
     assert q.options == options
@@ -133,6 +139,7 @@ def test_choice_question_valid_options(options: list[str]) -> None:
     ],
 )
 def test_choice_question_invalid_options(invalid_options: list[str]) -> None:
+    """Verifica o comportamento de choice question invalid options."""
     with pytest.raises(ValidationError):
         ChoiceQuestion(instructions="Escolha", options=invalid_options)
 
@@ -147,6 +154,7 @@ def test_choice_question_invalid_options(invalid_options: list[str]) -> None:
     ],
 )
 def test_choice_answer_valid(selection: str, dist: dict[str, float]) -> None:
+    """Verifica o comportamento de choice answer valid."""
     ans = ChoiceAnswer(selection=selection, distribution=dist, confidence=0.95)
     assert ans.type == "choice"
     assert ans.selection == selection
@@ -165,11 +173,13 @@ def test_choice_answer_valid(selection: str, dist: dict[str, float]) -> None:
 def test_choice_answer_invalid_distribution_bounds(
     invalid_dist: dict[str, float],
 ) -> None:
+    """Verifica o comportamento de choice answer invalid distribution bounds."""
     with pytest.raises(ValidationError):
         ChoiceAnswer(selection="a", distribution=invalid_dist)
 
 
 def test_choice_answer_empty_selection() -> None:
+    """Verifica o comportamento de choice answer empty selection."""
     with pytest.raises(ValidationError):
         ChoiceAnswer(selection="", distribution={"a": 1.0})
 
@@ -191,6 +201,7 @@ def test_choice_answer_empty_selection() -> None:
     ],
 )
 def test_score_question_valid_ranges(min_s: float, max_s: float) -> None:
+    """Verifica o comportamento de score question valid ranges."""
     q = ScoreQuestion(criterion="Qualidade", min_score=min_s, max_score=max_s)
     assert q.type == "score"
     assert q.min_score == min_s
@@ -209,6 +220,7 @@ def test_score_question_valid_ranges(min_s: float, max_s: float) -> None:
     ],
 )
 def test_score_question_invalid_ranges(min_s: float, max_s: float) -> None:
+    """Verifica o comportamento de score question invalid ranges."""
     with pytest.raises(ValidationError):
         ScoreQuestion(criterion="Teste", min_score=min_s, max_score=max_s)
 
@@ -225,6 +237,7 @@ def test_score_question_invalid_ranges(min_s: float, max_s: float) -> None:
     ],
 )
 def test_score_answer_valid(score: float, min_s: float, max_s: float) -> None:
+    """Verifica o comportamento de score answer valid."""
     ans = ScoreAnswer(score=score, min_score=min_s, max_score=max_s, confidence=0.88)
     assert ans.type == "score"
     assert ans.score == score
@@ -242,6 +255,7 @@ def test_score_answer_valid(score: float, min_s: float, max_s: float) -> None:
     ],
 )
 def test_score_answer_out_of_bounds(score: float, min_s: float, max_s: float) -> None:
+    """Verifica o comportamento de score answer out of bounds."""
     with pytest.raises(ValidationError):
         ScoreAnswer(score=score, min_score=min_s, max_score=max_s)
 
@@ -269,6 +283,7 @@ def test_score_answer_out_of_bounds(score: float, min_s: float, max_s: float) ->
 async def test_clef_local_http_status_codes(
     monkeypatch: pytest.MonkeyPatch, status_code: int, expected_exc: type[Exception]
 ) -> None:
+    """Verifica o comportamento de clef local http status codes."""
     adapter = ClefLocalAdapter(base_url="http://127.0.0.1:8080")
     req = SystemOneRequest(
         model="clef-flash",
@@ -277,6 +292,7 @@ async def test_clef_local_http_status_codes(
     )
 
     async def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
+        """Executa a operação fake post."""
         return httpx.Response(status_code, text="Erro simulado")
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
@@ -298,6 +314,7 @@ async def test_clef_local_network_errors(
     client_error: Exception,
     expected_exc: type[Exception],
 ) -> None:
+    """Verifica o comportamento de clef local network errors."""
     adapter = ClefLocalAdapter(base_url="http://127.0.0.1:8080")
     req = SystemOneRequest(
         model="clef-flash",
@@ -306,6 +323,7 @@ async def test_clef_local_network_errors(
     )
 
     async def fake_post_err(*args: Any, **kwargs: Any) -> httpx.Response:
+        """Executa a operação fake post err."""
         raise client_error
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post_err)
@@ -315,6 +333,7 @@ async def test_clef_local_network_errors(
 
 @pytest.mark.asyncio
 async def test_clef_local_capabilities() -> None:
+    """Verifica o comportamento de clef local capabilities."""
     adapter = ClefLocalAdapter()
     caps = await adapter.capabilities()
     assert caps.supports_noul is True
@@ -330,9 +349,11 @@ async def test_clef_local_capabilities() -> None:
 async def test_clef_local_health(
     monkeypatch: pytest.MonkeyPatch, health_status: int, is_ok: bool
 ) -> None:
+    """Verifica o comportamento de clef local health."""
     adapter = ClefLocalAdapter(base_url="http://127.0.0.1:8080")
 
     async def fake_get(*args: Any, **kwargs: Any) -> httpx.Response:
+        """Executa a operação fake get."""
         return httpx.Response(health_status, json={"status": "ok"} if is_ok else {})
 
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
@@ -347,6 +368,7 @@ async def test_clef_local_health(
 @pytest.mark.parametrize("api_key", ["", "   "])
 @pytest.mark.asyncio
 async def test_api_adapters_empty_keys(api_key: str) -> None:
+    """Verifica o comportamento de api adapters empty keys."""
     clef = ClefApiAdapter(api_key=api_key, account_id="test-account")
     jev = JevApiAdapter(api_key=api_key)
     req = SystemOneRequest(
@@ -362,6 +384,7 @@ async def test_api_adapters_empty_keys(api_key: str) -> None:
 
 @pytest.mark.asyncio
 async def test_clef_api_capabilities_supports_images() -> None:
+    """Verifica o comportamento de clef api capabilities supports images."""
     clef = ClefApiAdapter(api_key="valid_key", account_id="test-account")
     caps = await clef.capabilities()
     assert caps.supports_image is True
@@ -369,6 +392,7 @@ async def test_clef_api_capabilities_supports_images() -> None:
 
 @pytest.mark.asyncio
 async def test_jev_api_capabilities_supports_images() -> None:
+    """Verifica o comportamento de jev api capabilities supports images."""
     jev = JevApiAdapter(api_key="valid_key")
     caps = await jev.capabilities()
     assert caps.supports_image is True
@@ -387,6 +411,7 @@ async def test_jev_api_capabilities_supports_images() -> None:
 async def test_clef_api_http_errors(
     monkeypatch: pytest.MonkeyPatch, status_code: int, expected_exc: type[Exception]
 ) -> None:
+    """Verifica o comportamento de clef api http errors."""
     clef = ClefApiAdapter(api_key="test_token", account_id="test-account")
     req = SystemOneRequest(
         model="@cf/cloudflare/clef-flash",
@@ -395,6 +420,7 @@ async def test_clef_api_http_errors(
     )
 
     async def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
+        """Executa a operação fake post."""
         return httpx.Response(status_code, text="Erro")
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
@@ -415,6 +441,7 @@ async def test_clef_api_http_errors(
 async def test_jev_api_http_errors(
     monkeypatch: pytest.MonkeyPatch, status_code: int, expected_exc: type[Exception]
 ) -> None:
+    """Verifica o comportamento de jev api http errors."""
     jev = JevApiAdapter(api_key="test_token")
     req = SystemOneRequest(
         model="jev-fast",
@@ -423,6 +450,7 @@ async def test_jev_api_http_errors(
     )
 
     async def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
+        """Executa a operação fake post."""
         return httpx.Response(status_code, text="Erro")
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
@@ -440,6 +468,7 @@ async def test_jev_api_http_errors(
 def test_policy_high_impact_and_confidence_matrix(
     is_high_impact: bool, confidence: float
 ) -> None:
+    """Verifica o comportamento de policy high impact and confidence matrix."""
     settings = SystemOneSettings(enabled=True, confidence_threshold_hitl=0.80)
     engine = DecisionPolicyEngine(settings)
 
@@ -473,6 +502,7 @@ def test_policy_high_impact_and_confidence_matrix(
     ],
 )
 def test_policy_choice_tie_breaker(d1: float, d2: float, should_hitl: bool) -> None:
+    """Verifica o comportamento de policy choice tie breaker."""
     settings = SystemOneSettings(enabled=True, confidence_threshold_hitl=0.70)
     engine = DecisionPolicyEngine(settings)
 
@@ -514,6 +544,7 @@ def test_policy_choice_tie_breaker(d1: float, d2: float, should_hitl: bool) -> N
     ],
 )
 def test_mask_secret_permutations(secret: str | None) -> None:
+    """Verifica o comportamento de mask secret permutations."""
     res = mask_secret(secret)
     if not secret:
         assert res is None
@@ -526,6 +557,7 @@ def test_mask_secret_permutations(secret: str | None) -> None:
 
 @pytest.mark.parametrize("provider_name", ["clef-local", "clef-api", "jev-api"])
 def test_get_systemone_provider_matrix(provider_name: DecisionProviderType) -> None:
+    """Verifica o comportamento de get systemone provider matrix."""
     settings = SystemOneSettings(
         provider=provider_name,
         clef_account_id="account-test" if provider_name == "clef-api" else "",
@@ -540,12 +572,14 @@ def test_get_systemone_provider_matrix(provider_name: DecisionProviderType) -> N
 
 @pytest.mark.parametrize("threshold", [0.0, 0.1, 0.5, 0.8, 0.95, 1.0])
 def test_settings_threshold_validation(threshold: float) -> None:
+    """Verifica o comportamento de settings threshold validation."""
     s = SystemOneSettings(confidence_threshold_hitl=threshold)
     assert s.confidence_threshold_hitl == threshold
 
 
 @pytest.mark.parametrize("invalid_threshold", [-0.1, 1.05, 5.0])
 def test_settings_invalid_threshold(invalid_threshold: float) -> None:
+    """Verifica o comportamento de settings invalid threshold."""
     with pytest.raises(ValidationError):
         SystemOneSettings(confidence_threshold_hitl=invalid_threshold)
 
@@ -580,6 +614,7 @@ _SYSTEMONE_SETTING_ATTRS = (
 
 @pytest.fixture(autouse=True)
 def _isolate_systemone_app_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Executa a operação isolate systemone app settings."""
     for attr in _SYSTEMONE_SETTING_ATTRS:
         if hasattr(app_settings, attr):
             monkeypatch.setattr(app_settings, attr, getattr(app_settings, attr))
@@ -587,6 +622,7 @@ def _isolate_systemone_app_settings(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.mark.asyncio
 async def test_get_decision_models_status_structure() -> None:
+    """Verifica o comportamento de get decision models status structure."""
     res = await get_decision_models_status()
     assert isinstance(res, SystemOneStatusResponse)
     assert res.provider in {"clef-local", "clef-api", "jev-api"}
@@ -599,6 +635,7 @@ async def test_get_decision_models_status_structure() -> None:
 async def test_update_decision_models_config_provider_and_enabled(
     prov: DecisionProviderType, enabled: bool
 ) -> None:
+    """Verifica o comportamento de update decision models config provider and enabled."""
     req = UpdateSystemOneConfigRequest(provider=prov, enabled=enabled)
     res = await update_decision_models_config(req, _=None)
     assert res.provider == prov
@@ -608,6 +645,7 @@ async def test_update_decision_models_config_provider_and_enabled(
 @pytest.mark.parametrize("hitl_thresh", [0.0, 0.25, 0.5, 0.75, 0.85, 0.99])
 @pytest.mark.asyncio
 async def test_update_decision_models_config_hitl_threshold(hitl_thresh: float) -> None:
+    """Verifica o comportamento de update decision models config hitl threshold."""
     req = UpdateSystemOneConfigRequest(confidence_threshold_hitl=hitl_thresh)
     res = await update_decision_models_config(req, _=None)
     assert res.confidence_threshold_hitl == hitl_thresh
@@ -616,6 +654,7 @@ async def test_update_decision_models_config_hitl_threshold(hitl_thresh: float) 
 @pytest.mark.parametrize("fallback", [True, False])
 @pytest.mark.asyncio
 async def test_update_decision_models_config_remote_fallback(fallback: bool) -> None:
+    """Verifica o comportamento de update decision models config remote fallback."""
     req = UpdateSystemOneConfigRequest(allow_remote_fallback=fallback)
     res = await update_decision_models_config(req, _=None)
     assert res.allow_remote_fallback == fallback
@@ -631,6 +670,7 @@ async def test_update_decision_models_config_remote_fallback(fallback: bool) -> 
 )
 @pytest.mark.asyncio
 async def test_update_decision_models_config_local_urls(local_url: str) -> None:
+    """Verifica o comportamento de update decision models config local urls."""
     req = UpdateSystemOneConfigRequest(local_base_url=local_url)
     res = await update_decision_models_config(req, _=None)
     assert res.local_base_url == local_url
@@ -648,6 +688,7 @@ async def test_update_decision_models_config_local_urls(local_url: str) -> None:
 async def test_update_decision_models_clef_key(
     key_input: str, expected_configured: bool
 ) -> None:
+    """Verifica o comportamento de update decision models clef key."""
     req = UpdateSystemOneConfigRequest(clef_api_key=key_input)
     res = await update_decision_models_config(req, _=None)
     assert res.clef_api_key_configured is expected_configured
@@ -665,6 +706,7 @@ async def test_update_decision_models_clef_key(
 async def test_update_decision_models_jev_key(
     key_input: str, expected_configured: bool
 ) -> None:
+    """Verifica o comportamento de update decision models jev key."""
     req = UpdateSystemOneConfigRequest(jev_api_key=key_input)
     res = await update_decision_models_config(req, _=None)
     assert res.jev_api_key_configured is expected_configured
@@ -686,6 +728,7 @@ async def test_update_decision_models_jev_key(
 )
 @pytest.mark.parametrize("state_len", [10, 100, 1000])
 def test_systemone_request_construction(model_name: str, state_len: int) -> None:
+    """Verifica o comportamento de systemone request construction."""
     state_str = "x" * state_len
     req = SystemOneRequest(
         model=model_name,
@@ -713,6 +756,7 @@ def test_systemone_request_construction(model_name: str, state_len: int) -> None
 def test_systemone_usage_computation(
     prompt_tokens: int, completion_tokens: int
 ) -> None:
+    """Verifica o comportamento de systemone usage computation."""
     usage = SystemOneUsage(
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,

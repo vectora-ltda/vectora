@@ -44,6 +44,7 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
         timeout: float = _DEFAULT_TIMEOUT_SECONDS,
         client: httpx.AsyncClient | None = None,
     ) -> None:
+        """Inicializa o estado da instância."""
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._provider_name = provider_name
@@ -52,6 +53,7 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
 
     @property
     def provider_id(self) -> str:
+        """Executa a operação provider id."""
         return self._provider_name
 
     async def aclose(self) -> None:
@@ -59,6 +61,7 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
         return
 
     async def health(self) -> bool:
+        """Executa a operação health."""
         if not self._api_key:
             return False
         url = f"{self._base_url}/health"
@@ -74,9 +77,11 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
             return False
 
     def _decide_endpoint(self, model: str) -> str:
+        """Executa a operação decide endpoint."""
         return f"{self._base_url}/v1/systemone"
 
     async def decide(self, request: SystemOneRequest) -> SystemOneResponse:
+        """Executa a operação decide."""
         if not self._api_key or not self._api_key.strip():
             raise SystemOneAuthenticationError(
                 f"Chave de API necessária para {self.provider_id}",
@@ -207,6 +212,7 @@ class ClefApiAdapter(BaseSystemOneApiAdapter):
         *,
         client: httpx.AsyncClient | None = None,
     ) -> None:
+        """Inicializa o estado da instância."""
         if not account_id or not account_id.strip():
             raise ValueError("account_id é obrigatório para ClefApiAdapter")
         self._account_id = account_id.strip()
@@ -219,6 +225,7 @@ class ClefApiAdapter(BaseSystemOneApiAdapter):
         )
 
     async def health(self) -> bool:
+        """Executa a operação health."""
         if not self._api_key:
             return False
         url = "https://api.cloudflare.com/client/v4/user/tokens/verify"
@@ -234,12 +241,14 @@ class ClefApiAdapter(BaseSystemOneApiAdapter):
             return False
 
     def _decide_endpoint(self, model: str) -> str:
+        """Executa a operação decide endpoint."""
         suffix = f"/{self._account_id}"
         if self._base_url.endswith(suffix):
             return f"{self._base_url}/ai/run/{model}"
         return f"{self._base_url}/{self._account_id}/ai/run/{model}"
 
     async def capabilities(self) -> ProviderCapabilities:
+        """Executa a operação capabilities."""
         return ProviderCapabilities(
             supports_noul=True,
             supports_choice=True,
@@ -262,6 +271,7 @@ class JevApiAdapter(BaseSystemOneApiAdapter):
         *,
         client: httpx.AsyncClient | None = None,
     ) -> None:
+        """Inicializa o estado da instância."""
         super().__init__(
             base_url,
             api_key,
@@ -271,6 +281,7 @@ class JevApiAdapter(BaseSystemOneApiAdapter):
         )
 
     async def capabilities(self) -> ProviderCapabilities:
+        """Executa a operação capabilities."""
         return ProviderCapabilities(
             supports_noul=True,
             supports_choice=True,

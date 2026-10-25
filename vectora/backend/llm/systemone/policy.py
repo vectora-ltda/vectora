@@ -44,6 +44,7 @@ class DecisionPolicyEngine:
     """Motor de governança e policy para avaliar recomendações dos Decision Models."""
 
     def __init__(self, settings: SystemOneSettings) -> None:
+        """Inicializa o estado da instância."""
         self._settings = settings
 
     def _resolve_target_model(
@@ -51,6 +52,7 @@ class DecisionPolicyEngine:
         provider_id: str,
         explicit_model: str | None = None,
     ) -> str | None:
+        """Executa a operação resolve target model."""
         if explicit_model:
             return explicit_model
         if provider_id == "clef-local":

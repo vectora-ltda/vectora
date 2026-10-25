@@ -67,6 +67,7 @@ class FakeDecisionProvider(SystemOneProvider):
         evidence: CapabilityEvidenceLevel = "observed",
         delay_s: float = 0.0,
     ) -> None:
+        """Inicializa o estado da instância."""
         self._provider_name = provider_name
         self._supported_models = supported_models or [
             "clef-flash",
@@ -83,9 +84,11 @@ class FakeDecisionProvider(SystemOneProvider):
 
     @property
     def provider_id(self) -> str:
+        """Executa a operação provider id."""
         return self._provider_name
 
     async def capabilities(self) -> ProviderCapabilities:
+        """Executa a operação capabilities."""
         return ProviderCapabilities(
             supports_noul=True,
             supports_choice=True,
@@ -97,9 +100,11 @@ class FakeDecisionProvider(SystemOneProvider):
         )
 
     async def health(self) -> bool:
+        """Executa a operação health."""
         return self.error_to_raise is None
 
     async def decide(self, request: SystemOneRequest) -> SystemOneResponse:
+        """Executa a operação decide."""
         self.calls.append(request)
         if self._delay_s > 0:
             await asyncio.sleep(self._delay_s)
@@ -179,6 +184,7 @@ def test_default_registry_contains_all_12_canonical_patterns() -> None:
 def test_canonical_state_validation_rejects_missing_fields_and_oversized_state() -> (
     None
 ):
+    """Verifica o comportamento de canonical state validation rejects missing fields and oversized state."""
     spec = DEFAULT_PATTERN_REGISTRY.get("kanban_block_classifier")
     with pytest.raises(SystemOneValidationError, match="Campos obrigatórios ausentes"):
         serialize_canonical_state({"task_id": "t-1"}, spec)
@@ -192,6 +198,7 @@ def test_canonical_state_validation_rejects_missing_fields_and_oversized_state()
 
 @pytest.mark.asyncio
 async def test_harness_separates_recommendation_from_authorization() -> None:
+    """Verifica o comportamento de harness separates recommendation from authorization."""
     settings = SystemOneSettings(enabled=True)
     provider = FakeDecisionProvider("clef-local")
     harness = SystemOneHarness(settings, provider)
@@ -222,6 +229,7 @@ async def test_harness_separates_recommendation_from_authorization() -> None:
 
 @pytest.mark.asyncio
 async def test_harness_cache_isolation_and_policy_reapplication() -> None:
+    """Verifica o comportamento de harness cache isolation and policy reapplication."""
     settings = SystemOneSettings(enabled=True)
     provider = FakeDecisionProvider("clef-local")
     harness = SystemOneHarness(settings, provider)
@@ -256,6 +264,7 @@ async def test_harness_cache_isolation_and_policy_reapplication() -> None:
 
 @pytest.mark.asyncio
 async def test_workspace_budget_isolation_and_unknown_cost_accounting() -> None:
+    """Verifica o comportamento de workspace budget isolation and unknown cost accounting."""
     settings = SystemOneSettings(enabled=True)
     provider = FakeDecisionProvider("clef-local")
     provider.usage_tokens = 0  # Simula provedor que não reporta tokens
@@ -293,12 +302,15 @@ async def test_workspace_budget_isolation_and_unknown_cost_accounting() -> None:
 
 @pytest.mark.asyncio
 async def test_circuit_breaker_and_retry_after_within_deadline() -> None:
+    """Verifica o comportamento de circuit breaker and retry after within deadline."""
     now = [100.0]
 
     def fake_clock() -> float:
+        """Executa a operação fake clock."""
         return now[0]
 
     async def fake_sleep(seconds: float) -> None:
+        """Executa a operação fake sleep."""
         now[0] += seconds
 
     settings = SystemOneSettings(enabled=True)
@@ -348,6 +360,7 @@ async def test_circuit_breaker_and_retry_after_within_deadline() -> None:
 
 @pytest.mark.asyncio
 async def test_retry_after_exceeding_deadline_fails_fast() -> None:
+    """Verifica o comportamento de retry after exceeding deadline fails fast."""
     now = [10.0]
     settings = SystemOneSettings(enabled=True)
     provider = FakeDecisionProvider("clef-local")
@@ -370,6 +383,7 @@ async def test_retry_after_exceeding_deadline_fails_fast() -> None:
 
 @pytest.mark.asyncio
 async def test_remote_privacy_and_fallback_model_reconstruction() -> None:
+    """Verifica o comportamento de remote privacy and fallback model reconstruction."""
     settings = SystemOneSettings(
         enabled=True,
         local_model="clef-flash",
@@ -413,6 +427,7 @@ async def test_remote_privacy_and_fallback_model_reconstruction() -> None:
 
 @pytest.mark.asyncio
 async def test_queue_full_and_cancellation_release_budget() -> None:
+    """Verifica o comportamento de queue full and cancellation release budget."""
     settings = SystemOneSettings(enabled=True)
     slow_provider = FakeDecisionProvider("clef-local", delay_s=0.3)
     budget = WorkspaceBudgetTracker(default_limit_tokens=10_000)
@@ -451,6 +466,7 @@ async def test_queue_full_and_cancellation_release_budget() -> None:
 
 @pytest.mark.asyncio
 async def test_goal_mode_never_marks_completed_when_quality_gate_fails() -> None:
+    """Verifica o comportamento de goal mode never marks completed when quality gate fails."""
     settings = SystemOneSettings(enabled=True)
     provider = FakeDecisionProvider("clef-local")
     provider.custom_answers = {
@@ -502,6 +518,7 @@ async def test_goal_mode_never_marks_completed_when_quality_gate_fails() -> None
 async def test_kanban_proposal_respects_card_version_and_manual_transitions(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verifica o comportamento de kanban proposal respects card version and manual transitions."""
     card_state: dict[str, Any] = {
         "id": "card-1",
         "status": "blocked",
@@ -516,10 +533,12 @@ async def test_kanban_proposal_respects_card_version_and_manual_transitions(
     }
 
     async def fake_snapshot(task_id: str) -> dict[str, Any]:
+        """Executa a operação fake snapshot."""
         assert task_id == "card-1"
         return dict(card_state)
 
     async def fake_deps(task_id: str) -> list[dict[str, Any]]:
+        """Executa a operação fake deps."""
         return []
 
     applied: list[tuple[str, str]] = []
@@ -531,6 +550,7 @@ async def test_kanban_proposal_respects_card_version_and_manual_transitions(
         authorized_session_id: str | None = None,
         authorized_run_id: str | None = None,
     ) -> None:
+        """Executa a operação fake manual transition."""
         applied.append((task_id, target_status))
 
     monkeypatch.setattr(kanban, "get_card_version_snapshot", fake_snapshot)
@@ -577,6 +597,7 @@ async def test_kanban_proposal_respects_card_version_and_manual_transitions(
 async def test_rag_systemone_reranker_deterministic_order_and_fallback_on_failure() -> (
     None
 ):
+    """Verifica o comportamento de rag systemone reranker deterministic order and fallback on failure."""
     settings = SystemOneSettings(enabled=True)
     provider = FakeDecisionProvider("clef-local")
     harness = SystemOneHarness(settings, provider)
@@ -585,6 +606,7 @@ async def test_rag_systemone_reranker_deterministic_order_and_fallback_on_failur
     scores_by_id = {"doc-a": 0.30, "doc-b": 0.90, "doc-c": 0.90}
 
     async def custom_decide(request: SystemOneRequest) -> SystemOneResponse:
+        """Executa a operação custom decide."""
         state_obj = json.loads(request.state)
         cid = state_obj["candidate_id"]
         sc = scores_by_id[cid]
@@ -619,6 +641,7 @@ async def test_rag_systemone_reranker_deterministic_order_and_fallback_on_failur
 
 @pytest.mark.asyncio
 async def test_hitl_risk_assessment_only_elevates_and_never_reduces_approval() -> None:
+    """Verifica o comportamento de hitl risk assessment only elevates and never reduces approval."""
     settings = SystemOneSettings(enabled=True)
     provider = FakeDecisionProvider("clef-local")
     provider.custom_answers = {
@@ -688,6 +711,7 @@ async def test_hitl_risk_assessment_only_elevates_and_never_reduces_approval() -
 async def test_systemone_tools_enforce_registered_patterns_and_authenticated_context() -> (
     None
 ):
+    """Verifica o comportamento de systemone tools enforce registered patterns and authenticated context."""
     unauth_ctx = ToolContext(thread_id="", workspace_id="")
     raw_unauth = await systemone_list_patterns(unauth_ctx)
     assert json.loads(raw_unauth)["status"] == "error"
