@@ -414,19 +414,34 @@ class VectoraStore:
         now = datetime.now(UTC)
         removed = 0
         async with self._pool.acquire() as conn:
-            cursor = await conn.execute("SELECT namespace, key, value FROM store_items")
-            rows = await cursor.fetchall()
-            for namespace, key, value_json in rows:
-                try:
-                    value = json.loads(value_json)
-                except (TypeError, ValueError):
-                    continue
-                if is_store_value_expired(value, now=now):
-                    await conn.execute(
-                        "DELETE FROM store_items WHERE namespace = ? AND key = ?",
-                        (namespace, key),
-                    )
-                    removed += 1
+            offset = 0
+            while True:
+                cursor = await conn.execute(
+                    "SELECT namespace, key, value FROM store_items ORDER BY namespace, key LIMIT 200 OFFSET ?",
+                    (offset,),
+                )
+                rows = await cursor.fetchall()
+                if not rows:
+                    break
+                deleted = 0
+                for namespace, key, value_json in rows:
+                    try:
+                        value = json.loads(value_json)
+                    except (TypeError, ValueError):
+                        continue
+                    if is_store_value_expired(value, now=now):
+                        result = await conn.execute(
+                            "DELETE FROM store_items WHERE namespace = ? AND key = ? AND value = ?",
+                            (namespace, key, value_json),
+                        )
+                        deleted += result.rowcount
+                removed += deleted
+                if deleted:
+                    offset = 0
+                else:
+                    offset += len(rows)
+                if len(rows) < 200:
+                    break
             await conn.commit()
         return removed
 

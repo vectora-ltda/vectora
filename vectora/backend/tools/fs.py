@@ -1328,12 +1328,12 @@ def _rotate_artifact_history(artifact_dir: Path, slug: str, content: str) -> Pat
         n = 1
         while (artifact_dir / f"{slug}-{n}.md").exists():
             n += 1
-        current.rename(artifact_dir / f"{slug}-{n}.md")
+        current.replace(artifact_dir / f"{slug}-{n}.md")
         integrity = artifact_dir / f"{slug}.artifact.json"
         if integrity.exists():
             historical_integrity = artifact_dir / f"{slug}-{n}.artifact.json"
-            integrity.rename(historical_integrity)
             try:
+                integrity.replace(historical_integrity)
                 metadata = json.loads(historical_integrity.read_text(encoding="utf-8"))
                 if isinstance(metadata, dict):
                     historical_path = artifact_dir / f"{slug}-{n}.md"

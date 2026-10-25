@@ -166,23 +166,40 @@ class VectoraPostgresStore:
         now = datetime.now(UTC)
         removed = 0
         async with self._pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT namespace, key, value FROM vectora_store_items"
-            )
-            for row in rows:
-                value = row["value"]
-                if isinstance(value, str):
-                    try:
-                        value = json.loads(value)
-                    except (TypeError, ValueError):
-                        continue
-                if isinstance(value, dict) and is_store_value_expired(value, now=now):
-                    await conn.execute(
-                        "DELETE FROM vectora_store_items WHERE namespace = $1 AND key = $2",
-                        row["namespace"],
-                        row["key"],
-                    )
-                    removed += 1
+            offset = 0
+            while True:
+                rows = await conn.fetch(
+                    "SELECT namespace, key, value FROM vectora_store_items ORDER BY namespace, key LIMIT 200 OFFSET $1",
+                    offset,
+                )
+                if not rows:
+                    break
+                deleted = 0
+                for row in rows:
+                    value = row["value"]
+                    parsed = value
+                    if isinstance(value, str):
+                        try:
+                            parsed = json.loads(value)
+                        except (TypeError, ValueError):
+                            continue
+                    if isinstance(parsed, dict) and is_store_value_expired(
+                        parsed, now=now
+                    ):
+                        result = await conn.execute(
+                            "DELETE FROM vectora_store_items WHERE namespace = $1 AND key = $2 AND value = $3",
+                            row["namespace"],
+                            row["key"],
+                            value,
+                        )
+                        deleted += int(result.rsplit(" ", 1)[-1])
+                removed += deleted
+                if deleted:
+                    offset = 0
+                else:
+                    offset += len(rows)
+                if len(rows) < 200:
+                    break
         return removed
 
     async def asearch(
