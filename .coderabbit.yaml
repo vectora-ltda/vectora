@@ -1,0 +1,110 @@
+language: pt-BR
+
+reviews:
+  profile: chill
+  request_changes_workflow: true
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: true
+    # A stack uses non-default target branches. Review every target branch
+    # instead of silently skipping stacked pull requests.
+    base_branches:
+      - ".*"
+    # Keep incremental review eligible after every push.
+    auto_pause_after_reviewed_commits: 0
+  path_instructions:
+    - path: "**"
+      instructions: |
+        Revise o comportamento entregue e a sua evidência. Testes são parte do
+        contrato da mudança: para cada comportamento novo ou corrigido, procure
+        pelo menos um teste de caminho feliz, um teste negativo ou de erro e um
+        teste de regressão que falhe sem a correção. Se a mudança for
+        concorrente, persistente, distribuída ou orientada a eventos, exija
+        também testes de repetição, reexecução, conflito, cancelamento,
+        recuperação após falha e idempotência quando aplicável. Não considere
+        um teste superficial que apenas executa o código como cobertura
+        suficiente; verifique asserções sobre estado, efeitos e contratos.
+
+        Confira se o PR mantém os contratos canônicos entre backend, frontend,
+        Electron, providers, storage e wire format. Aponte drift de schema,
+        mudanças incompatíveis, campos opcionais tratados como obrigatórios,
+        migrações incompletas e diferenças entre SQLite e PostgreSQL/Qdrant/
+        Redis. Em mudanças de API, exija atualização de schemas, clientes,
+        fixtures e testes de compatibilidade.
+
+        Verifique limites e falhas: entradas vazias ou inválidas, timeouts,
+        cancelamento, retry, duplicação, paginação, limites de tamanho,
+        recursos indisponíveis e respostas parciais. Confirme que erros não
+        vazam segredos nem deixam estado parcialmente persistido.
+
+        Faça revisão de segurança em SSRF, DNS rebinding, traversal, prompt
+        injection, egress, autenticação/autorização, isolamento por workspace,
+        credenciais, logs e conteúdo não confiável. Não aceite segurança apenas
+        por validação no chamador quando o adapter ou provider também precisa
+        aplicar a política.
+
+        Para estados e máquinas de execução, confira transições válidas,
+        terminais imutáveis, CAS/versões, ownership, leases, retomada,
+        idempotência e auditoria. Para eventos e streams, confira ordem,
+        cursores, replay, reconexão, heartbeat, deduplicação e consistência
+        entre o ledger e os stores derivados.
+
+        Para mudanças de CI, scripts ou configuração, verifique execução em
+        Windows e Linux quando suportado, quoting, códigos de saída, limpeza
+        de processos, cache, artefatos e se o gate realmente falha quando a
+        prova necessária não está disponível. Não trate uma execução anterior
+        ou um resultado informado no PR como evidência do commit atual.
+
+        Seja crítico quanto a escopo: não peça refatorações sem relação, mas
+        não aceite marcar uma issue como concluída quando a implementação só
+        cobre um adapter, backend, provider ou caminho feliz. Em cada achado,
+        indique o arquivo, o cenário que reproduz o problema e a prova/teste
+        que deve ser acrescentado ou corrigido.
+
+    - path: "vectora/tests/**"
+      instructions: |
+        Verifique se os testes têm asserções fortes e isolam efeitos externos.
+        Procure testes negativos, de regressão, limites, concorrência,
+        cancelamento e recuperação, conforme o comportamento coberto. Rejeite
+        testes que apenas verificam status 200, ausência de exceção ou mocks
+        sem confirmar os argumentos e os efeitos observáveis.
+
+    - path: "vectora/frontend/**/*.{test,spec}.{ts,tsx}"
+      instructions: |
+        Para cada mudança coberta por estes testes, exija um caso de caminho
+        feliz, um caso negativo ou de erro e uma regressão que reproduza o
+        comportamento anterior. Em componentes React, confira estados de
+        carregamento, vazio, erro, retry, cancelamento, acessibilidade e
+        interação do usuário. Em hooks e stores, confira atualização de estado,
+        cleanup, re-renderização, concorrência e isolamento entre instâncias.
+        Em clientes SSE, IPC e APIs, teste payloads inválidos, desconexão,
+        reconexão, eventos duplicados, ordem dos eventos e contratos de tipos.
+
+    - path: "vectora/frontend/electron/**/*.{test,spec}.{ts,tsx}"
+      instructions: |
+        Verifique testes de lifecycle e IPC com sucesso, falha, timeout,
+        cancelamento, processo ausente, mensagens inválidas e cleanup. Confirme
+        que bridges autenticadas, sessões, cookies, ownership de workspace e
+        limites de navegação não são apenas simulados sem asserções sobre os
+        efeitos observáveis. Mudanças no Electron também devem manter o
+        typecheck estrito e a compatibilidade com o contrato do backend.
+
+    - path: ".github/workflows/**"
+      instructions: |
+        Confira se os gates executam a suíte correta, propagam falhas, usam
+        versões suportadas, limpam serviços locais e publicam artefatos úteis.
+        Mudanças de workflow devem incluir uma prova negativa quando alteram
+        um gate ou uma condição de falha.
+
+chat:
+  auto_reply: true
+  art: false
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
