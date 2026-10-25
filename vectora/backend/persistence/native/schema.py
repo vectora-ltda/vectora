@@ -548,9 +548,15 @@ async def setup_postgres_session_schema(pool: asyncpg.Pool) -> None:
     """Cria e migra todas as tabelas e índices necessários no PostgreSQL."""
     async with pool.acquire() as conn:
         await conn.execute(POSTGRES_SESSIONS_SCHEMA)
-        await conn.execute(
-            "DROP INDEX IF EXISTS ix_vectora_native_context_checkpoints_thread_sequence"
+        index_row = await conn.fetchrow(
+            "SELECT indexdef FROM pg_indexes "
+            "WHERE schemaname = current_schema() "
+            "AND indexname = 'ix_vectora_native_context_checkpoints_thread_sequence'"
         )
+        if index_row and "run_id" not in str(index_row["indexdef"]):
+            await conn.execute(
+                "DROP INDEX ix_vectora_native_context_checkpoints_thread_sequence"
+            )
         await conn.execute(
             "CREATE UNIQUE INDEX IF NOT EXISTS ix_vectora_native_context_checkpoints_thread_sequence "
             "ON vectora_native_context_checkpoints(thread_id, run_id, last_sequence, source_hash)"

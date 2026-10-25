@@ -84,6 +84,13 @@ class TestRedaction:
         assert res["nested"]["token"] == "[REDACTED]"
         assert res["nested"]["safe"] == "ok"
 
+    def test_redact_preserves_numeric_usage_counters(self) -> None:
+        """Evidence keeps token accounting while still redacting credentials."""
+        res = redact_sensitive_data(
+            {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15}
+        )
+        assert res == {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15}
+
 
 class TestRunEvidenceLockRegistry:
     async def test_registry_shares_lock_with_waiters_and_releases_entries(self) -> None:

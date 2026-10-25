@@ -171,7 +171,17 @@ def redact_sensitive_data(value: Any) -> Any:
         result: dict[str, Any] = {}
         for k, v in value.items():
             if _is_sensitive_key(str(k)):
-                result[k] = "[REDACTED]"
+                # Usage counters are metadata, not credentials. Preserve them
+                # when they are numeric so evidence remains useful for
+                # accounting and evaluation without weakening secret redaction.
+                if str(k).casefold() in {
+                    "input_tokens",
+                    "output_tokens",
+                    "total_tokens",
+                } and isinstance(v, (int, float)):
+                    result[k] = v
+                else:
+                    result[k] = "[REDACTED]"
             else:
                 result[k] = redact_sensitive_data(v)
         return result

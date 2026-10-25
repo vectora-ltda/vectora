@@ -6,6 +6,8 @@ import json
 import sqlite3
 import threading
 import time
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -81,14 +83,19 @@ class MemoryStore:
         if self._path is not None:
             self._initialize_persistence()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Generator[sqlite3.Connection, None, None]:
         """Executa a operação  connect."""
         if self._path is None:
             raise RuntimeError("este MemoryStore não possui persistência configurada")
         self._path.parent.mkdir(parents=True, exist_ok=True)
         connection = sqlite3.connect(str(self._path), timeout=10.0)
         connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _initialize_persistence(self) -> None:
         """Executa a operação  initialize persistence."""
@@ -312,7 +319,9 @@ class MemoryStore:
         terms = {term for term in (query or "").casefold().split() if term}
         ranked: list[tuple[float, MemoryRecord]] = []
 
-        for rec in self._records.values():
+        with self._lock:
+            records = list(self._records.values())
+        for rec in records:
             if not rec.active:
                 continue
             if domain is not None and rec.domain != domain:
@@ -348,10 +357,11 @@ class MemoryStore:
 
         ranked.sort(key=lambda item: (item[0], item[1].created_at), reverse=True)
         selected = [rec for _, rec in ranked[:limit]]
-        self._metrics["hits"] += len(selected)
         accessed_at = datetime.now(UTC).isoformat()
-        for rec in selected:
-            rec.accessed_at = accessed_at
+        with self._lock:
+            self._metrics["hits"] += len(selected)
+            for rec in selected:
+                rec.accessed_at = accessed_at
         if self._path is not None and selected:
             with self._connect() as connection:
                 connection.executemany(

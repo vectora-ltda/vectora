@@ -17,10 +17,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from pydantic import ValidationError
-
-from backend.vtypes.documents import ArtifactIntegrity
-
 
 @dataclass(frozen=True)
 class ArtifactGcResult:
@@ -56,12 +52,14 @@ def _retention_class(sidecar: Path) -> str:
     """Executa a operação  retention class."""
     try:
         payload = json.loads(sidecar.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return "run"
     except (OSError, UnicodeError, json.JSONDecodeError):
-        return "run"
-    try:
-        return ArtifactIntegrity.model_validate(payload).retention_class
-    except (TypeError, ValueError, ValidationError):
-        return "run"
+        return "invalid"
+    if not isinstance(payload, dict):
+        return "invalid"
+    value = payload.get("retention_class", "run")
+    return value if isinstance(value, str) else "invalid"
 
 
 def _iter_payloads(
@@ -133,10 +131,13 @@ def collect_artifacts(
         if retention in {"pinned", "permanent", "audit"}:
             skipped_policy += 1
             continue
-        cutoff = default_cutoff
-        if older_than is None and retention not in policies:
+        if retention not in policies:
+            # An unknown class must fail closed even when the caller supplies
+            # an explicit cutoff.  Otherwise a future policy could be
+            # collected accidentally by a generic maintenance command.
             skipped_policy += 1
             continue
+        cutoff = default_cutoff
         if older_than is None and retention in policies:
             cutoff = current - policies[retention]
         try:

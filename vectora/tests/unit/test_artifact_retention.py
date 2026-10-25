@@ -103,3 +103,32 @@ def test_gc_skips_unknown_retention_class(tmp_path: Path) -> None:
     assert result.skipped_policy == 1
     assert result.deleted == 0
     assert artifact.exists()
+
+
+def test_gc_skips_unknown_retention_class_with_explicit_cutoff(tmp_path: Path) -> None:
+    """Unknown future policies fail closed even when a cutoff is supplied."""
+    artifact = tmp_path / "unknown-explicit.md"
+    _artifact(artifact, retention_class="future-policy")
+
+    result = collect_artifacts(
+        tmp_path,
+        older_than=datetime.now(UTC) + timedelta(days=1),
+        dry_run=False,
+    )
+
+    assert result.skipped_policy == 1
+    assert result.deleted == 0
+    assert artifact.exists()
+
+
+def test_gc_fails_closed_for_corrupt_sidecar(tmp_path: Path) -> None:
+    """A malformed sidecar is never treated as the default run policy."""
+    artifact = tmp_path / "corrupt.md"
+    _artifact(artifact)
+    artifact.with_suffix(".artifact.json").write_text("{not-json", encoding="utf-8")
+
+    result = collect_artifacts(tmp_path, dry_run=False)
+
+    assert result.skipped_policy == 1
+    assert result.deleted == 0
+    assert artifact.exists()

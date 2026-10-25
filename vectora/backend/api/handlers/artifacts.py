@@ -8,6 +8,7 @@ disco produzido por ``create_artifact`` (``src/tools/fs.py``):
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -166,7 +167,7 @@ async def list_artifacts(
             )
         )
 
-    items.extend(_media_artifacts(base, session_id))
+    items.extend(await asyncio.to_thread(_media_artifacts, base, session_id))
     items.sort(key=lambda a: a.created_at, reverse=True)
     return ListArtifactsResponse(artifacts=items)
 

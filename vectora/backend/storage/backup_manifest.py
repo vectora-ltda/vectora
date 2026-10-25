@@ -83,7 +83,10 @@ def _artifact_entries(database: Path) -> list[tuple[str, bytes]]:
     # Apply the same confinement check used by restore destinations before
     # traversing the directory.  A symlinked artifacts root could otherwise
     # make a backup read files outside the Vectora data tree.
-    _assert_safe_destination(root)
+    boundary = (
+        database.parent.parent if database.parent.name == "data" else database.parent
+    )
+    _assert_safe_destination(root, boundary)
     if not root.is_dir():
         return []
     entries: list[tuple[str, bytes]] = []
@@ -376,21 +379,28 @@ def inspect_backup(archive_path: str | Path) -> BackupPreview:
     )
 
 
-def _assert_safe_destination(path: Path) -> None:
-    """Reject destination paths that traverse an existing symlink."""
+def _assert_safe_destination(path: Path, boundary: Path | None = None) -> None:
+    """Reject symlinks between the storage root and a destination."""
+    if boundary is not None:
+        boundary = boundary.resolve(strict=False)
+        resolved = path.resolve(strict=False)
+        if boundary not in resolved.parents and resolved != boundary:
+            raise ValueError(f"destino fora da raiz de restore: {path}")
     current = path
-    while True:
+    while boundary is None or current != boundary:
         if current.is_symlink():
             raise ValueError(f"destino de restore contém symlink: {current}")
         parent = current.parent
         if parent == current:
-            return
+            break
         current = parent
 
 
-def _atomic_write(destination: Path, data: bytes) -> None:
+def _atomic_write(
+    destination: Path, data: bytes, *, boundary: Path | None = None
+) -> None:
     """Executa a operação  atomic write."""
-    _assert_safe_destination(destination)
+    _assert_safe_destination(destination, boundary)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as handle:
         temporary = Path(handle.name)
@@ -448,19 +458,24 @@ def restore_backup(
         # truncate the active database before the compressed payload has been
         # fully read, and restore the previous file if publication fails.
         destination = Path(db_path)
-        _assert_safe_destination(destination)
+        boundary = (
+            destination.parent.parent
+            if destination.parent.name == "data"
+            else destination.parent
+        )
+        _assert_safe_destination(destination, boundary)
         previous = destination.read_bytes() if destination.is_file() else None
         try:
             with gzip.open(archive_file, "rb") as source:
                 payload = source.read(MAX_ENTRY_BYTES + 1)
             if len(payload) > MAX_ENTRY_BYTES:
                 raise ValueError("entrada de backup excede o limite")
-            _atomic_write(destination, payload)
+            _atomic_write(destination, payload, boundary=boundary)
         except Exception:
             if previous is None:
                 destination.unlink(missing_ok=True)
             else:
-                _atomic_write(destination, previous)
+                _atomic_write(destination, previous, boundary=boundary)
             raise
         return BackupPreview(0, "", archive_file.stat().st_size, {"database": 0}, True)
     preview = inspect_backup(archive_file)
@@ -475,16 +490,22 @@ def restore_backup(
     if unavailable:
         raise ValueError("categoria selecionada não está presente no backup")
     destination = Path(db_path)
+    storage_root = (
+        destination.parent.parent
+        if destination.parent.name == "data"
+        else destination.parent
+    )
+    boundary = storage_root
     targets = {
         "database": destination,
         "workspaces": _workspace_path(destination),
         "threads": _sessions_path(destination),
-        "memories": destination.parent.parent / "memories.json",
+        "memories": storage_root / "memories.json",
         "artifacts": _artifacts_root(destination),
     }
     for target in targets.values():
-        _assert_safe_destination(target)
-    snapshots = snapshot_targets(destination, selected)
+        _assert_safe_destination(target, boundary)
+    snapshots = snapshot_targets(destination, selected, boundary=boundary)
     staged: dict[Path, bytes] = {}
     staged_bytes = 0
     try:
@@ -515,9 +536,9 @@ def restore_backup(
         # original do ZIP.
         staged_temp: dict[Path, Path] = {}
         for path, data in staged.items():
-            if path in {targets["database"], targets["threads"]} and data.startswith(
-                b"SQLite format 3\x00"
-            ):
+            if path in {targets["database"], targets["threads"]}:
+                if data and not data.startswith(b"SQLite format 3\x00"):
+                    raise ValueError("banco restaurado inválido")
                 with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as handle:
                     handle.write(data)
                     staged_temp[path] = Path(handle.name)
@@ -567,7 +588,7 @@ def restore_backup(
                 staged_data = json.dumps(safe_records, ensure_ascii=False).encode()
             else:
                 staged_data = data
-            _atomic_write(path, staged_data)
+            _atomic_write(path, staged_data, boundary=boundary)
     except Exception:
         for path in staged:
             if path not in snapshots and path.is_file():
@@ -576,7 +597,7 @@ def restore_backup(
             if previous is None:
                 path.unlink(missing_ok=True)
             else:
-                _atomic_write(path, previous)
+                _atomic_write(path, previous, boundary=boundary)
         raise
     results: dict[str, dict[str, object]] = {
         category: {
@@ -601,15 +622,23 @@ def restore_backup(
 
 
 def snapshot_targets(
-    db_path: str | Path, categories: set[str]
+    db_path: str | Path,
+    categories: set[str],
+    *,
+    boundary: Path | None = None,
 ) -> dict[Path, bytes | None]:
     """Captura os arquivos selecionados para rollback de uma promoção externa."""
     destination = Path(db_path)
+    storage_root = (
+        destination.parent.parent
+        if destination.parent.name == "data"
+        else destination.parent
+    )
     targets = {
         "database": destination,
         "workspaces": _workspace_path(destination),
         "threads": _sessions_path(destination),
-        "memories": destination.parent.parent / "memories.json",
+        "memories": storage_root / "memories.json",
         "artifacts": _artifacts_root(destination),
     }
     snapshots: dict[Path, bytes | None] = {}
@@ -617,7 +646,7 @@ def snapshot_targets(
         if category not in categories:
             continue
         if category == "artifacts":
-            _assert_safe_destination(path)
+            _assert_safe_destination(path, boundary)
             if path.is_dir():
                 snapshots.update(
                     {
@@ -627,15 +656,17 @@ def snapshot_targets(
                     }
                 )
             continue
-        _assert_safe_destination(path)
+        _assert_safe_destination(path, boundary)
         snapshots[path] = path.read_bytes() if path.is_file() else None
     return snapshots
 
 
-def restore_snapshots(snapshots: dict[Path, bytes | None]) -> None:
+def restore_snapshots(
+    snapshots: dict[Path, bytes | None], *, boundary: Path | None = None
+) -> None:
     """Reaplica snapshots capturados antes de uma promoção malsucedida."""
     for path, previous in snapshots.items():
         if previous is None:
             path.unlink(missing_ok=True)
         else:
-            _atomic_write(path, previous)
+            _atomic_write(path, previous, boundary=boundary)

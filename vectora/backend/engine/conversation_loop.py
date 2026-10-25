@@ -115,7 +115,7 @@ async def _load_persistent_context_memories(ctx: ToolContext) -> list[MemoryReco
         return [
             record
             for record in memory_records_from_backend_items(
-                items, default_scope_id=ctx.workspace_id or ctx.thread_id or "global"
+                items, default_scope_id=ctx.workspace_id or "global"
             )
             if record.active
         ]

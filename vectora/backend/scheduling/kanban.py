@@ -470,6 +470,33 @@ async def set_status(
     if cur.rowcount == 0:
         await db.rollback()
         if authorized_run_id is not None:
+            async with db.execute(
+                "SELECT status, updated_at, version, claim_lock, claim_expires_at "
+                "FROM vectora_background_tasks WHERE id = ?",
+                (task_id,),
+            ) as latest_cur:
+                latest = await latest_cur.fetchone()
+            now_iso = _agora().isoformat()
+            claim_valid = bool(
+                latest
+                and latest["claim_lock"] == authorized_run_id
+                and latest["claim_expires_at"]
+                and latest["claim_expires_at"] > now_iso
+            )
+            if claim_valid and (
+                (expected_status is not None and latest["status"] != expected_status)
+                or (
+                    expected_updated_at is not None
+                    and latest["updated_at"] != expected_updated_at
+                )
+                or (
+                    expected_version is not None
+                    and str(latest["version"]) != str(expected_version)
+                )
+            ):
+                raise ValueError(
+                    "concorrência detectada: filtros CAS foram modificados"
+                )
             raise ValueError("execução perdeu o claim da task")
         if (
             expected_status is not None

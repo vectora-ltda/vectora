@@ -136,7 +136,11 @@ def test_artifacts_root_symlink_is_rejected_before_reading(tmp_path: Path) -> No
 def test_restore_respeita_destino_customizado_e_selecao_vazia(tmp_path: Path) -> None:
     """Verifica o comportamento de restore respeita destino customizado e selecao vazia."""
     database = tmp_path / "vectora.db"
-    database.write_bytes(b"original")
+    connection = sqlite3.connect(database)
+    connection.execute("CREATE TABLE marker (value TEXT NOT NULL)")
+    connection.execute("INSERT INTO marker VALUES ('original')")
+    connection.commit()
+    connection.close()
     archive = tmp_path / "backup.vbackup.zip"
     create_backup(database, archive)
 
@@ -145,7 +149,9 @@ def test_restore_respeita_destino_customizado_e_selecao_vazia(tmp_path: Path) ->
     restore_backup(archive, target, categories=set())
     assert target.read_bytes() == b"atual"
     restore_backup(archive, target, categories={"database"})
-    assert target.read_bytes() == b"original"
+    restored = sqlite3.connect(target)
+    assert restored.execute("SELECT value FROM marker").fetchone() == ("original",)
+    restored.close()
 
 
 def test_rejeita_categoria_desconhecida_e_entrada_extra(tmp_path: Path) -> None:

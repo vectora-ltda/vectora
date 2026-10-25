@@ -96,9 +96,14 @@ def export_cold_archive(
         for item in events
     )
     digest = hashlib.sha256()
+    total_bytes = 0
     with gzip.open(temporary, "wb", compresslevel=6) as stream:
         for record in records:
             payload = _canonical_record(record)
+            total_bytes += len(payload)
+            if total_bytes > _MAX_DECOMPRESSED_BYTES:
+                temporary.unlink(missing_ok=True)
+                raise ValueError("cold archive excede o limite descompactado")
             digest.update(payload)
             stream.write(payload)
     with temporary.open("r+b") as stream:
@@ -166,7 +171,7 @@ def read_cold_archive(
     total_bytes = 0
     try:
         with gzip.open(archive, "rb") as stream:
-            for line in stream:
+            while line := stream.readline(_MAX_DECOMPRESSED_BYTES - total_bytes + 1):
                 total_bytes += len(line)
                 if total_bytes > _MAX_DECOMPRESSED_BYTES:
                     raise ValueError("cold archive excede o limite descompactado")
