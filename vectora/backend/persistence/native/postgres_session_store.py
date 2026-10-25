@@ -1462,7 +1462,8 @@ class PostgresSessionStore:
         """Cria ou atualiza uma execução do agente no PostgreSQL com redação de segredos."""
         await self.setup()
         async with self._pool.acquire() as conn:
-            await self._upsert_agent_run_on_conn(conn, run)
+            async with conn.transaction():
+                await self._upsert_agent_run_on_conn(conn, run)
 
     async def update_agent_run_status(
         self,
