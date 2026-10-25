@@ -135,7 +135,14 @@ async def _ensure_version_column(db: SQLiteConnection) -> None:
         return
     try:
         async with db.execute("PRAGMA table_info(vectora_background_tasks)") as cur:
-            columns = {str(row[1]) for row in await cur.fetchall()}
+            rows = await cur.fetchall()
+            # O banco de tarefas normalmente usa ``dict`` como row_factory,
+            # enquanto vários testes e conexões diretas usam ``aiosqlite.Row``.
+            # Ambos representam o nome da coluna na posição ``1``/``name``;
+            # acessar apenas por índice quebra o scheduler em produção.
+            columns = {
+                str(row["name"] if isinstance(row, dict) else row[1]) for row in rows
+            }
         if columns and "version" not in columns:
             await db.execute(
                 "ALTER TABLE vectora_background_tasks "
