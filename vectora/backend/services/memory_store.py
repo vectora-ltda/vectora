@@ -243,6 +243,8 @@ class MemoryStore:
             raise ValueError("importance deve estar entre 0 e 1")
         if not 0.0 <= confidence <= 1.0:
             raise ValueError("confidence deve estar entre 0 e 1")
+        if valid_until is not None:
+            valid_until = self._parse_datetime(valid_until).isoformat()
         clean_metadata = metadata or {}
         with self._lock:
             self._metrics["writes"] += 1

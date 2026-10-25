@@ -2285,8 +2285,15 @@ async def start_installed_huggingface_model(
     # the sidecar so a previous external/old port cannot make discovery and
     # chat report a false "unreachable" state after restart.
     managed_base_url = f"http://127.0.0.1:{body.port}/v1"
+    env_file = _env_file()
+    previous_env_text = (
+        env_file.read_text(encoding="utf-8") if env_file.exists() else None
+    )
+    previous_base_url = settings.llamacpp_base_url
+    previous_base_env = os.environ.get("LLAMACPP_BASE_URL")
+    previous_mode_env = os.environ.get("LLAMACPP_MODE")
     object.__setattr__(settings, "llamacpp_base_url", managed_base_url)
-    _set_env_key(_env_file(), "LLAMACPP_BASE_URL", managed_base_url)
+    _set_env_key(env_file, "LLAMACPP_BASE_URL", managed_base_url)
     os.environ["LLAMACPP_BASE_URL"] = managed_base_url
     tag = body.alias or str(manifest.get("alias") or model_entry["filename"])
     parameters: dict[str, str | int | float | bool | None] = {
@@ -2317,6 +2324,19 @@ async def start_installed_huggingface_model(
         from backend.services.llamacpp_sidecar import stop_llamacpp
 
         await stop_llamacpp()
+        object.__setattr__(settings, "llamacpp_base_url", previous_base_url)
+        if previous_env_text is None:
+            env_file.unlink(missing_ok=True)
+        else:
+            env_file.write_text(previous_env_text, encoding="utf-8")
+        if previous_base_env is None:
+            os.environ.pop("LLAMACPP_BASE_URL", None)
+        else:
+            os.environ["LLAMACPP_BASE_URL"] = previous_base_env
+        if previous_mode_env is None:
+            os.environ.pop("LLAMACPP_MODE", None)
+        else:
+            os.environ["LLAMACPP_MODE"] = previous_mode_env
         if isinstance(exc, HTTPException):
             raise
         raise HTTPException(

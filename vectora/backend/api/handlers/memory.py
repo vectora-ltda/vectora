@@ -179,14 +179,7 @@ async def list_memories(
     try:
         ns = _namespace(request)
         store = await _store()
-        # A limpeza administrativa inclui TTLs expirados para que eles não
-        # permaneçam no banco apenas porque o filtro normal de leitura os omite.
-        try:
-            items = await store.asearch(ns, limit=_LIST_ALL_LIMIT, include_expired=True)
-        except TypeError:
-            # Backends/plugins antigos não conhecem o parâmetro novo; manter o
-            # fallback evita quebrar uma instalação durante a migração.
-            items = await store.asearch(ns, limit=_LIST_ALL_LIMIT)
+        items = await store.asearch(ns, limit=_LIST_ALL_LIMIT)
 
         all_mems = [
             MemoryItem(
@@ -359,7 +352,10 @@ async def clear_all_memories(request: Request) -> DeleteMemoryResponse:
     try:
         ns = _namespace(request)
         store = await _store()
-        items = await store.asearch(ns, limit=_LIST_ALL_LIMIT, include_expired=True)
+        try:
+            items = await store.asearch(ns, limit=_LIST_ALL_LIMIT, include_expired=True)
+        except TypeError:
+            items = await store.asearch(ns, limit=_LIST_ALL_LIMIT)
         count = 0
         for item in items:
             await store.adelete(ns, item.key)

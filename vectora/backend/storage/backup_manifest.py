@@ -238,6 +238,8 @@ def _manifest_files(manifest: dict[str, Any]) -> dict[str, list[dict[str, Any]]]
             raise ValueError("categoria de backup inválida")
         items = raw if isinstance(raw, list) else [raw]
         if raw == []:
+            if category != "artifacts":
+                raise ValueError("entrada de manifesto inválida")
             result[category] = []
             continue
         if not items or any(not isinstance(item, dict) for item in items):

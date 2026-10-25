@@ -1113,9 +1113,9 @@ async def unblock_task(
             (task_id, *extra_params, authorized_run_id, _agora().isoformat()),
         )
     if cur.rowcount == 0:
-        await db.rollback()
         if authorized_run_id is not None:
-            raise ValueError("execução perdeu o claim da task")
+            await _raise_claim_failure(db, task_id, authorized_run_id)
+        await db.rollback()
         if (
             expected_status is not None
             or expected_updated_at is not None
