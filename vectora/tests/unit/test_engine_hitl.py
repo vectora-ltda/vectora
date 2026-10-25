@@ -24,6 +24,7 @@ from backend.vtypes.message import ContentBlock, MessageRole, VMessage, text_mes
 
 @pytest.fixture
 async def session_store(tmp_path):
+    """Executa a operação session store."""
     pool = AsyncConnectionPool(str(tmp_path / "hitl.db"), min_size=1, max_size=2)
     await pool.open()
     store = SessionStore(pool)
@@ -36,10 +37,12 @@ async def session_store(tmp_path):
 
 
 def _ctx(**kwargs) -> ToolContext:
+    """Executa a operação ctx."""
     return ToolContext(user_id="alice", thread_id="thread-1", **kwargs)
 
 
 def test_write_terminal_requires_approval() -> None:
+    """Verifica o comportamento de write terminal requires approval."""
     assert "write_terminal" in REQUIRE_APPROVAL
     assert should_require_approval("write_terminal", _ctx(), {}, []) is True
     assert (
@@ -50,12 +53,14 @@ def test_write_terminal_requires_approval() -> None:
 
 class TestShouldRequireApproval:
     def test_tool_fora_da_lista_nunca_interrompe(self):
+        """Verifica o comportamento de tool fora da lista nunca interrompe."""
         assert (
             should_require_approval("web_search", _ctx(permission_mode="ask"), {}, [])
             is False
         )
 
     def test_modo_ask_interrompe_tool_destrutiva(self):
+        """Verifica o comportamento de modo ask interrompe tool destrutiva."""
         assert (
             should_require_approval("file_write", _ctx(permission_mode="ask"), {}, [])
             is True
@@ -79,20 +84,24 @@ class TestShouldRequireApproval:
         )
 
     def test_modo_desconhecido_cai_no_comportamento_mais_restritivo_de_ask(self):
+        """Verifica o comportamento de modo desconhecido cai no comportamento mais restritivo de ask."""
         ctx = _ctx(permission_mode="modo-invalido")
         assert should_require_approval("file_write", ctx, {}, []) is True
 
     def test_modo_accept_edits_auto_aprova_edicao_mas_nao_terminal(self):
+        """Verifica o comportamento de modo accept edits auto aprova edicao mas nao terminal."""
         ctx = _ctx(permission_mode="accept_edits")
         assert should_require_approval("file_write", ctx, {}, []) is False
         assert should_require_approval("terminal", ctx, {}, []) is True
 
     def test_modos_auto_e_bypass_nunca_interrompem(self):
+        """Verifica o comportamento de modos auto e bypass nunca interrompem."""
         for modo in ("auto", "bypass"):
             ctx = _ctx(permission_mode=modo)
             assert should_require_approval("file_write", ctx, {}, []) is False
 
     def test_midia_falha_fechada_com_limiar_ausente_ou_invalido(self):
+        """Verifica o comportamento de midia falha fechada com limiar ausente ou invalido."""
         for threshold in (None, True, "1"):
             ctx = _ctx(permission_mode="auto", model="openai:gpt-image-1")
             if threshold is not None:
@@ -100,10 +109,12 @@ class TestShouldRequireApproval:
             assert should_require_approval("generate_image", ctx, {}, []) is True
 
     def test_computer_use_sempre_interrompe_mesmo_em_bypass(self):
+        """Verifica o comportamento de computer use sempre interrompe mesmo em bypass."""
         ctx = _ctx(permission_mode="bypass")
         assert should_require_approval("computer_use", ctx, {}, []) is True
 
     def test_modo_plan_interrompe_so_a_primeira_tool_destrutiva_do_turno(self):
+        """Verifica o comportamento de modo plan interrompe so a primeira tool destrutiva do turno."""
         ctx = _ctx(permission_mode="plan")
         historico_vazio: list[VMessage] = []
         assert should_require_approval("file_write", ctx, {}, historico_vazio) is True
@@ -126,6 +137,7 @@ class TestShouldRequireApproval:
         )
 
     def test_modo_plan_reinicia_a_cada_nova_mensagem_do_usuario(self):
+        """Verifica o comportamento de modo plan reinicia a cada nova mensagem do usuario."""
         ctx = _ctx(permission_mode="plan")
         historico = [
             text_message(MessageRole.USER, "primeiro pedido"),
@@ -140,11 +152,13 @@ class TestShouldRequireApproval:
         assert should_require_approval("file_write", ctx, {}, historico) is True
 
     def test_kanban_update_status_da_propria_task_nunca_interrompe(self):
+        """Verifica o comportamento de kanban update status da propria task nunca interrompe."""
         ctx = _ctx(permission_mode="ask", background_task_id="task-1")
         args = {"task_id": "task-1"}
         assert should_require_approval("kanban_update_status", ctx, args, []) is False
 
     def test_kanban_update_status_de_outra_task_interrompe_normalmente(self):
+        """Verifica o comportamento de kanban update status de outra task interrompe normalmente."""
         ctx = _ctx(permission_mode="ask", background_task_id="task-1")
         args = {"task_id": "task-2"}
         assert should_require_approval("kanban_update_status", ctx, args, []) is True
@@ -152,6 +166,7 @@ class TestShouldRequireApproval:
     def test_workspace_jailed_dispensa_aprovacao_de_terminal_e_file_write(
         self, monkeypatch
     ):
+        """Verifica o comportamento de workspace jailed dispensa aprovacao de terminal e file write."""
         monkeypatch.setattr(
             "backend.engine.hitl._workspace_is_jailed", lambda _wsid: True
         )
@@ -162,6 +177,7 @@ class TestShouldRequireApproval:
         assert should_require_approval("install_learned_skill", ctx, {}, []) is True
 
     def test_workspace_nao_jailed_continua_pedindo_aprovacao(self, monkeypatch):
+        """Verifica o comportamento de workspace nao jailed continua pedindo aprovacao."""
         monkeypatch.setattr(
             "backend.engine.hitl._workspace_is_jailed", lambda _wsid: False
         )
@@ -173,6 +189,7 @@ class TestApprovalGate:
     async def test_midia_persiste_apenas_metadados_e_mantem_payload_efemero(
         self, session_store: SessionStore
     ) -> None:
+        """Verifica o comportamento de midia persiste apenas metadados e mantem payload efemero."""
         gate = ApprovalGate(session_store)
         args = {"prompt": "segredo", "size": "1024x1024"}
         metadata = {
@@ -204,6 +221,7 @@ class TestApprovalGate:
     async def test_request_approval_persiste_no_session_store(
         self, session_store: SessionStore
     ) -> None:
+        """Verifica o comportamento de request approval persiste no session store."""
         gate = ApprovalGate(session_store)
 
         await gate.request_approval(
@@ -221,6 +239,7 @@ class TestApprovalGate:
         assert pendente["args"] == {"path": "a.py"}
 
     async def test_resolve_limpa_a_pendencia_e_libera_o_fast_path(self, session_store):
+        """Verifica o comportamento de resolve limpa a pendencia e libera o fast path."""
         gate = ApprovalGate(session_store)
         await gate.request_approval(
             "thread-1",
@@ -258,6 +277,7 @@ class TestApprovalGate:
     async def test_wait_for_resume_retorna_true_quando_resolve_e_chamado(
         self, session_store
     ):
+        """Verifica o comportamento de wait for resume retorna true quando resolve e chamado."""
         gate = ApprovalGate(session_store)
         await gate.request_approval(
             "thread-1",
@@ -268,6 +288,7 @@ class TestApprovalGate:
         )
 
         async def _resolver_logo():
+            """Executa a operação resolver logo."""
             await asyncio.sleep(0.01)
             await gate.resolve("thread-1")
 
@@ -280,6 +301,7 @@ class TestApprovalGate:
     async def test_wait_for_resume_sem_pedido_previo_devolve_false_sem_travar(
         self, session_store
     ):
+        """Verifica o comportamento de wait for resume sem pedido previo devolve false sem travar."""
         gate = ApprovalGate(session_store)
 
         liberado = await gate.wait_for_resume("thread-sem-pedido", timeout_s=0.05)
@@ -289,6 +311,7 @@ class TestApprovalGate:
     async def test_wait_for_resume_expira_no_timeout_se_ninguem_resolver(
         self, session_store
     ):
+        """Verifica o comportamento de wait for resume expira no timeout se ninguem resolver."""
         gate = ApprovalGate(session_store)
         await gate.request_approval(
             "thread-1",
@@ -305,6 +328,7 @@ class TestApprovalGate:
 
 def test_call_requires_separate_approval():
     # Tools destrutivas padrão exigem aprovação
+    """Verifica o comportamento de call requires separate approval."""
     assert call_requires_separate_approval("file_write") is True
     assert call_requires_separate_approval("git_push") is True
 

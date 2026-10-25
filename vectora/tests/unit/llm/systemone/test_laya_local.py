@@ -18,6 +18,7 @@ from backend.llm.systemone.types import (
 
 
 def _request() -> SystemOneRequest:
+    """Executa a operação request."""
     return SystemOneRequest(
         model="convaiinnovations/laya",
         state="A produção está indisponível e o cliente ameaça cancelar.",
@@ -43,9 +44,11 @@ def _request() -> SystemOneRequest:
 
 @pytest.mark.asyncio
 async def test_laya_serializes_typed_questions_and_normalizes_response() -> None:
+    """Verifica o comportamento de laya serializes typed questions and normalizes response."""
     seen: dict[str, object] = {}
 
     async def handler(request: httpx.Request) -> httpx.Response:
+        """Executa a operação handler."""
         import json
 
         seen["payload"] = json.loads(request.content)
@@ -86,6 +89,7 @@ async def test_laya_serializes_typed_questions_and_normalizes_response() -> None
 
 @pytest.mark.asyncio
 async def test_laya_rejects_media() -> None:
+    """Verifica o comportamento de laya rejects media."""
     request = _request()
     request.media_urls = ["file:///tmp/image.png"]
     with pytest.raises(SystemOneCapabilityError, match=r"não.*imagens|não aceita"):
@@ -93,6 +97,7 @@ async def test_laya_rejects_media() -> None:
 
 
 def test_laya_provider_factory() -> None:
+    """Verifica o comportamento de laya provider factory."""
     provider = get_systemone_provider(
         SystemOneSettings(provider="laya-local", laya_base_url="http://laya:8000")
     )

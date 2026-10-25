@@ -46,6 +46,7 @@ async def test_adapters_reject_invalid_responses(
     """All adapters reject malformed, extra, mismatched and out-of-range answers."""
 
     async def post(*args: object, **kwargs: object) -> httpx.Response:
+        """Executa a operação post."""
         return httpx.Response(200, json={"answers": answers})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", post)
@@ -155,6 +156,7 @@ async def test_http_errors_do_not_expose_response_body(
     """Provider bodies must not appear in returned policy reasons or logs."""
 
     async def post(*args: object, **kwargs: object) -> httpx.Response:
+        """Executa a operação post."""
         return httpx.Response(400, text="secret-state-and-credential")
 
     monkeypatch.setattr(httpx.AsyncClient, "post", post)

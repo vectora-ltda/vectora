@@ -72,6 +72,7 @@ _PATTERN: re.Pattern[str] = _PR_METADATA_PATTERN
 
 
 def _python_comments(text: str) -> list[tuple[int, str]]:
+    """Executa a operação python comments."""
     try:
         tokens = tokenize.generate_tokens(io.StringIO(text).readline)
         return [
@@ -173,6 +174,7 @@ def _js_comments(text: str) -> list[tuple[int, str]]:
 
 
 def _find_violations(path: str) -> list[tuple[int, str]]:
+    """Executa a operação find violations."""
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
             text = f.read()
@@ -196,6 +198,7 @@ def _changed_diff_ref() -> str:
 
 
 def main(argv: list[str]) -> int:
+    """Executa a operação main."""
     if "--changed" in argv:
         try:
             result = subprocess.run(  # nosec B603, B607
