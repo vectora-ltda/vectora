@@ -21,11 +21,13 @@ from ._lancedb_fakes import fake_async_connection, fake_async_table
 
 @pytest.fixture
 def backend() -> LanceDBBackend:
+    """Executa a operação backend."""
     return LanceDBBackend(lancedb_dir="/tmp/fake-lancedb")
 
 
 @pytest.fixture
 def mock_db() -> Iterator[lancedb.AsyncConnection]:
+    """Executa a operação mock db."""
     db = fake_async_connection()
     with patch(
         "backend.storage.vectorstore.lancedb_backend.lancedb.connect_async",
@@ -47,6 +49,7 @@ def _fts_query(df: pd.DataFrame) -> MagicMock:
 class TestLanceDBBackendSearchText:
     @pytest.mark.asyncio
     async def test_search_text_retorna_hits_do_indice_fts(self, backend, mock_db):
+        """Verifica o comportamento de search text retorna hits do indice fts."""
         table = fake_async_table()
         table.create_index = AsyncMock()
         df = pd.DataFrame(
@@ -74,6 +77,7 @@ class TestLanceDBBackendSearchText:
     async def test_search_text_colecao_inexistente_retorna_vazio_sem_propagar(
         self, backend, mock_db
     ):
+        """Verifica o comportamento de search text colecao inexistente retorna vazio sem propagar."""
         mock_db.open_table.side_effect = RuntimeError("tabela não existe")
 
         hits = await backend.search_text("nao-existe", "query", limit=5)
@@ -102,6 +106,7 @@ class TestLanceDBBackendSearchText:
     async def test_search_text_fts_indisponivel_retorna_vazio_sem_propagar(
         self, backend, mock_db
     ):
+        """Verifica o comportamento de search text fts indisponivel retorna vazio sem propagar."""
         table = fake_async_table()
         table.create_index = AsyncMock()
         table.search = AsyncMock(side_effect=RuntimeError("FTS não suportado"))
@@ -128,6 +133,7 @@ class TestLanceDBBackendSearchTextRealTable:
     async def test_busca_fts_retorna_hits_reais_por_termo_textual(
         self, tmp_path
     ) -> None:
+        """Verifica o comportamento de busca fts retorna hits reais por termo textual."""
         backend = LanceDBBackend(lancedb_dir=str(tmp_path))
         db = await backend._db()
         await db.create_table(
@@ -162,6 +168,7 @@ class TestLanceDBBackendListRows:
 
     @pytest.mark.asyncio
     async def test_linha_com_vetor_multi_elemento_nao_lanca(self, backend, mock_db):
+        """Verifica o comportamento de linha com vetor multi elemento nao lanca."""
         table = fake_async_table()
         df = pd.DataFrame(
             [
@@ -207,6 +214,7 @@ class TestLanceDBBackendListRows:
     async def test_colecao_inexistente_retorna_vazio_sem_propagar(
         self, backend, mock_db
     ):
+        """Verifica o comportamento de colecao inexistente retorna vazio sem propagar."""
         mock_db.open_table = AsyncMock(side_effect=RuntimeError("tabela não existe"))
 
         rows = await backend.list_rows("nao-existe")
@@ -219,6 +227,7 @@ class TestLanceDBBackendUpsert:
     async def test_upsert_remove_ids_duplicados_legados_antes_do_merge(
         self, backend: LanceDBBackend, mock_db: lancedb.AsyncConnection
     ) -> None:
+        """Verifica o comportamento de upsert remove ids duplicados legados antes do merge."""
         table = fake_async_table()
         table.to_pandas = AsyncMock(
             return_value=pd.DataFrame(
