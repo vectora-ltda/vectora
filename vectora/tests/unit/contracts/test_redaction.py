@@ -4,6 +4,7 @@ from devtools.contracts.redaction import redact_payload, redact_string
 
 
 def test_redact_sensitive_keys() -> None:
+    """Verifica o comportamento de redact sensitive keys."""
     payload = {
         "api_key": "sk-secret123",
         "nested": {
@@ -24,6 +25,7 @@ def test_redact_sensitive_keys() -> None:
 
 
 def test_redact_list_items() -> None:
+    """Verifica o comportamento de redact list items."""
     payload = [{"token": "sec1"}, {"safe": 123}]
     redacted = redact_payload(payload)
     assert redacted[0]["token"] == "[REDACTED]"
@@ -32,6 +34,7 @@ def test_redact_list_items() -> None:
 
 def test_redact_string_patterns() -> None:
     # sk- pattern
+    """Verifica o comportamento de redact string patterns."""
     assert (
         redact_string("Authorization: sk-abc1234567890abcdef1234")
         == "Authorization: [REDACTED_API_KEY]"
@@ -52,6 +55,7 @@ def test_redact_string_patterns() -> None:
 
 
 def test_redaction_distinguishes_schema_properties_from_payload() -> None:
+    """Verifica o comportamento de redaction distinguishes schema properties from payload."""
     payload = {"type": "x", "description": "d", "password": "secret"}
     assert redact_payload(payload)["password"] == "[REDACTED]"
 
@@ -68,12 +72,14 @@ def test_redaction_distinguishes_schema_properties_from_payload() -> None:
 
 
 def test_redaction_covers_camel_case_sensitive_keys() -> None:
+    """Verifica o comportamento de redaction covers camel case sensitive keys."""
     redacted = redact_payload({"apiToken": "secret", "session-token": 123})
     assert redacted["apiToken"] == "[REDACTED]"
     assert redacted["session-token"] == "[REDACTED]"
 
 
 def test_redaction_preserves_paths_and_schema_map_keys() -> None:
+    """Verifica o comportamento de redaction preserves paths and schema map keys."""
     payload = {
         "paths": {"/auth/token": {"post": {"description": "safe"}}},
         "schemas": {"TokenResponse": {"properties": {"token": {"type": "string"}}}},
@@ -87,6 +93,7 @@ def test_redaction_preserves_paths_and_schema_map_keys() -> None:
 
 
 def test_redaction_preserves_map_keys_but_redacts_nested_values() -> None:
+    """Verifica o comportamento de redaction preserves map keys but redacts nested values."""
     payload = {
         "paths": {
             "/auth/token": {
@@ -109,4 +116,28 @@ def test_redaction_preserves_map_keys_but_redacts_nested_values() -> None:
     )
     assert (
         redacted["schemas"]["TokenResponse"]["example"]["access_token"] == "[REDACTED]"
+    )
+
+
+def test_redaction_preserves_sensitive_route_and_schema_names() -> None:
+    """Garante que sanitização não elimina nomes legítimos do OpenAPI."""
+    openapi = {
+        "paths": {"/settings/api-token": {"post": {"operationId": "rotate_api_token"}}},
+        "components": {
+            "schemas": {
+                "ApiTokenResponse": {
+                    "type": "object",
+                    "properties": {"token": {"type": "string"}},
+                }
+            }
+        },
+    }
+
+    redacted = redact_payload(openapi)
+
+    assert "/settings/api-token" in redacted["paths"]
+    assert "ApiTokenResponse" in redacted["components"]["schemas"]
+    assert (
+        redacted["paths"]["/settings/api-token"]["post"]["operationId"]
+        == "rotate_api_token"
     )

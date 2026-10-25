@@ -10,6 +10,7 @@ from backend.contracts import CONTRACT_VERSION
 
 
 def test_contract_version_matches_version_file() -> None:
+    """Verifica o comportamento de contract version matches version file."""
     version_file = (
         Path(__file__).resolve().parents[3] / "backend" / "contracts" / "VERSION"
     )
@@ -18,6 +19,7 @@ def test_contract_version_matches_version_file() -> None:
 
 
 def test_correlation_and_contract_version_headers() -> None:
+    """Verifica o comportamento de correlation and contract version headers."""
     app = create_app(serve_static=False)
     client = TestClient(app)
 
@@ -36,10 +38,12 @@ def test_correlation_and_contract_version_headers() -> None:
 
 
 def test_correlation_sanitization_and_unhandled_exception_headers() -> None:
+    """Verifica o comportamento de correlation sanitization and unhandled exception headers."""
     app = create_app(serve_static=False)
 
     @app.get("/test/error-route")
     async def _failing_route() -> None:
+        """Executa a operação failing route."""
         raise RuntimeError("Simulated unhandled explosion")
 
     client = TestClient(app, raise_server_exceptions=False)
@@ -65,6 +69,7 @@ def test_correlation_sanitization_and_unhandled_exception_headers() -> None:
 
 
 def test_health_live_and_ready_endpoints() -> None:
+    """Verifica o comportamento de health live and ready endpoints."""
     app = create_app(serve_static=False)
     client = TestClient(app)
 
@@ -83,6 +88,7 @@ def test_health_live_and_ready_endpoints() -> None:
 
 
 def test_settings_prefs_protected_by_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verifica o comportamento de settings prefs protected by auth."""
     monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "true")
     app = create_app(serve_static=False)
     client = TestClient(app)
@@ -100,6 +106,7 @@ def test_settings_prefs_protected_by_auth(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 def test_vectora_context_carries_correlation() -> None:
+    """Verifica o comportamento de vectora context carries correlation."""
     from backend.vtypes.context import VectoraContext, ctx_from_config
 
     ctx = ctx_from_config(

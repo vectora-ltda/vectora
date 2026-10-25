@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 
 def _setup_isolation_env() -> Path:
+    """Executa a operação setup isolation env."""
     temp_home = Path(tempfile.gettempdir()) / "vectora_contracts_isolation"
     temp_home.mkdir(parents=True, exist_ok=True)
     os.environ["VECTORA_HOME"] = str(temp_home)
@@ -24,6 +25,7 @@ def _setup_isolation_env() -> Path:
 
 def _contracts_root() -> Path:
     # devtools/contracts -> devtools -> vectora -> backend / contracts
+    """Executa a operação contracts root."""
     return Path(__file__).resolve().parents[2] / "backend" / "contracts"
 
 
@@ -318,6 +320,7 @@ def export_harness(contracts_dir: Path) -> None:
 
 
 def _python_type_to_ts(annotation: Any) -> str:  # noqa: PLR0911
+    """Executa a operação python type to ts."""
     import types
     import typing
 
@@ -354,6 +357,7 @@ def _python_type_to_ts(annotation: Any) -> str:  # noqa: PLR0911
 def _generate_ts_interface(
     model: type[BaseModel], *, optional_override: set[str] | None = None
 ) -> str:
+    """Executa a operação generate ts interface."""
     lines = [f"export interface {model.__name__} {{"]
     opt_set = optional_override or set()
     for fname, finfo in model.model_fields.items():
@@ -419,6 +423,7 @@ def _classify_openapi_schemas(openapi: dict[str, Any]) -> tuple[set[str], set[st
                     response_roots.update(_extract_schema_refs(op["responses"]))
 
     def _expand_transitive(roots: set[str]) -> set[str]:
+        """Executa a operação expand transitive."""
         expanded = set(roots)
         queue = list(roots)
         while queue:
@@ -620,6 +625,7 @@ def export_all(
     only: str | None = None,
     ts_target_dir: Path | None = None,
 ) -> None:
+    """Executa a operação export all."""
     if only in (None, "http"):
         export_http(contracts_dir)
     if only in (None, "tools"):
@@ -646,15 +652,15 @@ def check_all(contracts_dir: Path) -> int:
 
     repo_root = _contracts_root().parents[2]
     baseline_ref = _contract_baseline_ref()
-    head_sha = subprocess.run(  # nosec B603, B607  # noqa: S603, S607
-        ["git", "rev-parse", "HEAD"],
+    head_sha = subprocess.run(  # nosec B603, B607
+        ["git", "rev-parse", "HEAD"],  # noqa: S607
         cwd=repo_root,
         capture_output=True,
         text=True,
         check=False,
     ).stdout.strip()
-    baseline_sha_result = subprocess.run(  # nosec B603, B607  # noqa: S603, S607
-        ["git", "rev-parse", baseline_ref],
+    baseline_sha_result = subprocess.run(  # nosec B603, B607  # noqa: S603
+        ["git", "rev-parse", baseline_ref],  # noqa: S607
         cwd=repo_root,
         capture_output=True,
         text=True,
@@ -757,12 +763,16 @@ def check_all(contracts_dir: Path) -> int:
                     baseline_data = json.loads(res.stdout)
                 else:
                     print(
-                        f"WARNING: Baseline para {rel.as_posix()} não encontrado em {baseline_ref}; comparação de compatibilidade ignorada."
+                        f"ERROR: Baseline para {rel.as_posix()} não encontrado em "
+                        f"{baseline_ref}; comparação de compatibilidade impossível."
                     )
+                    has_diff = True
             except Exception as exc:
                 print(
-                    f"WARNING: Falha ao carregar baseline de {baseline_ref} para {rel.as_posix()}: {exc}; comparação ignorada."
+                    f"ERROR: Falha ao carregar baseline de {baseline_ref} para "
+                    f"{rel.as_posix()}: {exc}; comparação de compatibilidade impossível."
                 )
+                has_diff = True
 
             if baseline_data is None:
                 continue
@@ -860,6 +870,7 @@ def check_all(contracts_dir: Path) -> int:
 
 
 def main() -> None:
+    """Executa a operação main."""
     parser = argparse.ArgumentParser(description="Vectora Contracts CLI")
     subparsers = parser.add_subparsers(dest="command")
 

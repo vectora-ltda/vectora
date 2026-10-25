@@ -99,6 +99,7 @@ def _auth_enabled() -> bool:
 
 
 def _matches_prefix(path: str, prefix: str) -> bool:
+    """Executa a operação matches prefix."""
     if prefix.endswith(("/", ".")):
         return path.startswith(prefix)
     return path == prefix or path.startswith(f"{prefix}/")
@@ -226,6 +227,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
+        """Executa a operação dispatch."""
         path = request.url.path
 
         if not _auth_enabled() or _is_public_route(path, request.method):
