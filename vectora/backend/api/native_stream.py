@@ -74,11 +74,13 @@ chamada ao motor nativo termina (sucesso, pausa HITL, ou exceção)."""
 async def _spawn_save_partial(
     thread_id: str, content: str, background_tasks: set[asyncio.Task[None]]
 ) -> None:
+    """Executa a operação spawn save partial."""
     import asyncio
 
     from backend.persistence.kv import get_kv
 
     async def _save() -> None:
+        """Executa a operação save."""
         kv = await get_kv()
         await kv.set(f"partial:{thread_id}", content, ttl_s=300)
 
@@ -87,6 +89,7 @@ async def _spawn_save_partial(
         # só aparece como "Task exception was never retrieved" no logger
         # padrão do asyncio — nunca no logger estruturado da aplicação, nem
         # no .jsonl de logs (achado real da investigação de 2026-08-30).
+        """Executa a operação log if failed."""
         if not task.cancelled() and task.exception() is not None:
             logger.warning(
                 "native_stream: falha ao salvar preview parcial de %s no KV",
@@ -101,6 +104,7 @@ async def _spawn_save_partial(
 
 
 async def _clear_partial(thread_id: str) -> None:
+    """Executa a operação clear partial."""
     from backend.persistence.kv import get_kv
 
     kv = await get_kv()
@@ -113,6 +117,7 @@ async def _record_subagent(
     workspace_id: str | None,
     event: SubagentOutput,
 ) -> None:
+    """Executa a operação record subagent."""
     try:
         from backend.scheduling.background_tasks import record_subagent_delegation
 
@@ -204,6 +209,7 @@ async def _update_persisted_run(
     detail: str | None = None,
     partial_text: str | None = None,
 ) -> None:
+    """Executa a operação update persisted run."""
     if not run_id:
         return
     try:
@@ -275,6 +281,7 @@ def stream_engine_events(
     import asyncio
 
     async def _gen() -> AsyncGenerator[str]:
+        """Executa a operação gen."""
         from backend.api.turn_files import (
             capture,
             finalize,
@@ -288,6 +295,7 @@ def stream_engine_events(
         lock_transferred = False
 
         def _release_workspace_lock() -> None:
+            """Executa a operação release workspace lock."""
             if run_lock is not None and run_lock.locked():
                 run_lock.release()
                 if workspace_id and _workspace_run_locks.get(workspace_id) is run_lock:
@@ -391,12 +399,14 @@ def stream_engine_events(
         empty_model_response = False
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             nonlocal empty_model_response
             if isinstance(event, ErrorSignal) and event.code == "EMPTY_MODEL_RESPONSE":
                 empty_model_response = True
             await queue.put(event)
 
         async def _runner() -> None:
+            """Executa a operação runner."""
             nonlocal run_error, stopped_reason
             try:
                 stopped_reason = await run(on_event)
@@ -487,6 +497,7 @@ def stream_engine_events(
         term_queue: asyncio.Queue[str] = asyncio.Queue()
 
         def _on_terminal_line(line: str) -> None:
+            """Executa a operação on terminal line."""
             with contextlib.suppress(Exception):
                 term_queue.put_nowait(line)
 
@@ -530,6 +541,7 @@ def stream_engine_events(
                         async def _consume_remainder(
                             pending: asyncio.Task[Any], q: asyncio.Queue[Any]
                         ) -> None:
+                            """Executa a operação consume remainder."""
                             try:
                                 first_item: object | None = None
                                 with contextlib.suppress(Exception):

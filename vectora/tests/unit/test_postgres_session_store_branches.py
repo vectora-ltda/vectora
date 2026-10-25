@@ -15,17 +15,21 @@ if TYPE_CHECKING:
 
 class _AsyncContext:
     def __init__(self, value):
+        """Inicializa o estado da instância."""
         self.value = value
 
     async def __aenter__(self):
+        """Executa a operação aenter."""
         return self.value
 
     async def __aexit__(self, *_args):
+        """Executa a operação aexit."""
         return False
 
 
 class _Connection:
     def __init__(self, fetchval_results: list[object] | None = None):
+        """Inicializa o estado da instância."""
         self.fetchval_results = list(fetchval_results or [])
         self.fetchval = AsyncMock(side_effect=self.fetchval_results)
         self.fetch = AsyncMock()
@@ -33,18 +37,22 @@ class _Connection:
         self.execute = AsyncMock()
 
     def transaction(self):
+        """Executa a operação transaction."""
         return _AsyncContext(None)
 
 
 class _Pool:
     def __init__(self, connection: _Connection):
+        """Inicializa o estado da instância."""
         self.connection = connection
 
     def acquire(self):
+        """Executa a operação acquire."""
         return _AsyncContext(self.connection)
 
 
 def _store(connection: _Connection) -> PostgresSessionStore:
+    """Executa a operação store."""
     pool = cast("asyncpg.Pool", _Pool(connection))
     store = PostgresSessionStore(pool)
     store.setup = AsyncMock()  # type: ignore[method-assign]
@@ -53,6 +61,7 @@ def _store(connection: _Connection) -> PostgresSessionStore:
 
 @pytest.mark.asyncio
 async def test_postgres_set_branch_head_serializa_thread_e_valida_ponta() -> None:
+    """Verifica o comportamento de postgres set branch head serializa thread e valida ponta."""
     conn = _Connection([1, 1])
     store = _store(conn)
 
@@ -66,6 +75,7 @@ async def test_postgres_set_branch_head_serializa_thread_e_valida_ponta() -> Non
 
 @pytest.mark.asyncio
 async def test_postgres_list_branch_heads_limita_e_inclui_contagem() -> None:
+    """Verifica o comportamento de postgres list branch heads limita e inclui contagem."""
     conn = _Connection()
     conn.fetch.return_value = [
         {
@@ -88,6 +98,7 @@ async def test_postgres_list_branch_heads_limita_e_inclui_contagem() -> None:
 
 @pytest.mark.asyncio
 async def test_postgres_compare_branches_separa_divergencias() -> None:
+    """Verifica o comportamento de postgres compare branches separa divergencias."""
     conn = _Connection([1])
     store = _store(conn)
     store.get_history_with_ids = AsyncMock(

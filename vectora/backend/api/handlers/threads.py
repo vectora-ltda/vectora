@@ -289,6 +289,7 @@ async def _migrate_pinned_column(db: Any) -> None:
 
 
 async def _get_db() -> Any:
+    """Executa a operação get db."""
     from backend.services.maintenance import wait_until_available
 
     await wait_until_available()
@@ -415,6 +416,7 @@ def _row_to_thread(row: tuple) -> Thread:
 
 
 async def _unread_count(thread_id: str, user_id: str) -> int:
+    """Executa a operação unread count."""
     session_store = await _get_session_store()
     assistant_count = await session_store.count_assistant_messages(thread_id)
     db = await _get_db()
@@ -663,6 +665,7 @@ async def increment_remember_turn_count(thread_id: str) -> int:
     count_holder: dict[str, int] = {}
 
     def _mutate(extra: dict) -> dict:
+        """Executa a operação mutate."""
         count = int(extra.get("remember_turn_count", 0)) + 1
         extra["remember_turn_count"] = count
         count_holder["count"] = count
@@ -693,6 +696,7 @@ async def set_remember_pending(thread_id: str, pending: bool) -> None:
     """Marca (ou limpa) a proposta pendente do Remember para a thread."""
 
     def _mutate(extra: dict) -> dict:
+        """Executa a operação mutate."""
         extra["remember_pending"] = pending
         return extra
 
@@ -757,6 +761,7 @@ async def build_pinned_context(
 
 @router.post("/vectora.chat.v1.ThreadService/GetThreadPins")
 async def get_thread_pins(request: GetThreadPinsRequest) -> ThreadPinsResponse:
+    """Executa a operação get thread pins."""
     return ThreadPinsResponse(
         thread_id=request.thread_id,
         pins=await _get_session_pins(request.thread_id),
@@ -765,6 +770,7 @@ async def get_thread_pins(request: GetThreadPinsRequest) -> ThreadPinsResponse:
 
 @router.post("/vectora.chat.v1.ThreadService/SetThreadPins")
 async def set_thread_pins(request: SetThreadPinsRequest) -> ThreadPinsResponse:
+    """Executa a operação set thread pins."""
     pins = await _set_session_pins(request.thread_id, request.pins)
     return ThreadPinsResponse(thread_id=request.thread_id, pins=pins)
 
@@ -882,6 +888,7 @@ async def get_thread(
     request: GetThreadRequest,
     http_request: Request = None,  # ty: ignore[invalid-parameter-default]
 ) -> Thread:
+    """Executa a operação get thread."""
     db = await _get_db()
     async with db.execute(
         "SELECT thread_id, user_type, created_at, last_activity, message_count, extra, mode, pinned "
@@ -1489,6 +1496,7 @@ async def delete_thread(
     request: DeleteThreadRequest,
     http_request: Request = None,  # ty: ignore[invalid-parameter-default]
 ) -> dict:
+    """Executa a operação delete thread."""
     await _assert_owns_thread(request.thread_id, http_request)
     db = await _get_db()
     # Grava o tombstone ANTES de qualquer exclusão: fecha a corrida onde
@@ -2436,6 +2444,7 @@ class SmartApprovalAllowlistResponse(BaseModel):
 
 
 def _allowlist_items(workspace_id: str) -> list[SmartApprovalAllowlistItem]:
+    """Executa a operação allowlist items."""
     from backend.services.smart_approval import allowlist_id, get_allowlist
 
     return [
@@ -2594,6 +2603,7 @@ async def stream_thread_ledger_events(
             start_seq = from_seq
 
     async def event_generator() -> AsyncGenerator[str]:
+        """Executa a operação event generator."""
         current_seq = start_seq
         last_heartbeat = asyncio.get_event_loop().time()
 
