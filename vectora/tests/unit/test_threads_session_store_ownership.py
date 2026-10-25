@@ -523,7 +523,9 @@ class TestMarkThreadRead:
         assert await th._unread_count("thread-alice", "alice") == 0
         assert await th._unread_count("thread-alice", "bob") == 2
 
-    async def test_usuario_sem_posse_recebe_404(self, session_store) -> None:
+    async def test_usuario_sem_posse_recebe_404(
+        self, session_store: SessionStore
+    ) -> None:
         """Verifica o comportamento de usuario sem posse recebe 404."""
         await session_store.create_session("thread-alice", user_id="alice")
         await th._upsert_session("thread-alice")
