@@ -33,6 +33,7 @@ from backend.storage.sqlite.pool import AsyncConnectionPool
 
 @pytest.fixture
 async def store(tmp_path: Path) -> AsyncGenerator[SessionStore]:
+    """Executa a operação store."""
     pool = AsyncConnectionPool(
         str(tmp_path / "sessions_test.db"), min_size=1, max_size=2
     )
@@ -47,6 +48,7 @@ async def store(tmp_path: Path) -> AsyncGenerator[SessionStore]:
 
 class TestRedaction:
     def test_redact_sensitive_data_strings(self) -> None:
+        """Verifica o comportamento de redact sensitive data strings."""
         fake_sk = f"sk-{'1234567890abcdef12345678'}"
         fake_ghp = f"ghp_{'1234567890' * 3}123456"
         fake_akia = f"AKIA{'IOSFODNN7EXAMPLE'}"
@@ -63,6 +65,7 @@ class TestRedaction:
         assert "[REDACTED]" in redacted
 
     def test_redact_sensitive_data_dict_keys(self) -> None:
+        """Verifica o comportamento de redact sensitive data dict keys."""
         payload = {
             "api_key": "minha-chave-secreta",
             "x-auth-token": "meu-token-secreto",
@@ -84,12 +87,14 @@ class TestRedaction:
 
 class TestRunEvidenceLockRegistry:
     async def test_registry_shares_lock_with_waiters_and_releases_entries(self) -> None:
+        """Verifica o comportamento de registry shares lock with waiters and releases entries."""
         registry = _RunEvidenceLockRegistry()
         entered: list[str] = []
         first_started = asyncio.Event()
         release_first = asyncio.Event()
 
         async def writer(label: str) -> None:
+            """Executa a operação writer."""
             async with registry.acquire("run-1"):
                 entered.append(label)
                 if label == "first":
@@ -109,6 +114,7 @@ class TestRunEvidenceLockRegistry:
         assert len(registry) == 0
 
     async def test_registry_keeps_different_runs_independent(self) -> None:
+        """Verifica o comportamento de registry keeps different runs independent."""
         registry = _RunEvidenceLockRegistry()
         async with registry.acquire("run-a"):
             async with registry.acquire("run-b"):
@@ -184,6 +190,7 @@ class TestAgentRunLifecycle:
             await pool.close()
 
     async def test_create_and_read_agent_run(self, store: SessionStore) -> None:
+        """Verifica o comportamento de create and read agent run."""
         await store.create_session("thread-run-1", user_id="user-123")
         run = AgentRun(
             run_id="run-uuid-1",
@@ -231,6 +238,7 @@ class TestAgentRunLifecycle:
     async def test_state_transitions_canonical(
         self, store: SessionStore, terminal_status: str, expected_legacy_status: str
     ) -> None:
+        """Verifica o comportamento de state transitions canonical."""
         thread_id = f"thread-run-{terminal_status}"
         run_id = f"run-uuid-{terminal_status}"
         await store.create_session(thread_id, user_id="user-123")
@@ -381,6 +389,7 @@ class TestAgentRunLifecycle:
         assert current.updated_at == terminal.updated_at
 
     async def test_record_evidences_and_redaction(self, store: SessionStore) -> None:
+        """Verifica o comportamento de record evidences and redaction."""
         await store.create_session("thread-run-3", user_id="user-123")
         run = AgentRun(
             run_id="run-uuid-3",
@@ -423,6 +432,7 @@ class TestAgentRunLifecycle:
         assert loaded.files_touched[0].get("path") == "src/main.py"
 
     async def test_record_run_evidence_atomic(self, store: SessionStore) -> None:
+        """Verifica o comportamento de record run evidence atomic."""
         await store.create_session("thread-atomic", user_id="user-123")
         run = AgentRun(
             run_id="run-atomic-1",
@@ -432,6 +442,7 @@ class TestAgentRunLifecycle:
         await store.upsert_agent_run(run)
 
         async def _record(idx: int) -> None:
+            """Executa a operação record."""
             await store.record_run_evidence(
                 "run-atomic-1",
                 tool_used=f"tool_{idx}",
@@ -456,6 +467,7 @@ class TestAgentRunLifecycle:
         assert len(store._run_evidence_locks) == 0
 
     async def test_rehydrate_after_restart(self, tmp_path: Path) -> None:
+        """Verifica o comportamento de rehydrate after restart."""
         db_path = str(tmp_path / "restart_test.db")
         # 1. Abre pool, cria e encerra
         pool1 = AsyncConnectionPool(db_path, min_size=1, max_size=2)
@@ -491,6 +503,7 @@ class TestAgentRunLifecycle:
         await pool2.close()
 
     async def test_timeline_correlation(self, store: SessionStore) -> None:
+        """Verifica o comportamento de timeline correlation."""
         await store.create_session("thread-run-timeline", user_id="user-123")
         run_id = "run-corr-1"
         await store.upsert_agent_run(
@@ -527,6 +540,7 @@ class TestAgentRunLifecycle:
     async def test_upsert_preserves_untrusted_content_provenance(
         self, store: SessionStore
     ):
+        """Verifica o comportamento de upsert preserves untrusted content provenance."""
         await store.create_session("thread-untrusted-preservation", user_id="user-xyz")
         run_id = "run-untrusted-1"
         await store.upsert_agent_run(

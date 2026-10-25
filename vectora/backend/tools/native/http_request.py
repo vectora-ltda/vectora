@@ -21,6 +21,7 @@ class _PinIPBackend(AutoBackend):
     """Backend de rede que substitui a resolução de hostname pelo IP validado na conexão TCP."""
 
     def __init__(self, pinned_ip: str) -> None:
+        """Inicializa o estado da instância."""
         super().__init__()
         self.pinned_ip = pinned_ip
 
@@ -33,6 +34,7 @@ class _PinIPBackend(AutoBackend):
         socket_options: Any
         | None = None,  # Any justified: assinatura herdada de httpcore.AutoBackend.connect_tcp
     ) -> httpcore.AsyncNetworkStream:
+        """Executa a operação connect tcp."""
         return await super().connect_tcp(
             self.pinned_ip,
             port,
@@ -50,6 +52,7 @@ class PinIPTransport(httpx.AsyncHTTPTransport):
         pinned_ip: str,
         **kwargs: Any,  # Any justified: repasse transparente de opções de httpx.AsyncHTTPTransport
     ) -> None:
+        """Inicializa o estado da instância."""
         super().__init__(**kwargs)
         pool = self._pool
         ssl_context = getattr(pool, "_ssl_context", None)

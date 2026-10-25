@@ -47,6 +47,7 @@ def _is_tool_error(text: str) -> bool:
 
 
 def _redact_secrets(texto: str) -> str:
+    """Executa a operação redact secrets."""
     for pattern in _SECRET_PATTERNS:
         texto = pattern.sub("[REDACTED]", texto)
     return texto
@@ -57,6 +58,7 @@ def _check_policy_snapshot_pre_execute(
     ctx: ToolContext,
     policy_snapshot: PolicySnapshot | None,
 ) -> tuple[bool, str]:
+    """Executa a operação check policy snapshot pre execute."""
     if policy_snapshot is None:
         from backend.services.policy_compiler import compile_policy_snapshot
 
@@ -76,6 +78,7 @@ def _apply_pre_execute(
     ctx: ToolContext,
     policy_snapshot: PolicySnapshot | None,
 ) -> tuple[bool, str]:
+    """Executa a operação apply pre execute."""
     for hook in _PRE_EXECUTE:
         ok, reason = hook(tool_call, ctx, policy_snapshot)
         if not ok:
@@ -92,6 +95,7 @@ _POST_EXECUTE: tuple[Callable[[str], str], ...] = (_redact_secrets,)
 
 
 def _apply_post_execute(texto: str) -> str:
+    """Executa a operação apply post execute."""
     for hook in _POST_EXECUTE:
         texto = hook(texto)
     return texto

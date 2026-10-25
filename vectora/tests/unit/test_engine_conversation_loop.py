@@ -49,6 +49,7 @@ from backend.vtypes.message import (
 
 
 def _register(registry: ToolRegistry, nome: str) -> None:
+    """Executa a operação register."""
     spec = TOOL_REGISTRY.get(nome)
     assert spec is not None
     registry.register(spec)
@@ -60,10 +61,12 @@ class _ScriptedChatClient:
     deve produzir."""
 
     def __init__(self, turnos: list[list[VMessageChunk]]) -> None:
+        """Inicializa o estado da instância."""
         self._turnos = turnos
         self.chamadas = 0
 
     async def astream(self, messages, *, tools=None, temperature=None, max_tokens=None):
+        """Executa a operação astream."""
         turno = self._turnos[self.chamadas]
         self.chamadas += 1
         for chunk in turno:
@@ -72,12 +75,14 @@ class _ScriptedChatClient:
     async def agenerate(
         self, messages, *, tools=None, temperature=None, max_tokens=None
     ):
+        """Executa a operação agenerate."""
         msg = "não usado pelo loop (astream-only)"
         raise NotImplementedError(msg)
 
 
 @pytest.fixture
 async def session_store(tmp_path):
+    """Executa a operação session store."""
     pool = AsyncConnectionPool(str(tmp_path / "loop.db"), min_size=1, max_size=2)
     await pool.open()
     store = SessionStore(pool)
@@ -91,14 +96,17 @@ async def session_store(tmp_path):
 
 @pytest.fixture
 def ctx() -> ToolContext:
+    """Executa a operação ctx."""
     return ToolContext(user_id="alice", thread_id="thread-1")
 
 
 def _texto_chunk(texto: str) -> VMessageChunk:
+    """Executa a operação texto chunk."""
     return VMessageChunk(delta_text=texto)
 
 
 def _tool_call_chunk(*, index: int, id: str, name: str, args: str) -> VMessageChunk:  # noqa: A002
+    """Executa a operação tool call chunk."""
     return VMessageChunk(
         tool_call_chunks=[
             ToolCallChunk(index=index, id=id, name=name, args_fragment=args)
@@ -108,6 +116,7 @@ def _tool_call_chunk(*, index: int, id: str, name: str, args: str) -> VMessageCh
 
 class TestParadaNormal:
     async def test_sem_tool_calls_para_no_primeiro_turno(self, session_store, ctx):
+        """Verifica o comportamento de sem tool calls para no primeiro turno."""
         client = _ScriptedChatClient([[_texto_chunk("olá!")]])
         resultado = await run_conversation(
             session_store=session_store,
@@ -132,10 +141,12 @@ class TestParadaNormal:
         ctx: ToolContext,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
+        """Verifica o comportamento de resposta vazia emite erro diagnosticavel."""
         client = _ScriptedChatClient([[]])
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         with caplog.at_level("INFO", logger="backend.engine.conversation_loop"):
@@ -171,6 +182,8 @@ class TestMaxIterations:
     async def test_estoura_o_teto_sem_nunca_parar_naturalmente(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de estoura o teto sem nunca parar naturalmente."""
+
         @vtool(extras=ToolExtras())
         async def loop_tool(ctx: ToolContext) -> str:
             """tool que sempre é chamada de novo."""
@@ -184,6 +197,7 @@ class TestMaxIterations:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         resultado = await run_conversation(
@@ -206,6 +220,8 @@ class TestGuardrailDeRepeticao:
     async def test_chamadas_identicas_disparam_aviso_diferentes_nao(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de chamadas identicas disparam aviso diferentes nao."""
+
         @vtool(extras=ToolExtras())
         async def buscar(query: str, ctx: ToolContext) -> str:
             """busca algo.
@@ -227,6 +243,7 @@ class TestGuardrailDeRepeticao:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -266,6 +283,7 @@ class TestGuardrailDeRepeticao:
         eventos2: list[EngineEvent] = []
 
         async def on_event2(event: EngineEvent) -> None:
+            """Executa a operação on event2."""
             eventos2.append(event)
 
         await run_conversation(
@@ -283,6 +301,8 @@ class TestGuardrailDeRepeticao:
     async def test_loop_de_tool_repetida_e_interrompido_com_diagnostico(
         self, session_store: SessionStore, ctx: ToolContext
     ) -> None:
+        """Verifica o comportamento de loop de tool repetida e interrompido com diagnostico."""
+
         @vtool(extras=ToolExtras())
         async def buscar(query: str, ctx: ToolContext) -> str:
             """Busca usada para simular uma tool que não produz progresso."""
@@ -309,6 +329,7 @@ class TestGuardrailDeRepeticao:
         )
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         resultado = await run_conversation(
@@ -337,6 +358,8 @@ class TestGuardrailDeRepeticao:
 
 class TestToolCallsSequenciais:
     async def test_chama_tool_depois_para_no_turno_seguinte(self, session_store, ctx):
+        """Verifica o comportamento de chama tool depois para no turno seguinte."""
+
         @vtool(extras=ToolExtras())
         async def somar(a: int, b: int, ctx: ToolContext) -> str:
             """soma dois números.
@@ -385,6 +408,8 @@ class TestToolCallsParalelos:
     async def test_duas_tools_nao_destrutivas_executam_e_retornam(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de duas tools nao destrutivas executam e retornam."""
+
         @vtool(extras=ToolExtras(destructive=False))
         async def ler_a(ctx: ToolContext) -> str:
             """lê a."""
@@ -428,6 +453,8 @@ class TestHitl:
     async def test_lote_misto_com_uma_tool_sensivel_pausa_sem_executar_nenhuma(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de lote misto com uma tool sensivel pausa sem executar nenhuma."""
+
         @vtool(extras=ToolExtras(destructive=False))
         async def ler_arquivo(ctx: ToolContext) -> str:
             """lê um arquivo."""
@@ -456,6 +483,7 @@ class TestHitl:
         )
 
         def should_require_approval(nome, _ctx, _args, _history):
+            """Executa a operação should require approval."""
             return nome == "escrever_arquivo"
 
         resultado = await run_conversation(
@@ -476,6 +504,8 @@ class TestHitl:
         assert len(historico[0].tool_calls) == 2
 
     async def test_sem_should_require_approval_nunca_pausa(self, session_store, ctx):
+        """Verifica o comportamento de sem should require approval nunca pausa."""
+
         @vtool(extras=ToolExtras(destructive=True))
         async def deletar(ctx: ToolContext) -> str:
             """deleta algo."""
@@ -506,10 +536,12 @@ class TestHitl:
 
 class TestEmissaoDeEventos:
     async def test_token_e_message_break_emitidos_na_ordem(self, session_store, ctx):
+        """Verifica o comportamento de token e message break emitidos na ordem."""
         client = _ScriptedChatClient([[_texto_chunk("oi"), _texto_chunk(" tudo bem")]])
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -529,6 +561,8 @@ class TestEmissaoDeEventos:
         ]
 
     async def test_tool_result_emitido_apos_execucao(self, session_store, ctx):
+        """Verifica o comportamento de tool result emitido apos execucao."""
+
         @vtool(extras=ToolExtras())
         async def adicionar(a: int, b: int, ctx: ToolContext) -> str:
             """soma dois números.
@@ -554,6 +588,7 @@ class TestEmissaoDeEventos:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -574,6 +609,8 @@ class TestEmissaoDeEventos:
     async def test_hitl_requested_emitido_com_argumentos_da_tool(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de hitl requested emitido com argumentos da tool."""
+
         @vtool(extras=ToolExtras(destructive=True))
         async def escrever(ctx: ToolContext) -> str:
             """escreve algo."""
@@ -588,6 +625,7 @@ class TestEmissaoDeEventos:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -612,6 +650,7 @@ class TestEmissaoDeEventos:
     async def test_write_terminal_preserva_entrada_bruta_ao_aprovar(
         self, session_store, ctx, monkeypatch
     ) -> None:
+        """Verifica o comportamento de write terminal preserva entrada bruta ao aprovar."""
         import backend.tools.terminal_sessions
 
         registry = ToolRegistry()
@@ -665,6 +704,7 @@ class TestEmissaoDeEventos:
             on_event: EventSink | None = None,
             policy_snapshot: PolicySnapshot | None = None,
         ) -> VMessage:
+            """Executa a operação fake execute."""
             chamadas.append(dict(tool_call.args))
             return VMessage(
                 role=MessageRole.TOOL,
@@ -695,6 +735,8 @@ class TestEmissaoDeEventos:
     async def test_tool_call_started_e_activity_emitidos_antes_e_depois(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de tool call started e activity emitidos antes e depois."""
+
         @vtool(extras=ToolExtras(category="general", icon="wrench"))
         async def somar3(a: int, b: int, ctx: ToolContext) -> str:
             """soma dois números.
@@ -720,6 +762,7 @@ class TestEmissaoDeEventos:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -756,6 +799,8 @@ class TestEmissaoDeEventos:
     async def test_tool_com_invalidates_emite_workbench_invalidate(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de tool com invalidates emite workbench invalidate."""
+
         @vtool(extras=ToolExtras(invalidates=["files", "git"]))
         async def escrever2(ctx: ToolContext) -> str:
             """escreve algo."""
@@ -773,6 +818,7 @@ class TestEmissaoDeEventos:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -795,6 +841,8 @@ class TestArgsPreview:
     async def test_campo_semantico_vira_preview_no_inicio_e_no_fim(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de campo semantico vira preview no inicio e no fim."""
+
         @vtool(extras=ToolExtras())
         async def ler_arquivo(path: str, ctx: ToolContext) -> str:
             """lê um arquivo.
@@ -822,6 +870,7 @@ class TestArgsPreview:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -840,6 +889,8 @@ class TestArgsPreview:
         assert activities[1].args_preview == "backend/auth.py"
 
     async def test_preview_trunca_em_80_chars(self, session_store, ctx):
+        """Verifica o comportamento de preview trunca em 80 chars."""
+
         @vtool(extras=ToolExtras())
         async def buscar(query: str, ctx: ToolContext) -> str:
             """busca algo.
@@ -868,6 +919,7 @@ class TestArgsPreview:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -885,6 +937,8 @@ class TestArgsPreview:
         assert activities[0].args_preview == "x" * 80
 
     async def test_sem_campo_semantico_usa_fallback_k_igual_v(self, session_store, ctx):
+        """Verifica o comportamento de sem campo semantico usa fallback k igual v."""
+
         @vtool(extras=ToolExtras())
         async def somar4(a: int, b: int, ctx: ToolContext) -> str:
             """soma dois números.
@@ -910,6 +964,7 @@ class TestArgsPreview:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -930,6 +985,7 @@ class TestTodosUpdated:
     async def test_write_todos_emite_todos_updated_com_lista_completa(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de write todos emite todos updated com lista completa."""
         registry = ToolRegistry()
         _register(registry, "write_todos")
 
@@ -956,6 +1012,7 @@ class TestTodosUpdated:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -978,6 +1035,8 @@ class TestTodosUpdated:
     async def test_tool_diferente_de_write_todos_nunca_emite_todos_updated(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de tool diferente de write todos nunca emite todos updated."""
+
         @vtool(extras=ToolExtras())
         async def outra_tool(ctx: ToolContext) -> str:
             """não é write_todos."""
@@ -995,6 +1054,7 @@ class TestTodosUpdated:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -1036,6 +1096,7 @@ class TestTodosUpdated:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -1057,6 +1118,8 @@ class TestLoopCapGuardrail:
     async def test_estoura_teto_de_tool_calls_encerra_turno_sem_esgotar_max_iterations(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de estoura teto de tool calls encerra turno sem esgotar max iterations."""
+
         @vtool(extras=ToolExtras())
         async def contar(n: int, ctx: ToolContext) -> str:
             """conta.
@@ -1079,6 +1142,7 @@ class TestLoopCapGuardrail:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         resultado = await run_conversation(
@@ -1101,6 +1165,8 @@ class TestLoopCapGuardrail:
         assert any(e.code == "LOOP_CAP_EXCEEDED" for e in sinais)
 
     async def test_dentro_do_teto_nunca_dispara_o_guardrail(self, session_store, ctx):
+        """Verifica o comportamento de dentro do teto nunca dispara o guardrail."""
+
         @vtool(extras=ToolExtras())
         async def contar2(n: int, ctx: ToolContext) -> str:
             """conta.
@@ -1120,6 +1186,7 @@ class TestLoopCapGuardrail:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         resultado = await run_conversation(
@@ -1141,6 +1208,8 @@ class TestResumeConversation:
     async def test_aprovar_executa_a_tool_sinalizada_e_libera_a_pendencia(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de aprovar executa a tool sinalizada e libera a pendencia."""
+
         @vtool(extras=ToolExtras(destructive=True))
         async def escrever_arquivo2(ctx: ToolContext) -> str:
             """escreve um arquivo."""
@@ -1175,6 +1244,7 @@ class TestResumeConversation:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         resumiu = await resume_conversation(
@@ -1209,9 +1279,11 @@ class TestResumeConversation:
     async def test_aprovar_classifica_erro_mcp_localizado_e_registra_uso(
         self, session_store, ctx, monkeypatch
     ):
+        """Verifica o comportamento de aprovar classifica erro mcp localizado e registra uso."""
         chamadas: list[tuple[str, str, str]] = []
 
         async def registrar(user_id: str, tool_name: str, status: str) -> None:
+            """Executa a operação registrar."""
             chamadas.append((user_id, tool_name, status))
 
         monkeypatch.setattr("backend.services.tool_usage.record_tool_usage", registrar)
@@ -1241,6 +1313,7 @@ class TestResumeConversation:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         assert await resume_conversation(
@@ -1260,6 +1333,8 @@ class TestResumeConversation:
     async def test_rejeitar_nao_executa_a_tool_e_persiste_mensagem_de_erro(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de rejeitar nao executa a tool e persiste mensagem de erro."""
+
         @vtool(extras=ToolExtras(destructive=True))
         async def deletar_tudo(ctx: ToolContext) -> str:
             """deleta tudo — nunca deveria rodar quando rejeitado."""
@@ -1299,6 +1374,7 @@ class TestResumeConversation:
         assert "rejeitou" in historico[-1].text().lower()
 
     async def test_sem_pendencia_nao_faz_nada_e_devolve_false(self, session_store, ctx):
+        """Verifica o comportamento de sem pendencia nao faz nada e devolve false."""
         resumiu = await resume_conversation(
             session_store=session_store,
             tool_registry=ToolRegistry(),
@@ -1334,12 +1410,15 @@ class TestResumeConversation:
         eventos_quota: list[tuple[str, dict[str, object]]] = []
 
         async def fake_summary(_user_id: str) -> dict[str, int]:
+            """Executa a operação fake summary."""
             return {"remaining": 100, "used": 0, "limit": 100}
 
         def record_quota(event: str, **fields: object) -> None:
+            """Executa a operação record quota."""
             eventos_quota.append((event, fields))
 
         async def fake_media_handler(**kwargs: object) -> str:
+            """Executa a operação fake media handler."""
             chamadas.append(kwargs)
             return "mídia gerada"
 
@@ -1445,9 +1524,11 @@ class TestResumeConversation:
         chamadas: list[dict[str, object]] = []
 
         async def fake_summary(_user_id: str) -> dict[str, int]:
+            """Executa a operação fake summary."""
             return {"remaining": 100, "used": 0, "limit": 100}
 
         async def fake_media_handler(**kwargs: object) -> str:
+            """Executa a operação fake media handler."""
             chamadas.append(kwargs)
             return "mídia gerada"
 
@@ -1495,6 +1576,7 @@ class TestResumeConversation:
     async def test_run_conversation_restores_untrusted_content_from_run(
         self, session_store: SessionStore, ctx: ToolContext
     ) -> None:
+        """Verifica o comportamento de run conversation restores untrusted content from run."""
         from backend.persistence.native.agent_run import AgentRun
 
         await session_store.upsert_agent_run(

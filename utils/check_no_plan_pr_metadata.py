@@ -38,10 +38,12 @@ _AUTO_GENERATED_BLOCK = re.compile(
 
 
 def _strip_bot_blocks(body: str) -> str:
+    """Executa a operação strip bot blocks."""
     return _AUTO_GENERATED_BLOCK.sub("", body)
 
 
 def main() -> int:
+    """Executa a operação main."""
     title = os.environ.get("PR_TITLE", "")
     body = _strip_bot_blocks(os.environ.get("PR_BODY", "") or "")
 

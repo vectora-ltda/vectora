@@ -17,9 +17,12 @@ from backend.vtypes.message import ToolCall
 
 @pytest.fixture(autouse=True)
 def mock_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Executa a operação mock dns."""
+
     def _fake_getaddrinfo(
         host: str, port: int, *args: object, **kwargs: object
     ) -> list[tuple[object, ...]]:
+        """Executa a operação fake getaddrinfo."""
         return [
             (
                 socket.AF_INET,
@@ -34,6 +37,7 @@ def mock_dns(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_policy_snapshot_basic_allow() -> None:
+    """Verifica o comportamento de policy snapshot basic allow."""
     snapshot = PolicySnapshot(
         user_id="alice",
         permission_mode="ask",
@@ -46,6 +50,7 @@ def test_policy_snapshot_basic_allow() -> None:
 
 
 def test_policy_snapshot_disabled_tool() -> None:
+    """Verifica o comportamento de policy snapshot disabled tool."""
     snapshot = PolicySnapshot(
         disabled_tools=frozenset({"terminal"}),
     )
@@ -55,6 +60,7 @@ def test_policy_snapshot_disabled_tool() -> None:
 
 
 def test_policy_snapshot_untrusted_content_blocks_destructive_tools() -> None:
+    """Verifica o comportamento de policy snapshot untrusted content blocks destructive tools."""
     snapshot = PolicySnapshot(
         untrusted_content=True,
     )
@@ -70,6 +76,7 @@ def test_policy_snapshot_untrusted_content_blocks_destructive_tools() -> None:
 
 
 def test_policy_snapshot_git_force_push() -> None:
+    """Verifica o comportamento de policy snapshot git force push."""
     snapshot = PolicySnapshot(allow_force_push=False)
 
     # Push normal
@@ -83,6 +90,7 @@ def test_policy_snapshot_git_force_push() -> None:
 
 
 def test_policy_snapshot_egress_violation() -> None:
+    """Verifica o comportamento de policy snapshot egress violation."""
     policy = EgressPolicy(allowed_hosts=["allowed.com"])
     snapshot = PolicySnapshot(egress_policy=policy)
 
@@ -94,6 +102,7 @@ def test_policy_snapshot_egress_violation() -> None:
 
 
 def test_compile_policy_snapshot() -> None:
+    """Verifica o comportamento de compile policy snapshot."""
     ctx = ToolContext(
         workspace_id="ws-123",
         user_id="bob",
@@ -108,6 +117,7 @@ def test_compile_policy_snapshot() -> None:
 
 
 def test_policy_snapshot_untrusted_content_mutable_http() -> None:
+    """Verifica o comportamento de policy snapshot untrusted content mutable http."""
     snapshot = PolicySnapshot(untrusted_content=True)
 
     # GET e métodos seguros permitidos sob conteúdo não confiável
@@ -128,6 +138,7 @@ def test_policy_snapshot_untrusted_content_mutable_http() -> None:
 def test_policy_snapshot_call_mcp_tool_resolution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verifica o comportamento de policy snapshot call mcp tool resolution."""
     snapshot = PolicySnapshot()
 
     # Sem servidor e sem mapeamento -> bloqueado
@@ -138,6 +149,7 @@ def test_policy_snapshot_call_mcp_tool_resolution(
     # Servidor resolvido via cliente MCP
     class _FakeMcpClient:
         def tools_by_server(self) -> dict[str, str]:
+            """Executa a operação tools by server."""
             return {"known_tool": "my_server"}
 
     import backend.tools.mcp as mcp_mod

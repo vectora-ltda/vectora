@@ -101,10 +101,12 @@ class EgressPolicy(BaseModel):
 
 
 def _normalize_host(host: str) -> str:
+    """Executa a operação normalize host."""
     return host.strip().lower().rstrip(".")
 
 
 def _matches_pattern(host: str, pattern: str) -> bool:
+    """Executa a operação matches pattern."""
     norm_host = _normalize_host(host)
     norm_pat = _normalize_host(pattern)
     if norm_pat.startswith("*."):
@@ -128,6 +130,7 @@ def _validate_addr_infos_and_port(
     pol: EgressPolicy,
     addr_infos: Sequence[_AddrInfo],
 ) -> tuple[bool, str, str | None]:
+    """Executa a operação validate addr infos and port."""
     is_loopback_target = False
     first_ip: str | None = None
     for info in addr_infos:
