@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import stat
 from pathlib import Path
 
 
@@ -17,6 +18,15 @@ def hash_file_sha256(file_path: Path) -> str:
         return h.hexdigest()
     except Exception:
         return ""
+
+
+def _is_regular_file(path: Path) -> bool:
+    """Retorna apenas arquivos regulares, nunca FIFO, socket ou dispositivo."""
+    try:
+        info = path.stat(follow_symlinks=False)
+        return stat.S_ISREG(info.st_mode) and not path.is_symlink()
+    except OSError:
+        return False
 
 
 def compute_files_snapshot(
@@ -44,7 +54,7 @@ def compute_files_snapshot(
                     else Path(f).resolve()
                 )
                 candidate.relative_to(root)
-                if candidate.is_file():
+                if _is_regular_file(candidate):
                     target_paths.append(candidate)
             except (ValueError, OSError):
                 continue
@@ -63,7 +73,9 @@ def compute_files_snapshot(
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = [d for d in dirnames if d not in ignored_dirs]
             target_paths.extend(
-                p for fn in filenames if (p := Path(dirpath) / fn).is_file()
+                p
+                for fn in filenames
+                if (p := Path(dirpath) / fn) and _is_regular_file(p)
             )
 
     for p in sorted(target_paths, key=str):
