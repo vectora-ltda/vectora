@@ -1250,7 +1250,8 @@ async def run_conversation(  # noqa: PLR0911
                 and config.run_id
                 and resultado.name
             ):
-                await session_store.record_run_evidence(
+                await _safe_record_run_evidence(
+                    session_store,
                     config.run_id,
                     tool_used=resultado.name,
                     evidence={

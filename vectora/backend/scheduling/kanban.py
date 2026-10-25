@@ -27,7 +27,7 @@ import logging
 import uuid
 import weakref
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import aiosqlite
 
@@ -151,6 +151,28 @@ async def _ensure_version_column(db: SQLiteConnection) -> None:
 def _agora() -> datetime:
     """Executa a operação  agora."""
     return datetime.now(UTC)
+
+
+async def _raise_claim_failure(
+    db: aiosqlite.Connection, task_id: str, authorized_run_id: str
+) -> NoReturn:
+    """Diferencia perda do claim de conflito CAS concorrente."""
+    async with db.execute(
+        "SELECT claim_lock, claim_expires_at FROM vectora_background_tasks "
+        "WHERE id = ?",
+        (task_id,),
+    ) as cur:
+        latest = await cur.fetchone()
+    await db.rollback()
+    now_iso = _agora().isoformat()
+    if (
+        latest is not None
+        and latest["claim_lock"] == authorized_run_id
+        and latest["claim_expires_at"]
+        and latest["claim_expires_at"] > now_iso
+    ):
+        raise ValueError("conflito CAS: a versão da task mudou durante a transição")
+    raise ValueError("execução perdeu o claim da task")
 
 
 async def _emit_kanban_event(
@@ -877,8 +899,7 @@ async def block_task(
                 (kind, reason, task_id, authorized_run_id, _agora().isoformat()),
             )
         if authorized_run_id is not None and cur.rowcount == 0:
-            await db.rollback()
-            raise ValueError("execução perdeu o claim da task")
+            await _raise_claim_failure(db, task_id, authorized_run_id)
         await db.commit()
         await _emit_kanban_event(task_id, "todo", block_kind=kind, block_reason=reason)
         await _record_task_event(
@@ -935,8 +956,7 @@ async def block_task(
             ),
         )
     if authorized_run_id is not None and cur.rowcount == 0:
-        await db.rollback()
-        raise ValueError("execução perdeu o claim da task")
+        await _raise_claim_failure(db, task_id, authorized_run_id)
     await db.commit()
     await _emit_kanban_event(task_id, status, block_kind=kind, block_reason=reason)
     await _record_task_event(
