@@ -156,6 +156,7 @@ async def test_thread_events_sse_stream_and_read(
         )
 
         async def _read_frames(resp: StreamingResponse, n: int) -> list[str]:
+            """Executa a operação read frames."""
             buf = ""
             frames: list[str] = []
             it = resp.body_iterator
@@ -181,6 +182,7 @@ async def test_thread_events_sse_stream_and_read(
         chunks = await _read_frames(stream_resp, 2)
 
         def _parse_chunk(chunk: str) -> dict[str, str]:
+            """Executa a operação parse chunk."""
             parsed: dict[str, str] = {}
             for line in chunk.strip().split("\n"):
                 if line.startswith("id: "):

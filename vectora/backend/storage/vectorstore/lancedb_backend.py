@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def _parse_metadata(raw: object) -> dict[str, Any]:
+    """Executa a operação parse metadata."""
     if isinstance(raw, dict):
         return cast("dict[str, Any]", raw)
     try:
@@ -54,11 +55,13 @@ class LanceDBBackend:
     def __init__(
         self, lancedb_dir: str, write_semaphore: asyncio.Semaphore | None = None
     ):
+        """Inicializa o estado da instância."""
         self._path = str(lancedb_dir)
         self._write_semaphore = write_semaphore or asyncio.Semaphore(1)
         self._legacy_checked: set[str] = set()
 
     async def _db(self) -> lancedb.db.AsyncConnection:
+        """Executa a operação db."""
         return await lancedb.connect_async(self._path)
 
     async def _list_table_names(self, db: lancedb.db.AsyncConnection) -> list[str]:
@@ -72,6 +75,7 @@ class LanceDBBackend:
     async def search(
         self, collection: str, query_vector: list[float], limit: int
     ) -> list[VectorHit]:
+        """Executa a operação search."""
         db = await self._db()
         try:
             async with asyncio.timeout(10):
@@ -101,6 +105,7 @@ class LanceDBBackend:
     async def search_text(
         self, collection: str, query: str, limit: int
     ) -> list[VectorHit]:
+        """Executa a operação search text."""
         db = await self._db()
         try:
             async with asyncio.timeout(10):
@@ -180,6 +185,7 @@ class LanceDBBackend:
                 )
 
     async def upsert(self, collection: str, rows: list[VectorRow]) -> None:
+        """Executa a operação upsert."""
         if not rows:
             return
         db = await self._db()
@@ -240,6 +246,7 @@ class LanceDBBackend:
             self._legacy_checked.add(collection)
 
     async def list_rows(self, collection: str) -> list[VectorRow]:
+        """Executa a operação list rows."""
         db = await self._db()
         try:
             async with asyncio.timeout(10):
@@ -264,6 +271,7 @@ class LanceDBBackend:
         ]
 
     async def delete(self, collection: str, ids: list[str]) -> int:
+        """Executa a operação delete."""
         if not ids:
             return 0
         db = await self._db()
@@ -280,12 +288,14 @@ class LanceDBBackend:
             return max(0, before_count - after_count)
 
     async def purge(self, collection: str) -> None:
+        """Executa a operação purge."""
         db = await self._db()
         # coleção já não existe — purge é idempotente
         with contextlib.suppress(Exception):
             await db.drop_table(collection)
 
     async def list_collections(self) -> list[str]:
+        """Executa a operação list collections."""
         db = await self._db()
         try:
             return await self._list_table_names(db)
@@ -294,6 +304,7 @@ class LanceDBBackend:
             return []
 
     async def count(self, collection: str) -> int | None:
+        """Executa a operação count."""
         db = await self._db()
         try:
             table = await db.open_table(collection)
