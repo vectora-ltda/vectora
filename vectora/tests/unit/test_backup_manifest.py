@@ -54,11 +54,18 @@ def test_restore_rejeita_limite_agregado_antes_de_publicar(
     database = tmp_path / "data" / "vectora.db"
     database.parent.mkdir()
     database.write_bytes(b"unchanged")
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    existing = artifacts / "existing.md"
+    existing.write_text("keep", encoding="utf-8")
     monkeypatch.setattr(backup_module, "MAX_RESTORE_BYTES", 7)
 
     with pytest.raises(ValueError, match="limite agregado"):
         restore_backup(archive, database, categories={"artifacts"})
     assert database.read_bytes() == b"unchanged"
+    assert existing.read_text(encoding="utf-8") == "keep"
+    assert not (artifacts / "a.bin").exists()
+    assert not (artifacts / "b.bin").exists()
 
 
 def test_create_and_inspect_preserva_manifesto_lite(tmp_path: Path) -> None:
