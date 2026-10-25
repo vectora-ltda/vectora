@@ -68,6 +68,26 @@ reviews:
         testes que apenas verificam status 200, ausência de exceção ou mocks
         sem confirmar os argumentos e os efeitos observáveis.
 
+    - path: "vectora/frontend/**/*.{test,spec}.{ts,tsx}"
+      instructions: |
+        Para cada mudança coberta por estes testes, exija um caso de caminho
+        feliz, um caso negativo ou de erro e uma regressão que reproduza o
+        comportamento anterior. Em componentes React, confira estados de
+        carregamento, vazio, erro, retry, cancelamento, acessibilidade e
+        interação do usuário. Em hooks e stores, confira atualização de estado,
+        cleanup, re-renderização, concorrência e isolamento entre instâncias.
+        Em clientes SSE, IPC e APIs, teste payloads inválidos, desconexão,
+        reconexão, eventos duplicados, ordem dos eventos e contratos de tipos.
+
+    - path: "vectora/frontend/electron/**/*.{test,spec}.{ts,tsx}"
+      instructions: |
+        Verifique testes de lifecycle e IPC com sucesso, falha, timeout,
+        cancelamento, processo ausente, mensagens inválidas e cleanup. Confirme
+        que bridges autenticadas, sessões, cookies, ownership de workspace e
+        limites de navegação não são apenas simulados sem asserções sobre os
+        efeitos observáveis. Mudanças no Electron também devem manter o
+        typecheck estrito e a compatibilidade com o contrato do backend.
+
     - path: ".github/workflows/**"
       instructions: |
         Confira se os gates executam a suíte correta, propagam falhas, usam
