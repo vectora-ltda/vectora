@@ -101,6 +101,7 @@ async def _get_db() -> aiosqlite.Connection:
 
 
 def _agora() -> datetime:
+    """Executa a operação agora."""
     return datetime.now(UTC)
 
 
@@ -192,6 +193,7 @@ async def _record_task_event(
 
 
 async def get_task_status(task_id: str) -> dict[str, Any]:
+    """Executa a operação get task status."""
     db = await _get_db()
     async with db.execute(
         "SELECT status, block_kind, block_reason, claim_lock, claim_expires_at "
@@ -260,6 +262,7 @@ async def set_status(
         interval_config_raw = row["trigger_config"]
 
         def _next_interval_run(raw: object) -> str | None:
+            """Executa a operação next interval run."""
             config_value: object = raw
             if isinstance(raw, str):
                 try:

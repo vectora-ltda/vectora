@@ -42,6 +42,7 @@ def _docker_executable() -> str:
             return str(path.resolve())
 
     def trusted(path: Path) -> bool:
+        """Executa a operação trusted."""
         if not path.is_absolute() or not path.is_file():
             return False
         resolved = path.resolve()
@@ -151,6 +152,7 @@ def _jobs_store_path() -> Path:
 
 
 def _job_record(job: DmrJob) -> dict[str, object]:
+    """Executa a operação job record."""
     return {
         "id": job.id,
         "operation": job.operation,
@@ -166,6 +168,7 @@ def _job_record(job: DmrJob) -> dict[str, object]:
 
 
 def _job_from_record(record: object) -> DmrJob | None:
+    """Executa a operação job from record."""
     if not isinstance(record, dict):
         return None
     job_id = record.get("id")
@@ -227,6 +230,7 @@ async def _persist_jobs() -> None:
     path = _jobs_store_path()
 
     def write() -> None:
+        """Executa a operação write."""
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(f"{path.suffix}.tmp")
         temporary.write_text(
@@ -606,6 +610,7 @@ async def _run_job(job: DmrJob) -> None:
     started = False
 
     async def stop_started_model() -> None:
+        """Executa a operação stop started model."""
         if not started or job.operation != "start":
             return
         try:

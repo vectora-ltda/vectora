@@ -317,6 +317,7 @@ async def _run_goal_loop(
     approval_gate: ApprovalGate | None,
     systemone_harness: SystemOneHarness | None = None,
 ) -> GoalOutcome:
+    """Executa a operação run goal loop."""
     consecutive_judge_failures = 0
     gate_failure_streak = 0
     last_gate_signature: tuple[tuple[str, ...], ...] | None = None

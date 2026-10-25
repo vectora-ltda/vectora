@@ -79,20 +79,24 @@ def _purge_expired_broker_transactions(now: int | None = None) -> None:
 
 
 def _broker_url() -> str:
+    """Executa a operação broker url."""
     return os.getenv("VECTORA_OAUTH_BROKER_URL", "").strip()
 
 
 def _broker_secret() -> str:
+    """Executa a operação broker secret."""
     return os.getenv("VECTORA_OAUTH_SECRET", "").strip()
 
 
 def _broker_enabled() -> bool:
+    """Executa a operação broker enabled."""
     return bool(_broker_url() and _broker_secret())
 
 
 def _consume_broker_transaction(
     request: Request, state: str, provider: str, user_id: str
 ) -> bool:
+    """Executa a operação consume broker transaction."""
     _purge_expired_broker_transactions()
     proof = request.query_params.get("oauth_proof", "")
     transaction = _broker_transactions.get(state)
@@ -120,6 +124,7 @@ def _local_oauth_fallback_enabled() -> bool:
 
 
 async def _broker_providers() -> set[str]:
+    """Executa a operação broker providers."""
     global _broker_provider_cache
     if not _broker_enabled():
         return set()
@@ -149,6 +154,7 @@ async def _broker_providers() -> set[str]:
 
 
 async def _broker_start(request: Request, provider: str) -> RedirectResponse:
+    """Executa a operação broker start."""
     _purge_expired_broker_transactions()
     user = _get_user(request)
     broker_url = _broker_url()
@@ -252,6 +258,7 @@ async def _try_broker_start(request: Request, provider: str) -> RedirectResponse
 async def _broker_callback(
     provider: str, state: str, request: Request
 ) -> RedirectResponse:
+    """Executa a operação broker callback."""
     try:
         padded = state + "=" * (-len(state) % 4)
         decoded = base64.urlsafe_b64decode(padded).decode()
@@ -343,6 +350,7 @@ async def _broker_callback(
 
 
 def _looks_like_broker_state(state: str, provider: str) -> bool:
+    """Executa a operação looks like broker state."""
     try:
         padded = state + "=" * (-len(state) % 4)
         decoded = base64.urlsafe_b64decode(padded).decode()
@@ -646,6 +654,7 @@ _REGISTRY_BY_ID: dict[str, dict[str, Any]] = {i["id"]: i for i in INTEGRATIONS_R
 
 
 def _get_user(request: Request) -> Any:
+    """Executa a operação get user."""
     user = getattr(request.state, "user", None)
     if user is None:
         raise HTTPException(status_code=401, detail="Não autenticado")
@@ -1111,6 +1120,7 @@ async def github_oauth_disconnect(request: Request) -> dict:
 
 
 def _gitlab_cfg() -> tuple[str, str, str, str]:
+    """Executa a operação gitlab cfg."""
     client_id = os.environ.get("GITLAB_OAUTH_CLIENT_ID", "")
     client_secret = os.environ.get("GITLAB_OAUTH_CLIENT_SECRET", "")
     base_url = os.environ.get("GITLAB_BASE_URL", "https://gitlab.com")
@@ -1129,6 +1139,7 @@ def _gitlab_cfg() -> tuple[str, str, str, str]:
 
 @router.get("/auth/gitlab")
 async def gitlab_oauth_start(request: Request) -> RedirectResponse:
+    """Executa a operação gitlab oauth start."""
     broker_redirect = await _try_broker_start(request, "gitlab")
     if broker_redirect is not None:
         return broker_redirect
@@ -1152,6 +1163,7 @@ async def gitlab_oauth_start(request: Request) -> RedirectResponse:
 async def gitlab_oauth_callback(
     request: Request, code: str = "", state: str = ""
 ) -> RedirectResponse:
+    """Executa a operação gitlab oauth callback."""
     if _broker_enabled() and _looks_like_broker_state(state, "gitlab"):
         return await _broker_callback("gitlab", state, request)
     if not code:
@@ -1198,6 +1210,7 @@ async def gitlab_oauth_callback(
 
 @router.get("/auth/gitlab/status")
 async def gitlab_oauth_status(request: Request) -> dict:
+    """Executa a operação gitlab oauth status."""
     user = _get_user(request)
     try:
         from backend.rbac import auth as auth_svc
@@ -1229,6 +1242,7 @@ async def gitlab_oauth_status(request: Request) -> dict:
 
 @router.delete("/auth/gitlab")
 async def gitlab_oauth_disconnect(request: Request) -> dict:
+    """Executa a operação gitlab oauth disconnect."""
     user = _get_user(request)
     try:
         from backend.rbac import auth as auth_svc
@@ -1245,6 +1259,7 @@ async def gitlab_oauth_disconnect(request: Request) -> dict:
 
 
 def _google_cfg() -> tuple[str, str, str]:
+    """Executa a operação google cfg."""
     client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
     client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
     redirect_uri = (
@@ -1262,6 +1277,7 @@ def _google_cfg() -> tuple[str, str, str]:
 
 @router.get("/auth/google")
 async def google_oauth_start(request: Request) -> RedirectResponse:
+    """Executa a operação google oauth start."""
     broker_redirect = await _try_broker_start(request, "google")
     if broker_redirect is not None:
         return broker_redirect
@@ -1291,6 +1307,7 @@ async def google_oauth_start(request: Request) -> RedirectResponse:
 async def google_oauth_callback(
     request: Request, code: str = "", state: str = ""
 ) -> RedirectResponse:
+    """Executa a operação google oauth callback."""
     if _broker_enabled() and _looks_like_broker_state(state, "google"):
         return await _broker_callback("google", state, request)
     if not code:
@@ -1343,6 +1360,7 @@ async def google_oauth_callback(
 
 @router.get("/auth/google/status")
 async def google_oauth_status(request: Request) -> dict:
+    """Executa a operação google oauth status."""
     user = _get_user(request)
     try:
         from backend.rbac import auth as auth_svc
@@ -1380,6 +1398,7 @@ async def google_oauth_status(request: Request) -> dict:
 
 @router.delete("/auth/google")
 async def google_oauth_disconnect(request: Request) -> dict:
+    """Executa a operação google oauth disconnect."""
     user = _get_user(request)
     try:
         from backend.rbac import auth as auth_svc

@@ -47,6 +47,7 @@ class LayaLocalAdapter(SystemOneProvider):
         *,
         client: httpx.AsyncClient | None = None,
     ) -> None:
+        """Inicializa o estado da instância."""
         self._base_url = base_url.rstrip("/")
         self._model = model
         self._api_key = api_key
@@ -55,12 +56,15 @@ class LayaLocalAdapter(SystemOneProvider):
 
     @property
     def provider_id(self) -> str:
+        """Executa a operação provider id."""
         return "laya-local"
 
     async def aclose(self) -> None:
+        """Executa a operação aclose."""
         return
 
     async def capabilities(self) -> ProviderCapabilities:
+        """Executa a operação capabilities."""
         return ProviderCapabilities(
             supports_noul=True,
             supports_choice=True,
@@ -77,6 +81,7 @@ class LayaLocalAdapter(SystemOneProvider):
         )
 
     async def health(self) -> bool:
+        """Executa a operação health."""
         headers = self._headers()
         try:
             if self._external_client is not None:
@@ -93,6 +98,7 @@ class LayaLocalAdapter(SystemOneProvider):
             return False
 
     def _headers(self) -> dict[str, str]:
+        """Executa a operação headers."""
         headers = {"Content-Type": "application/json"}
         if self._api_key:
             headers["Authorization"] = f"Bearer {self._api_key}"
@@ -100,6 +106,7 @@ class LayaLocalAdapter(SystemOneProvider):
 
     @staticmethod
     def _questions(request: SystemOneRequest) -> dict[str, dict[str, Any]]:
+        """Executa a operação questions."""
         serialized: dict[str, dict[str, Any]] = {}
         for question_id, question in request.questions.items():
             if isinstance(question, NoulQuestion):
@@ -134,6 +141,7 @@ class LayaLocalAdapter(SystemOneProvider):
 
     @staticmethod
     def _normalize_response(data: object, request: SystemOneRequest) -> dict[str, Any]:
+        """Executa a operação normalize response."""
         if not isinstance(data, dict) or not isinstance(data.get("answers"), dict):
             raise ValueError("Laya retornou um envelope inválido")
         normalized: dict[str, Any] = {"answers": {}}
@@ -189,6 +197,7 @@ class LayaLocalAdapter(SystemOneProvider):
         return normalized
 
     async def decide(self, request: SystemOneRequest) -> SystemOneResponse:
+        """Executa a operação decide."""
         if request.media_urls:
             raise SystemOneCapabilityError(
                 "Laya local aceita texto/JSON, mas não imagens ou vídeo.",
