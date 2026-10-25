@@ -1027,12 +1027,9 @@ async def run_conversation(
                         call_id,
                         thread_id,
                     )
-            if (
-                hasattr(session_store, "record_run_evidence")
-                and config.run_id
-                and resultado.name
-            ):
-                await session_store.record_run_evidence(
+            if config.run_id and resultado.name:
+                await _safe_record_run_evidence(
+                    session_store,
                     config.run_id,
                     tool_used=resultado.name,
                     evidence={
