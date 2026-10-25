@@ -1331,7 +1331,24 @@ def _rotate_artifact_history(artifact_dir: Path, slug: str, content: str) -> Pat
         current.rename(artifact_dir / f"{slug}-{n}.md")
         integrity = artifact_dir / f"{slug}.artifact.json"
         if integrity.exists():
-            integrity.rename(artifact_dir / f"{slug}-{n}.artifact.json")
+            historical_integrity = artifact_dir / f"{slug}-{n}.artifact.json"
+            integrity.rename(historical_integrity)
+            try:
+                metadata = json.loads(historical_integrity.read_text(encoding="utf-8"))
+                if isinstance(metadata, dict):
+                    historical_path = artifact_dir / f"{slug}-{n}.md"
+                    metadata["artifact_id"] = historical_path.stem
+                    metadata["storage_uri"] = str(historical_path)
+                    historical_integrity.write_text(
+                        json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                        encoding="utf-8",
+                    )
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                logger.warning(
+                    "create_artifact: sidecar histórico inválido para %s",
+                    slug,
+                    exc_info=True,
+                )
     current.write_text(content, encoding="utf-8")
     return current
 

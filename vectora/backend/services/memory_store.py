@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import sqlite3
 import threading
@@ -84,7 +85,7 @@ class MemoryStore:
             self._initialize_persistence()
 
     @contextmanager
-    def _connect(self) -> Generator[sqlite3.Connection, None, None]:
+    def _connect(self) -> Generator[sqlite3.Connection]:
         """Executa a operação  connect."""
         if self._path is None:
             raise RuntimeError("este MemoryStore não possui persistência configurada")
@@ -438,9 +439,7 @@ def _default_memory_store_path() -> Path:
     return settings.vectora_home / "context-memory.db"
 
 
-_DEFAULT_MEMORY_STORE = MemoryStore(_default_memory_store_path())
-
-
+@functools.cache
 def get_memory_store() -> MemoryStore:
-    """Executa a operação get memory store."""
-    return _DEFAULT_MEMORY_STORE
+    """Retorna o store padrão, inicializado somente no primeiro uso."""
+    return MemoryStore(_default_memory_store_path())

@@ -25,6 +25,7 @@ import contextlib
 import json
 import logging
 import uuid
+import weakref
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
@@ -60,6 +61,7 @@ BLOCK_KINDS: tuple[str, ...] = (
 )
 
 _DEFAULT_CLAIM_TTL_S = 900
+_VERSION_CHECKED: weakref.WeakSet[SQLiteConnection] = weakref.WeakSet()
 
 #: Transições acionáveis por ação humana direta (drag-and-drop no board ou
 #: `PATCH .../tasks/{id}` com campo `status`). `running` só é alcançado pelo
@@ -129,6 +131,8 @@ async def _get_db() -> aiosqlite.Connection:
 
 async def _ensure_version_column(db: SQLiteConnection) -> None:
     """Upgrade legacy task connections before a fenced mutation/read."""
+    if db in _VERSION_CHECKED:
+        return
     try:
         async with db.execute("PRAGMA table_info(vectora_background_tasks)") as cur:
             columns = {str(row[1]) for row in await cur.fetchall()}
@@ -138,8 +142,10 @@ async def _ensure_version_column(db: SQLiteConnection) -> None:
                 "ADD COLUMN version INTEGER NOT NULL DEFAULT 1"
             )
             await db.commit()
+        if columns:
+            _VERSION_CHECKED.add(db)
     except Exception:
-        logger.debug("kanban: falha ao atualizar coluna version", exc_info=True)
+        logger.warning("kanban: falha ao atualizar coluna version", exc_info=True)
 
 
 def _agora() -> datetime:

@@ -352,7 +352,7 @@ async def clear_all_memories(request: Request) -> DeleteMemoryResponse:
     try:
         ns = _namespace(request)
         store = await _store()
-        items = await store.asearch(ns, limit=_LIST_ALL_LIMIT)
+        items = await store.asearch(ns, limit=_LIST_ALL_LIMIT, include_expired=True)
         count = 0
         for item in items:
             await store.adelete(ns, item.key)

@@ -517,7 +517,13 @@ class TestCreateArtifact:
         history = current.with_name(f"{current.stem}-1.md")
         assert history.exists()
         assert history.read_text(encoding="utf-8") == "versão 1"
-        assert history.with_suffix(".artifact.json").exists()
+        history_sidecar = history.with_suffix(".artifact.json")
+        assert history_sidecar.exists()
+        metadata = json.loads(history_sidecar.read_text(encoding="utf-8"))
+        assert metadata["artifact_id"] == history.stem
+        assert metadata["storage_uri"] == str(history)
+        assert metadata["sha256"]
+        assert metadata["retention_class"] == "run"
 
     async def test_third_write_rotates_history_without_losing_the_first(
         self, tmp_path, monkeypatch

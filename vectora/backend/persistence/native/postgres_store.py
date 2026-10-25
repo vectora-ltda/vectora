@@ -168,6 +168,7 @@ class VectoraPostgresStore:
         limit: int = 10,
         filter: dict[str, Any] | None = None,  # noqa: A002 — mesmo nome do protocolo
         offset: int = 0,
+        include_expired: bool = False,
     ) -> list[SearchItem]:
         """Executa a operação asearch."""
         started = time.perf_counter()
@@ -193,7 +194,7 @@ class VectoraPostgresStore:
         for row in rows:
             value = row["value"]
             value = json.loads(value) if isinstance(value, str) else value
-            if is_store_value_expired(value):
+            if not include_expired and is_store_value_expired(value):
                 continue
             if not _matches_filter(value, filter):
                 continue

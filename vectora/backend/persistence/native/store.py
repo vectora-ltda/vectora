@@ -416,6 +416,7 @@ class VectoraStore:
         limit: int = 10,
         filter: dict[str, Any] | None = None,  # noqa: A002 — mesmo nome do protocolo
         offset: int = 0,
+        include_expired: bool = False,
     ) -> list[SearchItem]:
         """Executa a operação asearch."""
         started = time.perf_counter()
@@ -440,7 +441,7 @@ class VectoraStore:
         candidates: list[tuple[float | None, SearchItem]] = []
         for ns, key, value_json, embedding_json, created_at, updated_at in rows:
             value = json.loads(value_json)
-            if is_store_value_expired(value):
+            if not include_expired and is_store_value_expired(value):
                 continue
             if not _matches_filter(value, filter):
                 continue

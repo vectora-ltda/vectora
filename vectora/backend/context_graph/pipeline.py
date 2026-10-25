@@ -414,6 +414,7 @@ async def build_workspace_graph(
             if nodes_count > 0 and indexed_count == 0:
                 result.indexing_degraded = True
                 result.indexing_error = f"Falha na indexação: {nodes_count} nós para indexar, mas 0 foram indexados no LanceDB"
+                result.error = result.indexing_error
                 logger.error(
                     "context_graph: falha na indexação de nós no LanceDB — %d nós esperados, 0 indexados",
                     nodes_count,
@@ -426,6 +427,7 @@ async def build_workspace_graph(
             )
             result.indexing_degraded = True
             result.indexing_error = str(exc)
+            result.error = result.indexing_error
 
         logger.info(
             "context_graph: build completo — %d nós, %d arestas, %d tokens",

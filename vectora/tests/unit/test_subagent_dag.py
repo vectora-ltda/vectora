@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from pathlib import Path
+
 import pytest
 from pydantic import BaseModel
 
@@ -12,7 +15,7 @@ from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.tools.context import ToolContext
 from backend.tools.registry import TOOL_REGISTRY, ToolExtras, ToolSpec
 from backend.vtypes.ids import CorrelationId
-from backend.vtypes.message import VMessageChunk
+from backend.vtypes.message import VMessage, VMessageChunk
 
 
 class _SimpleChatClient:
@@ -20,14 +23,26 @@ class _SimpleChatClient:
         """Inicializa o estado da instância."""
         self._responses = list(responses)
 
-    async def astream(self, messages, *, tools=None, temperature=None, max_tokens=None):
+    async def astream(
+        self,
+        messages: list[VMessage],
+        *,
+        tools: list[ToolSpec] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> AsyncIterator[VMessageChunk]:
         """Executa a operação astream."""
         resp = self._responses.pop(0) if self._responses else "ok"
         yield VMessageChunk(delta_text=resp)
 
     async def agenerate(
-        self, messages, *, tools=None, temperature=None, max_tokens=None
-    ):
+        self,
+        messages: list[VMessage],
+        *,
+        tools: list[ToolSpec] | None = None,
+        temperature: float | None = None,
+        max_tokens: int | None = None,
+    ) -> VMessage:
         """Executa a operação agenerate."""
         raise NotImplementedError("não usado")
 
@@ -36,9 +51,9 @@ class _DummyArgs(BaseModel):
     text: str = ""
 
 
-async def _dummy_handler(args: dict, ctx: ToolContext) -> str:
+async def _dummy_handler(args: dict[str, object], ctx: ToolContext) -> str:
     """Executa a operação  dummy handler."""
-    return args.get("text", "ok")
+    return str(args.get("text", "ok"))
 
 
 def _make_tool_spec(
@@ -56,7 +71,7 @@ def _make_tool_spec(
 
 
 @pytest.fixture
-async def session_store(tmp_path):
+async def session_store(tmp_path: Path) -> AsyncIterator[SessionStore]:
     """Executa a operação session store."""
     pool = AsyncConnectionPool(
         str(tmp_path / "subagent_dag.db"), min_size=1, max_size=2
