@@ -11,6 +11,12 @@ reviews:
     enabled: true
     drafts: false
     auto_incremental_review: true
+    # A stack uses non-default target branches. Review every target branch
+    # instead of silently skipping stacked pull requests.
+    base_branches:
+      - ".*"
+    # Keep incremental review eligible after every push.
+    auto_pause_after_reviewed_commits: 0
   path_instructions:
     - path: "**"
       instructions: |
