@@ -75,7 +75,7 @@ def _artifacts_root(database: Path) -> Path:
 
 def _artifact_entries(database: Path) -> list[tuple[str, bytes]]:
     root = _artifacts_root(database)
-    if not root.is_dir():
+    if root.is_symlink() or not root.is_dir():
         return []
     entries: list[tuple[str, bytes]] = []
     for path in sorted(root.rglob("*")):

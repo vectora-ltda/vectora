@@ -16,6 +16,7 @@ import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
+from backend.persistence.native.store import is_store_value_expired
 from backend.storage.protocols import StoreBackend
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
@@ -62,18 +63,7 @@ def _memory_namespace(ctx: ToolContext) -> tuple[str, ...]:
     return ("user", user_id, "memories")
 
 
-def _is_memory_expired(value: dict[str, Any]) -> bool:
-    """Aplica expiração persistida sem confiar no contador informativo legado."""
-    valid_until = value.get("valid_until")
-    if not isinstance(valid_until, str) or not valid_until:
-        return False
-    try:
-        expires_at = datetime.fromisoformat(valid_until)
-        if expires_at.tzinfo is None:
-            expires_at = expires_at.replace(tzinfo=UTC)
-        return expires_at <= datetime.now(UTC)
-    except (TypeError, ValueError):
-        return False
+_is_memory_expired = is_store_value_expired
 
 
 async def list_fact_contents(user_id: str) -> list[str]:
@@ -191,7 +181,7 @@ async def save_memory(
         key: Chave única da memória (ex: 'user_preferences', 'project_context')
         content: Conteúdo da memória (string com informações a recordar)
         metadata: Metadados adicionais
-        ttl_days: Dias até expiração; memórias expiradas são removidas ao ler
+        ttl_days: Dias até expiração; memórias expiradas deixam de ser retornadas
         category: Categoria do fato (gotcha/decision/preference/rule) — opcional,
             None quando não classificado
 

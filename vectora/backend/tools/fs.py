@@ -1384,14 +1384,14 @@ def _mirror_artifact_to_workspace(
 
 def _create_artifact_sync(
     ctx: ToolContext, artifact_type: str, slug: str, session_id: str, content: str
-) -> Path:
+) -> tuple[Path, dict[str, object]]:
     artifact_dir = Path.home() / ".vectora" / "artifacts" / session_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = _rotate_artifact_history(artifact_dir, slug, content)
     _write_artifact_type_sidecar(artifact_dir, slug, artifact_type)
-    _write_artifact_integrity_sidecar(path)
+    integrity = _write_artifact_integrity_sidecar(path)
     _mirror_artifact_to_workspace(ctx, artifact_type, slug, content)
-    return path
+    return path, integrity
 
 
 @vtool(
@@ -1471,7 +1471,7 @@ async def create_artifact(
 
     try:
         stripped_content = content.strip()
-        path = await asyncio.to_thread(
+        path, integrity = await asyncio.to_thread(
             _create_artifact_sync,
             ctx,
             artifact_type,
@@ -1481,9 +1481,6 @@ async def create_artifact(
         )
 
         created_at = datetime.now(UTC).isoformat()
-        integrity = json.loads(
-            path.with_suffix(".artifact.json").read_text(encoding="utf-8")
-        )
         logger.info(
             "create_artifact: salvo '%s' (%s) → %s",
             title,

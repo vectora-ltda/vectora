@@ -1769,7 +1769,7 @@ class PostgresSessionStore:
                 "checkpoint_id, thread_id, run_id, last_sequence, source_hash, "
                 "schema_version, state_json, artifact_refs_json, created_at) "
                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) "
-                "ON CONFLICT (thread_id, last_sequence, source_hash) DO UPDATE SET "
+                "ON CONFLICT (thread_id, run_id, last_sequence, source_hash) DO UPDATE SET "
                 "checkpoint_id = EXCLUDED.checkpoint_id, "
                 "thread_id = EXCLUDED.thread_id, run_id = EXCLUDED.run_id, "
                 "last_sequence = EXCLUDED.last_sequence, source_hash = EXCLUDED.source_hash, "

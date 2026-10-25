@@ -18,6 +18,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+_MAX_DECOMPRESSED_BYTES = 512 * 1024 * 1024
+
 
 @dataclass(frozen=True)
 class ColdArchive:
@@ -117,9 +119,13 @@ def read_cold_archive(
     archive = Path(path).resolve(strict=True)
     digest = hashlib.sha256()
     records: list[dict[str, Any]] = []
+    total_bytes = 0
     try:
         with gzip.open(archive, "rb") as stream:
             for line in stream:
+                total_bytes += len(line)
+                if total_bytes > _MAX_DECOMPRESSED_BYTES:
+                    raise ValueError("cold archive excede o limite descompactado")
                 digest.update(line)
                 value = json.loads(line.decode("utf-8"))
                 if not isinstance(value, dict):

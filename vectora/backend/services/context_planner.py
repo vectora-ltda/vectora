@@ -554,14 +554,19 @@ class ContextPlanner:
                 # the final context over budget, discard the oldest selected
                 # messages and fit it again until the complete payload fits.
                 while (
-                    len(selected_non_system) > 1
+                    len(selected_units) > 1
                     and sum(_message_tokens(m) for m in systems)
                     + sum(_message_tokens(m) for m in selected_non_system)
                     + _message_tokens(marker_msg)
                     > max_tokens
                 ):
-                    selected_non_system.pop(0)
-                    omitted += 1
+                    # Drop one causal unit at a time so a tool call and its
+                    # result can never be split by the compaction marker.
+                    selected_units.pop(0)
+                    selected_non_system = [
+                        message for unit in selected_units for message in unit
+                    ]
+                    omitted = len(non_system) - len(selected_non_system)
                     fixed_tokens = sum(_message_tokens(m) for m in systems)
                     fixed_tokens += sum(_message_tokens(m) for m in selected_non_system)
                     marker_msg = _fit_compaction_marker(

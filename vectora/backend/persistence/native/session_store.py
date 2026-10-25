@@ -701,7 +701,7 @@ class SessionStore:
                 "checkpoint_id, thread_id, run_id, last_sequence, source_hash, "
                 "schema_version, state_json, artifact_refs_json, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(thread_id, last_sequence, source_hash) DO UPDATE SET "
+                "ON CONFLICT(thread_id, run_id, last_sequence, source_hash) DO UPDATE SET "
                 "checkpoint_id=excluded.checkpoint_id, run_id=excluded.run_id, "
                 "schema_version=excluded.schema_version, state_json=excluded.state_json, "
                 "artifact_refs_json=excluded.artifact_refs_json, created_at=excluded.created_at",

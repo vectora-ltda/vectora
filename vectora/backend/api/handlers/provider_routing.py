@@ -2264,12 +2264,6 @@ async def start_installed_huggingface_model(
     object.__setattr__(settings, "llamacpp_base_url", managed_base_url)
     _set_env_key(_env_file(), "LLAMACPP_BASE_URL", managed_base_url)
     os.environ["LLAMACPP_BASE_URL"] = managed_base_url
-    # Starting an installed model is the managed-sidecar workflow itself.
-    # Persist the mode in the same operation so a backend restart can restore
-    # the confirmed model even if the UI is closed before the follow-up mode
-    # request is sent.
-    _set_env_key(_env_file(), "LLAMACPP_MODE", "managed")
-    os.environ["LLAMACPP_MODE"] = "managed"
     tag = body.alias or str(manifest.get("alias") or model_entry["filename"])
     parameters: dict[str, str | int | float | bool | None] = {
         "alias": body.alias,
@@ -2312,6 +2306,10 @@ async def start_installed_huggingface_model(
         "confirmed_at": confirmation.confirmed_at,
     }
     await _write_json_atomic(manifest_path, manifest)
+    # Persist managed mode only after registration, startup and confirmation
+    # all succeeded; a failed probe must not leave a false managed state.
+    _set_env_key(_env_file(), "LLAMACPP_MODE", "managed")
+    os.environ["LLAMACPP_MODE"] = "managed"
     return {
         "running": True,
         "executable": str(executable),

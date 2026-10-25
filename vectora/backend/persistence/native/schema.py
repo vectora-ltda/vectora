@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS context_checkpoints (
     created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ix_context_checkpoints_thread_sequence
-    ON context_checkpoints(thread_id, last_sequence, source_hash);
+    ON context_checkpoints(thread_id, run_id, last_sequence, source_hash);
 CREATE INDEX IF NOT EXISTS ix_context_checkpoints_thread_created
     ON context_checkpoints(thread_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS agent_runs (
@@ -213,6 +213,15 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
     """Cria e migra todas as tabelas e índices necessários no SQLite (sessions.db)."""
     async with pool.acquire() as conn:
         await conn.executescript(SQLITE_SESSIONS_SCHEMA)
+        # The run is part of checkpoint identity: two runs may legitimately
+        # checkpoint the same transcript sequence under different state.
+        await conn.execute(
+            "DROP INDEX IF EXISTS ix_context_checkpoints_thread_sequence"
+        )
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_context_checkpoints_thread_sequence "
+            "ON context_checkpoints(thread_id, run_id, last_sequence, source_hash)"
+        )
         # Expande a constraint de status sem perder AgentRuns já persistidos.
         # SQLite não suporta ALTER CONSTRAINT; a reconstrução é idempotente e
         # mantém a mesma ordem de colunas usada pelo store.
@@ -495,7 +504,7 @@ CREATE TABLE IF NOT EXISTS vectora_native_context_checkpoints (
     created_at TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS ix_vectora_native_context_checkpoints_thread_sequence
-    ON vectora_native_context_checkpoints(thread_id, last_sequence, source_hash);
+    ON vectora_native_context_checkpoints(thread_id, run_id, last_sequence, source_hash);
 CREATE INDEX IF NOT EXISTS ix_vectora_native_context_checkpoints_thread_created
     ON vectora_native_context_checkpoints(thread_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS vectora_native_agent_runs (
@@ -539,6 +548,13 @@ async def setup_postgres_session_schema(pool: asyncpg.Pool) -> None:
     """Cria e migra todas as tabelas e índices necessários no PostgreSQL."""
     async with pool.acquire() as conn:
         await conn.execute(POSTGRES_SESSIONS_SCHEMA)
+        await conn.execute(
+            "DROP INDEX IF EXISTS ix_vectora_native_context_checkpoints_thread_sequence"
+        )
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_vectora_native_context_checkpoints_thread_sequence "
+            "ON vectora_native_context_checkpoints(thread_id, run_id, last_sequence, source_hash)"
+        )
         for statement in (
             (
                 "ALTER TABLE vectora_native_pending_approvals "
