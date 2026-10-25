@@ -1698,8 +1698,14 @@ class PostgresSessionStore:
                 "preserved_decisions_json, preserved_errors_json, preserved_approvals_json, "
                 "pending_tool_calls_json, omitted_sequences_json, content_json, created_at) "
                 "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) "
-                "ON CONFLICT (thread_id, projection_id) DO UPDATE SET content_json = EXCLUDED.content_json, "
-                "tokens_before = EXCLUDED.tokens_before, tokens_after = EXCLUDED.tokens_after",
+                "ON CONFLICT (thread_id, projection_id) DO UPDATE SET run_id = EXCLUDED.run_id, "
+                "source_hash = EXCLUDED.source_hash, covered_from_sequence = EXCLUDED.covered_from_sequence, "
+                "covered_to_sequence = EXCLUDED.covered_to_sequence, model = EXCLUDED.model, "
+                "policy_version = EXCLUDED.policy_version, tokens_before = EXCLUDED.tokens_before, "
+                "tokens_after = EXCLUDED.tokens_after, preserved_decisions_json = EXCLUDED.preserved_decisions_json, "
+                "preserved_errors_json = EXCLUDED.preserved_errors_json, preserved_approvals_json = EXCLUDED.preserved_approvals_json, "
+                "pending_tool_calls_json = EXCLUDED.pending_tool_calls_json, omitted_sequences_json = EXCLUDED.omitted_sequences_json, "
+                "content_json = EXCLUDED.content_json, created_at = EXCLUDED.created_at",
                 storage_projection_id,
                 thread_id,
                 run_id,

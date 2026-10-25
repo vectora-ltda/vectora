@@ -198,10 +198,17 @@ async def save_memory(
                 {"status": "failed", "error": "ttl_days deve ser positivo", "key": key}
             )
 
+        extra = ctx._extra if isinstance(ctx._extra, dict) else {}
+        persisted_metadata = dict(metadata or {})
+        # A tool caller cannot promote untrusted content by supplying a
+        # metadata field. The server-owned provenance marker is authoritative.
+        persisted_metadata["trust_level"] = (
+            "untrusted" if extra.get("untrusted_content") else "trusted"
+        )
         value: dict[str, Any] = {
             "key": key,
             "content": content,
-            "metadata": metadata or {},
+            "metadata": persisted_metadata,
             "updated_at": now,
             "category": category,
         }

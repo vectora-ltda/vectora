@@ -299,6 +299,15 @@ def create_backup(
         ]
     destination = Path(output)
     destination.parent.mkdir(parents=True, exist_ok=True)
+    total_bytes = sum(len(data) for entries in sources.values() for _, data in entries)
+    if any(
+        len(data) > MAX_ENTRY_BYTES
+        for entries in sources.values()
+        for _, data in entries
+    ):
+        raise ValueError("entrada de backup excede o limite")
+    if total_bytes > MAX_ARCHIVE_BYTES:
+        raise ValueError("backup excede o limite de tamanho")
     with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr(MANIFEST, json.dumps(manifest, ensure_ascii=False, indent=2))
         for entries in sources.values():
@@ -384,10 +393,11 @@ def inspect_backup(archive_path: str | Path) -> BackupPreview:
 def _assert_safe_destination(path: Path, boundary: Path | None = None) -> None:
     """Reject symlinks between the storage root and a destination."""
     if boundary is not None:
-        boundary = boundary.resolve(strict=False)
-        resolved = path.resolve(strict=False)
-        if boundary not in resolved.parents and resolved != boundary:
+        boundary = boundary.absolute()
+        lexical = path.absolute()
+        if boundary not in lexical.parents and lexical != boundary:
             raise ValueError(f"destino fora da raiz de restore: {path}")
+        path = lexical
     current = path
     while boundary is None or current != boundary:
         if current.is_symlink():
