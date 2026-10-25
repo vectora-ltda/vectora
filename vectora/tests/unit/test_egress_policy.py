@@ -20,6 +20,7 @@ def mock_dns(monkeypatch):
     """Garante resolução simulada e rápida de DNS sem depender de rede externa."""
 
     def _mock_getaddrinfo(host, port, *args, **kwargs):
+        """Executa a operação mock getaddrinfo."""
         if host in ("localhost", "127.0.0.1"):
             return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port))]
         if "internal" in host:
@@ -30,6 +31,7 @@ def mock_dns(monkeypatch):
 
 
 def test_egress_policy_default():
+    """Verifica o comportamento de egress policy default."""
     policy = EgressPolicy()
     assert policy.block_private_ips is True
     assert 80 in policy.allowed_ports
@@ -38,6 +40,7 @@ def test_egress_policy_default():
 
 
 def test_is_url_allowed_invalid_url():
+    """Verifica o comportamento de is url allowed invalid url."""
     ok, reason = is_url_allowed("")
     assert ok is False
     assert "vazia ou inválida" in reason
@@ -48,6 +51,7 @@ def test_is_url_allowed_invalid_url():
 
 
 def test_is_url_allowed_denied_host():
+    """Verifica o comportamento de is url allowed denied host."""
     policy = EgressPolicy(denied_hosts=["malicious.com", "*.evil.org"])
 
     ok, reason = is_url_allowed("https://malicious.com/api", policy)
@@ -60,6 +64,7 @@ def test_is_url_allowed_denied_host():
 
 
 def test_is_url_allowed_allowlist_enforcement():
+    """Verifica o comportamento de is url allowed allowlist enforcement."""
     policy = EgressPolicy(allowed_hosts=["api.github.com", "*.openai.com"])
 
     # Destino permitido
@@ -73,6 +78,7 @@ def test_is_url_allowed_allowlist_enforcement():
 
 
 def test_is_url_allowed_private_ip_blocking():
+    """Verifica o comportamento de is url allowed private ip blocking."""
     policy = EgressPolicy(block_private_ips=True)
     ok, reason = is_url_allowed("http://internal-router.local", policy)
     assert ok is False
@@ -81,6 +87,7 @@ def test_is_url_allowed_private_ip_blocking():
 
 def test_is_url_allowed_loopback_with_dev_port():
     # Sem porta liberada -> bloqueia
+    """Verifica o comportamento de is url allowed loopback with dev port."""
     policy = EgressPolicy(block_private_ips=True, allow_localhost_dev_ports=[])
     ok, _ = is_url_allowed("http://localhost:3000", policy)
     assert ok is False
@@ -92,6 +99,7 @@ def test_is_url_allowed_loopback_with_dev_port():
 
 
 def test_validate_backend_egress_support():
+    """Verifica o comportamento de validate backend egress support."""
     policy_restricted = EgressPolicy(block_private_ips=True)
     policy_open = EgressPolicy(
         block_private_ips=False,
@@ -115,8 +123,11 @@ def test_validate_backend_egress_support():
 
 
 def test_is_url_allowed_non_global_ip_blocked(monkeypatch):
+    """Verifica o comportamento de is url allowed non global ip blocked."""
+
     def _mock_cgnat(host, port, *args, **kwargs):
         # 100.64.0.1 é CGNAT (Carrier-grade NAT) -> is_global é False
+        """Executa a operação mock cgnat."""
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("100.64.0.1", port))]
 
     monkeypatch.setattr(socket, "getaddrinfo", _mock_cgnat)
@@ -127,12 +138,14 @@ def test_is_url_allowed_non_global_ip_blocked(monkeypatch):
 
 
 def test_is_url_allowed_empty_allowed_ports_permits_custom_port():
+    """Verifica o comportamento de is url allowed empty allowed ports permits custom port."""
     policy = EgressPolicy(allowed_ports=[], block_private_ips=False)
     ok, _ = is_url_allowed("http://example.com:8080/path", policy)
     assert ok is True
 
 
 def test_is_url_allowed_no_resolve_dns_blocks_literal_private_ip() -> None:
+    """Verifica o comportamento de is url allowed no resolve dns blocks literal private ip."""
     policy = EgressPolicy(block_private_ips=True)
     # AWS metadata IP
     ok, reason = is_url_allowed(
@@ -155,6 +168,7 @@ def test_is_url_allowed_no_resolve_dns_blocks_literal_private_ip() -> None:
 
 
 def test_is_url_allowed_no_resolve_dns_allows_literal_public_ip() -> None:
+    """Verifica o comportamento de is url allowed no resolve dns allows literal public ip."""
     policy = EgressPolicy(block_private_ips=True)
     ok, reason = is_url_allowed("https://93.184.216.34/", policy, resolve_dns=False)
     assert ok is True
@@ -172,6 +186,7 @@ def test_is_url_allowed_no_resolve_dns_allows_literal_public_ip() -> None:
     ],
 )
 def test_is_url_allowed_no_resolve_dns_rejects_non_public_aliases(host: str) -> None:
+    """Verifica o comportamento de is url allowed no resolve dns rejects non public aliases."""
     ok, reason = is_url_allowed(
         f"https://{host}", EgressPolicy(block_private_ips=False), resolve_dns=False
     )
@@ -181,9 +196,11 @@ def test_is_url_allowed_no_resolve_dns_rejects_non_public_aliases(host: str) -> 
 
 @pytest.mark.asyncio
 async def test_async_is_url_allowed_returns_pinned_ip(monkeypatch):
+    """Verifica o comportamento de async is url allowed returns pinned ip."""
     import asyncio
 
     async def _mock_getaddrinfo(host, port):
+        """Executa a operação mock getaddrinfo."""
         return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))]
 
     loop = asyncio.get_running_loop()

@@ -56,6 +56,7 @@ class UpdateBoardRequest(BaseModel):
 
 
 def _to_out(b: Board) -> BoardOut:
+    """Executa a operação to out."""
     return BoardOut(
         id=b.id,
         user_id=b.user_id,
@@ -68,6 +69,7 @@ def _to_out(b: Board) -> BoardOut:
 
 
 async def _require_own_board(board_id: str, user_id: str) -> Board:
+    """Executa a operação require own board."""
     from backend.scheduling.boards import get_board
 
     board = await get_board(board_id)
@@ -78,6 +80,7 @@ async def _require_own_board(board_id: str, user_id: str) -> Board:
 
 @router.get("", response_model=list[BoardOut])
 async def get_boards(request: Request) -> list[BoardOut]:
+    """Executa a operação get boards."""
     from backend.scheduling.boards import list_boards
 
     boards = await list_boards(_user_id(request))
@@ -86,6 +89,7 @@ async def get_boards(request: Request) -> list[BoardOut]:
 
 @router.post("", response_model=BoardOut, status_code=201)
 async def post_board(request: Request, body: CreateBoardRequest) -> BoardOut:
+    """Executa a operação post board."""
     from backend.scheduling.boards import create_board
 
     try:
@@ -101,6 +105,7 @@ async def post_board(request: Request, body: CreateBoardRequest) -> BoardOut:
 async def patch_board(
     request: Request, board_id: str, body: UpdateBoardRequest
 ) -> BoardOut:
+    """Executa a operação patch board."""
     from backend.scheduling.boards import update_board
 
     uid = _user_id(request)
@@ -118,6 +123,7 @@ async def patch_board(
 
 @router.delete("/{board_id}", status_code=204)
 async def delete_board_endpoint(request: Request, board_id: str) -> None:
+    """Executa a operação delete board endpoint."""
     from backend.scheduling.boards import delete_board
 
     uid = _user_id(request)

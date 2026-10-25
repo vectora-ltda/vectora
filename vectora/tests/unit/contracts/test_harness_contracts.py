@@ -18,6 +18,7 @@ _HASH = "a" * 64
 
 
 def test_harness_contracts_validate_refs_and_provenance() -> None:
+    """Verifica o comportamento de harness contracts validate refs and provenance."""
     artifact = ArtifactRef(
         artifact_id="artifact-1",
         media_type="text/plain",
@@ -70,6 +71,7 @@ def test_harness_contracts_validate_refs_and_provenance() -> None:
 
 
 def test_harness_contracts_reject_invalid_digest_and_scope() -> None:
+    """Verifica o comportamento de harness contracts reject invalid digest and scope."""
     with pytest.raises(ValidationError):
         ArtifactRef(
             artifact_id="artifact-1",
@@ -90,6 +92,7 @@ def test_harness_contracts_reject_invalid_digest_and_scope() -> None:
 
 
 def test_harness_schema_is_generated_and_contains_all_domains() -> None:
+    """Verifica o comportamento de harness schema is generated and contains all domains."""
     schema_file = (
         Path(__file__).resolve().parents[3]
         / "backend"
