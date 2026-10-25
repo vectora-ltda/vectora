@@ -259,3 +259,35 @@ def test_contract_baseline_prefers_ci_base_and_explicit_override(monkeypatch) ->
 
     monkeypatch.setenv("VECTORA_CONTRACT_BASE_REF", "refs/remotes/origin/custom")
     assert _contract_baseline_ref() == "refs/remotes/origin/custom"
+
+
+def test_baseline_contract_tree_is_detected(monkeypatch, tmp_path) -> None:
+    """A release without the contract tree is a valid initialization baseline."""
+    import devtools.contracts.__main__ as contracts_cli
+
+    class Result:
+        returncode = 0
+        stdout = "backend/contracts\n"
+
+    monkeypatch.setattr(
+        contracts_cli.subprocess, "run", lambda *args, **kwargs: Result()
+    )
+    assert contracts_cli._baseline_contains_contracts(tmp_path, "origin/release/0.3")
+
+
+def test_baseline_contract_tree_missing_is_not_treated_as_drift(
+    monkeypatch, tmp_path
+) -> None:
+    """The first contracts export must not fail only because its base is empty."""
+    import devtools.contracts.__main__ as contracts_cli
+
+    class Result:
+        returncode = 0
+        stdout = ""
+
+    monkeypatch.setattr(
+        contracts_cli.subprocess, "run", lambda *args, **kwargs: Result()
+    )
+    assert not contracts_cli._baseline_contains_contracts(
+        tmp_path, "origin/release/0.3"
+    )
