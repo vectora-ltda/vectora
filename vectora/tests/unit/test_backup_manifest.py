@@ -22,6 +22,7 @@ from backend.storage.backup_manifest import (
 def test_restore_rejeita_limite_agregado_antes_de_publicar(
     tmp_path: Path, monkeypatch
 ) -> None:
+    """Verifica o comportamento de restore rejeita limite agregado antes de publicar."""
     payload_a = b"1234"
     payload_b = b"5678"
     archive = tmp_path / "aggregate-limit.zip"
@@ -61,6 +62,7 @@ def test_restore_rejeita_limite_agregado_antes_de_publicar(
 
 
 def test_create_and_inspect_preserva_manifesto_lite(tmp_path: Path) -> None:
+    """Verifica o comportamento de create and inspect preserva manifesto lite."""
     database = tmp_path / "vectora.db"
     database.write_bytes(b"sqlite-placeholder")
     archive = tmp_path / "backup.vbackup.zip"
@@ -74,6 +76,7 @@ def test_create_and_inspect_preserva_manifesto_lite(tmp_path: Path) -> None:
 
 
 def test_rejeita_backup_complete_antes_de_tocar_no_estado(tmp_path: Path) -> None:
+    """Verifica o comportamento de rejeita backup complete antes de tocar no estado."""
     archive = tmp_path / "complete.zip"
     manifest = {
         "format_version": 1,
@@ -88,6 +91,7 @@ def test_rejeita_backup_complete_antes_de_tocar_no_estado(tmp_path: Path) -> Non
 
 
 def test_rejeita_symlink_em_entrada_do_backup(tmp_path: Path) -> None:
+    """Verifica o comportamento de rejeita symlink em entrada do backup."""
     archive = tmp_path / "symlink.zip"
     payload = b"data"
     manifest = {
@@ -112,6 +116,7 @@ def test_rejeita_symlink_em_entrada_do_backup(tmp_path: Path) -> None:
 
 
 def test_restore_respeita_destino_customizado_e_selecao_vazia(tmp_path: Path) -> None:
+    """Verifica o comportamento de restore respeita destino customizado e selecao vazia."""
     database = tmp_path / "vectora.db"
     database.write_bytes(b"original")
     archive = tmp_path / "backup.vbackup.zip"
@@ -126,6 +131,7 @@ def test_restore_respeita_destino_customizado_e_selecao_vazia(tmp_path: Path) ->
 
 
 def test_rejeita_categoria_desconhecida_e_entrada_extra(tmp_path: Path) -> None:
+    """Verifica o comportamento de rejeita categoria desconhecida e entrada extra."""
     database = tmp_path / "vectora.db"
     database.write_bytes(b"data")
     archive = tmp_path / "backup.vbackup.zip"
@@ -139,6 +145,7 @@ def test_rejeita_categoria_desconhecida_e_entrada_extra(tmp_path: Path) -> None:
 
 
 def test_restore_mantem_compatibilidade_com_backup_db_gz(tmp_path: Path) -> None:
+    """Verifica o comportamento de restore mantem compatibilidade com backup db gz."""
     archive = tmp_path / "legacy.db.gz"
     with gzip.open(archive, "wb") as handle:
         handle.write(b"legacy")
@@ -206,6 +213,7 @@ def test_restore_promove_banco_de_staging_ja_migrado(tmp_path: Path) -> None:
 
 
 def test_create_backup_copia_sessions_com_snapshot_sqlite(tmp_path: Path) -> None:
+    """Verifica o comportamento de create backup copia sessions com snapshot sqlite."""
     database = tmp_path / "vectora.db"
     database.write_bytes(b"sqlite-placeholder")
     sessions = tmp_path / "sessions.db"
@@ -233,6 +241,7 @@ def test_create_backup_copia_sessions_com_snapshot_sqlite(tmp_path: Path) -> Non
 
 
 def test_backup_restore_preserva_artifacts_e_sidecars(tmp_path: Path) -> None:
+    """Verifica o comportamento de backup restore preserva artifacts e sidecars."""
     source_root = tmp_path / "source"
     source_db = source_root / "data" / "vectora.db"
     source_db.parent.mkdir(parents=True)

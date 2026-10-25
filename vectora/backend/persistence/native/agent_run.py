@@ -124,23 +124,28 @@ def _is_sensitive_key(key: str) -> bool:
 
 
 @overload
-def redact_sensitive_data(value: str) -> str: ...
+def redact_sensitive_data(value: str) -> str:
+    """Define a sobrecarga para valores textuais."""
 
 
 @overload
-def redact_sensitive_data(value: dict[str, JsonValue]) -> dict[str, JsonValue]: ...
+def redact_sensitive_data(value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+    """Define a sobrecarga para objetos JSON."""
 
 
 @overload
-def redact_sensitive_data(value: list[JsonValue]) -> list[JsonValue]: ...
+def redact_sensitive_data(value: list[JsonValue]) -> list[JsonValue]:
+    """Define a sobrecarga para listas JSON."""
 
 
 @overload
-def redact_sensitive_data(value: tuple[JsonValue, ...]) -> tuple[JsonValue, ...]: ...
+def redact_sensitive_data(value: tuple[JsonValue, ...]) -> tuple[JsonValue, ...]:
+    """Define a sobrecarga para tuplas JSON."""
 
 
 @overload
-def redact_sensitive_data(value: Any) -> Any: ...
+def redact_sensitive_data(value: Any) -> Any:
+    """Define a sobrecarga para valores heterogêneos."""
 
 
 def redact_sensitive_data(value: Any) -> Any:
@@ -178,6 +183,7 @@ def redact_sensitive_data(value: Any) -> Any:
 
 
 def _now() -> str:
+    """Executa a operação  now."""
     return datetime.now(UTC).isoformat()
 
 

@@ -52,11 +52,13 @@ class VectoraPostgresStore:
     def __init__(
         self, pool: asyncpg.Pool, *, index: dict[str, Any] | None = None
     ) -> None:
+        """Inicializa o estado da instância."""
         self._pool = pool
         self._index = index
         self._is_setup = False
 
     async def setup(self) -> None:
+        """Executa a operação setup."""
         if self._is_setup:
             return
         async with self._pool.acquire() as conn:
@@ -64,6 +66,7 @@ class VectoraPostgresStore:
         self._is_setup = True
 
     async def aget(self, namespace: tuple[str, ...], key: str) -> Item | None:
+        """Executa a operação aget."""
         started = time.perf_counter()
         await self.setup()
         async with self._pool.acquire() as conn:
@@ -111,6 +114,7 @@ class VectoraPostgresStore:
     async def aput(
         self, namespace: tuple[str, ...], key: str, value: dict[str, Any]
     ) -> None:
+        """Executa a operação aput."""
         started = time.perf_counter()
         await self.setup()
         namespace_str = _ns_to_str(namespace)
@@ -140,6 +144,7 @@ class VectoraPostgresStore:
         )
 
     async def adelete(self, namespace: tuple[str, ...], key: str) -> None:
+        """Executa a operação adelete."""
         started = time.perf_counter()
         await self.setup()
         async with self._pool.acquire() as conn:
@@ -164,6 +169,7 @@ class VectoraPostgresStore:
         filter: dict[str, Any] | None = None,  # noqa: A002 — mesmo nome do protocolo
         offset: int = 0,
     ) -> list[SearchItem]:
+        """Executa a operação asearch."""
         started = time.perf_counter()
         await self.setup()
         prefix = _ns_to_str(namespace)
@@ -229,6 +235,7 @@ class VectoraPostgresStore:
         return result
 
     async def health(self) -> HealthResult:
+        """Executa a operação health."""
         from backend.storage.protocols import _err, _ok
 
         try:
@@ -240,6 +247,7 @@ class VectoraPostgresStore:
             return _err(str(exc))
 
     async def _embed_for_index(self, value: dict[str, Any]) -> str | None:
+        """Executa a operação  embed for index."""
         if self._index is None:
             return None
         fields = self._index.get("fields", ["$"])
@@ -254,6 +262,7 @@ class VectoraPostgresStore:
         return json.dumps(avg)
 
     async def _embed_query(self, query: str | None) -> list[float] | None:
+        """Executa a operação  embed query."""
         if not query or self._index is None:
             return None
         vectors = await self._index["embed"]([query])

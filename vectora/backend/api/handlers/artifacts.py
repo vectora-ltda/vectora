@@ -73,6 +73,7 @@ async def _require_session_owner(request: Request | None, session_id: str) -> No
 
 
 def _read_preview(path: Path, limit: int = 200) -> str | None:
+    """Executa a operação  read preview."""
     try:
         with path.open("r", encoding="utf-8", errors="replace") as f:
             return f.read(limit + 1)[:limit]
@@ -92,6 +93,7 @@ def _read_artifact_type(path: Path) -> str:
 
 
 def _sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    """Executa a operação  sha256 file."""
     digest = hashlib.sha256()
     with path.open("rb") as handle:
         for chunk in iter(lambda: handle.read(chunk_size), b""):
@@ -278,6 +280,7 @@ async def get_media_artifact(
 
 
 def _format_mtime(ts: float) -> str:
+    """Executa a operação  format mtime."""
     from datetime import datetime
 
     return datetime.fromtimestamp(ts, tz=UTC).isoformat()

@@ -67,6 +67,7 @@ class MemoryStore:
     """Repositório de memória unificado separando domínios operacionais e semânticos."""
 
     def __init__(self, path: str | Path | None = None) -> None:
+        """Inicializa o estado da instância."""
         self._records: dict[str, MemoryRecord] = {}
         self._path = Path(path).expanduser() if path is not None else None
         self._lock = threading.RLock()
@@ -81,6 +82,7 @@ class MemoryStore:
             self._initialize_persistence()
 
     def _connect(self) -> sqlite3.Connection:
+        """Executa a operação  connect."""
         if self._path is None:
             raise RuntimeError("este MemoryStore não possui persistência configurada")
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,6 +91,7 @@ class MemoryStore:
         return connection
 
     def _initialize_persistence(self) -> None:
+        """Executa a operação  initialize persistence."""
         with self._connect() as connection:
             connection.execute(
                 """
@@ -119,6 +122,7 @@ class MemoryStore:
 
     @staticmethod
     def _record_from_row(row: sqlite3.Row) -> MemoryRecord | None:
+        """Executa a operação  record from row."""
         try:
             metadata = json.loads(str(row["metadata_json"]))
         except (TypeError, ValueError, json.JSONDecodeError):
@@ -157,6 +161,7 @@ class MemoryStore:
 
     @staticmethod
     def _record_parameters(record: MemoryRecord) -> tuple[object, ...]:
+        """Executa a operação  record parameters."""
         return (
             record.id,
             record.domain,
@@ -189,6 +194,7 @@ class MemoryStore:
         valid_until: str | None,
         supersedes_id: str | None,
     ) -> bool:
+        """Executa a operação  same record."""
         return (
             existing.domain == domain
             and existing.scope_id == scope_id
@@ -296,6 +302,7 @@ class MemoryStore:
         query: str | None = None,
         limit: int = 10,
     ) -> MemoryRetrievalResult:
+        """Executa a operação retrieve."""
         if limit < 0:
             raise ValueError("limit não pode ser negativo")
         t0 = time.perf_counter()
@@ -403,6 +410,7 @@ class MemoryStore:
 
     @staticmethod
     def _parse_datetime(value: str) -> datetime:
+        """Executa a operação  parse datetime."""
         parsed = datetime.fromisoformat(value)
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=UTC)
@@ -414,6 +422,7 @@ class MemoryStore:
 
 
 def _default_memory_store_path() -> Path:
+    """Executa a operação  default memory store path."""
     from backend.settings import settings
 
     return settings.vectora_home / "context-memory.db"
@@ -423,4 +432,5 @@ _DEFAULT_MEMORY_STORE = MemoryStore(_default_memory_store_path())
 
 
 def get_memory_store() -> MemoryStore:
+    """Executa a operação get memory store."""
     return _DEFAULT_MEMORY_STORE

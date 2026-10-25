@@ -40,6 +40,7 @@ class ArtifactGcResult:
 
 
 def _normalise_reference(value: str | Path) -> str:
+    """Executa a operação  normalise reference."""
     text = str(value)
     parsed = urlparse(text)
     if parsed.scheme == "file":
@@ -52,6 +53,7 @@ def _normalise_reference(value: str | Path) -> str:
 
 
 def _retention_class(sidecar: Path) -> str:
+    """Executa a operação  retention class."""
     try:
         payload = json.loads(sidecar.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, json.JSONDecodeError):
@@ -67,6 +69,7 @@ def _iter_payloads(
 ) -> Iterable[Path]:
     # Markdown artifacts are the canonical payload.  Sidecars are metadata,
     # never independent payloads, and therefore are handled with their file.
+    """Executa a operação  iter payloads."""
     for path in root.rglob("*.md"):
         if stop_event is not None and stop_event.is_set():
             return

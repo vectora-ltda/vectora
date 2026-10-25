@@ -35,10 +35,12 @@ _NS_SEP = "\x1e"
 
 
 def _ns_to_str(namespace: tuple[str, ...]) -> str:
+    """Executa a operação  ns to str."""
     return _NS_SEP.join(namespace)
 
 
 def _ns_from_str(namespace: str) -> tuple[str, ...]:
+    """Executa a operação  ns from str."""
     return tuple(namespace.split(_NS_SEP)) if namespace else ()
 
 
@@ -62,6 +64,7 @@ def is_store_value_expired(
 
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Executa a operação  cosine similarity."""
     dot = sum(x * y for x, y in zip(a, b, strict=False))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(y * y for y in b))
@@ -81,6 +84,7 @@ _FILTER_OPERATORS = {
 
 
 def _matches_filter(value: dict[str, Any], filter_: dict[str, Any] | None) -> bool:
+    """Executa a operação  matches filter."""
     if not filter_:
         return True
     for key, condition in filter_.items():
@@ -205,6 +209,7 @@ def get_text_at_path(obj: Any, path: str | list[str]) -> list[str]:
 
 
 def _extract_from_obj(obj: Any, tokens: list[str], pos: int) -> list[str]:
+    """Executa a operação  extract from obj."""
     if pos >= len(tokens):
         if isinstance(obj, str | int | float | bool):
             return [str(obj)]
@@ -286,11 +291,13 @@ class VectoraStore:
     def __init__(
         self, pool: AsyncConnectionPool, *, index: dict[str, Any] | None = None
     ) -> None:
+        """Inicializa o estado da instância."""
         self._pool = pool
         self._index = index
         self._is_setup = False
 
     async def setup(self) -> None:
+        """Executa a operação setup."""
         if self._is_setup:
             return
         async with self._pool.acquire() as conn:
@@ -299,6 +306,7 @@ class VectoraStore:
         self._is_setup = True
 
     async def aget(self, namespace: tuple[str, ...], key: str) -> Item | None:
+        """Executa a operação aget."""
         started = time.perf_counter()
         await self.setup()
         async with self._pool.acquire() as conn:
@@ -346,6 +354,7 @@ class VectoraStore:
     async def aput(
         self, namespace: tuple[str, ...], key: str, value: dict[str, Any]
     ) -> None:
+        """Executa a operação aput."""
         started = time.perf_counter()
         await self.setup()
         namespace_str = _ns_to_str(namespace)
@@ -383,6 +392,7 @@ class VectoraStore:
         )
 
     async def adelete(self, namespace: tuple[str, ...], key: str) -> None:
+        """Executa a operação adelete."""
         started = time.perf_counter()
         await self.setup()
         async with self._pool.acquire() as conn:
@@ -407,6 +417,7 @@ class VectoraStore:
         filter: dict[str, Any] | None = None,  # noqa: A002 — mesmo nome do protocolo
         offset: int = 0,
     ) -> list[SearchItem]:
+        """Executa a operação asearch."""
         started = time.perf_counter()
         await self.setup()
         prefix = _ns_to_str(namespace)
@@ -467,6 +478,7 @@ class VectoraStore:
         return result
 
     async def health(self) -> HealthResult:
+        """Executa a operação health."""
         from backend.storage.protocols import _err, _ok
 
         try:
@@ -498,6 +510,7 @@ class VectoraStore:
         return json.dumps(avg)
 
     async def _embed_query(self, query: str | None) -> list[float] | None:
+        """Executa a operação  embed query."""
         if not query or self._index is None:
             return None
         vectors = await self._index["embed"]([query])

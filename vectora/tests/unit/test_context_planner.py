@@ -23,10 +23,12 @@ from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 
 def _msg(role: MessageRole, text: str) -> VMessage:
+    """Executa a operação  msg."""
     return VMessage(role=role, content=[ContentBlock(kind="text", text=text)])
 
 
 def test_transcript_hash_consistency() -> None:
+    """Verifica o comportamento de transcript hash consistency."""
     msgs1 = [_msg(MessageRole.USER, "hello"), _msg(MessageRole.ASSISTANT, "world")]
     msgs2 = [_msg(MessageRole.USER, "hello"), _msg(MessageRole.ASSISTANT, "world")]
     msgs3 = [_msg(MessageRole.USER, "hello"), _msg(MessageRole.ASSISTANT, "different")]
@@ -41,6 +43,7 @@ def test_transcript_hash_consistency() -> None:
 
 
 def test_context_projection_validity() -> None:
+    """Verifica o comportamento de context projection validity."""
     proj = ContextProjection(
         start_seq=0,
         end_seq=5,
@@ -71,6 +74,7 @@ def test_context_projection_validity() -> None:
 
 
 def test_memory_store_domains_and_retrieval() -> None:
+    """Verifica o comportamento de memory store domains and retrieval."""
     store = MemoryStore()
 
     store.store(
@@ -100,6 +104,7 @@ def test_memory_store_domains_and_retrieval() -> None:
 
 
 def test_memory_store_writes_are_idempotent_and_conflicts_are_explicit() -> None:
+    """Verifica o comportamento de memory store writes are idempotent and conflicts are explicit."""
     store = MemoryStore()
     first = store.store(
         "decision-1",
@@ -131,6 +136,7 @@ def test_memory_store_writes_are_idempotent_and_conflicts_are_explicit() -> None
 
 
 def test_memory_store_ranks_query_and_honors_invalidation() -> None:
+    """Verifica o comportamento de memory store ranks query and honors invalidation."""
     store = MemoryStore()
     store.store(
         "old",
@@ -155,6 +161,7 @@ def test_memory_store_ranks_query_and_honors_invalidation() -> None:
 
 
 def test_memory_store_expiry_is_reversible_only_by_new_version() -> None:
+    """Verifica o comportamento de memory store expiry is reversible only by new version."""
     store = MemoryStore()
     store.store(
         "temporary",
@@ -178,6 +185,7 @@ def test_memory_store_expiry_is_reversible_only_by_new_version() -> None:
 
 
 def test_memory_store_conflicts_when_expiry_or_confidence_changes() -> None:
+    """Verifica o comportamento de memory store conflicts when expiry or confidence changes."""
     store = MemoryStore()
     store.store(
         "versioned",
@@ -199,6 +207,7 @@ def test_memory_store_conflicts_when_expiry_or_confidence_changes() -> None:
 
 
 def test_memory_store_persists_across_instances_and_keeps_idempotence(tmp_path) -> None:
+    """Verifica o comportamento de memory store persists across instances and keeps idempotence."""
     path = tmp_path / "context-memory.db"
     first = MemoryStore(path)
     record = first.store(
@@ -229,6 +238,7 @@ def test_memory_store_persists_across_instances_and_keeps_idempotence(tmp_path) 
 
 
 def test_memory_store_persistence_keeps_expiry_auditable(tmp_path) -> None:
+    """Verifica o comportamento de memory store persistence keeps expiry auditable."""
     path = tmp_path / "context-memory.db"
     store = MemoryStore(path)
     store.store(
@@ -252,6 +262,7 @@ def test_memory_store_persistence_keeps_expiry_auditable(tmp_path) -> None:
 
 
 def test_memory_store_persistent_expiry_compares_offsets_as_instants(tmp_path) -> None:
+    """Verifica o comportamento de memory store persistent expiry compares offsets as instants."""
     path = tmp_path / "context-memory-offset.db"
     store = MemoryStore(path)
     store.store(
@@ -267,6 +278,7 @@ def test_memory_store_persistent_expiry_compares_offsets_as_instants(tmp_path) -
 
 
 def test_memory_store_expire_compares_instants_not_iso_text() -> None:
+    """Verifica o comportamento de memory store expire compares instants not iso text."""
     store = MemoryStore()
     store.store(
         "instant",
@@ -280,6 +292,7 @@ def test_memory_store_expire_compares_instants_not_iso_text() -> None:
 
 
 def test_context_planner_injects_project_memory_and_manifest() -> None:
+    """Verifica o comportamento de context planner injects project memory and manifest."""
     mem_store = MemoryStore()
     mem_store.store(
         "rule-1",
@@ -310,6 +323,7 @@ def test_context_planner_injects_project_memory_and_manifest() -> None:
 
 
 def test_backend_memories_are_converted_with_scope_and_trust() -> None:
+    """Verifica o comportamento de backend memories are converted with scope and trust."""
     records = memory_records_from_backend_items(
         [
             SimpleNamespace(
@@ -341,6 +355,7 @@ def test_backend_memories_are_converted_with_scope_and_trust() -> None:
 
 
 def test_backend_memory_confidence_corrompida_e_clamped_sem_abort() -> None:
+    """Verifica o comportamento de backend memory confidence corrompida e clamped sem abort."""
     records = memory_records_from_backend_items(
         [
             SimpleNamespace(
@@ -359,6 +374,7 @@ def test_backend_memory_confidence_corrompida_e_clamped_sem_abort() -> None:
 
 
 def test_context_planner_injects_persistent_project_memory() -> None:
+    """Verifica o comportamento de context planner injects persistent project memory."""
     persistent = memory_records_from_backend_items(
         [
             SimpleNamespace(
@@ -386,6 +402,7 @@ def test_context_planner_injects_persistent_project_memory() -> None:
 
 
 def test_context_planner_does_not_cross_workspace_or_trust_boundaries() -> None:
+    """Verifica o comportamento de context planner does not cross workspace or trust boundaries."""
     persistent = memory_records_from_backend_items(
         [
             SimpleNamespace(
@@ -430,6 +447,7 @@ def test_context_planner_does_not_cross_workspace_or_trust_boundaries() -> None:
 
 
 def test_context_planner_ignora_memoria_persistida_expirada() -> None:
+    """Verifica o comportamento de context planner ignora memoria persistida expirada."""
     persistent = memory_records_from_backend_items(
         [
             SimpleNamespace(
@@ -476,6 +494,7 @@ def test_context_planner_ignora_memoria_persistida_expirada() -> None:
 
 
 def test_context_planner_compacts_and_creates_projection() -> None:
+    """Verifica o comportamento de context planner compacts and creates projection."""
     planner = ContextPlanner(memory_store=MemoryStore())
     messages = [_msg(MessageRole.SYSTEM, "Instruções do sistema")]
 
@@ -498,6 +517,7 @@ def test_context_planner_compacts_and_creates_projection() -> None:
 
 
 def test_context_planner_preserves_latest_user_message_when_over_budget() -> None:
+    """Verifica o comportamento de context planner preserves latest user message when over budget."""
     planner = ContextPlanner(memory_store=MemoryStore())
     messages = [
         _msg(MessageRole.SYSTEM, "Instruções do sistema"),
@@ -519,6 +539,7 @@ def test_context_planner_preserves_latest_user_message_when_over_budget() -> Non
 
 
 def test_context_planner_preserves_latest_tool_result() -> None:
+    """Verifica o comportamento de context planner preserves latest tool result."""
     from backend.vtypes.message import ToolCall
 
     planner = ContextPlanner(memory_store=MemoryStore())
@@ -553,6 +574,7 @@ def test_context_planner_preserves_latest_tool_result() -> None:
 
 
 def test_context_planner_filters_untrusted_project_memories() -> None:
+    """Verifica o comportamento de context planner filters untrusted project memories."""
     mem_store = MemoryStore()
     mem_store.store(
         "mem-trusted",
@@ -590,6 +612,7 @@ def test_context_planner_filters_untrusted_project_memories() -> None:
 
 
 def test_context_planner_collects_preserved_items_only_from_omitted_units() -> None:
+    """Verifica o comportamento de context planner collects preserved items only from omitted units."""
     from backend.vtypes.message import ToolCall
 
     planner = ContextPlanner(memory_store=MemoryStore())
@@ -662,6 +685,7 @@ def test_context_planner_collects_preserved_items_only_from_omitted_units() -> N
 
 
 def test_context_projection_evidence_keeps_preserved_items() -> None:
+    """Verifica o comportamento de context projection evidence keeps preserved items."""
     projection = ContextProjection(
         start_seq=2,
         end_seq=8,

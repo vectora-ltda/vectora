@@ -5,6 +5,7 @@ from backend.services.artifact_retention import collect_artifacts
 
 
 def _artifact(path: Path, *, retention_class: str = "run", age_days: int = 60) -> None:
+    """Executa a operação  artifact."""
     path.write_text("payload", encoding="utf-8")
     timestamp = (datetime.now(UTC) - timedelta(days=age_days)).timestamp()
     import os
@@ -18,6 +19,7 @@ def _artifact(path: Path, *, retention_class: str = "run", age_days: int = 60) -
 
 
 def test_gc_dry_run_reports_old_unreferenced_without_deleting(tmp_path: Path) -> None:
+    """Verifica o comportamento de gc dry run reports old unreferenced without deleting."""
     artifact = tmp_path / "old.md"
     _artifact(artifact)
 
@@ -31,6 +33,7 @@ def test_gc_dry_run_reports_old_unreferenced_without_deleting(tmp_path: Path) ->
 
 
 def test_gc_preserves_referenced_artifact(tmp_path: Path) -> None:
+    """Verifica o comportamento de gc preserves referenced artifact."""
     artifact = tmp_path / "referenced.md"
     _artifact(artifact)
 
@@ -42,6 +45,7 @@ def test_gc_preserves_referenced_artifact(tmp_path: Path) -> None:
 
 
 def test_gc_deletes_payload_and_sidecars(tmp_path: Path) -> None:
+    """Verifica o comportamento de gc deletes payload and sidecars."""
     artifact = tmp_path / "old.md"
     _artifact(artifact)
 
@@ -55,6 +59,7 @@ def test_gc_deletes_payload_and_sidecars(tmp_path: Path) -> None:
 
 
 def test_gc_keeps_recent_artifacts(tmp_path: Path) -> None:
+    """Verifica o comportamento de gc keeps recent artifacts."""
     artifact = tmp_path / "recent.md"
     _artifact(artifact, age_days=1)
 
@@ -70,6 +75,7 @@ def test_gc_keeps_recent_artifacts(tmp_path: Path) -> None:
 
 
 def test_gc_preserves_pinned_artifact_and_understands_file_uri(tmp_path: Path) -> None:
+    """Verifica o comportamento de gc preserves pinned artifact and understands file uri."""
     artifact = tmp_path / "pinned.md"
     _artifact(artifact, retention_class="pinned")
     referenced = tmp_path / "referenced.md"
@@ -88,6 +94,7 @@ def test_gc_preserves_pinned_artifact_and_understands_file_uri(tmp_path: Path) -
 
 
 def test_gc_skips_unknown_retention_class(tmp_path: Path) -> None:
+    """Verifica o comportamento de gc skips unknown retention class."""
     artifact = tmp_path / "unknown.md"
     _artifact(artifact, retention_class="future-policy")
 

@@ -123,6 +123,7 @@ def _namespace(request: Request) -> tuple[str, ...]:
 
 
 async def _store() -> Any:
+    """Executa a operação  store."""
     from backend.services.agent_factory import get_store
 
     return await get_store()

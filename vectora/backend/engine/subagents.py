@@ -186,6 +186,7 @@ def request_hard_interrupt(
 
 
 def _sub_thread_id(parent_thread_id: str, subagent_name: str) -> str:
+    """Executa a operação  sub thread id."""
     return f"{parent_thread_id}:{subagent_name}:{uuid4()}"
 
 
@@ -457,6 +458,7 @@ async def _run_subagent_once(
     last_activity = [time.monotonic()]
 
     async def _on_event_com_liveness(event: Any) -> None:
+        """Executa a operação  on event com liveness."""
         last_activity[0] = time.monotonic()
         if on_event is not None:
             # O output textual do subagente pertence ao card da delegação na
@@ -493,6 +495,7 @@ async def _run_subagent_once(
         _ACTIVE_CONVERSATION_TASKS[spec.correlation_id] = conversation_task
 
     async def _mark_child_status(status: AgentRunStatus, detail: str) -> None:
+        """Executa a operação  mark child status."""
         if not hasattr(session_store, "update_agent_run_status"):
             return
         try:

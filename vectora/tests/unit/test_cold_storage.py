@@ -6,6 +6,7 @@ from backend.services.cold_storage import export_cold_archive, read_cold_archive
 
 
 def test_cold_archive_round_trip_is_hashed_and_rehydratable(tmp_path: Path) -> None:
+    """Verifica o comportamento de cold archive round trip is hashed and rehydratable."""
     archive = export_cold_archive(
         tmp_path / "cold",
         "thread-1",
@@ -26,6 +27,7 @@ def test_cold_archive_round_trip_is_hashed_and_rehydratable(tmp_path: Path) -> N
 
 
 def test_cold_archive_rejects_tampering_and_wrong_thread(tmp_path: Path) -> None:
+    """Verifica o comportamento de cold archive rejects tampering and wrong thread."""
     archive = export_cold_archive(
         tmp_path,
         "thread-2",
@@ -43,5 +45,6 @@ def test_cold_archive_rejects_tampering_and_wrong_thread(tmp_path: Path) -> None
 
 
 def test_cold_archive_rejects_path_traversal(tmp_path: Path) -> None:
+    """Verifica o comportamento de cold archive rejects path traversal."""
     with pytest.raises(ValueError, match="thread_id"):
         export_cold_archive(tmp_path, "../escape", metadata={}, transcript=[])

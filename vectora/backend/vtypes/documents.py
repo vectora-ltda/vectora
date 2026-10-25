@@ -17,9 +17,11 @@ class Document(BaseModel):
     )
 
     def __getitem__(self, item: str) -> Any:
+        """Implementa a operação especial __getitem__."""
         return getattr(self, item)
 
     def get(self, item: str, default: Any = None) -> Any:
+        """Executa a operação get."""
         return getattr(self, item, default)
 
 
@@ -74,9 +76,11 @@ class ArtifactMetadata(BaseModel):
     )
 
     def __getitem__(self, item: str) -> Any:
+        """Implementa a operação especial __getitem__."""
         return getattr(self, item)
 
     def get(self, item: str, default: Any = None) -> Any:
+        """Executa a operação get."""
         return getattr(self, item, default)
 
 

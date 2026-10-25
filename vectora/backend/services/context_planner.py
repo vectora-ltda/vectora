@@ -235,6 +235,7 @@ def _fit_compaction_marker(
     """
 
     def compact_item(value: str) -> str:
+        """Executa a operação compact item."""
         for prefix in (
             "Chamada de ferramentas: ",
             "Tool ",
@@ -289,6 +290,7 @@ class ContextPlanner:
     """Orquestrador de seleção, compactação e enriquecimento de contexto."""
 
     def __init__(self, memory_store: MemoryStore | None = None) -> None:
+        """Inicializa o estado da instância."""
         self._memory_store = memory_store or get_memory_store()
 
     def plan_context(

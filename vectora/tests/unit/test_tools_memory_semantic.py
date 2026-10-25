@@ -25,6 +25,7 @@ class _FakeStoreItem:
         score: float | None = None,
         valid_until: str | None = None,
     ) -> None:
+        """Inicializa o estado da instância."""
         self.key = key
         self.value = {"content": content, "updated_at": "2025"}
         if valid_until is not None:
@@ -91,6 +92,7 @@ class TestSearchMemoryTool:
 
     @pytest.mark.asyncio
     async def test_search_ignora_expiradas_sem_consumir_limit(self) -> None:
+        """Verifica o comportamento de search ignora expiradas sem consumir limit."""
         from backend.tools.memory import search_memory
 
         ctx = ToolContext(thread_id="t5")
@@ -115,6 +117,7 @@ class TestSearchMemoryTool:
 
     @pytest.mark.asyncio
     async def test_search_expande_janela_quando_primeira_pagina_expira(self) -> None:
+        """Verifica o comportamento de search expande janela quando primeira pagina expira."""
         from backend.tools.memory import search_memory
 
         ctx = ToolContext(thread_id="t6")
@@ -131,6 +134,7 @@ class TestSearchMemoryTool:
         store = AsyncMock()
 
         async def paged_search(_namespace, *, query, limit):
+            """Executa a operação paged search."""
             assert query == "x"
             return [*expired, live][:limit]
 
@@ -165,6 +169,7 @@ class TestSearchMemoryTool:
 
     @pytest.mark.asyncio
     async def test_search_limit_zero_nao_retorna_memorias(self) -> None:
+        """Verifica o comportamento de search limit zero nao retorna memorias."""
         from backend.tools.memory import search_memory
 
         ctx = ToolContext(thread_id="t7")
@@ -178,6 +183,7 @@ class TestSearchMemoryTool:
 
     @pytest.mark.asyncio
     async def test_search_limit_muito_alto_tem_teto_deterministico(self) -> None:
+        """Verifica o comportamento de search limit muito alto tem teto deterministico."""
         from backend.tools.memory import search_memory
 
         ctx = ToolContext(thread_id="t8")

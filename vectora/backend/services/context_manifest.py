@@ -106,6 +106,7 @@ class ContextBlock:
     untrusted_content: bool = False
 
     def to_dict(self) -> ContextBlockDict:
+        """Executa a operação to dict."""
         return {
             "domain": self.domain,
             "title": self.title,
@@ -135,6 +136,7 @@ class ContextProjection:
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def __post_init__(self) -> None:
+        """Implementa a operação especial __post_init__."""
         if not self.projection_id:
             identity = (
                 f"{self.source_transcript_hash}:{self.start_seq}:{self.end_seq}:"
@@ -147,6 +149,7 @@ class ContextProjection:
         return self.source_transcript_hash == current_transcript_hash
 
     def to_evidence_entry(self) -> ContextProjectionEvidence:
+        """Executa a operação to evidence entry."""
         return {
             "kind": "context_projection",
             "projection_id": self.projection_id,
@@ -179,6 +182,7 @@ class ContextManifest:
     created_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
 
     def to_evidence_entry(self) -> ContextManifestEvidence:
+        """Executa a operação to evidence entry."""
         return {
             "kind": "context_manifest",
             "total_tokens": self.total_tokens,

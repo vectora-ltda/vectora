@@ -70,6 +70,7 @@ _RECORD_FIELDS = (
 
 
 def _truncate(text: str) -> str:
+    """Executa a operação  truncate."""
     return text if len(text) <= _MAX_FIELD_LEN else text[:_MAX_FIELD_LEN] + "…"
 
 
@@ -91,6 +92,7 @@ class TelemetryJSONFormatter(logging.Formatter):
     """Serializa um evento de telemetria como uma linha JSON."""
 
     def format(self, record: logging.LogRecord) -> str:
+        """Executa a operação format."""
         payload: dict[str, Any] = {
             "timestamp": self.formatTime(record, "%Y-%m-%dT%H:%M:%S"),
             "event": getattr(record, "telemetry_event", record.getMessage()),
@@ -111,10 +113,12 @@ class VectoraTelemetry:
     """
 
     def __init__(self) -> None:
+        """Inicializa o estado da instância."""
         self._logger = logging.getLogger(_TELEMETRY_LOGGER_NAME)
         self._configured_path: str | None = None
 
     def _enabled(self) -> bool:
+        """Executa a operação  enabled."""
         try:
             from backend.settings import settings
 
@@ -162,6 +166,7 @@ class VectoraTelemetry:
         return True
 
     def _emit(self, level: int, event: str, **fields: Any) -> None:
+        """Executa a operação  emit."""
         if not self._enabled():
             return
         try:

@@ -771,6 +771,7 @@ async def file_search(query: str, ctx: ToolContext, path: str = ".") -> str:
 
 
 def _grep_sync(pattern: str, search_path: Path) -> list[str]:
+    """Executa a operação  grep sync."""
     results: list[str] = []
     base_dir = search_path if search_path.is_dir() else search_path.parent
     spec = _load_ignore_spec(base_dir)
@@ -838,6 +839,7 @@ async def grep(pattern: str, ctx: ToolContext, path: str = ".") -> str:
 
 
 def _list_dir_sync(dir_path: Path, recursive: bool) -> list[str]:
+    """Executa a operação  list dir sync."""
     spec = _load_ignore_spec(dir_path)
     items: list[str] = []
     if recursive:
@@ -943,11 +945,13 @@ async def _drain_terminal_output(
         last_activity = [time.monotonic()]
 
         async def _stream(stream: asyncio.StreamReader | None) -> None:
+            """Executa a operação  stream."""
             if stream is None:
                 return
             pending = bytearray()
 
             def append_line(raw_line: bytes) -> None:
+                """Executa a operação append line."""
                 line = raw_line.decode("utf-8", errors="replace").rstrip("\r")
                 # PowerShell/ConPTY emits cursor-mode probes and other ANSI
                 # control sequences during startup. They are terminal UI
@@ -1385,6 +1389,7 @@ def _mirror_artifact_to_workspace(
 def _create_artifact_sync(
     ctx: ToolContext, artifact_type: str, slug: str, session_id: str, content: str
 ) -> tuple[Path, dict[str, object]]:
+    """Executa a operação  create artifact sync."""
     artifact_dir = Path.home() / ".vectora" / "artifacts" / session_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = _rotate_artifact_history(artifact_dir, slug, content)

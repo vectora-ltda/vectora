@@ -71,6 +71,7 @@ class SubagentDeps:
         liveness: LivenessConfig | None = None,
         policy_snapshot: PolicySnapshot | None = None,
     ) -> None:
+        """Inicializa o estado da instância."""
         self.catalog = catalog
         self.session_store = session_store
         self.chat_client = chat_client

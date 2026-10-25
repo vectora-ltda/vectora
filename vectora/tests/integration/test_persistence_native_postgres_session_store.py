@@ -25,6 +25,7 @@ from backend.vtypes.message import (
 
 
 def _thread_id() -> str:
+    """Executa a operação  thread id."""
     return f"pg-session-store-{uuid4()}"
 
 
@@ -32,6 +33,7 @@ class TestCreateSession:
     @pytest.mark.asyncio
     @pytest.mark.storage
     async def test_cria_sessao_com_campos_obrigatorios(self, pg_pool):
+        """Verifica o comportamento de cria sessao com campos obrigatorios."""
         store = PostgresSessionStore(pg_pool)
         thread_id = _thread_id()
 
@@ -53,6 +55,7 @@ class TestCreateSession:
     @pytest.mark.asyncio
     @pytest.mark.storage
     async def test_criar_duas_vezes_a_mesma_thread_nao_falha(self, pg_pool):
+        """Verifica o comportamento de criar duas vezes a mesma thread nao falha."""
         store = PostgresSessionStore(pg_pool)
         thread_id = _thread_id()
 
@@ -71,6 +74,7 @@ class TestContextCheckpoint:
     @pytest.mark.asyncio
     @pytest.mark.storage
     async def test_checkpoint_round_trip_e_hash_compativel(self, pg_pool):
+        """Verifica o comportamento de checkpoint round trip e hash compativel."""
         store = PostgresSessionStore(pg_pool)
         thread_id = _thread_id()
         await store.create_session(thread_id, user_id="alice")
@@ -103,6 +107,7 @@ class TestAppendMessageEGetHistory:
     @pytest.mark.asyncio
     @pytest.mark.storage
     async def test_round_trip_preserva_ordem_e_conteudo(self, pg_pool):
+        """Verifica o comportamento de round trip preserva ordem e conteudo."""
         store = PostgresSessionStore(pg_pool)
         thread_id = _thread_id()
         await store.create_session(thread_id, user_id="alice")
@@ -124,6 +129,7 @@ class TestAppendMessageEGetHistory:
     @pytest.mark.asyncio
     @pytest.mark.storage
     async def test_turn_id_persistido_e_idempotente(self, pg_pool):
+        """Verifica o comportamento de turn id persistido e idempotente."""
         store = PostgresSessionStore(pg_pool)
         thread_id = _thread_id()
         await store.create_session(thread_id, user_id="alice")
@@ -150,6 +156,7 @@ class TestAppendMessageEGetHistory:
         assert row["turn_id"] == "turn-persistido"
 
     async def test_thread_sem_mensagem_devolve_lista_vazia(self, pg_pool):
+        """Verifica o comportamento de thread sem mensagem devolve lista vazia."""
         store = PostgresSessionStore(pg_pool)
         thread_id = _thread_id()
         await store.create_session(thread_id, user_id="alice")
@@ -159,6 +166,7 @@ class TestAppendMessageEGetHistory:
     @pytest.mark.asyncio
     @pytest.mark.storage
     async def test_preserva_tool_calls_e_tool_call_id(self, pg_pool):
+        """Verifica o comportamento de preserva tool calls e tool call id."""
         store = PostgresSessionStore(pg_pool)
         thread_id = _thread_id()
         await store.create_session(thread_id, user_id="alice")
@@ -191,6 +199,7 @@ class TestAppendMessageEGetHistory:
     async def test_fork_via_up_to_message_id_rele_branch_antiga_sem_apagar(
         self, pg_pool
     ):
+        """Verifica o comportamento de fork via up to message id rele branch antiga sem apagar."""
         store = PostgresSessionStore(pg_pool)
         thread_id = _thread_id()
         await store.create_session(thread_id, user_id="alice")
@@ -223,6 +232,7 @@ class TestGetBranchHeadId:
     @pytest.mark.asyncio
     @pytest.mark.storage
     async def test_thread_sem_mensagem_devolve_none(self, pg_pool):
+        """Verifica o comportamento de thread sem mensagem devolve none."""
         store = PostgresSessionStore(pg_pool)
         thread_id = _thread_id()
         await store.create_session(thread_id, user_id="alice")
@@ -232,6 +242,7 @@ class TestGetBranchHeadId:
     @pytest.mark.asyncio
     @pytest.mark.storage
     async def test_devolve_o_id_da_ultima_mensagem_apendada(self, pg_pool):
+        """Verifica o comportamento de devolve o id da ultima mensagem apendada."""
         store = PostgresSessionStore(pg_pool)
         thread_id = _thread_id()
         await store.create_session(thread_id, user_id="alice")
@@ -252,6 +263,7 @@ class TestPendingApprovals:
     @pytest.mark.asyncio
     @pytest.mark.storage
     async def test_round_trip_put_get_clear(self, pg_pool):
+        """Verifica o comportamento de round trip put get clear."""
         store = PostgresSessionStore(pg_pool)
         thread_id = _thread_id()
         await store.create_session(thread_id, user_id="alice")
@@ -278,6 +290,7 @@ class TestPendingApprovals:
     async def test_segunda_chamada_de_put_sobrescreve_a_pendencia_anterior(
         self, pg_pool
     ):
+        """Verifica o comportamento de segunda chamada de put sobrescreve a pendencia anterior."""
         store = PostgresSessionStore(pg_pool)
         thread_id = _thread_id()
         await store.create_session(thread_id, user_id="alice")

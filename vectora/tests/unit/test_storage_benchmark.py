@@ -7,6 +7,7 @@ from backend.storage.benchmark import benchmark_sqlite
 
 @pytest.mark.benchmark
 async def test_storage_benchmark_reports_requested_sizes(tmp_path: Path) -> None:
+    """Verifica o comportamento de storage benchmark reports requested sizes."""
     results = await benchmark_sqlite(
         tmp_path / "benchmark.db", sizes=(10, 100), payload_bytes=32
     )

@@ -19,6 +19,7 @@ from backend.services.env import GetEnvError
 
 
 def test_openai_usa_cliente_nativo_e_nao_chat_openai(monkeypatch):
+    """Verifica o comportamento de openai usa cliente nativo e nao chat openai."""
     from backend.llm.openai.chat_client import OpenAIChatClient
 
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
@@ -29,6 +30,7 @@ def test_openai_usa_cliente_nativo_e_nao_chat_openai(monkeypatch):
 
 
 def test_openrouter_usa_cliente_nativo_e_nao_chat_openai(monkeypatch):
+    """Verifica o comportamento de openrouter usa cliente nativo e nao chat openai."""
     from backend.llm.openrouter.chat_client import OpenRouterChatClient
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
@@ -39,6 +41,7 @@ def test_openrouter_usa_cliente_nativo_e_nao_chat_openai(monkeypatch):
 
 
 def test_openrouter_sem_api_key_levanta_erro_claro(monkeypatch):
+    """Verifica o comportamento de openrouter sem api key levanta erro claro."""
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     with pytest.raises(GetEnvError, match="OPENROUTER_API_KEY"):
@@ -66,6 +69,7 @@ def test_nine_router_reusa_cliente_nativo_do_openrouter_com_base_url_trocada(
 
 
 def test_nine_router_sem_config_levanta_erro_claro(monkeypatch):
+    """Verifica o comportamento de nine router sem config levanta erro claro."""
     from backend.settings import settings
 
     monkeypatch.setattr(settings, "nine_router_base_url", None)
@@ -76,6 +80,7 @@ def test_nine_router_sem_config_levanta_erro_claro(monkeypatch):
 
 
 def test_ollama_usa_cliente_nativo_e_nao_init_chat_model(monkeypatch):
+    """Verifica o comportamento de ollama usa cliente nativo e nao init chat model."""
     from backend.llm.ollama.chat_client import OllamaChatClient
 
     monkeypatch.setenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434")

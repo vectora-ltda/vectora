@@ -102,6 +102,7 @@ class WorkspaceBudgetTracker:
         window_seconds: float | None = 3600.0,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
+        """Inicializa o estado da instância."""
         self._default_limit = default_limit_tokens
         self._window_seconds = window_seconds
         self._clock = clock
@@ -111,6 +112,7 @@ class WorkspaceBudgetTracker:
         self._window_started_at: dict[str, float] = {}
 
     def _refresh_window_if_expired(self, workspace_id: str) -> None:
+        """Executa a operação  refresh window if expired."""
         if self._window_seconds is None or self._window_seconds <= 0:
             return
         now = self._clock()
@@ -132,16 +134,20 @@ class WorkspaceBudgetTracker:
         self._window_started_at.pop(workspace_id, None)
 
     def set_workspace_limit(self, workspace_id: str, limit_tokens: int) -> None:
+        """Executa a operação set workspace limit."""
         self._limits[workspace_id] = max(0, limit_tokens)
 
     def get_consumed(self, workspace_id: str) -> int:
+        """Executa a operação get consumed."""
         self._refresh_window_if_expired(workspace_id)
         return self._consumed.get(workspace_id, 0)
 
     def get_reserved(self, workspace_id: str) -> int:
+        """Executa a operação get reserved."""
         return self._reserved.get(workspace_id, 0)
 
     def reserve(self, workspace_id: str, estimated_tokens: int) -> bool:
+        """Executa a operação reserve."""
         self._refresh_window_if_expired(workspace_id)
         limit = self._limits.get(workspace_id, self._default_limit)
         used = self._consumed.get(workspace_id, 0)
@@ -158,6 +164,7 @@ class WorkspaceBudgetTracker:
         reserved_tokens: int,
         actual_tokens: int | None,
     ) -> int:
+        """Executa a operação commit."""
         self._refresh_window_if_expired(workspace_id)
         estimate = max(_MIN_ACCOUNTED_TOKENS, reserved_tokens)
         current_reserved = self._reserved.get(workspace_id, 0)
@@ -172,6 +179,7 @@ class WorkspaceBudgetTracker:
         return accounted
 
     def release(self, workspace_id: str, reserved_tokens: int) -> None:
+        """Executa a operação release."""
         estimate = max(_MIN_ACCOUNTED_TOKENS, reserved_tokens)
         current_reserved = self._reserved.get(workspace_id, 0)
         self._reserved[workspace_id] = max(0, current_reserved - estimate)
@@ -198,6 +206,7 @@ class SystemOneHarness:
         circuit_breaker_threshold: int = 3,
         circuit_breaker_cooldown_s: float = 30.0,
     ) -> None:
+        """Inicializa o estado da instância."""
         self._settings = settings
         self._primary_provider = primary_provider
         self._fallback_provider = fallback_provider
@@ -237,10 +246,12 @@ class SystemOneHarness:
 
     @property
     def registry(self) -> DecisionPatternRegistry:
+        """Executa a operação registry."""
         return self._registry
 
     @property
     def budget_tracker(self) -> WorkspaceBudgetTracker:
+        """Executa a operação budget tracker."""
         return self._budget
 
     def set_mode(
@@ -260,6 +271,7 @@ class SystemOneHarness:
         *,
         workspace_id: str | None = None,
     ) -> PatternOperationMode:
+        """Executa a operação get mode."""
         if (
             workspace_id is not None
             and (workspace_id, pattern_id) in self._mode_overrides
@@ -271,6 +283,7 @@ class SystemOneHarness:
         return spec.operation_spec.default_mode
 
     def _resolve_model_for_provider(self, provider_id: str) -> str:
+        """Executa a operação  resolve model for provider."""
         if provider_id == "clef-local":
             return self._settings.local_model
         if provider_id == "laya-local":
@@ -282,18 +295,21 @@ class SystemOneHarness:
         return self._settings.local_model
 
     def _is_circuit_open(self, provider_id: str) -> bool:
+        """Executa a operação  is circuit open."""
         state = self._circuit_breakers.get(provider_id)
         if state is None:
             return False
         return state.opened_until > self._clock()
 
     def _record_provider_success(self, provider_id: str) -> None:
+        """Executa a operação  record provider success."""
         state = self._circuit_breakers.get(provider_id)
         if state is not None:
             state.consecutive_failures = 0
             state.opened_until = 0.0
 
     def _record_provider_failure(self, provider_id: str) -> None:
+        """Executa a operação  record provider failure."""
         state = self._circuit_breakers.setdefault(provider_id, _CircuitBreakerState())
         state.consecutive_failures += 1
         if state.consecutive_failures >= self._cb_threshold:
@@ -306,6 +322,7 @@ class SystemOneHarness:
         *,
         allow_remote_override: bool = False,
     ) -> bool:
+        """Executa a operação  is provider privacy allowed."""
         if provider_id not in _REMOTE_PROVIDERS:
             return True
         if not (spec.privacy_spec.allow_remote_providers or allow_remote_override):
@@ -321,6 +338,7 @@ class SystemOneHarness:
         questions: dict[str, SystemOneQuestion],
         target_model: str,
     ) -> None:
+        """Executa a operação  check provider capabilities."""
         caps = await provider.capabilities()
         if caps.evidence == "unverified":
             raise SystemOneCapabilityError(
@@ -367,6 +385,7 @@ class SystemOneHarness:
         provider_id: str | None = None,
         model: str | None = None,
     ) -> HarnessDecisionResult:
+        """Executa a operação  build rejected or hitl result."""
         prov = provider_id or self._primary_provider.provider_id
         mdl = model or self._resolve_model_for_provider(prov)
         return HarnessDecisionResult(
@@ -403,6 +422,7 @@ class SystemOneHarness:
         max_retries: int,
         deadline_at: float,
     ) -> tuple[SystemOneResponse, int]:
+        """Executa a operação  invoke provider with retries."""
         attempts = 0
         while True:
             attempts += 1
@@ -445,6 +465,7 @@ class SystemOneHarness:
         primary_model: str,
         allow_remote_override: bool,
     ) -> HarnessDecisionResult | None:
+        """Executa a operação  preflight validate."""
         if not self._settings.enabled or mode == "off":
             reason_code = (
                 "systemone_disabled"
@@ -588,6 +609,7 @@ class SystemOneHarness:
         used_fallback: bool = False,
         from_cache: bool = False,
     ) -> HarnessDecisionResult:
+        """Executa a operação  build governed result."""
         policy_eval = self._policy_engine.evaluate_response(
             resp,
             is_high_impact=spec.policy_spec.is_high_impact,
@@ -947,6 +969,7 @@ class SystemOneHarness:
         async def _score_one(
             idx: int, item: dict[str, Any]
         ) -> tuple[float, int, str, dict[str, Any]] | None:
+            """Executa a operação  score one."""
             cand_id = str(item.get("id", f"cand_{idx}"))
             snippet = str(item.get("snippet") or item.get("text") or "")[:2000]
             async with score_sem:

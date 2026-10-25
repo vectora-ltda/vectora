@@ -50,6 +50,7 @@ class ColdArchive:
 
 
 def _safe_thread_id(thread_id: str) -> str:
+    """Executa a operação  safe thread id."""
     value = thread_id.strip()
     if not value or value in {".", ".."} or "/" in value or "\\" in value:
         raise ValueError("thread_id inválido para cold storage")
@@ -57,6 +58,7 @@ def _safe_thread_id(thread_id: str) -> str:
 
 
 def _canonical_record(record: ColdArchiveRecord) -> bytes:
+    """Executa a operação  canonical record."""
     return (
         json.dumps(
             record.model_dump(),

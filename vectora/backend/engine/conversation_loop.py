@@ -83,11 +83,13 @@ logger = logging.getLogger(__name__)
 
 
 def _preserve_latest_tool_result(model_id: str) -> bool:
+    """Executa a operação  preserve latest tool result."""
     normalized = model_id.strip().casefold()
     return normalized.startswith(("ollama:", "llamacpp:", "dmr:"))
 
 
 async def _load_persistent_context_memories(ctx: ToolContext) -> list[MemoryRecord]:
+    """Executa a operação  load persistent context memories."""
     if ctx.store is None or not hasattr(ctx.store, "asearch"):
         return []
     if ctx.user_id and ctx.user_id != "local":
@@ -165,7 +167,8 @@ class LoopResult:
 
 
 async def _noop_event(_event: object) -> None:
-    return None
+    """Executa a operação  noop event."""
+    return
 
 
 async def _safe_update_agent_run_status(
@@ -383,6 +386,7 @@ async def run_conversation(  # noqa: PLR0911
     # usuário autenticado. O marcador é refeito a cada execução para impedir
     # que um contexto reidratado ou argumento de tool carregue uma isenção
     # não confirmada.
+    """Executa a operação run conversation."""
     from backend.services.media_billing import apply_media_billing_source
     from backend.services.policy_compiler import compile_policy_snapshot
 
@@ -474,6 +478,7 @@ async def run_conversation(  # noqa: PLR0911
         pending_tool_call_ids: tuple[str, ...] = (),
         completed_tool_call_ids: tuple[str, ...] = (),
     ) -> None:
+        """Executa a operação  persist context checkpoint."""
         if not config.run_id or not hasattr(session_store, "save_context_checkpoint"):
             return
         await session_store.save_context_checkpoint(
@@ -1663,12 +1668,14 @@ async def resume_conversation(
         args: dict[str, Any] | None = None,
         policy_snapshot: PolicySnapshot | None = None,
     ) -> VMessage:
+        """Executa a operação  execute resume tool."""
         call = replace(tc, args=args) if args is not None else tc
         call_id = call.id or f"{resume_run_id or thread_id}:tool:{uuid4().hex}"
         call = replace(call, id=call_id)
         sanitized = _sanitize_tool_call(call, ctx)
 
         async def record(event_type: str, payload: dict[str, Any]) -> None:
+            """Executa a operação record."""
             if not resume_run_id:
                 return
             try:

@@ -79,6 +79,7 @@ async def db(
     await conn.commit()
 
     async def _get_db() -> aiosqlite.Connection:
+        """Executa a operação  get db."""
         return conn
 
     monkeypatch.setattr(kanban, "_get_db", _get_db)
@@ -93,6 +94,7 @@ async def _insere_task(
     updated_at: str = "2026-10-20T10:00:00",
     version: int = 1,
 ) -> None:
+    """Executa a operação  insere task."""
     await db.execute(
         "INSERT INTO vectora_background_tasks "
         "(id, session_id, user_id, kind, name, instruction, trigger_type, status, updated_at, version) "
@@ -106,6 +108,7 @@ async def _insere_task(
 async def test_manual_transition_with_expected_status(
     db: aiosqlite.Connection,
 ) -> None:
+    """Verifica o comportamento de manual transition with expected status."""
     await _insere_task(db, "t1", status="todo")
 
     # Transição com expected_status correspondente
@@ -124,6 +127,7 @@ async def test_manual_transition_with_expected_status(
 async def test_manual_transition_with_expected_version(
     db: aiosqlite.Connection,
 ) -> None:
+    """Verifica o comportamento de manual transition with expected version."""
     await _insere_task(db, "t2", status="todo", version=1)
 
     # Versão esperada bate com a versão monotônica
@@ -141,6 +145,7 @@ async def test_manual_transition_with_expected_version(
 async def test_manual_transition_cas_write_time_collision(
     db: aiosqlite.Connection,
 ) -> None:
+    """Verifica o comportamento de manual transition cas write time collision."""
     await _insere_task(db, "t_cas", status="todo", version=1)
 
     # Chamada com versão desatualizada no momento da escrita dispara conflito de concorrência
@@ -155,6 +160,7 @@ async def test_manual_transition_cas_write_time_collision(
 async def test_add_dependency_cycle_detection(
     db: aiosqlite.Connection,
 ) -> None:
+    """Verifica o comportamento de add dependency cycle detection."""
     await _insere_task(db, "parent1", status="todo")
     await _insere_task(db, "child1", status="todo")
 
@@ -167,6 +173,7 @@ async def test_add_dependency_cycle_detection(
 
 @pytest.mark.asyncio
 async def test_approve_review_atomic(db: aiosqlite.Connection) -> None:
+    """Verifica o comportamento de approve review atomic."""
     await _insere_task(db, "rev1", status="review")
 
     await approve_review("rev1", user_id="approver1")
@@ -189,6 +196,7 @@ async def test_approve_review_atomic(db: aiosqlite.Connection) -> None:
 async def test_recompute_ready_atomic_promotion(
     db: aiosqlite.Connection,
 ) -> None:
+    """Verifica o comportamento de recompute ready atomic promotion."""
     await _insere_task(db, "dep_parent", status="done")
     await _insere_task(db, "dep_child", status="todo")
     await add_dependency("dep_parent", "dep_child")

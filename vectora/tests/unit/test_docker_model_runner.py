@@ -22,6 +22,7 @@ from backend.services import docker_model_runner as dmr
 def test_docker_executable_prefers_absolute_path_entry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verifica o comportamento de docker executable prefers absolute path entry."""
     executable = tmp_path / "Docker Desktop" / "docker.exe"
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"")
@@ -33,6 +34,7 @@ def test_docker_executable_prefers_absolute_path_entry(
 def test_docker_executable_rejects_relative_path_entry(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verifica o comportamento de docker executable rejects relative path entry."""
     executable = tmp_path / "docker.exe"
     executable.write_bytes(b"")
     monkeypatch.setattr(dmr.shutil, "which", lambda _: "docker.exe")
@@ -45,6 +47,7 @@ def test_docker_executable_rejects_relative_path_entry(
 def test_docker_executable_discovers_windows_installation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verifica o comportamento de docker executable discovers windows installation."""
     executable = tmp_path / "Docker" / "Docker" / "resources" / "bin" / "docker.exe"
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"")
@@ -58,6 +61,7 @@ def test_docker_executable_discovers_windows_installation(
 def test_docker_executable_ignores_empty_relative_windows_bases(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verifica o comportamento de docker executable ignores empty relative windows bases."""
     relative = tmp_path / "Docker" / "Docker" / "resources" / "bin" / "docker.exe"
     relative.parent.mkdir(parents=True)
     relative.write_bytes(b"")
@@ -74,6 +78,7 @@ def test_docker_executable_ignores_empty_relative_windows_bases(
 def test_docker_executable_does_not_probe_windows_bases_on_non_windows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verifica o comportamento de docker executable does not probe windows bases on non windows."""
     executable = (
         tmp_path / "Programs" / "DockerDesktop" / "resources" / "bin" / "docker.exe"
     )
@@ -87,6 +92,7 @@ def test_docker_executable_does_not_probe_windows_bases_on_non_windows(
 
 
 def test_validate_model_reference_rejects_command_injection() -> None:
+    """Verifica o comportamento de validate model reference rejects command injection."""
     assert dmr.validate_model_reference("hf.co/Qwen/Qwen3-0.6B") == (
         "hf.co/Qwen/Qwen3-0.6B"
     )
@@ -97,6 +103,7 @@ def test_validate_model_reference_rejects_command_injection() -> None:
 
 
 def test_normalize_base_url_rejects_non_http() -> None:
+    """Verifica o comportamento de normalize base url rejects non http."""
     assert dmr.normalize_base_url("http://127.0.0.1:12434/") == (
         "http://127.0.0.1:12434"
     )
@@ -108,10 +115,13 @@ def test_normalize_base_url_rejects_non_http() -> None:
 async def test_docker_host_info_reports_runtime_and_gpu_capabilities(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verifica o comportamento de docker host info reports runtime and gpu capabilities."""
+
     class Process:
         returncode = 0
 
         async def communicate(self) -> tuple[bytes, bytes]:
+            """Executa a operação communicate."""
             return (
                 (
                     b'{"OSType":"linux","Architecture":"aarch64",'
@@ -123,9 +133,11 @@ async def test_docker_host_info_reports_runtime_and_gpu_capabilities(
             )
 
         async def wait(self) -> None:
-            return None
+            """Executa a operação wait."""
+            return
 
     async def create(*args: str, **kwargs: object) -> Process:
+        """Executa a operação create."""
         assert args == ("docker", "info", "--format", "{{json .}}")
         assert kwargs.get("shell") is None
         return Process()
@@ -142,7 +154,10 @@ async def test_docker_host_info_reports_runtime_and_gpu_capabilities(
 
 @pytest.mark.asyncio
 async def test_probe_prefers_openai_contract() -> None:
+    """Verifica o comportamento de probe prefers openai contract."""
+
     def handler(request: httpx.Request) -> httpx.Response:
+        """Executa a operação handler."""
         if request.url.path == "/engines/v1/models":
             return httpx.Response(
                 200,
@@ -159,7 +174,10 @@ async def test_probe_prefers_openai_contract() -> None:
 
 @pytest.mark.asyncio
 async def test_probe_preserves_http_failure_status_for_diagnostics() -> None:
+    """Verifica o comportamento de probe preserves http failure status for diagnostics."""
+
     def handler(request: httpx.Request) -> httpx.Response:
+        """Executa a operação handler."""
         return httpx.Response(502, request=request, text="Bad Gateway")
 
     result = await dmr.probe_dmr(transport=httpx.MockTransport(handler))
@@ -173,7 +191,10 @@ async def test_probe_preserves_http_failure_status_for_diagnostics() -> None:
 async def test_docker_model_available_rejects_cli_with_unreachable_server(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verifica o comportamento de docker model available rejects cli with unreachable server."""
+
     async def fake_run(*args: str, command_timeout: float = 10) -> str:
+        """Executa a operação fake run."""
         assert args == ("version",)
         assert command_timeout == 10
         return "Client Version v1.2.6\nServer Version (not reachable)"
@@ -186,7 +207,10 @@ async def test_docker_model_available_rejects_cli_with_unreachable_server(
 
 @pytest.mark.asyncio
 async def test_probe_dmr_inference_supports_openai_and_ollama_contracts() -> None:
+    """Verifica o comportamento de probe dmr inference supports openai and ollama contracts."""
+
     def handler(request: httpx.Request) -> httpx.Response:
+        """Executa a operação handler."""
         if request.url.path.endswith("/chat/completions"):
             return httpx.Response(200, json={"choices": [{"message": {}}]})
         if request.url.path == "/api/chat":
@@ -206,16 +230,20 @@ async def test_probe_dmr_inference_supports_openai_and_ollama_contracts() -> Non
 async def test_provider_status_probes_default_endpoint_without_saved_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verifica o comportamento de provider status probes default endpoint without saved config."""
     from backend.api.handlers import provider_routing
     from backend.settings import settings
 
     async def fake_available() -> tuple[bool, str]:
+        """Executa a operação fake available."""
         return True, "Docker Model Runner"
 
     async def fake_probe(*args: object, **kwargs: object) -> dmr.DmrProbe:
+        """Executa a operação fake probe."""
         return dmr.DmrProbe(True, "openai", ("hf.co/Qwen/Qwen3-0.6B",))
 
     async def fake_host_info() -> dict[str, object]:
+        """Executa a operação fake host info."""
         return {
             "os": "linux",
             "architecture": "aarch64",
@@ -258,10 +286,12 @@ async def test_provider_status_probes_default_endpoint_without_saved_config(
 async def test_provider_http_status_does_not_require_docker_cli(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verifica o comportamento de provider http status does not require docker cli."""
     from backend.api.handlers import provider_routing
     from backend.settings import settings
 
     async def fake_probe(*args: object, **kwargs: object) -> dmr.DmrProbe:
+        """Executa a operação fake probe."""
         return dmr.DmrProbe(True, "openai", ("hf.co/Qwen/Qwen3-0.6B",))
 
     monkeypatch.setattr(settings, "dmr_base_url", None)
@@ -284,13 +314,16 @@ async def test_provider_http_status_does_not_require_docker_cli(
 async def test_provider_status_distinguishes_missing_model_runner_plugin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verifica o comportamento de provider status distinguishes missing model runner plugin."""
     from backend.api.handlers import provider_routing
     from backend.settings import settings
 
     async def fake_available() -> tuple[bool, str]:
+        """Executa a operação fake available."""
         return False, "docker: unknown command: model"
 
     async def fake_probe(*args: object, **kwargs: object) -> dmr.DmrProbe:
+        """Executa a operação fake probe."""
         return dmr.DmrProbe(False, None, (), "endpoint indisponível")
 
     monkeypatch.setattr(settings, "dmr_base_url", None)
@@ -312,18 +345,22 @@ async def test_provider_status_distinguishes_missing_model_runner_plugin(
 async def test_run_docker_model_uses_exec_without_shell(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verifica o comportamento de run docker model uses exec without shell."""
     calls: list[tuple[tuple[str, ...], bool]] = []
 
     class Process:
         returncode = 0
 
         async def communicate(self) -> tuple[bytes, bytes]:
+            """Executa a operação communicate."""
             return b"ok", b""
 
         async def wait(self) -> None:
-            return None
+            """Executa a operação wait."""
+            return
 
     async def create(*args: str, **kwargs: object) -> Process:
+        """Executa a operação create."""
         calls.append((args, bool(kwargs.get("shell"))))
         return Process()
 
@@ -338,9 +375,11 @@ async def test_run_docker_model_uses_exec_without_shell(
 async def test_run_model_preloads_in_detached_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verifica o comportamento de run model preloads in detached mode."""
     calls: list[tuple[str, ...]] = []
 
     async def fake_run(*args: str, command_timeout: float = 120.0) -> str:
+        """Executa a operação fake run."""
         calls.append(args)
         return "started"
 
@@ -354,9 +393,11 @@ async def test_run_model_preloads_in_detached_mode(
 async def test_run_model_configures_context_before_detached_start(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verifica o comportamento de run model configures context before detached start."""
     calls: list[tuple[str, ...]] = []
 
     async def fake_run(*args: str, command_timeout: float = 120.0) -> str:
+        """Executa a operação fake run."""
         calls.append(args)
         return "ok"
 
@@ -374,6 +415,7 @@ async def test_model_job_reports_completion_and_keeps_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verifica o comportamento de model job reports completion and keeps output."""
     from backend.settings import settings
 
     monkeypatch.setattr(settings, "vectora_home", tmp_path)
@@ -383,6 +425,7 @@ async def test_model_job_reports_completion_and_keeps_output(
     calls: list[tuple[str, ...]] = []
 
     async def fake_run(*args: str, command_timeout: float = 120.0) -> str:
+        """Executa a operação fake run."""
         calls.append(args)
         return "ok"
 
@@ -414,6 +457,7 @@ async def test_model_job_fails_when_readiness_inference_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Verifica o comportamento de model job fails when readiness inference fails."""
     from backend.settings import settings
 
     monkeypatch.setattr(settings, "vectora_home", tmp_path)
@@ -422,6 +466,7 @@ async def test_model_job_fails_when_readiness_inference_fails(
     dmr._jobs_loaded = False
 
     async def fake_run(*args: str, command_timeout: float = 120.0) -> str:
+        """Executa a operação fake run."""
         return "ok"
 
     monkeypatch.setattr(dmr, "run_docker_model", fake_run)
@@ -447,6 +492,7 @@ async def test_model_job_fails_when_readiness_inference_fails(
 async def test_model_jobs_are_recovered_as_interrupted_after_restart(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verifica o comportamento de model jobs are recovered as interrupted after restart."""
     from backend.settings import settings
 
     monkeypatch.setattr(settings, "vectora_home", tmp_path)
@@ -477,6 +523,7 @@ async def test_model_jobs_are_recovered_as_interrupted_after_restart(
 async def test_persist_jobs_keeps_active_and_only_recent_terminal_jobs(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verifica o comportamento de persist jobs keeps active and only recent terminal jobs."""
     from backend.settings import settings
 
     monkeypatch.setattr(settings, "vectora_home", tmp_path)
@@ -537,6 +584,7 @@ async def test_dmr_live_pull_run_and_infer_when_explicitly_enabled() -> None:
         expected = reference.removeprefix("hf.co/").removeprefix("docker.io/")
 
         def matches_reference(candidate: str) -> bool:
+            """Executa a operação matches reference."""
             normalized = candidate.removeprefix("docker.io/")
             return (
                 normalized == expected or normalized.removesuffix(":latest") == expected

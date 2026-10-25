@@ -13,11 +13,13 @@ from backend.tools.planning import TodoItemArg, write_todos
 
 @pytest.fixture
 def ctx() -> ToolContext:
+    """Executa a operação ctx."""
     return ToolContext(user_id="user1", thread_id="thread-plan-1")
 
 
 @pytest.mark.asyncio
 async def test_write_todos_includes_step_id_and_quality_gate(ctx: ToolContext) -> None:
+    """Verifica o comportamento de write todos includes step id and quality gate."""
     todos = [
         TodoItemArg(
             content="Instalar dependências",
@@ -53,6 +55,7 @@ async def test_write_todos_includes_step_id_and_quality_gate(ctx: ToolContext) -
 
 
 def test_parse_todos_result_with_step_id_and_quality_gate() -> None:
+    """Verifica o comportamento de parse todos result with step id and quality gate."""
     raw_json = json.dumps(
         [
             {

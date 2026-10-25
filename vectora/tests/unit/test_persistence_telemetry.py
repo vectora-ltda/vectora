@@ -33,15 +33,18 @@ class _ListHandler(logging.Handler):
     """Captura os LogRecord emitidos, para inspecionar os campos ``extra``."""
 
     def __init__(self) -> None:
+        """Inicializa o estado da instância."""
         super().__init__()
         self.records: list[logging.LogRecord] = []
 
     def emit(self, record: logging.LogRecord) -> None:
+        """Executa a operação emit."""
         self.records.append(record)
 
 
 @pytest.fixture
 def captured() -> Generator[_ListHandler]:
+    """Executa a operação captured."""
     handler = _ListHandler()
     target_logger = logging.getLogger("backend.telemetry")
     previous_level = target_logger.level
@@ -58,6 +61,7 @@ class TestRecordToolCall:
     async def test_retrieval_registra_hash_sem_persistir_consulta(
         self, captured: _ListHandler
     ) -> None:
+        """Verifica o comportamento de retrieval registra hash sem persistir consulta."""
         telemetry = VectoraTelemetry()
 
         await telemetry.record_retrieval(
@@ -83,6 +87,7 @@ class TestRecordToolCall:
     async def test_storage_operation_registra_custo_sem_namespace_plano(
         self, captured: _ListHandler
     ) -> None:
+        """Verifica o comportamento de storage operation registra custo sem namespace plano."""
         telemetry = VectoraTelemetry()
 
         await telemetry.record_storage_operation(
@@ -106,6 +111,7 @@ class TestRecordToolCall:
     def test_record_media_quota_descarta_payload_sensivel(
         self, captured: _ListHandler
     ) -> None:
+        """Verifica o comportamento de record media quota descarta payload sensivel."""
         VectoraTelemetry().record_media_quota(
             "hitl_decision",
             operation="generate_image",
@@ -204,6 +210,7 @@ class TestTurnEvents:
     async def test_turn_start_and_end_record_status_and_duration(
         self, captured: _ListHandler
     ) -> None:
+        """Verifica o comportamento de turn start and end record status and duration."""
         telemetry = VectoraTelemetry()
 
         await telemetry.turn_start(session_id=7, turn_id="turn-1")
@@ -235,6 +242,7 @@ class TestServerStartupWiresTelemetry:
         original_configure = telemetry_module.telemetry.configure
 
         def _tracking_configure() -> bool:
+            """Executa a operação  tracking configure."""
             called["value"] = True
             return original_configure()
 
@@ -265,6 +273,7 @@ class TestTruncate:
 
 class TestSummarizeArgs:
     def test_empty_and_none_args_return_empty_dict(self) -> None:
+        """Verifica o comportamento de empty and none args return empty dict."""
         assert _summarize_args(None) == {}
         assert _summarize_args({}) == {}
 
@@ -275,6 +284,7 @@ class TestSummarizeArgs:
 
         class _Boom:
             def __str__(self) -> str:
+                """Implementa a operação especial __str__."""
                 raise RuntimeError("__str__ quebrado")
 
         result = _summarize_args(
@@ -319,6 +329,7 @@ class TestTelemetryJSONFormatter:
         assert "error_type" not in payload
 
     def test_format_falls_back_to_message_when_no_telemetry_event(self) -> None:
+        """Verifica o comportamento de format falls back to message when no telemetry event."""
         record = logging.LogRecord(
             name="backend.telemetry",
             level=logging.INFO,
@@ -334,6 +345,7 @@ class TestTelemetryJSONFormatter:
 
 class TestConfigure:
     def test_disabled_sets_logger_disabled_and_returns_false(self) -> None:
+        """Verifica o comportamento de disabled sets logger disabled and returns false."""
         instance = VectoraTelemetry()
         with patch("backend.settings.settings") as mock_settings:
             mock_settings.telemetry_enabled = False
@@ -343,6 +355,7 @@ class TestConfigure:
         assert instance._logger.disabled is True
 
     def test_enabled_without_output_path_propagates_to_root_logger(self) -> None:
+        """Verifica o comportamento de enabled without output path propagates to root logger."""
         instance = VectoraTelemetry()
         with patch("backend.settings.settings") as mock_settings:
             mock_settings.telemetry_enabled = True
@@ -354,6 +367,7 @@ class TestConfigure:
         assert instance._logger.propagate is True
 
     def test_output_path_creates_dedicated_file_handler(self, tmp_path: Path) -> None:
+        """Verifica o comportamento de output path creates dedicated file handler."""
         instance = VectoraTelemetry()
         target = tmp_path / "nested" / "telemetry.jsonl"
         with patch("backend.settings.settings") as mock_settings:
@@ -405,6 +419,7 @@ class TestRecordToolCallEdgeCases:
     async def test_none_args_produce_empty_summary(
         self, captured: _ListHandler
     ) -> None:
+        """Verifica o comportamento de none args produce empty summary."""
         instance = VectoraTelemetry()
         await instance.record_tool_call("list_dir", None, duration_ms=3.0, success=True)
         assert _field(captured.records[0], "args_summary") == {}
@@ -427,6 +442,7 @@ class TestRecordToolCallEdgeCases:
     async def test_session_id_defaults_to_none_when_not_provided(
         self, captured: _ListHandler
     ) -> None:
+        """Verifica o comportamento de session id defaults to none when not provided."""
         instance = VectoraTelemetry()
         await instance.record_tool_call(
             "web_search", {"q": "x"}, duration_ms=1.0, success=True
@@ -438,6 +454,7 @@ class TestRecordErrorEdgeCases:
     def test_extra_fields_are_included_in_the_event(
         self, captured: _ListHandler
     ) -> None:
+        """Verifica o comportamento de extra fields are included in the event."""
         telemetry_instance = VectoraTelemetry()
         telemetry_instance.record_error(
             "agent_turn", ValueError("payload inválido"), turn_id="turn-9"
@@ -448,6 +465,7 @@ class TestRecordErrorEdgeCases:
         assert "payload" in _field(record, "error_message")
 
     def test_long_error_message_is_truncated(self, captured: _ListHandler) -> None:
+        """Verifica o comportamento de long error message is truncated."""
         telemetry_instance = VectoraTelemetry()
         telemetry_instance.record_error("agent_turn", RuntimeError("x" * 300))
 
@@ -476,4 +494,5 @@ class TestEmitNeverRaises:
 
 class TestSingleton:
     def test_module_level_telemetry_is_a_vectora_telemetry_instance(self) -> None:
+        """Verifica o comportamento de module level telemetry is a vectora telemetry instance."""
         assert isinstance(telemetry, VectoraTelemetry)

@@ -215,4 +215,6 @@ class EventSink(Protocol):
     chamam pra emitir um `EngineEvent` — o adapter (`sse_adapter.py`) é só
     um dos consumidores possíveis dessa interface."""
 
-    async def __call__(self, event: EngineEvent) -> None: ...
+    async def __call__(self, event: EngineEvent) -> None:
+        """Emite um evento para o consumidor configurado."""
+        ...

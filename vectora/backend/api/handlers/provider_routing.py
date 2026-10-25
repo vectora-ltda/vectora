@@ -165,6 +165,7 @@ def _runtime_transition(  # noqa: UP047
 
     @wraps(handler)
     async def guarded(*args: _RuntimeP.args, **kwargs: _RuntimeP.kwargs) -> _RuntimeR:
+        """Executa a operação guarded."""
         async with _runtime_transition_lock:
             return await handler(*args, **kwargs)
 
@@ -370,10 +371,12 @@ class LlamaCppSidecarRequest(BaseModel):
 
 
 def _llamacpp_runtime_root() -> Path:
+    """Executa a operação  llamacpp runtime root."""
     return (settings.vectora_home / "tools" / "llama.cpp").resolve()
 
 
 def _llamacpp_manifest_path() -> Path:
+    """Executa a operação  llamacpp manifest path."""
     return _llamacpp_runtime_root() / "runtime-manifest.json"
 
 
@@ -412,6 +415,7 @@ def _extract_llamacpp_archive(archive: Path, destination_root: Path) -> list[str
     extracted: list[str] = []
 
     def safe_target(name: str) -> Path:
+        """Executa a operação safe target."""
         target = (destination_root / name).resolve()
         if destination_root.resolve() not in target.parents:
             raise ValueError("arquivo do runtime fora do diretório permitido")
@@ -507,6 +511,7 @@ async def _get_db() -> Any:
 # (ollama_registered_models / openrouter_registered_models) — f-string é
 # segura aqui, sem risco de SQL injection via request.
 async def _ensure_registry_table(db: Any, table: str) -> None:
+    """Executa a operação  ensure registry table."""
     await db.execute(f"""
         CREATE TABLE IF NOT EXISTS {table} (
             id         TEXT PRIMARY KEY,
@@ -518,6 +523,7 @@ async def _ensure_registry_table(db: Any, table: str) -> None:
 
 
 async def _ensure_llamacpp_confirmation_table(db: Any) -> None:
+    """Executa a operação  ensure llamacpp confirmation table."""
     await db.execute(
         """
         CREATE TABLE IF NOT EXISTS llamacpp_model_confirmations (
@@ -535,12 +541,14 @@ async def _ensure_llamacpp_confirmation_table(db: Any) -> None:
 
 
 async def _clear_llamacpp_confirmations(db: Any) -> None:
+    """Executa a operação  clear llamacpp confirmations."""
     await _ensure_llamacpp_confirmation_table(db)
     await db.execute("DELETE FROM llamacpp_model_confirmations")
     await db.commit()
 
 
 async def _list_registered(table: str) -> list[RegisteredModel]:
+    """Executa a operação  list registered."""
     db = await _get_db()
     await _ensure_registry_table(db, table)
     async with db.execute(
@@ -551,6 +559,7 @@ async def _list_registered(table: str) -> list[RegisteredModel]:
 
 
 async def _register(table: str, tag: str) -> RegisteredModel:
+    """Executa a operação  register."""
     tag = tag.strip()
     if not tag:
         raise HTTPException(status_code=400, detail="tag vazia")
@@ -573,6 +582,7 @@ async def _register(table: str, tag: str) -> RegisteredModel:
 
 
 async def _unregister(table: str, model_id: str) -> None:
+    """Executa a operação  unregister."""
     db = await _get_db()
     await _ensure_registry_table(db, table)
     await db.execute(f"DELETE FROM {table} WHERE id = ?", (model_id,))  # noqa: S608  # nosec B608
@@ -953,6 +963,7 @@ async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> bool
         process.kill()
 
     async def _safe_wait(wait_timeout: float) -> None:
+        """Executa a operação  safe wait."""
         wait_fn = getattr(process, "wait", None)
         if not callable(wait_fn):
             return
@@ -1001,6 +1012,7 @@ async def stop_managed_ollama() -> None:
 
 
 async def _ollama_http_status() -> tuple[bool, str | None]:
+    """Executa a operação  ollama http status."""
     import httpx
 
     base_url = (settings.ollama_base_url or "http://127.0.0.1:11434").rstrip("/")
@@ -1017,6 +1029,7 @@ async def _ollama_http_status() -> tuple[bool, str | None]:
 
 @router.get("/ollama/runtime/status")
 async def ollama_runtime_status() -> OllamaRuntimeStatus:
+    """Executa a operação ollama runtime status."""
     executable = await asyncio.to_thread(_ollama_executable)
     reachable, version = await _ollama_http_status()
     if _ollama_install_phase in {"failed", "cancelled"} and not reachable:
@@ -1241,6 +1254,7 @@ async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
 
 @router.get("/ollama/registered")
 async def list_registered_ollama_models() -> list[RegisteredModel]:
+    """Executa a operação list registered ollama models."""
     return await _list_registered("ollama_registered_models")
 
 
@@ -1248,11 +1262,13 @@ async def list_registered_ollama_models() -> list[RegisteredModel]:
 async def register_ollama_model(
     body: RegisterModelRequest, _: ProviderAdmin
 ) -> RegisteredModel:
+    """Executa a operação register ollama model."""
     return await _register("ollama_registered_models", body.tag)
 
 
 @router.delete("/ollama/registered/{model_id}")
 async def unregister_ollama_model(model_id: str, _: ProviderAdmin) -> dict[str, bool]:
+    """Executa a operação unregister ollama model."""
     await _unregister("ollama_registered_models", model_id)
     return {"ok": True}
 
@@ -1365,6 +1381,7 @@ async def list_registered_llamacpp_models() -> list[RegisteredModel]:
 @router.get("/llamacpp/registered")
 @router.get("/llama-cpp/registered", include_in_schema=False)
 async def get_registered_llamacpp_models() -> list[RegisteredModel]:
+    """Executa a operação get registered llamacpp models."""
     return await list_registered_llamacpp_models()
 
 
@@ -1374,6 +1391,7 @@ async def register_llamacpp_model(
     body: RegisterModelRequest,
     _: ProviderAdmin,
 ) -> RegisteredModel:
+    """Executa a operação register llamacpp model."""
     return await _register("llamacpp_registered_models", body.tag)
 
 
@@ -1383,6 +1401,7 @@ async def unregister_llamacpp_model(
     model_id: str,
     _: ProviderAdmin,
 ) -> dict[str, bool]:
+    """Executa a operação unregister llamacpp model."""
     await _unregister("llamacpp_registered_models", model_id)
     return {"ok": True}
 
@@ -1460,6 +1479,7 @@ async def confirm_llamacpp_model(
 @router.get("/llamacpp/models/confirmations")
 @router.get("/llama-cpp/models/confirmations", include_in_schema=False)
 async def list_llamacpp_model_confirmations() -> list[LlamaCppModelConfirmation]:
+    """Executa a operação list llamacpp model confirmations."""
     db = await _get_db()
     await _ensure_llamacpp_confirmation_table(db)
     async with db.execute(
@@ -1527,6 +1547,7 @@ async def list_llamacpp_model_confirmations() -> list[LlamaCppModelConfirmation]
 @router.get("/llamacpp/status")
 @router.get("/llama-cpp/status", include_in_schema=False)
 async def get_llamacpp_status() -> LlamaCppStatus:
+    """Executa a operação get llamacpp status."""
     key = settings.llamacpp_api_key or ""
     configured_url = settings.llamacpp_base_url or "http://127.0.0.1:18080/v1"
     mode_value = os.getenv("LLAMACPP_MODE")
@@ -1552,6 +1573,7 @@ async def set_llamacpp_config(
     body: LlamaCppConfigRequest,
     _: ProviderAdmin,
 ) -> LlamaCppStatus:
+    """Executa a operação set llamacpp config."""
     from urllib.parse import urlparse
 
     base_url = body.base_url.strip().rstrip("/")
@@ -1582,6 +1604,7 @@ async def set_llamacpp_config(
 async def clear_llamacpp_config(
     _: ProviderAdmin,
 ) -> LlamaCppStatus:
+    """Executa a operação clear llamacpp config."""
     env_file = _env_file()
     for key in (
         "LLAMACPP_BASE_URL",
@@ -1946,6 +1969,7 @@ async def _prepare_dmr_model(body: DmrModelRequest) -> dict[str, object]:
 async def prepare_dmr_model(
     body: DmrModelRequest, _: ProviderAdmin
 ) -> dict[str, object]:
+    """Executa a operação prepare dmr model."""
     return await _prepare_dmr_model(body)
 
 
@@ -2482,6 +2506,7 @@ async def search_huggingface_models(
 
 
 def _validate_hf_path(value: str, *, field: str) -> str:
+    """Executa a operação  validate hf path."""
     value = value.strip()
     if (
         not value
@@ -2516,6 +2541,7 @@ def _read_json_file(path: Path) -> object:
 
 
 async def _read_json_file_async(path: Path) -> object:
+    """Executa a operação  read json file async."""
     return await asyncio.to_thread(_read_json_file, path)
 
 
@@ -2811,6 +2837,7 @@ async def download_huggingface_model(
                                 raise ValueError("tamanho publicado incompatível")
 
                             def _hash_existing() -> None:
+                                """Executa a operação  hash existing."""
                                 with partial.open("rb") as existing:
                                     while chunk := existing.read(1024 * 1024):
                                         digest.update(chunk)
@@ -3155,6 +3182,7 @@ async def list_llamacpp_releases() -> dict[str, list[dict[str, object]]]:
     )
 
     def asset_payload(asset: dict[str, object]) -> dict[str, object]:
+        """Executa a operação asset payload."""
         name = str(asset.get("name", ""))
         lowered = name.lower()
         recommended = bool(
@@ -3394,6 +3422,7 @@ async def llamacpp_runtime_status() -> dict[str, object]:
         }
 
     def _list_files() -> list[str]:
+        """Executa a operação  list files."""
         return [str(path) for path in root.rglob("*") if path.is_file()]
 
     files = await asyncio.to_thread(_list_files)
@@ -3726,6 +3755,7 @@ class OpenRouterCatalogResponse(BaseModel):
 
 
 def _env_file() -> Path:
+    """Executa a operação  env file."""
     p = settings.vectora_home / ".env"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
@@ -3747,6 +3777,7 @@ def _set_env_key(env_file: Path, key: str, value: str) -> None:
 
 
 def _mask_key(value: str) -> str:
+    """Executa a operação  mask key."""
     if not value:
         return ""
     if len(value) <= 10:
@@ -3755,6 +3786,7 @@ def _mask_key(value: str) -> str:
 
 
 def _remove_env_key(env_file: Path, key: str) -> None:
+    """Executa a operação  remove env key."""
     if not env_file.exists():
         return
     lines = [
@@ -3767,6 +3799,7 @@ def _remove_env_key(env_file: Path, key: str) -> None:
 
 @router.get("/openrouter/status")
 async def get_openrouter_status() -> OpenRouterStatus:
+    """Executa a operação get openrouter status."""
     import os
 
     raw = os.environ.get("OPENROUTER_API_KEY", "").strip()
@@ -3818,6 +3851,7 @@ async def set_openrouter_key(
 
 @router.delete("/openrouter/key")
 async def clear_openrouter_key(_: ProviderAdmin) -> OpenRouterStatus:
+    """Executa a operação clear openrouter key."""
     import os
 
     from backend.settings import settings
@@ -3958,6 +3992,7 @@ async def openrouter_model_supports_image(model_id: str) -> bool:
 
 @router.get("/openrouter/registered")
 async def list_registered_openrouter_models() -> list[RegisteredModel]:
+    """Executa a operação list registered openrouter models."""
     return await _list_registered("openrouter_registered_models")
 
 
@@ -3965,6 +4000,7 @@ async def list_registered_openrouter_models() -> list[RegisteredModel]:
 async def register_openrouter_model(
     body: RegisterModelRequest, _: ProviderAdmin
 ) -> RegisteredModel:
+    """Executa a operação register openrouter model."""
     return await _register("openrouter_registered_models", body.tag)
 
 
@@ -3972,6 +4008,7 @@ async def register_openrouter_model(
 async def unregister_openrouter_model(
     model_id: str, _: ProviderAdmin
 ) -> dict[str, bool]:
+    """Executa a operação unregister openrouter model."""
     await _unregister("openrouter_registered_models", model_id)
     return {"ok": True}
 
@@ -4009,6 +4046,7 @@ class NineRouterCatalogResponse(BaseModel):
 
 @router.get("/nine-router/status")
 async def get_nine_router_status() -> NineRouterStatus:
+    """Executa a operação get nine router status."""
     base_url = settings.nine_router_base_url
     api_key = settings.nine_router_api_key or ""
     return NineRouterStatus(
@@ -4050,6 +4088,7 @@ async def set_nine_router_config(
 
 @router.delete("/nine-router/config")
 async def clear_nine_router_config(_: ProviderAdmin) -> NineRouterStatus:
+    """Executa a operação clear nine router config."""
     import os
 
     _remove_env_key(_env_file(), "NINE_ROUTER_BASE_URL")
@@ -4108,6 +4147,7 @@ _CATALOG_FAILURE_BACKOFF_S = 30.0
 
 
 def _normalize_modalities(values: list[str]) -> set[str]:
+    """Executa a operação  normalize modalities."""
     return {value.strip().lower().replace("-", "_") for value in values}
 
 
@@ -4172,6 +4212,7 @@ def invalidate_catalog_cache() -> None:
 
 @router.get("/nine-router/registered")
 async def list_registered_nine_router_models() -> list[RegisteredModel]:
+    """Executa a operação list registered nine router models."""
     return await _list_registered("nine_router_registered_models")
 
 
@@ -4179,6 +4220,7 @@ async def list_registered_nine_router_models() -> list[RegisteredModel]:
 async def register_nine_router_model(
     body: RegisterModelRequest, _: ProviderAdmin
 ) -> RegisteredModel:
+    """Executa a operação register nine router model."""
     return await _register("nine_router_registered_models", body.tag)
 
 
@@ -4186,6 +4228,7 @@ async def register_nine_router_model(
 async def unregister_nine_router_model(
     model_id: str, _: ProviderAdmin
 ) -> dict[str, bool]:
+    """Executa a operação unregister nine router model."""
     await _unregister("nine_router_registered_models", model_id)
     return {"ok": True}
 

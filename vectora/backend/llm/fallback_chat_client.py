@@ -41,10 +41,12 @@ OnModelSwitch = Callable[[str, str], Awaitable[None]]
 
 
 def _has_images(messages: list[VMessage]) -> bool:
+    """Executa a operação  has images."""
     return any(b.kind == "image_url" for m in messages for b in m.content)
 
 
 async def _vision_state(model_id: str) -> CapabilityState:
+    """Executa a operação  vision state."""
     from backend.settings import provider_capability_state
 
     provider, _, model_name = model_id.partition(":")
@@ -63,6 +65,7 @@ async def _vision_state(model_id: str) -> CapabilityState:
 
 
 async def _candidates(primary_model_id: str, *, has_images: bool) -> list[str]:
+    """Executa a operação  candidates."""
     all_candidates = [primary_model_id, *get_fallback_chain(primary_model_id)]
     if has_images:
         filtered = [primary_model_id]
@@ -295,6 +298,7 @@ def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
 async def _emit_switch(
     on_model_switch: OnModelSwitch | None, from_model: str, to_model: str
 ) -> None:
+    """Executa a operação  emit switch."""
     if on_model_switch is None:
         return
     try:
@@ -327,11 +331,13 @@ class FallbackChatClient:
         *,
         on_model_switch: OnModelSwitch | None = None,
     ) -> None:
+        """Inicializa o estado da instância."""
         self.primary_model_id = primary_model_id
         self.on_model_switch = on_model_switch
         self.last_model_id: str | None = None
 
     async def _candidate_ids(self, messages: list[VMessage]) -> list[str]:
+        """Executa a operação  candidate ids."""
         provider = self.primary_model_id.partition(":")[0].replace("-", "_")
         if provider == "llamacpp":
             await _ensure_managed_llamacpp()
@@ -351,6 +357,7 @@ class FallbackChatClient:
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> VMessage:
+        """Executa a operação agenerate."""
         candidatos = await self._candidate_ids(messages)
 
         last_exc: BaseException | None = None
@@ -386,6 +393,7 @@ class FallbackChatClient:
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> AsyncIterator[VMessageChunk]:
+        """Executa a operação astream."""
         candidatos = await self._candidate_ids(messages)
 
         last_exc: BaseException | None = None

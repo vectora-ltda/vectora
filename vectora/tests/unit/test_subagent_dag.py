@@ -17,15 +17,18 @@ from backend.vtypes.message import VMessageChunk
 
 class _SimpleChatClient:
     def __init__(self, responses: list[str]) -> None:
+        """Inicializa o estado da instância."""
         self._responses = list(responses)
 
     async def astream(self, messages, *, tools=None, temperature=None, max_tokens=None):
+        """Executa a operação astream."""
         resp = self._responses.pop(0) if self._responses else "ok"
         yield VMessageChunk(delta_text=resp)
 
     async def agenerate(
         self, messages, *, tools=None, temperature=None, max_tokens=None
     ):
+        """Executa a operação agenerate."""
         raise NotImplementedError("não usado")
 
 
@@ -34,12 +37,14 @@ class _DummyArgs(BaseModel):
 
 
 async def _dummy_handler(args: dict, ctx: ToolContext) -> str:
+    """Executa a operação  dummy handler."""
     return args.get("text", "ok")
 
 
 def _make_tool_spec(
     name: str, category: str = "generic", *, destructive: bool = False
 ) -> ToolSpec:
+    """Executa a operação  make tool spec."""
     return ToolSpec(
         name=name,
         description=f"tool {name}",
@@ -52,6 +57,7 @@ def _make_tool_spec(
 
 @pytest.fixture
 async def session_store(tmp_path):
+    """Executa a operação session store."""
     pool = AsyncConnectionPool(
         str(tmp_path / "subagent_dag.db"), min_size=1, max_size=2
     )
@@ -67,6 +73,7 @@ async def session_store(tmp_path):
 
 @pytest.fixture
 def ctx() -> ToolContext:
+    """Executa a operação ctx."""
     return ToolContext(
         user_id="user1",
         thread_id="thread-parent",
@@ -79,6 +86,7 @@ def ctx() -> ToolContext:
 
 @pytest.mark.asyncio
 async def test_subagent_run_creates_child_agent_run(session_store, ctx):
+    """Verifica o comportamento de subagent run creates child agent run."""
     spec = SubagentSpec(
         name="worker",
         description="worker subagent",
@@ -117,6 +125,7 @@ async def test_subagent_run_creates_child_agent_run(session_store, ctx):
 async def test_subagent_permission_intersection_blocks_disabled_tool(
     session_store, ctx
 ):
+    """Verifica o comportamento de subagent permission intersection blocks disabled tool."""
     spec = SubagentSpec(
         name="deleter",
         description="tries to delete",
@@ -153,6 +162,7 @@ async def test_subagent_permission_intersection_blocks_disabled_tool(
 async def test_subagent_untrusted_content_blocks_destructive_tool(
     session_store: SessionStore, ctx: ToolContext
 ) -> None:
+    """Verifica o comportamento de subagent untrusted content blocks destructive tool."""
     tool = _make_tool_spec("fake_terminal", category="terminal", destructive=True)
     TOOL_REGISTRY.register(tool)
     try:

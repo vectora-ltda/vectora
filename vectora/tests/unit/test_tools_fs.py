@@ -61,6 +61,7 @@ class TestFileRead:
     async def test_reads_existing_file(
         self, tmp_path: Path, trusted_ws: dict[str, dict[str, str]]
     ) -> None:
+        """Verifica o comportamento de reads existing file."""
         from backend.tools.fs import file_read
 
         f = tmp_path / "hello.txt"
@@ -71,6 +72,7 @@ class TestFileRead:
     async def test_file_not_found(
         self, tmp_path: Path, trusted_ws: dict[str, dict[str, str]]
     ) -> None:
+        """Verifica o comportamento de file not found."""
         from backend.tools.fs import file_read
 
         result = await file_read(
@@ -81,6 +83,7 @@ class TestFileRead:
     async def test_blocked_path(
         self, tmp_path: Path, trusted_ws: dict[str, dict[str, str]]
     ) -> None:
+        """Verifica o comportamento de blocked path."""
         from backend.tools.fs import file_read
 
         outside = tmp_path.parent / "fora_do_workspace.txt"
@@ -117,6 +120,7 @@ class TestFileWorkbenchParity:
     async def test_create_move_search_delete(
         self, tmp_path: Path, trusted_ws: dict[str, dict[str, str]]
     ) -> None:
+        """Verifica o comportamento de create move search delete."""
         from backend.tools.fs import (
             file_create_dir,
             file_delete,
@@ -141,6 +145,7 @@ class TestFileWorkbenchParity:
 
 class TestFileWrite:
     async def test_creates_new_file(self, tmp_path, trusted_ws):
+        """Verifica o comportamento de creates new file."""
         from backend.tools.fs import file_write
 
         dest = tmp_path / "novo.txt"
@@ -151,6 +156,7 @@ class TestFileWrite:
         assert dest.read_text(encoding="utf-8") == "ola mundo"
 
     async def test_overwrites_existing_file(self, tmp_path, trusted_ws):
+        """Verifica o comportamento de overwrites existing file."""
         from backend.tools.fs import file_write
 
         dest = tmp_path / "existente.txt"
@@ -161,6 +167,7 @@ class TestFileWrite:
         assert dest.read_text(encoding="utf-8") == "novo"
 
     async def test_creates_parent_dirs(self, tmp_path, trusted_ws):
+        """Verifica o comportamento de creates parent dirs."""
         from backend.tools.fs import file_write
 
         dest = tmp_path / "sub" / "dir" / "arquivo.txt"
@@ -170,6 +177,7 @@ class TestFileWrite:
         assert dest.exists()
 
     async def test_blocked_path(self, tmp_path, trusted_ws):
+        """Verifica o comportamento de blocked path."""
         from backend.tools.fs import file_write
 
         outside = tmp_path.parent / "evil.txt"
@@ -179,6 +187,7 @@ class TestFileWrite:
         assert "fora do workspace" in result.lower() or "error" in result.lower()
 
     async def test_requires_trust(self, tmp_path, monkeypatch):
+        """Verifica o comportamento de requires trust."""
         from backend.tools.fs import file_write
         from backend.workspace import workspace as ws_mod
 
@@ -213,6 +222,7 @@ class TestFileWrite:
 
 class TestFileEdit:
     async def test_replaces_text(self, tmp_path, trusted_ws):
+        """Verifica o comportamento de replaces text."""
         from backend.tools.fs import file_edit
 
         f = tmp_path / "code.py"
@@ -227,6 +237,7 @@ class TestFileEdit:
         assert "foo = 99" in f.read_text(encoding="utf-8")
 
     async def test_replace_all(self, tmp_path, trusted_ws):
+        """Verifica o comportamento de replace all."""
         from backend.tools.fs import file_edit
 
         f = tmp_path / "rep.txt"
@@ -241,6 +252,7 @@ class TestFileEdit:
         assert f.read_text(encoding="utf-8") == "b b b"
 
     async def test_creates_file_when_old_text_empty(self, tmp_path, trusted_ws):
+        """Verifica o comportamento de creates file when old text empty."""
         from backend.tools.fs import file_edit
 
         dest = tmp_path / "new.txt"
@@ -254,6 +266,7 @@ class TestFileEdit:
         assert dest.read_text(encoding="utf-8") == "criado"
 
     async def test_text_not_found(self, tmp_path, trusted_ws):
+        """Verifica o comportamento de text not found."""
         from backend.tools.fs import file_edit
 
         f = tmp_path / "f.txt"
@@ -274,6 +287,7 @@ class TestFileEdit:
 
 class TestGrep:
     async def test_finds_pattern_in_file(self, tmp_path, trusted_ws):
+        """Verifica o comportamento de finds pattern in file."""
         from backend.tools.fs import grep
 
         f = tmp_path / "backend.py"
@@ -284,6 +298,7 @@ class TestGrep:
         assert "def foo" in result
 
     async def test_no_match_returns_message(self, tmp_path, trusted_ws):
+        """Verifica o comportamento de no match returns message."""
         from backend.tools.fs import grep
 
         f = tmp_path / "empty.py"
@@ -296,6 +311,7 @@ class TestGrep:
         assert "no matches" in result.lower()
 
     async def test_invalid_pattern(self, trusted_ws):
+        """Verifica o comportamento de invalid pattern."""
         from backend.tools.fs import grep
 
         with patch("backend.tools.fs.is_safe_regex_pattern", return_value=False):
@@ -312,6 +328,7 @@ class TestGrep:
 
 class TestListDir:
     async def test_lists_files(self, tmp_path, trusted_ws):
+        """Verifica o comportamento de lists files."""
         from backend.tools.fs import list_dir
 
         (tmp_path / "a.txt").write_text("x")
@@ -321,6 +338,7 @@ class TestListDir:
         assert "b.txt" in result
 
     async def test_recursive(self, tmp_path, trusted_ws):
+        """Verifica o comportamento de recursive."""
         from backend.tools.fs import list_dir
 
         sub = tmp_path / "sub"
@@ -332,6 +350,7 @@ class TestListDir:
         assert "deep.txt" in result
 
     async def test_nonexistent_dir(self, tmp_path, trusted_ws):
+        """Verifica o comportamento de nonexistent dir."""
         from backend.tools.fs import list_dir
 
         result = await list_dir(
@@ -354,6 +373,7 @@ class TestActiveWorkspaceFallback:
     async def test_sem_workspace_id_usa_o_workspace_ativo_do_usuario(
         self, tmp_path, monkeypatch
     ):
+        """Verifica o comportamento de sem workspace id usa o workspace ativo do usuario."""
         from backend.tools.context import ToolContext
         from backend.tools.fs import _active_workspace
         from backend.workspace import workspace as ws_mod
@@ -369,6 +389,7 @@ class TestActiveWorkspaceFallback:
         monkeypatch.setattr(ws_mod.workspace_registry, "get_active", lambda _uid: ativo)
 
         def _boom(*_a, **_kw):
+            """Executa a operação  boom."""
             raise AssertionError(
                 "não deveria cair no diretório de trabalho do processo "
                 "quando há um workspace ativo registrado"
@@ -423,6 +444,7 @@ def _cfg(thread_id: str) -> dict:
 
 class TestCreateArtifact:
     async def test_creates_file_and_returns_json(self, tmp_path, monkeypatch):
+        """Verifica o comportamento de creates file and returns json."""
         from backend.tools.fs import create_artifact
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -445,6 +467,7 @@ class TestCreateArtifact:
         assert Path(data["path"]).with_suffix(".artifact.json").exists()
 
     async def test_saved_under_session_dir(self, tmp_path, monkeypatch):
+        """Verifica o comportamento de saved under session dir."""
         from backend.tools.fs import create_artifact
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -499,6 +522,7 @@ class TestCreateArtifact:
     async def test_third_write_rotates_history_without_losing_the_first(
         self, tmp_path, monkeypatch
     ):
+        """Verifica o comportamento de third write rotates history without losing the first."""
         from backend.tools.fs import create_artifact
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -570,6 +594,7 @@ class TestCreateArtifact:
         assert not (tmp_path / ".vectora").exists()  # nada foi escrito
 
     async def test_descriptive_title_still_accepted(self, tmp_path, monkeypatch):
+        """Verifica o comportamento de descriptive title still accepted."""
         from backend.tools.fs import create_artifact
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -636,6 +661,7 @@ class TestCreateArtifact:
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
 
         def _boom(*args, **kwargs):
+            """Executa a operação  boom."""
             raise AssertionError("não deveria resolver workspace sem workspace_id")
 
         monkeypatch.setattr(ws_mod.workspace_registry, "get_or_create", _boom)
@@ -649,6 +675,7 @@ class TestCreateArtifact:
         assert "error" not in data
 
     async def test_invalid_type_returns_error(self, tmp_path, monkeypatch):
+        """Verifica o comportamento de invalid type returns error."""
         from backend.tools.fs import create_artifact
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -662,6 +689,7 @@ class TestCreateArtifact:
         assert "error" in data
 
     async def test_empty_title_returns_error(self, tmp_path, monkeypatch):
+        """Verifica o comportamento de empty title returns error."""
         from backend.tools.fs import create_artifact
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -675,6 +703,7 @@ class TestCreateArtifact:
         assert "error" in data
 
     async def test_empty_content_returns_error(self, tmp_path, monkeypatch):
+        """Verifica o comportamento de empty content returns error."""
         from backend.tools.fs import create_artifact
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -688,6 +717,7 @@ class TestCreateArtifact:
         assert "error" in data
 
     async def test_all_valid_types_accepted(self, tmp_path, monkeypatch):
+        """Verifica o comportamento de all valid types accepted."""
         from backend.tools.fs import _VALID_ARTIFACT_TYPES, create_artifact
 
         monkeypatch.setattr(Path, "home", lambda: tmp_path)
@@ -731,6 +761,7 @@ class TestCreateArtifact:
 
 class TestArtifactSlug:
     def test_basic_slug(self):
+        """Verifica o comportamento de basic slug."""
         from backend.tools.fs import _artifact_slug
 
         slug = _artifact_slug("Plano de Implementacao")
@@ -745,17 +776,20 @@ class TestArtifactSlug:
         assert len(_artifact_slug(long_title)) == 100
 
     def test_empty_falls_back(self):
+        """Verifica o comportamento de empty falls back."""
         from backend.tools.fs import _artifact_slug
 
         assert _artifact_slug("") == "artifact"
         assert _artifact_slug("   !@#  ") == "artifact"
 
     def test_spaces_become_hyphens(self):
+        """Verifica o comportamento de spaces become hyphens."""
         from backend.tools.fs import _artifact_slug
 
         assert _artifact_slug("hello world") == "hello-world"
 
     def test_no_consecutive_hyphens(self):
+        """Verifica o comportamento de no consecutive hyphens."""
         from backend.tools.fs import _artifact_slug
 
         slug = _artifact_slug("a  b   c")

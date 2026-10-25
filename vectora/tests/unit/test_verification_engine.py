@@ -24,6 +24,7 @@ from backend.services.verification.snapshot import compute_files_snapshot
 
 @pytest.fixture
 def test_workspace(tmp_path: Path) -> Path:
+    """Verifica o comportamento de workspace."""
     ws = tmp_path / "ws_test"
     ws.mkdir()
     (ws / "main.py").write_text("print('hello world')\n", encoding="utf-8")
@@ -32,6 +33,7 @@ def test_workspace(tmp_path: Path) -> Path:
 
 
 def test_compute_files_snapshot(test_workspace: Path) -> None:
+    """Verifica o comportamento de compute files snapshot."""
     sha, file_hashes = compute_files_snapshot(test_workspace)
     assert len(sha) == 64  # SHA-256 hex digest
     assert "main.py" in file_hashes
@@ -48,10 +50,12 @@ def test_compute_files_snapshot(test_workspace: Path) -> None:
 def test_compute_files_snapshot_unreadable_and_traversal(
     test_workspace: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verifica o comportamento de compute files snapshot unreadable and traversal."""
     (test_workspace / "unreadable.py").write_text("secret", encoding="utf-8")
     original_hash = snapshot.hash_file_sha256
 
     def mock_hash(p: Path) -> str:
+        """Executa a operação mock hash."""
         if p.name == "unreadable.py":
             return ""
         return original_hash(p)
@@ -72,6 +76,7 @@ def test_compute_files_snapshot_unreadable_and_traversal(
 
 
 def test_pattern_matching_recursive() -> None:
+    """Verifica o comportamento de pattern matching recursive."""
     assert _matches_any_pattern("main.py", ["**/*.py"]) is True
     assert _matches_any_pattern("src/app.py", ["**/*.py"]) is True
     assert _matches_any_pattern("src/components/button.tsx", ["src/**/*.tsx"]) is True
@@ -80,6 +85,7 @@ def test_pattern_matching_recursive() -> None:
 
 
 def test_quality_gate_spec_empty_command_validation() -> None:
+    """Verifica o comportamento de quality gate spec empty command validation."""
     with pytest.raises(ValidationError):
         QualityGateSpec(
             id="empty_gate",
@@ -90,6 +96,7 @@ def test_quality_gate_spec_empty_command_validation() -> None:
 
 @pytest.mark.asyncio
 async def test_run_verification_profile_empty(test_workspace: Path) -> None:
+    """Verifica o comportamento de run verification profile empty."""
     profile = WorkspaceVerificationProfile(
         workspace_id="test_ws",
         enabled=True,
@@ -107,6 +114,7 @@ async def test_run_verification_profile_empty(test_workspace: Path) -> None:
 async def test_run_verification_dirty_git(
     test_workspace: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verifica o comportamento de run verification dirty git."""
     profile = WorkspaceVerificationProfile(
         workspace_id="test_ws",
         enabled=True,
@@ -115,6 +123,7 @@ async def test_run_verification_dirty_git(
     )
 
     async def mock_clean(_cwd: Path) -> tuple[bool, str]:
+        """Executa a operação mock clean."""
         return False, " M modified_file.py"
 
     monkeypatch.setattr(
@@ -130,6 +139,7 @@ async def test_run_verification_dirty_git(
 
 @pytest.mark.asyncio
 async def test_run_verification_empty_command_fails(test_workspace: Path) -> None:
+    """Verifica o comportamento de run verification empty command fails."""
     gate = QualityGateSpec.model_construct(
         id="empty_cmd_gate",
         name="Empty Command Gate",
@@ -153,6 +163,7 @@ async def test_run_verification_empty_command_fails(test_workspace: Path) -> Non
 
 @pytest.mark.asyncio
 async def test_run_verification_passing_gate(test_workspace: Path) -> None:
+    """Verifica o comportamento de run verification passing gate."""
     gate = QualityGateSpec(
         id="syntax_check",
         name="Syntax Check",
@@ -180,6 +191,7 @@ async def test_run_verification_passing_gate(test_workspace: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_run_verification_blocking_failure(test_workspace: Path) -> None:
+    """Verifica o comportamento de run verification blocking failure."""
     gate = QualityGateSpec(
         id="failing_gate",
         name="Failing Gate",
@@ -207,6 +219,7 @@ async def test_run_verification_blocking_failure(test_workspace: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_run_verification_degrading_failure(test_workspace: Path) -> None:
+    """Verifica o comportamento de run verification degrading failure."""
     gate = QualityGateSpec(
         id="advisory_gate",
         name="Advisory Gate",
@@ -227,6 +240,7 @@ async def test_run_verification_degrading_failure(test_workspace: Path) -> None:
 async def test_corrupted_profile_fail_closed(
     test_workspace: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Verifica o comportamento de corrupted profile fail closed."""
     monkeypatch.setattr(
         "backend.services.verification.profile_store._profiles_dir",
         lambda: tmp_path / "profiles",
@@ -248,6 +262,7 @@ async def test_corrupted_profile_fail_closed(
 def test_save_verification_profile_atomic(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verifica o comportamento de save verification profile atomic."""
     monkeypatch.setattr(
         "backend.services.verification.profile_store._profiles_dir",
         lambda: tmp_path / "profiles",
@@ -267,6 +282,7 @@ def test_save_verification_profile_atomic(
 async def test_run_verification_target_gate_missing_fails(
     test_workspace: Path,
 ) -> None:
+    """Verifica o comportamento de run verification target gate missing fails."""
     profile = WorkspaceVerificationProfile(
         workspace_id="test_ws",
         enabled=True,

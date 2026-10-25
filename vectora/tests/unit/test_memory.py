@@ -29,6 +29,7 @@ class TestUserIdFromCtx:
     """_user_id_from_ctx deve priorizar user_id autenticado."""
 
     def test_returns_user_namespace_when_user_id_present(self) -> None:
+        """Verifica o comportamento de returns user namespace when user id present."""
         from backend.tools.memory import _user_id_from_ctx
 
         ctx = ToolContext(user_id="abc123", thread_id="t1")
@@ -36,6 +37,7 @@ class TestUserIdFromCtx:
         assert result == "abc123"
 
     def test_returns_workspace_namespace_when_no_user_id(self) -> None:
+        """Verifica o comportamento de returns workspace namespace when no user id."""
         from backend.tools.memory import _user_id_from_ctx
 
         ctx = ToolContext(workspace_id="ws1", thread_id="t1")
@@ -43,6 +45,7 @@ class TestUserIdFromCtx:
         assert result == "workspace_ws1"
 
     def test_workspace_takes_precedence_over_thread_when_no_user(self) -> None:
+        """Verifica o comportamento de workspace takes precedence over thread when no user."""
         from backend.tools.memory import _user_id_from_ctx
 
         ctx = ToolContext(workspace_id="ws1", thread_id="t1")  # sem user_id
@@ -58,6 +61,7 @@ class TestUserIdFromCtx:
         assert result == "user_abc"
 
     def test_returns_session_namespace_when_only_thread_id(self) -> None:
+        """Verifica o comportamento de returns session namespace when only thread id."""
         from backend.tools.memory import _user_id_from_ctx
 
         ctx = ToolContext(thread_id="thread-xyz")
@@ -65,6 +69,7 @@ class TestUserIdFromCtx:
         assert result == "session_thread-xyz"
 
     def test_returns_default_when_ctx_is_bare(self) -> None:
+        """Verifica o comportamento de returns default when ctx is bare."""
         from backend.tools.memory import _user_id_from_ctx
 
         result = _user_id_from_ctx(ToolContext())
@@ -89,22 +94,26 @@ class TestMemoryHandlerExists:
     """src/api/handlers/memory.py deve existir com os endpoints esperados."""
 
     def test_memory_handler_module_exists(self) -> None:
+        """Verifica o comportamento de memory handler module exists."""
         import backend.api.handlers.memory as mem_mod
 
         assert mem_mod is not None
 
     def test_router_exists(self) -> None:
+        """Verifica o comportamento de router exists."""
         from backend.api.handlers.memory import router
 
         assert router is not None
 
     def test_list_memories_route_registered(self) -> None:
+        """Verifica o comportamento de list memories route registered."""
         from backend.api.handlers.memory import router
 
         routes = [r.path for r in router.routes]  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
         assert any("/memory" in r for r in routes)
 
     def test_delete_memory_route_registered(self) -> None:
+        """Verifica o comportamento de delete memory route registered."""
         from backend.api.handlers.memory import router
 
         routes = [r.path for r in router.routes]  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
@@ -120,6 +129,7 @@ class TestNamespaceIsolation:
     """Namespaces user:, workspace_, session_ são distintos e não se sobrepõem."""
 
     def test_user_namespace_not_equal_to_session_namespace(self) -> None:
+        """Verifica o comportamento de user namespace not equal to session namespace."""
         from backend.tools.memory import _user_id_from_ctx
 
         user_ns = _user_id_from_ctx(ToolContext(user_id="u1", thread_id="t1"))
@@ -128,6 +138,7 @@ class TestNamespaceIsolation:
         assert user_ns != session_ns
 
     def test_user_namespace_not_equal_to_workspace_namespace(self) -> None:
+        """Verifica o comportamento de user namespace not equal to workspace namespace."""
         from backend.tools.memory import _user_id_from_ctx
 
         user_ns = _user_id_from_ctx(ToolContext(user_id="u1", workspace_id="ws1"))
@@ -136,6 +147,7 @@ class TestNamespaceIsolation:
         assert user_ns != workspace_ns
 
     def test_different_users_have_different_namespaces(self) -> None:
+        """Verifica o comportamento de different users have different namespaces."""
         from backend.tools.memory import _user_id_from_ctx
 
         ns_a = _user_id_from_ctx(ToolContext(user_id="alice"))
@@ -181,10 +193,12 @@ class TestGetStore:
 
 @pytest.fixture
 def store(monkeypatch):
+    """Executa a operação store."""
     real_store = NativeInMemoryStore()
     monkeypatch.setattr("backend.tools.memory._get_store", lambda ctx: real_store)
 
     async def _fake_agent_store() -> NativeInMemoryStore:
+        """Executa a operação  fake agent store."""
         return real_store
 
     monkeypatch.setattr("backend.services.agent_factory.get_store", _fake_agent_store)
@@ -195,6 +209,7 @@ class TestSaveMemoryCategory:
     async def test_ttl_persiste_valid_until_e_rejeita_valor_invalido(
         self, store
     ) -> None:
+        """Verifica o comportamento de ttl persiste valid until e rejeita valor invalido."""
         from backend.tools.memory import get_memory, save_memory
 
         ctx = ToolContext(user_id="u1")
@@ -217,6 +232,7 @@ class TestSaveMemoryCategory:
         )
 
     async def test_memoria_expirada_nao_aparece_e_e_removida(self, store) -> None:
+        """Verifica o comportamento de memoria expirada nao aparece e e removida."""
         from backend.tools.memory import get_memory
 
         ctx = ToolContext(user_id="u1")
@@ -233,6 +249,7 @@ class TestSaveMemoryCategory:
         assert await store.aget(("user", "u1", "memories"), "expired") is None
 
     async def test_category_e_persistida_e_volta_no_get(self, store) -> None:
+        """Verifica o comportamento de category e persistida e volta no get."""
         from backend.tools.memory import get_memory, save_memory
 
         ctx = ToolContext(user_id="u1")
@@ -280,6 +297,7 @@ class TestSaveMemoryCategory:
         assert item is None
 
     async def test_listar_todas_inclui_category_de_cada_uma(self, store) -> None:
+        """Verifica o comportamento de listar todas inclui category de cada uma."""
         from backend.tools.memory import get_memory, save_memory
 
         ctx = ToolContext(user_id="u1")
@@ -301,6 +319,7 @@ class TestListFactContents:
     nativo), por isso usa `agent_factory.get_store()` em vez disso."""
 
     async def test_retorna_conteudo_de_todos_os_fatos_do_usuario(self, store) -> None:
+        """Verifica o comportamento de retorna conteudo de todos os fatos do usuario."""
         from backend.tools.memory import list_fact_contents, save_memory
 
         ctx = ToolContext(user_id="u1")
@@ -312,6 +331,7 @@ class TestListFactContents:
         assert sorted(result) == ["Fato A", "Fato B"]
 
     async def test_usuario_sem_nenhum_fato_retorna_lista_vazia(self, store) -> None:
+        """Verifica o comportamento de usuario sem nenhum fato retorna lista vazia."""
         from backend.tools.memory import list_fact_contents
 
         result = await list_fact_contents("usuario-novo")
@@ -319,6 +339,7 @@ class TestListFactContents:
         assert result == []
 
     async def test_nao_retorna_fatos_expirados(self, store) -> None:
+        """Verifica o comportamento de nao retorna fatos expirados."""
         from backend.tools.memory import list_fact_contents
 
         await store.aput(
@@ -344,6 +365,7 @@ class TestListFactContents:
         from backend.tools.memory import list_fact_contents
 
         def _boom() -> None:
+            """Executa a operação  boom."""
             raise RuntimeError("Called get_config outside of a runnable context")
 
         monkeypatch.setattr("backend.tools.memory._get_store", _boom)
@@ -351,6 +373,7 @@ class TestListFactContents:
         real_store = NativeInMemoryStore()
 
         async def _fake_agent_store() -> NativeInMemoryStore:
+            """Executa a operação  fake agent store."""
             return real_store
 
         monkeypatch.setattr(

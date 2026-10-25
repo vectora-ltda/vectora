@@ -50,6 +50,7 @@ class BackupPreview:
 
 
 def _digest(data: bytes) -> str:
+    """Executa a operação  digest."""
     return hashlib.sha256(data).hexdigest()
 
 
@@ -61,12 +62,14 @@ def _workspace_path(database: Path) -> Path:
 
 
 def _sessions_path(database: Path) -> Path:
+    """Executa a operação  sessions path."""
     if database.parent.name == "data":
         return database.parent.parent / "sessions.db"
     return database.parent / "sessions.db"
 
 
 def _artifacts_root(database: Path) -> Path:
+    """Executa a operação  artifacts root."""
     return (
         database.parent.parent / "artifacts"
         if database.parent.name == "data"
@@ -75,6 +78,7 @@ def _artifacts_root(database: Path) -> Path:
 
 
 def _artifact_entries(database: Path) -> list[tuple[str, bytes]]:
+    """Executa a operação  artifact entries."""
     root = _artifacts_root(database)
     if root.is_symlink() or not root.is_dir():
         return []
@@ -145,6 +149,7 @@ def _sqlite_snapshot(database: Path) -> bytes:
 
 
 def _count_category(category: str, data: bytes) -> int:  # noqa: PLR0911
+    """Executa a operação  count category."""
     if category == "workspaces":
         try:
             parsed = json.loads(data)
@@ -203,6 +208,7 @@ def _count_sqlite_rows(data: bytes, table: str) -> int:
 
 
 def _validate_relative(path: str) -> None:
+    """Executa a operação  validate relative."""
     candidate = Path(path)
     if (
         not path
@@ -215,6 +221,7 @@ def _validate_relative(path: str) -> None:
 
 
 def _manifest_files(manifest: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    """Executa a operação  manifest files."""
     raw_files = manifest.get("files")
     if not isinstance(raw_files, dict):
         raise ValueError("manifesto sem arquivos")
@@ -378,6 +385,7 @@ def _assert_safe_destination(path: Path) -> None:
 
 
 def _atomic_write(destination: Path, data: bytes) -> None:
+    """Executa a operação  atomic write."""
     _assert_safe_destination(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as handle:

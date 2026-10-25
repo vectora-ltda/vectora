@@ -11,6 +11,7 @@ from backend.services.storage_maintenance import run_storage_maintenance
 
 
 def _old_artifact(path: Path) -> None:
+    """Executa a operação  old artifact."""
     path.write_text("old", encoding="utf-8")
     timestamp = (datetime.now(UTC) - timedelta(days=60)).timestamp()
     import os
@@ -22,6 +23,7 @@ def _old_artifact(path: Path) -> None:
 
 
 async def test_maintenance_runs_sqlite_pragmas_and_dry_run_gc(tmp_path: Path) -> None:
+    """Verifica o comportamento de maintenance runs sqlite pragmas and dry run gc."""
     database = tmp_path / "data" / "vectora.db"
     database.parent.mkdir()
     async with aiosqlite.connect(database) as connection:
@@ -44,6 +46,7 @@ async def test_maintenance_runs_sqlite_pragmas_and_dry_run_gc(tmp_path: Path) ->
 
 
 async def test_maintenance_runs_incremental_vacuum_when_enabled(tmp_path: Path) -> None:
+    """Verifica o comportamento de maintenance runs incremental vacuum when enabled."""
     database = tmp_path / "vectora.db"
     async with aiosqlite.connect(database) as connection:
         await connection.execute("PRAGMA auto_vacuum=INCREMENTAL")
@@ -58,6 +61,7 @@ async def test_maintenance_runs_incremental_vacuum_when_enabled(tmp_path: Path) 
 async def test_maintenance_cancellation_stops_artifact_worker(
     tmp_path: Path, monkeypatch
 ) -> None:
+    """Verifica o comportamento de maintenance cancellation stops artifact worker."""
     import backend.services.storage_maintenance as maintenance_module
     from backend.services.artifact_retention import ArtifactGcResult
 
@@ -65,6 +69,7 @@ async def test_maintenance_cancellation_stops_artifact_worker(
     stopped = threading.Event()
 
     def slow_collect(*args, stop_event=None, **kwargs):
+        """Executa a operação slow collect."""
         started.set()
         while stop_event is None or not stop_event.is_set():
             time.sleep(0.005)

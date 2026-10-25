@@ -35,6 +35,7 @@ def client(monkeypatch, store):
     os.environ["VECTORA_AUTH_REQUIRED"] = "false"
 
     async def _fake_get_store():
+        """Executa a operação  fake get store."""
         return store
 
     monkeypatch.setattr("backend.services.agent_factory.get_store", _fake_get_store)
@@ -70,6 +71,7 @@ class TestMemoryList:
         assert any(m["key"] == "test1" for m in data["memories"])
 
     def test_list_hides_expired_items(self, client, store) -> None:
+        """Verifica o comportamento de list hides expired items."""
         import asyncio
 
         asyncio.run(
@@ -84,6 +86,7 @@ class TestMemoryList:
         assert resp.json()["total"] == 0
 
     def test_get_expired_item_returns_not_found(self, client, store) -> None:
+        """Verifica o comportamento de get expired item returns not found."""
         import asyncio
 
         asyncio.run(
@@ -96,6 +99,7 @@ class TestMemoryList:
         assert client.get("/memory/old").status_code == 404
 
     def test_journey_hides_expired_fact(self, client, store) -> None:
+        """Verifica o comportamento de journey hides expired fact."""
         import asyncio
 
         asyncio.run(
@@ -206,6 +210,7 @@ class TestMemorySharedStoreWithAgent:
     async def test_memory_saved_via_agent_tool_appears_in_api(
         self, client, store, monkeypatch
     ):
+        """Verifica o comportamento de memory saved via agent tool appears in api."""
         from backend.tools.context import ToolContext
         from backend.tools.memory import save_memory
 
@@ -225,6 +230,7 @@ class TestMemorySharedStoreWithAgent:
     async def test_memory_created_via_api_is_visible_to_agent_tool(
         self, client, store, monkeypatch
     ):
+        """Verifica o comportamento de memory created via api is visible to agent tool."""
         from backend.tools.context import ToolContext
         from backend.tools.memory import get_memory
 
@@ -243,6 +249,7 @@ class TestJourney:
     def test_usuario_sem_nada_aprendido_retorna_listas_vazias(
         self, client, monkeypatch
     ):
+        """Verifica o comportamento de usuario sem nada aprendido retorna listas vazias."""
         monkeypatch.setattr("backend.workspace.skills.list_skills", lambda _u: [])
 
         resp = client.get("/memory/journey")
@@ -255,6 +262,7 @@ class TestJourney:
     def test_lista_fatos_user_model_e_skills_do_learning_loop(
         self, client, monkeypatch
     ):
+        """Verifica o comportamento de lista fatos user model e skills do learning loop."""
         from backend.vtypes.skill import Skill
 
         client.post(
@@ -306,7 +314,10 @@ class TestJourney:
     def test_falha_ao_listar_skills_nao_derruba_o_painel(
         self, client, monkeypatch
     ) -> None:
+        """Verifica o comportamento de falha ao listar skills nao derruba o painel."""
+
         def _explode(_u):
+            """Executa a operação  explode."""
             raise OSError("índice de skills corrompido")
 
         monkeypatch.setattr("backend.workspace.skills.list_skills", _explode)

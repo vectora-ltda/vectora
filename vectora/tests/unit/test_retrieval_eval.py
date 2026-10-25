@@ -10,15 +10,18 @@ from backend.services.retrieval_eval import (
 
 
 def test_recall_at_k_ignora_resultados_fora_da_janela() -> None:
+    """Verifica o comportamento de recall at k ignora resultados fora da janela."""
     assert recall_at_k(["a", "b", "c"], ["b", "c"], 2) == pytest.approx(0.5)
 
 
 def test_reciprocal_rank_retorna_primeiro_relevante() -> None:
+    """Verifica o comportamento de reciprocal rank retorna primeiro relevante."""
     assert reciprocal_rank(["x", "b", "a"], ["a", "b"]) == pytest.approx(0.5)
     assert reciprocal_rank(["x"], ["a"]) == 0.0
 
 
 def test_evaluate_retrieval_agrega_casos() -> None:
+    """Verifica o comportamento de evaluate retrieval agrega casos."""
     result = evaluate_retrieval(
         [
             {"query": "auth", "relevant_ids": ["a"], "retrieved_ids": ["a"]},
@@ -34,5 +37,6 @@ def test_evaluate_retrieval_agrega_casos() -> None:
 
 
 def test_evaluate_retrieval_rejeita_k_invalido() -> None:
+    """Verifica o comportamento de evaluate retrieval rejeita k invalido."""
     with pytest.raises(ValueError, match="positive"):
         evaluate_retrieval([], k=0)

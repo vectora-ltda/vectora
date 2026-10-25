@@ -41,6 +41,7 @@ class GraphResult:
 
 
 def _graph_out_dir(workspace_path: Path) -> Path:
+    """Executa a operação  graph out dir."""
     return workspace_path / _GRAPH_DIR
 
 
@@ -138,6 +139,7 @@ async def build_workspace_graph(
         *,
         files_list: list[str] | None = None,
     ) -> None:
+        """Executa a operação  progress."""
         if on_progress is not None:
             on_progress(step, 9, label, files_done, _files_total, files_list)
 
