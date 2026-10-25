@@ -59,6 +59,7 @@ NOTIFIABLE_EVENT_TYPES: frozenset[str] = frozenset(
 
 
 def _now() -> str:
+    """Executa a operação now."""
     return datetime.now(UTC).isoformat()
 
 
@@ -112,42 +113,51 @@ class RunDraft(BaseModel):
 
 
 def make_message_created_key(message_id: int | str) -> str:
+    """Executa a operação make message created key."""
     return f"message_created:{message_id}"
 
 
 def make_tool_started_key(run_id: str, tool_call_id: str) -> str:
+    """Executa a operação make tool started key."""
     return f"tool_started:{run_id}:{tool_call_id}"
 
 
 def make_tool_finished_key(run_id: str, tool_call_id: str) -> str:
+    """Executa a operação make tool finished key."""
     return f"tool_finished:{run_id}:{tool_call_id}"
 
 
 def make_agent_turn_started_key(run_id: str, turn_id: str | None = None) -> str:
+    """Executa a operação make agent turn started key."""
     if turn_id:
         return f"agent_turn_started:{run_id}:{turn_id}"
     return f"agent_turn_started:{run_id}"
 
 
 def make_agent_turn_finished_key(run_id: str, turn_id: str | None = None) -> str:
+    """Executa a operação make agent turn finished key."""
     if turn_id:
         return f"agent_turn_finished:{run_id}:{turn_id}"
     return f"agent_turn_finished:{run_id}"
 
 
 def make_approval_requested_key(interrupt_id: str) -> str:
+    """Executa a operação make approval requested key."""
     return f"approval_requested:{interrupt_id}"
 
 
 def make_approval_resolved_key(interrupt_id: str) -> str:
+    """Executa a operação make approval resolved key."""
     return f"approval_resolved:{interrupt_id}"
 
 
 def make_run_failed_key(run_id: str) -> str:
+    """Executa a operação make run failed key."""
     return f"run_failed:{run_id}"
 
 
 def make_run_completed_key(run_id: str) -> str:
+    """Executa a operação make run completed key."""
     return f"run_completed:{run_id}"
 
 

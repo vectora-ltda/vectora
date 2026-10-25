@@ -798,7 +798,7 @@ class UsernameAvailableResponse(BaseModel):
     # Forma canônica do que foi consultado (minúsculas, sem acento).
     normalized: str
     available: bool
-    # Sugestão livre quando o consultado está em uso (ex.: "bruno_4821");
+    # Sugestão livre quando o consultado está em uso (ex.: "bruno-4821");
     # igual a `normalized` quando já está livre.
     suggestion: str
 
@@ -943,7 +943,7 @@ class EnvOverrideRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Contratos de AgentRun
+# Contratos persistentes de execução do agente.
 # ---------------------------------------------------------------------------
 from backend.persistence.native.agent_run import (
     AgentRun,

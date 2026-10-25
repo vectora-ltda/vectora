@@ -1200,8 +1200,8 @@ async def run_conversation(  # noqa: PLR0911
             ctx=ctx,
             turn_budget=turn_budget,
             on_event=on_event,
-            policy_snapshot=policy_snapshot,
             on_tool_started=_record_tool_started,
+            policy_snapshot=policy_snapshot,
         )
         for resultado in resultados:
             parent_id = await session_store.append_message(
