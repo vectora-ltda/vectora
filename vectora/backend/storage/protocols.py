@@ -21,10 +21,12 @@ from backend.vtypes.storage import HealthResult
 
 
 def _ok() -> HealthResult:
+    """Executa a operação ok."""
     return {"ok": True, "error": None}
 
 
 def _err(msg: str) -> HealthResult:
+    """Executa a operação err."""
     return {"ok": False, "error": msg}
 
 
