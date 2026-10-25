@@ -10869,6 +10869,7 @@
     },
     "/api/tools/schema": {
       "get": {
+        "description": "Executa a operação tools schema.",
         "operationId": "tools_schema_api_tools_schema_get",
         "responses": {
           "200": {
@@ -12333,6 +12334,7 @@
     },
     "/boards": {
       "get": {
+        "description": "Executa a operação get boards.",
         "operationId": "get_boards_boards_get",
         "responses": {
           "200": {
@@ -12354,6 +12356,7 @@
         "tags": ["boards"]
       },
       "post": {
+        "description": "Executa a operação post board.",
         "operationId": "post_board_boards_post",
         "requestBody": {
           "content": {
@@ -12393,6 +12396,7 @@
     },
     "/boards/{board_id}": {
       "delete": {
+        "description": "Executa a operação delete board endpoint.",
         "operationId": "delete_board_endpoint_boards__board_id__delete",
         "parameters": [
           {
@@ -12424,6 +12428,7 @@
         "tags": ["boards"]
       },
       "patch": {
+        "description": "Executa a operação patch board.",
         "operationId": "patch_board_boards__board_id__patch",
         "parameters": [
           {
@@ -12671,6 +12676,7 @@
     },
     "/health": {
       "get": {
+        "description": "Executa a operação health.",
         "operationId": "health_health_get",
         "responses": {
           "200": {
@@ -13713,6 +13719,7 @@
     },
     "/metrics": {
       "get": {
+        "description": "Executa a operação metrics.",
         "operationId": "metrics_metrics_get",
         "responses": {
           "200": {

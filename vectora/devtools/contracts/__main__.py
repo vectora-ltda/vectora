@@ -40,6 +40,31 @@ def _contract_baseline_ref() -> str:
     return "origin/release/0.3"
 
 
+def _baseline_contains_contracts(repo_root: Path, baseline_ref: str) -> bool:
+    """Return whether a baseline commit already has the contract tree.
+
+    The contracts are introduced by the first contracts PR, so its release
+    baseline legitimately has no ``backend/contracts`` directory yet.  A
+    missing directory is an initialization case; once the tree exists, a
+    missing generated file remains an actionable baseline error.
+    """
+    result = subprocess.run(  # nosec B603, B607  # noqa: S603
+        [  # noqa: S607
+            "git",
+            "ls-tree",
+            "-d",
+            "--name-only",
+            baseline_ref,
+            "backend/contracts",
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return result.returncode == 0 and result.stdout.strip() == "backend/contracts"
+
+
 def export_http(contracts_dir: Path) -> None:
     """Exporta o schema OpenAPI e o inventário de rotas."""
     _setup_isolation_env()
@@ -676,6 +701,14 @@ def check_all(contracts_dir: Path) -> int:
         "CONTRACT_BASELINE_SHA: "
         f"{baseline_sha or 'unavailable (compatibility checks skipped)'}"
     )
+    baseline_has_contracts = bool(baseline_sha) and _baseline_contains_contracts(
+        repo_root, baseline_ref
+    )
+    if not baseline_has_contracts:
+        print(
+            "INFO: baseline sem backend/contracts; compatibilidade será inicializada "
+            "sem comparação histórica."
+        )
 
     with tempfile.TemporaryDirectory() as tmp_str:
         temp_dir = Path(tmp_str)
@@ -745,6 +778,8 @@ def check_all(contracts_dir: Path) -> int:
 
             # Se for schema OpenAPI ou SSE, executa check_schema_compatibility
             baseline_data: dict[str, Any] | None = None
+            if baseline_sha and not baseline_has_contracts:
+                continue
             try:
                 if rel.is_absolute() or ".." in rel.parts:
                     print(f"WARNING: caminho de baseline inválido: {rel}")
