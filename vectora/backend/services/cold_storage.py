@@ -135,6 +135,18 @@ def export_cold_archive(
         stream.flush()
         os.fsync(stream.fileno())
     manifest_tmp.replace(manifest_path)
+    # The manifest is the publication point for the archive.  Persist the
+    # directory entry as well so a crash cannot expose the archive without its
+    # integrity metadata.
+    try:
+        directory_fd = os.open(destination_root, os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except OSError:
+        if os.name != "nt":
+            raise
     return ColdArchive(
         thread_id=safe_id,
         path=final_path,

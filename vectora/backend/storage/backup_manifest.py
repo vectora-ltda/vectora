@@ -80,7 +80,11 @@ def _artifacts_root(database: Path) -> Path:
 def _artifact_entries(database: Path) -> list[tuple[str, bytes]]:
     """Executa a operação  artifact entries."""
     root = _artifacts_root(database)
-    if root.is_symlink() or not root.is_dir():
+    # Apply the same confinement check used by restore destinations before
+    # traversing the directory.  A symlinked artifacts root could otherwise
+    # make a backup read files outside the Vectora data tree.
+    _assert_safe_destination(root)
+    if not root.is_dir():
         return []
     entries: list[tuple[str, bytes]] = []
     for path in sorted(root.rglob("*")):

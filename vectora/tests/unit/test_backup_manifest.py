@@ -115,6 +115,24 @@ def test_rejeita_symlink_em_entrada_do_backup(tmp_path: Path) -> None:
         inspect_backup(archive)
 
 
+def test_artifacts_root_symlink_is_rejected_before_reading(tmp_path: Path) -> None:
+    """Não percorre um diretório de artifacts apontado para fora do storage."""
+    database = tmp_path / "data" / "vectora.db"
+    database.parent.mkdir()
+    database.write_bytes(b"sqlite-placeholder")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    try:
+        (database.parent.parent / "artifacts").symlink_to(
+            outside, target_is_directory=True
+        )
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink não disponível neste ambiente")
+
+    with pytest.raises(ValueError, match="symlink"):
+        backup_module._artifact_entries(database)
+
+
 def test_restore_respeita_destino_customizado_e_selecao_vazia(tmp_path: Path) -> None:
     """Verifica o comportamento de restore respeita destino customizado e selecao vazia."""
     database = tmp_path / "vectora.db"
