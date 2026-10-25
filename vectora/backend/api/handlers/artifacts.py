@@ -192,8 +192,7 @@ def _media_artifacts(base: Path, session_id: str) -> list[ArtifactMetadata]:
     for path in files:
         try:
             stat = path.stat()
-            digest = _sha256_file(path)
-        except (OSError, ValueError):
+        except OSError:
             continue
         found.append(
             ArtifactMetadata(
@@ -206,7 +205,9 @@ def _media_artifacts(base: Path, session_id: str) -> list[ArtifactMetadata]:
                 # decodificar bytes, que encheria a lista de lixo.
                 content_preview=None,
                 byte_size=stat.st_size,
-                sha256=digest,
+                # Mídia não possui sidecar de integridade; listar não deve
+                # reabrir e hashear payloads potencialmente grandes.
+                sha256="",
                 retention_class="run",
             )
         )

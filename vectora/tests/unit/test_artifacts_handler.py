@@ -324,6 +324,8 @@ class TestMediaNaListagem:
         # bytes, que encheria a lista de lixo.
         media = [a for a in out.artifacts if a.artifact_type == "media"]
         assert all(a.content_preview is None for a in media)
+        # Listagem de mídia não deve reabrir e hashear payloads binários.
+        assert all(a.sha256 == "" for a in media)
 
     @pytest.mark.asyncio
     async def test_sessao_sem_media_nao_quebra(self, monkeypatch, tmp_path):
