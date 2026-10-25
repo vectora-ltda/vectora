@@ -27,6 +27,7 @@ class ReplayChatClient(ChatClient):
     """ChatClient determinístico que reproduz sequencialmente interações salvas por cursor posicional."""
 
     def __init__(self, cassette: Cassette, *, fallback_on_missing: bool = False):
+        """Inicializa o estado da instância."""
         self.cassette = cassette
         self.fallback_on_missing = fallback_on_missing
         self._interaction_cursor = 0
@@ -95,6 +96,7 @@ class ReplayChatClient(ChatClient):
         return None
 
     def _interaction_to_vmessage(self, item: CassetteInteraction) -> VMessage:
+        """Executa a operação interaction to vmessage."""
         content_blocks: list[ContentBlock] = []
         if item.response_text:
             content_blocks.append(ContentBlock(kind="text", text=item.response_text))

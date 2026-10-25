@@ -18,6 +18,7 @@ from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 
 async def _replay_suite(cassette: Cassette) -> list[JsonObject]:
+    """Executa a operação replay suite."""
     client = ReplayChatClient(cassette)
     results: list[JsonObject] = []
     for idx, interaction in enumerate(cassette.interactions):
@@ -51,6 +52,7 @@ async def _replay_suite(cassette: Cassette) -> list[JsonObject]:
 
 
 def _handle_compare(args: argparse.Namespace) -> int:
+    """Executa a operação handle compare."""
     baseline_path = getattr(args, "baseline", None)
     candidate_path = getattr(args, "candidate", None)
     if not baseline_path or not candidate_path:
@@ -84,6 +86,7 @@ def _handle_compare(args: argparse.Namespace) -> int:
 
 
 def _handle_run(args: argparse.Namespace) -> int:
+    """Executa a operação handle run."""
     suite_path = getattr(args, "suite", None)
     if not suite_path:
         print(

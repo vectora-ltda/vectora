@@ -15,6 +15,7 @@ from backend.vtypes.message import MessageRole, text_message
 
 
 def test_cassette_save_and_load_with_redaction(tmp_path: Path):
+    """Verifica o comportamento de cassette save and load with redaction."""
     target = tmp_path / "test_cassette.json"
     cassette = Cassette(
         cassette_id="cas-001",
@@ -50,6 +51,7 @@ def test_cassette_save_and_load_with_redaction(tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_replay_chat_client():
+    """Verifica o comportamento de replay chat client."""
     cassette = Cassette(
         cassette_id="cas-replay",
         interactions=[
@@ -85,6 +87,7 @@ async def test_replay_chat_client():
 
 @pytest.mark.asyncio
 async def test_replay_chat_client_rejects_different_history() -> None:
+    """Verifica o comportamento de replay chat client rejects different history."""
     cassette = Cassette(
         cassette_id="cas-history",
         interactions=[
@@ -102,6 +105,7 @@ async def test_replay_chat_client_rejects_different_history() -> None:
 
 @pytest.mark.asyncio
 async def test_replay_chat_client_accepts_native_usage_keys() -> None:
+    """Verifica o comportamento de replay chat client accepts native usage keys."""
     cassette = Cassette(
         cassette_id="cas-usage",
         interactions=[
@@ -122,6 +126,7 @@ async def test_replay_chat_client_accepts_native_usage_keys() -> None:
 
 
 def test_compare_cassettes():
+    """Verifica o comportamento de compare cassettes."""
     b_cassette = Cassette(
         cassette_id="baseline",
         interactions=[
@@ -159,6 +164,7 @@ def test_compare_cassettes():
 
 
 def test_compare_cassettes_unequal_lengths():
+    """Verifica o comportamento de compare cassettes unequal lengths."""
     b_cassette = Cassette(
         cassette_id="base",
         interactions=[
@@ -203,6 +209,7 @@ def test_compare_cassettes_unequal_lengths():
 
 
 def test_total_tokens_helper():
+    """Verifica o comportamento de total tokens helper."""
     assert _total_tokens({}) == 0
     assert _total_tokens({"total": 120}) == 120
     assert _total_tokens({"total_tokens": 150}) == 150
@@ -210,6 +217,7 @@ def test_total_tokens_helper():
 
 
 def test_cli_eval_compare(tmp_path: Path, capsys):
+    """Verifica o comportamento de cli eval compare."""
     b_path = tmp_path / "base.json"
     c_path = tmp_path / "cand.json"
     Cassette(cassette_id="base").save(b_path)
@@ -228,6 +236,7 @@ def test_cli_eval_compare(tmp_path: Path, capsys):
 
 
 def test_cli_eval_run(tmp_path: Path, capsys):
+    """Verifica o comportamento de cli eval run."""
     suite_path = tmp_path / "suite.json"
     cassette = Cassette(
         cassette_id="my-suite",
@@ -267,6 +276,7 @@ def test_cli_eval_run(tmp_path: Path, capsys):
 
 
 def test_cli_eval_missing_suite(capsys):
+    """Verifica o comportamento de cli eval missing suite."""
     args = argparse.Namespace(
         action="run",
         suite=None,
@@ -279,6 +289,7 @@ def test_cli_eval_missing_suite(capsys):
 
 
 def test_cli_eval_corrupted_file(tmp_path: Path, capsys):
+    """Verifica o comportamento de cli eval corrupted file."""
     corrupt = tmp_path / "corrupt.json"
     corrupt.write_text("{bad json", encoding="utf-8")
 

@@ -134,6 +134,7 @@ def _install_terminal_signals(server: Any, icon_ref: list[Any]) -> None:
     shutdown_started = False
 
     def _shutdown(_signum: int, _frame: Any) -> None:
+        """Executa a operação shutdown."""
         nonlocal shutdown_started
         if shutdown_started:
             return
@@ -173,6 +174,7 @@ def _disable_uvicorn_signal_capture(server: Any) -> None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Executa a operação build parser."""
     from backend.version import __version__
 
     parser = argparse.ArgumentParser(
@@ -214,6 +216,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", metavar="subcommand")
 
     def add_marketplace_parser(resource: str, help_text: str) -> None:
+        """Executa a operação add marketplace parser."""
         resource_parser = sub.add_parser(resource, help=help_text)
         resource_parser.set_defaults(command=resource, resource=resource)
         resource_sub = resource_parser.add_subparsers(dest="action", required=True)
@@ -730,6 +733,7 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
         from backend.services.electron_sidecar import set_backend_shutdown_callback
 
         def _shutdown_from_electron() -> None:
+            """Executa a operação shutdown from electron."""
             logger.info("Vectora: Electron encerrou — iniciando shutdown coordenado")
             server.should_exit = True
             shutdown_event = _SHUTDOWN_EVENTS.get(id(server))
@@ -750,6 +754,7 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
         print(f"{PIPE_ENV_VAR}={_pipe}", flush=True)
 
         async def _run_win() -> None:
+            """Executa a operação run win."""
             shutdown_event = asyncio.Event()
             _SHUTDOWN_EVENTS[id(server)] = shutdown_event
             pipe_task = asyncio.create_task(serve_pipe(_pipe, "127.0.0.1", port))
@@ -759,6 +764,7 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
                 # Se ele continuar aceitando clientes depois do Ctrl+C, o
                 # Electron mantém tentativas TCP vivas enquanto o uvicorn já
                 # está fechando, atrasando o retorno ao terminal.
+                """Executa a operação stop pipe on shutdown."""
                 await shutdown_event.wait()
                 pipe_task.cancel()
 
@@ -823,48 +829,56 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
 
 
 def _run_config_command(args: argparse.Namespace) -> None:
+    """Executa a operação run config command."""
     from backend.cli.config import run_config
 
     run_config(args)
 
 
 def _run_sessions_command(_args: argparse.Namespace) -> None:
+    """Executa a operação run sessions command."""
     from backend.cli.sessions import run_sessions
 
     run_sessions()
 
 
 def _run_storage_command(args: argparse.Namespace) -> None:
+    """Executa a operação run storage command."""
     from backend.cli.storage import run_storage
 
     run_storage(args)
 
 
 def _run_doctor_command(args: argparse.Namespace) -> None:
+    """Executa a operação run doctor command."""
     from backend.cli.doctor import run_doctor
 
     run_doctor(args)
 
 
 def _run_run_task_command(args: argparse.Namespace) -> None:
+    """Executa a operação run run task command."""
     from backend.cli.run_task import run_run_task
 
     run_run_task(args)
 
 
 def _run_marketplace_command(args: argparse.Namespace) -> None:
+    """Executa a operação run marketplace command."""
     from backend.cli.marketplace import run_marketplace
 
     run_marketplace(args)
 
 
 def _run_media_command(args: argparse.Namespace) -> None:
+    """Executa a operação run media command."""
     from backend.cli.media import run_media
 
     run_media(args)
 
 
 def _run_auth_command(args: argparse.Namespace) -> None:
+    """Executa a operação run auth command."""
     from backend.auth import (
         cmd_login,
         cmd_logout,
@@ -893,6 +907,7 @@ def _run_auth_command(args: argparse.Namespace) -> None:
 
 
 def _run_eval_command(args: argparse.Namespace) -> None:
+    """Executa a operação run eval command."""
     from backend.cli.eval import handle_eval
 
     sys.exit(handle_eval(args))

@@ -51,6 +51,7 @@ class VerificationResult:
 
 
 def _matches_any_pattern(file_path: str, patterns: list[str]) -> bool:
+    """Executa a operação matches any pattern."""
     if not patterns:
         return True
     norm_path = file_path.replace("\\", "/")
@@ -95,6 +96,7 @@ async def _execute_single_gate(
     output_buffer = bytearray()
 
     async def _read_stream(stream: asyncio.StreamReader) -> None:
+        """Executa a operação read stream."""
         while True:
             chunk = await stream.read(4096)
             if not chunk:

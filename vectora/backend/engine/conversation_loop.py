@@ -123,7 +123,8 @@ class LoopResult:
 
 
 async def _noop_event(_event: object) -> None:
-    return None
+    """Executa a operação noop event."""
+    return
 
 
 async def _safe_update_agent_run_status(
@@ -332,6 +333,7 @@ async def run_conversation(
     # usuário autenticado. O marcador é refeito a cada execução para impedir
     # que um contexto reidratado ou argumento de tool carregue uma isenção
     # não confirmada.
+    """Executa a operação run conversation."""
     from backend.services.media_billing import apply_media_billing_source
     from backend.services.policy_compiler import compile_policy_snapshot
 
@@ -1328,12 +1330,14 @@ async def resume_conversation(
         args: dict[str, Any] | None = None,
         policy_snapshot: PolicySnapshot | None = None,
     ) -> VMessage:
+        """Executa a operação execute resume tool."""
         call = replace(tc, args=args) if args is not None else tc
         call_id = call.id or f"{resume_run_id or thread_id}:tool:{uuid4().hex}"
         call = replace(call, id=call_id)
         sanitized = _sanitize_tool_call(call, ctx)
 
         async def record(event_type: str, payload: dict[str, Any]) -> None:
+            """Executa a operação record."""
             if not resume_run_id:
                 return
             try:

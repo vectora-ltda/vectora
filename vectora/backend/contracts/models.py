@@ -297,6 +297,7 @@ class QualityGateSpec(BaseModel):
     @field_validator("command")
     @classmethod
     def validate_command_non_empty(cls, v: list[str]) -> list[str]:
+        """Executa a operação validate command non empty."""
         if not v or not any(part.strip() for part in v):
             raise ValueError("command deve conter pelo menos um executável não vazio")
         return v

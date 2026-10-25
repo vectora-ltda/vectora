@@ -13,6 +13,7 @@ from backend.vtypes import JsonObject
 
 
 def _now_iso() -> str:
+    """Executa a operação now iso."""
     return datetime.now(UTC).isoformat()
 
 

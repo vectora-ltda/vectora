@@ -19,10 +19,12 @@ logger = logging.getLogger(__name__)
 
 
 def _profiles_dir() -> Path:
+    """Executa a operação profiles dir."""
     return settings.vectora_home / "verification"
 
 
 def _profile_path(workspace_id: str) -> Path:
+    """Executa a operação profile path."""
     safe_id = (workspace_id or "default").replace("/", "_").replace("\\", "_")
     return _profiles_dir() / f"{safe_id}.json"
 
