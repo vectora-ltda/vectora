@@ -29,6 +29,7 @@ class CorrelationMiddleware(BaseHTTPMiddleware):
         self, request: Request, call_next: RequestResponseEndpoint
     ) -> Response:
         # Resolve ou gera Correlation ID e Request ID validados
+        """Executa a operação dispatch."""
         correlation_id = _resolve_id(request.headers.get("X-Correlation-ID"))
         request_id = _resolve_id(request.headers.get("X-Request-ID"))
 

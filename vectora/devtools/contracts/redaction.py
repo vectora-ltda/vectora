@@ -60,6 +60,7 @@ _SENSITIVE_KEYS = {
 
 
 def _is_sensitive_key(key: str) -> bool:
+    """Executa a operação is sensitive key."""
     normalized = re.sub(r"[^a-z0-9]", "", key.lower())
     exact = {re.sub(r"[^a-z0-9]", "", item.lower()) for item in _SENSITIVE_KEYS}
     if normalized in exact:

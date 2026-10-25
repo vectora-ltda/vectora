@@ -15,6 +15,7 @@ from backend.contracts.models import (
 
 
 def test_quality_gate_spec_and_profile_instantiation() -> None:
+    """Verifica o comportamento de quality gate spec and profile instantiation."""
     gate_pytest = QualityGateSpec(
         id="pytest",
         name="Unit Tests",
@@ -39,6 +40,7 @@ def test_quality_gate_spec_and_profile_instantiation() -> None:
 
 
 def test_quality_gates_schema_file_matches_models() -> None:
+    """Verifica o comportamento de quality gates schema file matches models."""
     schema_file = (
         Path(__file__).resolve().parents[3]
         / "backend"
@@ -56,6 +58,7 @@ def test_quality_gates_schema_file_matches_models() -> None:
 
 
 def test_quality_gate_run_result_serialization() -> None:
+    """Verifica o comportamento de quality gate run result serialization."""
     result = QualityGateRunResult(
         gate_id="ruff",
         passed=False,
@@ -77,6 +80,7 @@ def test_quality_gate_run_result_serialization() -> None:
 
 
 def test_quality_gate_policy_literals() -> None:
+    """Verifica o comportamento de quality gate policy literals."""
     valid_policies: list[QualityGatePolicy] = ["block", "degrade", "inform"]
     for pol in valid_policies:
         gate = QualityGateSpec(
@@ -110,6 +114,7 @@ def test_quality_gates_bundle_all_refs_resolve() -> None:
     schema_json = json.loads(schema_file.read_text(encoding="utf-8"))
 
     def _resolve_pointer(root: dict, pointer: str) -> dict:
+        """Executa a operação resolve pointer."""
         assert pointer.startswith("#/"), f"Referência externa não suportada: {pointer}"
         parts = pointer[2:].split("/")
         curr = root
@@ -121,6 +126,7 @@ def test_quality_gates_bundle_all_refs_resolve() -> None:
     refs_found: list[str] = []
 
     def _find_refs(obj: object) -> None:
+        """Executa a operação find refs."""
         if isinstance(obj, dict):
             if "$ref" in obj:
                 ref = str(obj["$ref"])

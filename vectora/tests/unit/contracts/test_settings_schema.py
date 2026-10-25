@@ -16,6 +16,7 @@ from backend.contracts.models import (
 
 
 def test_user_settings_v1_defaults() -> None:
+    """Verifica o comportamento de user settings v1 defaults."""
     settings = UserSettingsV1()
     assert settings.schema_url == "vectora://schemas/settings/v1.json"
     assert settings.version == 1
@@ -26,6 +27,7 @@ def test_user_settings_v1_defaults() -> None:
 
 
 def test_user_settings_v1_schema_file_matches_model() -> None:
+    """Verifica o comportamento de user settings v1 schema file matches model."""
     schema_file = (
         Path(__file__).resolve().parents[3]
         / "backend"
@@ -49,6 +51,7 @@ def test_user_settings_v1_schema_file_matches_model() -> None:
 
 
 def test_user_settings_v1_serialization_roundtrip() -> None:
+    """Verifica o comportamento de user settings v1 serialization roundtrip."""
     custom = UserSettingsV1(
         locale=LocaleSettings(language="en", timezone="UTC"),
         appearance=AppearanceSettings(theme="light", sidebarPosition="right"),
@@ -69,6 +72,7 @@ def test_user_settings_v1_serialization_roundtrip() -> None:
 
 
 def test_user_settings_v1_validation_rejects_invalid_values() -> None:
+    """Verifica o comportamento de user settings v1 validation rejects invalid values."""
     with pytest.raises(ValidationError):
         UserSettingsV1(editor=EditorSettings(fontSize=4))  # fontSize ge=8
 
