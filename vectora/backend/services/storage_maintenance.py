@@ -73,6 +73,15 @@ async def run_storage_maintenance(
             logger.warning(
                 "storage maintenance: failed to purge expired records", exc_info=True
             )
+        try:
+            from backend.services.memory_store import get_memory_store
+
+            get_memory_store().expire()
+        except Exception:
+            logger.warning(
+                "storage maintenance: failed to expire context memories",
+                exc_info=True,
+            )
 
         root = (
             Path(artifact_root)
