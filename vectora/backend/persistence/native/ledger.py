@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from backend.storage.sqlite.pool import AsyncConnectionPool
@@ -294,7 +297,16 @@ async def backfill_thread_ledger(
                 )
                 await conn.commit()
             except Exception:
-                pass
+                # A failure while recording the diagnostic state must not hide
+                # the original backfill error.  Roll back the reused
+                # connection and keep the original exception as the one raised
+                # to the caller.
+                with contextlib.suppress(Exception):
+                    await conn.rollback()
+                logger.exception(
+                    "ledger backfill: failed to persist failure state for %s",
+                    thread_id,
+                )
             raise
 
 
