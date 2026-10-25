@@ -32,6 +32,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
 def test_defaults_env_contem_urls_da_stack() -> None:
+    """Verifica o comportamento de defaults env contem urls da stack."""
     defaults = (REPO_ROOT / "backend" / "defaults.env").read_text(encoding="utf-8")
     assert f"POSTGRES_DSN={DEFAULT_POSTGRES_DSN}" in defaults
     assert f"REDIS_URL={DEFAULT_REDIS_URL}" in defaults
@@ -51,6 +52,7 @@ def test_nenhum_servico_sem_credencial() -> None:
 
 
 def test_portas_publicadas_apenas_em_localhost() -> None:
+    """Verifica o comportamento de portas publicadas apenas em localhost."""
     for spec in SERVICES:
         for port in spec.ports:
             assert port.startswith("127.0.0.1:"), (
@@ -60,6 +62,7 @@ def test_portas_publicadas_apenas_em_localhost() -> None:
 
 def test_settings_carregam_defaults_de_infra(monkeypatch: pytest.MonkeyPatch) -> None:
     # Sem env explícito, os defaults embarcados devem preencher os campos.
+    """Verifica o comportamento de settings carregam defaults de infra."""
     for key in ("POSTGRES_DSN", "REDIS_URL", "QDRANT_URL", "QDRANT_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     from backend.settings import Settings
@@ -85,6 +88,7 @@ def test_specs_usam_imagens_compativeis_com_compose() -> None:
 
 
 def test_connection_urls_mapeia_constantes() -> None:
+    """Verifica o comportamento de connection urls mapeia constantes."""
     urls = connection_urls()
     assert urls == {
         "POSTGRES_DSN": DEFAULT_POSTGRES_DSN,
@@ -136,6 +140,7 @@ def test_connection_defaults_url_redis_tem_senha() -> None:
 
 def _redis_password_from_url(url: str) -> str:
     # redis://:<senha>@host:porta/db
+    """Executa a operação redis password from url."""
     return url.split("://:", 1)[1].split("@", 1)[0]
 
 
@@ -166,6 +171,7 @@ def test_compose_qdrant_define_api_key_dos_defaults() -> None:
 
 
 def test_docker_run_cmd_postgres() -> None:
+    """Verifica o comportamento de docker run cmd postgres."""
     spec = next(s for s in SERVICES if s.name == "vectora-postgres")
     cmd = docker_run_cmd(spec)
     assert cmd[:3] == ["docker", "run", "-d"]
@@ -176,6 +182,7 @@ def test_docker_run_cmd_postgres() -> None:
 
 
 def test_docker_run_cmd_redis_inclui_command() -> None:
+    """Verifica o comportamento de docker run cmd redis inclui command."""
     spec = next(s for s in SERVICES if s.name == "vectora-redis")
     cmd = docker_run_cmd(spec)
     image_idx = cmd.index("redis:7-alpine")
@@ -193,6 +200,7 @@ def test_docker_run_cmd_redis_inclui_command() -> None:
 
 
 def test_parser_aceita_storage_up_down() -> None:
+    """Verifica o comportamento de parser aceita storage up down."""
     from backend.main import _build_parser
 
     parser = _build_parser()
@@ -216,6 +224,8 @@ def test_container_matches_spec_quando_cmd_igual(
     redis = next(s for s in SERVICES if s.name == "vectora-redis")
 
     def _fake_run(cmd: list[str]):
+        """Executa a operação fake run."""
+
         class _P:
             returncode = 0
             stdout = json.dumps(
@@ -256,6 +266,8 @@ def test_container_nao_bate_quando_falta_requirepass(
     legacy_cmd = ["redis-server", "--appendonly", "yes"]  # sem --requirepass
 
     def _fake_run(cmd: list[str]):
+        """Executa a operação fake run."""
+
         class _P:
             returncode = 0
             stdout = json.dumps(
@@ -291,6 +303,8 @@ def test_container_sem_porta_publicada_e_variavel_obrigatoria_recria(
     qdrant = next(s for s in SERVICES if s.name == "vectora-qdrant")
 
     def _fake_run(cmd: list[str]):
+        """Executa a operação fake run."""
+
         class _P:
             returncode = 0
             stdout = json.dumps(
@@ -323,6 +337,8 @@ def test_container_matches_spec_rejeita_env_incompleto(
     qdrant = next(s for s in SERVICES if s.name == "vectora-qdrant")
 
     def _fake_run(cmd: list[str]):
+        """Executa a operação fake run."""
+
         class _P:
             returncode = 0
             stdout = json.dumps(
@@ -358,6 +374,8 @@ def test_container_matches_spec_inspect_falha_recria(
     redis = next(s for s in SERVICES if s.name == "vectora-redis")
 
     def _fake_run(cmd: list[str]):
+        """Executa a operação fake run."""
+
         class _P:
             returncode = 1
             stdout = ""
@@ -375,6 +393,7 @@ def test_container_matches_spec_inspect_falha_recria(
 
 @pytest.fixture
 def _reset_singletons(_no_nats_sidecar):
+    """Executa a operação reset singletons."""
     from backend.persistence.kv import reset_kv, reset_reachable_cache
     from backend.scheduling.mq import reset_mq
 
@@ -391,6 +410,7 @@ def _reset_singletons(_no_nats_sidecar):
 async def test_get_kv_cai_para_memoria_com_redis_inacessivel(
     monkeypatch: pytest.MonkeyPatch, _reset_singletons
 ) -> None:
+    """Verifica o comportamento de get kv cai para memoria com redis inacessivel."""
     from backend.persistence.kv import MemoryKV, get_kv
     from backend.settings import settings
 
@@ -403,6 +423,7 @@ async def test_get_kv_cai_para_memoria_com_redis_inacessivel(
 async def test_get_mq_cai_para_memoria_com_redis_inacessivel(
     monkeypatch: pytest.MonkeyPatch, _reset_singletons
 ) -> None:
+    """Verifica o comportamento de get mq cai para memoria com redis inacessivel."""
     from backend.scheduling.mq import MemoryMQ, get_mq
     from backend.settings import settings
 
@@ -411,6 +432,7 @@ async def test_get_mq_cai_para_memoria_com_redis_inacessivel(
 
 
 def test_redis_reachable_cacheia_resultado(_reset_singletons) -> None:
+    """Verifica o comportamento de redis reachable cacheia resultado."""
     from backend.persistence import kv
 
     assert kv.redis_reachable("redis://127.0.0.1:9/0", timeout=0.1) is False

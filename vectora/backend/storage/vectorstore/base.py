@@ -24,6 +24,7 @@ class VectorStoreHealth(BaseModel):
     internal: bool | None = None
 
     def __getitem__(self, item: str) -> object:
+        """Executa a operação getitem."""
         if not hasattr(self, item):
             raise KeyError(item)
         val = getattr(self, item)
@@ -32,6 +33,7 @@ class VectorStoreHealth(BaseModel):
         return val
 
     def __contains__(self, item: object) -> bool:
+        """Executa a operação contains."""
         if not isinstance(item, str):
             return False
         return hasattr(self, item) and (
@@ -39,6 +41,7 @@ class VectorStoreHealth(BaseModel):
         )
 
     def get(self, item: str, default: object = None) -> object:
+        """Executa a operação get."""
         if item in self:
             return getattr(self, item)
         return default

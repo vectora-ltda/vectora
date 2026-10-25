@@ -42,6 +42,7 @@ class QdrantBackend:
     """`storage_mode="complete"` — servidor Qdrant real."""
 
     def __init__(self, url: str, api_key: str | None = None):
+        """Inicializa o estado da instância."""
         self._url = url
         self._api_key = api_key
         self._client: AsyncQdrantClient | None = None
@@ -49,11 +50,13 @@ class QdrantBackend:
 
     @property
     def delete_lock(self) -> asyncio.Lock:
+        """Executa a operação delete lock."""
         if self._delete_lock is None:
             self._delete_lock = asyncio.Lock()
         return self._delete_lock
 
     def _get_client(self) -> AsyncQdrantClient:
+        """Executa a operação get client."""
         if self._client is None:
             self._client = AsyncQdrantClient(
                 url=self._url, api_key=self._api_key, timeout=_TIMEOUT_S
@@ -61,6 +64,7 @@ class QdrantBackend:
         return self._client
 
     async def _ensure_collection(self, collection: str, dim: int) -> None:
+        """Executa a operação ensure collection."""
         client = self._get_client()
         async with asyncio.timeout(_TIMEOUT_S):
             exists = await client.collection_exists(collection)
@@ -78,6 +82,7 @@ class QdrantBackend:
     async def search(
         self, collection: str, query_vector: list[float], limit: int
     ) -> list[VectorHit]:
+        """Executa a operação search."""
         client = self._get_client()
         try:
             async with asyncio.timeout(_TIMEOUT_S):
@@ -122,6 +127,7 @@ class QdrantBackend:
     async def search_text(
         self, collection: str, query: str, limit: int
     ) -> list[VectorHit]:
+        """Executa a operação search text."""
         client = self._get_client()
         try:
             async with asyncio.timeout(_TIMEOUT_S):
@@ -183,6 +189,7 @@ class QdrantBackend:
         query_terms = [t for t in query.lower().split() if t]
 
         def _term_overlap(text: str) -> int:
+            """Executa a operação term overlap."""
             lowered = text.lower()
             return sum(lowered.count(term) for term in query_terms)
 
@@ -207,6 +214,7 @@ class QdrantBackend:
         return hits
 
     async def upsert(self, collection: str, rows: list[VectorRow]) -> None:
+        """Executa a operação upsert."""
         if not rows:
             return
         await self._ensure_collection(collection, len(rows[0].vector))
@@ -227,6 +235,7 @@ class QdrantBackend:
             await client.upsert(collection_name=collection, points=points)
 
     async def list_rows(self, collection: str) -> list[VectorRow]:
+        """Executa a operação list rows."""
         client = self._get_client()
         try:
             async with asyncio.timeout(_TIMEOUT_S):
@@ -266,6 +275,7 @@ class QdrantBackend:
         return rows
 
     async def delete(self, collection: str, ids: list[str]) -> int:
+        """Executa a operação delete."""
         if not ids:
             return 0
         client = self._get_client()
@@ -319,6 +329,7 @@ class QdrantBackend:
                 return 0
 
     async def purge(self, collection: str) -> None:
+        """Executa a operação purge."""
         client = self._get_client()
         try:
             async with asyncio.timeout(_TIMEOUT_S):
@@ -327,6 +338,7 @@ class QdrantBackend:
             pass  # coleção já não existe — purge é idempotente
 
     async def list_collections(self) -> list[str]:
+        """Executa a operação list collections."""
         client = self._get_client()
         try:
             async with asyncio.timeout(_TIMEOUT_S):
@@ -337,6 +349,7 @@ class QdrantBackend:
         return [c.name for c in response.collections]
 
     async def count(self, collection: str) -> int | None:
+        """Executa a operação count."""
         client = self._get_client()
         try:
             async with asyncio.timeout(_TIMEOUT_S):
