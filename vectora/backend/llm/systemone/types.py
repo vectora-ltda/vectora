@@ -48,6 +48,7 @@ class NoulQuestion(BaseQuestion):
 
     @model_validator(mode="after")
     def validate_criteria(self) -> NoulQuestion:
+        """Executa a operação validate criteria."""
         if self.criteria is not None and set(self.criteria) != {"true", "false"}:
             raise ValueError("Critérios Noul devem conter exatamente true e false.")
         return self
@@ -69,6 +70,7 @@ class ChoiceQuestion(BaseQuestion):
 
     @model_validator(mode="after")
     def validate_options_unique(self) -> ChoiceQuestion:
+        """Executa a operação validate options unique."""
         if len(self.options) != len(set(self.options)):
             raise ValueError("As opções de uma ChoiceQuestion devem ser únicas.")
         for opt in self.options:
@@ -97,6 +99,7 @@ class ScoreQuestion(BaseQuestion):
 
     @model_validator(mode="after")
     def validate_score_bounds(self) -> ScoreQuestion:
+        """Executa a operação validate score bounds."""
         if not math.isfinite(self.min_score) or not math.isfinite(self.max_score):
             raise ValueError("Limites de score devem ser números finitos.")
         if self.min_score >= self.max_score:
@@ -137,6 +140,7 @@ class NoulAnswer(BaseAnswer):
 
     @model_validator(mode="after")
     def validate_finite(self) -> NoulAnswer:
+        """Executa a operação validate finite."""
         if not math.isfinite(self.probability):
             raise ValueError("A probabilidade Noul deve ser um número finito.")
         return self
@@ -158,6 +162,7 @@ class ChoiceAnswer(BaseAnswer):
 
     @model_validator(mode="after")
     def validate_distribution(self) -> ChoiceAnswer:
+        """Executa a operação validate distribution."""
         if self.distribution is not None:
             for opt, prob in self.distribution.items():
                 if not math.isfinite(prob) or prob < 0.0 or prob > 1.0:
@@ -188,6 +193,7 @@ class ScoreAnswer(BaseAnswer):
 
     @model_validator(mode="after")
     def validate_finite_and_bounds(self) -> ScoreAnswer:
+        """Executa a operação validate finite and bounds."""
         if not math.isfinite(self.score):
             raise ValueError("O score deve ser um número finito.")
         if self.min_score is not None and self.score < self.min_score:

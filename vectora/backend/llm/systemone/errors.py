@@ -9,6 +9,7 @@ class SystemOneError(Exception):
     def __init__(
         self, message: str, *, provider: str | None = None, is_retryable: bool = False
     ) -> None:
+        """Inicializa o estado da instância."""
         super().__init__(message)
         self.message = message
         self.provider = provider
@@ -19,6 +20,7 @@ class SystemOneConnectionError(SystemOneError):
     """Falha de conectividade ou rede com o provedor (geralmente transitória)."""
 
     def __init__(self, message: str, *, provider: str | None = None) -> None:
+        """Inicializa o estado da instância."""
         super().__init__(message, provider=provider, is_retryable=True)
 
 
@@ -26,6 +28,7 @@ class SystemOneTimeoutError(SystemOneError):
     """A requisição excedeu o tempo limite configurado para o modelo de decisão."""
 
     def __init__(self, message: str, *, provider: str | None = None) -> None:
+        """Inicializa o estado da instância."""
         super().__init__(message, provider=provider, is_retryable=True)
 
 
@@ -33,6 +36,7 @@ class SystemOneAuthenticationError(SystemOneError):
     """Falha de autenticação (chave inválida ou ausente, 401/403)."""
 
     def __init__(self, message: str, *, provider: str | None = None) -> None:
+        """Inicializa o estado da instância."""
         super().__init__(message, provider=provider, is_retryable=False)
 
 
@@ -46,6 +50,7 @@ class SystemOneRateLimitError(SystemOneError):
         provider: str | None = None,
         retry_after: float | None = None,
     ) -> None:
+        """Inicializa o estado da instância."""
         super().__init__(message, provider=provider, is_retryable=True)
         self.retry_after = retry_after
 
@@ -54,6 +59,7 @@ class SystemOneValidationError(SystemOneError):
     """Resposta do modelo malformada, incompleta ou fora dos limites acordados (422/Schema)."""
 
     def __init__(self, message: str, *, provider: str | None = None) -> None:
+        """Inicializa o estado da instância."""
         super().__init__(message, provider=provider, is_retryable=False)
 
 
@@ -61,4 +67,5 @@ class SystemOneCapabilityError(SystemOneError):
     """A requisição solicitou uma capacidade não suportada pelo runtime/provedor."""
 
     def __init__(self, message: str, *, provider: str | None = None) -> None:
+        """Inicializa o estado da instância."""
         super().__init__(message, provider=provider, is_retryable=False)

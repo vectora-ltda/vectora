@@ -311,6 +311,7 @@ def should_require_approval(
 
 
 def _risk_assessment_key(tool_name: str, args: dict[str, Any]) -> str:
+    """Executa a operação risk assessment key."""
     payload = json.dumps(args, sort_keys=True, default=str)
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return f"{tool_name}:{digest}"
@@ -421,6 +422,7 @@ class ApprovalGate:
     persistência síncrona é quem garante."""
 
     def __init__(self, session_store: SessionStore) -> None:
+        """Inicializa o estado da instância."""
         self._session_store = session_store
         self._events: dict[str, Any] = {}
         self._ephemeral_args: dict[str, dict[str, Any]] = {}
@@ -440,6 +442,7 @@ class ApprovalGate:
         expires_at: str | None = None,
         approval_metadata: dict[str, Any] | None = None,
     ) -> None:
+        """Executa a operação request approval."""
         import asyncio
 
         safe_args = dict(args)

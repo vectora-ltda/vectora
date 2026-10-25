@@ -50,6 +50,7 @@ class ClefLocalAdapter(SystemOneProvider):
         model: str | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
+        """Inicializa o estado da instância."""
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
         self._timeout = timeout
@@ -58,6 +59,7 @@ class ClefLocalAdapter(SystemOneProvider):
 
     @property
     def provider_id(self) -> str:
+        """Executa a operação provider id."""
         return "clef-local"
 
     async def aclose(self) -> None:

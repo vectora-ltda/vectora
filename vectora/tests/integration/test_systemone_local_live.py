@@ -42,6 +42,7 @@ class _ToolArgs(BaseModel):
 
 
 async def _read_fixture(**_: object) -> str:
+    """Executa a operação read fixture."""
     return "fixture"
 
 

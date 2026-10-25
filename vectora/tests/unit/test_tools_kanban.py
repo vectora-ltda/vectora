@@ -24,6 +24,7 @@ from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 
 def _fake_response(texto: str) -> VMessage:
+    """Executa a operação fake response."""
     return VMessage(
         role=MessageRole.ASSISTANT, content=[ContentBlock(kind="text", text=texto)]
     )
@@ -47,6 +48,7 @@ async def db(tmp_path, monkeypatch):
     import aiosqlite
 
     async def _connect() -> Any:
+        """Executa a operação connect."""
         conn: Any = await aiosqlite.connect(db_path)
         conn.row_factory = lambda c, r: dict(
             zip([col[0] for col in c.description], r, strict=False)
@@ -63,12 +65,14 @@ async def db(tmp_path, monkeypatch):
 
 
 def _ctx(session_id: str = "s1", user_id: str = "u1") -> ToolContext:
+    """Executa a operação ctx."""
     return ToolContext(thread_id=session_id, user_id=user_id)
 
 
 class TestKanbanCreate:
     @pytest.mark.asyncio
     async def test_cria_card_e_aparece_no_board(self, db):
+        """Verifica o comportamento de cria card e aparece no board."""
         from backend.tools.kanban import kanban_create
 
         out = json.loads(
@@ -108,6 +112,7 @@ class TestKanbanCreate:
 class TestKanbanUpdateStatus:
     @pytest.mark.asyncio
     async def test_move_card_para_status_valido(self, db):
+        """Verifica o comportamento de move card para status valido."""
         from backend.tools.kanban import kanban_create, kanban_update_status
 
         created = json.loads(
@@ -146,6 +151,7 @@ class TestKanbanUpdateStatus:
 
     @pytest.mark.asyncio
     async def test_status_blocked_passa_por_block_task_com_kind_tipado(self, db):
+        """Verifica o comportamento de status blocked passa por block task com kind tipado."""
         from backend.tools.kanban import kanban_create, kanban_update_status
 
         created = json.loads(
@@ -172,6 +178,7 @@ class TestKanbanUpdateStatus:
 class TestKanbanList:
     @pytest.mark.asyncio
     async def test_lista_cards_reais_da_sessao(self, db):
+        """Verifica o comportamento de lista cards reais da sessao."""
         from backend.tools.kanban import kanban_create, kanban_list
 
         await kanban_create(ctx=_ctx(), name="card 1", instruction="faça algo")
@@ -193,6 +200,7 @@ class TestKanbanList:
 
     @pytest.mark.asyncio
     async def test_filtra_por_status(self, db):
+        """Verifica o comportamento de filtra por status."""
         from backend.tools.kanban import (
             kanban_create,
             kanban_list,
@@ -212,6 +220,7 @@ class TestKanbanList:
 
     @pytest.mark.asyncio
     async def test_recusa_task_de_outra_sessao(self, db):
+        """Verifica o comportamento de recusa task de outra sessao."""
         from backend.tools.kanban import kanban_create, kanban_update_status
 
         created = json.loads(
@@ -234,6 +243,7 @@ class TestKanbanList:
 
     @pytest.mark.asyncio
     async def test_nao_permite_agente_forcar_running_ou_done(self, db):
+        """Verifica o comportamento de nao permite agente forcar running ou done."""
         from backend.tools.kanban import kanban_create, kanban_update_status
 
         created = json.loads(
@@ -255,6 +265,7 @@ class TestKanbanList:
     async def test_run_de_background_pode_atualizar_a_propria_task(
         self, db: str
     ) -> None:
+        """Verifica o comportamento de run de background pode atualizar a propria task."""
         from backend.tools.kanban import kanban_create, kanban_update_status
 
         created = json.loads(
@@ -284,6 +295,7 @@ class TestKanbanList:
     async def test_run_de_background_nao_pode_atualizar_outra_task(
         self, db: str
     ) -> None:
+        """Verifica o comportamento de run de background nao pode atualizar outra task."""
         from backend.tools.kanban import kanban_create, kanban_update_status
 
         created = json.loads(
@@ -310,6 +322,7 @@ class TestKanbanList:
     async def test_run_de_background_expirado_nao_pode_alterar_claim_retomado(
         self, db: str
     ) -> None:
+        """Verifica o comportamento de run de background expirado nao pode alterar claim retomado."""
         from backend.tools.kanban import kanban_create, kanban_update_status
 
         created = json.loads(
@@ -345,6 +358,7 @@ class TestKanbanList:
 
     @pytest.mark.asyncio
     async def test_resume_renova_claim_mesmo_ainda_valido(self, db: str) -> None:
+        """Verifica o comportamento de resume renova claim mesmo ainda valido."""
         from backend.tools.kanban import kanban_create
 
         created = json.loads(
@@ -388,6 +402,7 @@ class TestKanbanList:
     async def test_resume_recusa_ids_ausentes_ou_vazios(
         self, db: str, task_id: str | None, run_id: str | None
     ) -> None:
+        """Verifica o comportamento de resume recusa ids ausentes ou vazios."""
         assert not await kanban.ensure_task_claim(
             cast("str", task_id), cast("str", run_id)
         )
@@ -396,6 +411,7 @@ class TestKanbanList:
     async def test_write_de_background_recusa_claim_perdido_entre_precheck_e_update(
         self, db: str
     ) -> None:
+        """Verifica o comportamento de write de background recusa claim perdido entre precheck e update."""
         from backend.tools.kanban import kanban_create
 
         created = json.loads(
@@ -421,6 +437,7 @@ class TestKanbanList:
 
     @pytest.mark.asyncio
     async def test_ready_respeita_transicao_e_limpa_bloqueio(self, db: str) -> None:
+        """Verifica o comportamento de ready respeita transicao e limpa bloqueio."""
         from backend.tools.kanban import kanban_create, kanban_update_status
 
         created = json.loads(
@@ -447,6 +464,7 @@ class TestKanbanList:
 
     @pytest.mark.asyncio
     async def test_done_nao_pode_voltar_direto_para_ready(self, db: str) -> None:
+        """Verifica o comportamento de done nao pode voltar direto para ready."""
         from backend.tools.kanban import kanban_create, kanban_update_status
 
         created = json.loads(
@@ -467,6 +485,7 @@ class TestKanbanList:
     async def test_run_de_background_com_id_vazio_usa_sessao_normal(
         self, db: str
     ) -> None:
+        """Verifica o comportamento de run de background com id vazio usa sessao normal."""
         from backend.tools.kanban import kanban_create, kanban_update_status
 
         created = json.loads(
@@ -488,6 +507,7 @@ class TestKanbanList:
 class TestKanbanDecompose:
     @pytest.mark.asyncio
     async def test_decompoe_triage_em_children_com_dependencia(self, db):
+        """Verifica o comportamento de decompoe triage em children com dependencia."""
         from backend.tools.kanban import kanban_create, kanban_decompose
 
         created = json.loads(
@@ -600,6 +620,7 @@ class TestKanbanDecompose:
 
     @pytest.mark.asyncio
     async def test_task_fora_de_triage_retorna_erro_tipado_sem_chamar_llm(self, db):
+        """Verifica o comportamento de task fora de triage retorna erro tipado sem chamar llm."""
         from backend.tools.kanban import kanban_create, kanban_decompose
 
         created = json.loads(
