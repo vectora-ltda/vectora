@@ -100,6 +100,14 @@ async def test_dag_is_idempotent_and_resumes_after_expired_claim(tmp_path) -> No
         execution_row = await cursor.fetchone()
     assert execution_row is not None
     assert execution_row[0] == "passed"
+    async with db.execute(
+        "SELECT COUNT(*) FROM vectora_dag_events "
+        "WHERE execution_id=? AND event_type='execution_finished'",
+        (execution.execution_id,),
+    ) as cursor:
+        finished_events = await cursor.fetchone()
+    assert finished_events is not None and finished_events[0] == 1
+    assert await store.claim_ready_stage(execution.execution_id) is None
     with pytest.raises(DAGValidationError):
         await store.finish_stage(
             execution.execution_id, "final", claim_token="wrong", passed=True
@@ -142,4 +150,43 @@ async def test_dag_heartbeat_extends_lease_and_recovery_exhausts_attempts(
     ) as cursor:
         row = await cursor.fetchone()
     assert row is not None and row[0] == "failed"
+    assert await store.claim_ready_stage(execution.execution_id) is None
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_dag_failed_stage_finishes_execution_once(tmp_path) -> None:
+    db = await aiosqlite.connect(tmp_path / "dag-failure.db")
+    db.row_factory = aiosqlite.Row
+    store = DAGStore(db)
+    await store.setup()
+    plan_id, plan_hash = await store.create_plan(
+        run_id="run-failure", stages=[DAGStage("only", "Only")]
+    )
+    await store.approve_plan(plan_id, plan_hash=plan_hash, approver="user-1")
+    execution = await store.start_execution(
+        plan_id, run_id="run-failure", idempotency_key="failure"
+    )
+    claimed = await store.claim_ready_stage(execution.execution_id)
+    assert claimed is not None
+    await store.finish_stage(
+        execution.execution_id,
+        claimed[0],
+        claim_token=claimed[1],
+        passed=False,
+        error="boom",
+    )
+    async with db.execute(
+        "SELECT status FROM vectora_dag_executions WHERE execution_id=?",
+        (execution.execution_id,),
+    ) as cursor:
+        row = await cursor.fetchone()
+    assert row is not None and row[0] == "failed"
+    async with db.execute(
+        "SELECT COUNT(*) FROM vectora_dag_events "
+        "WHERE execution_id=? AND event_type='execution_finished'",
+        (execution.execution_id,),
+    ) as cursor:
+        events = await cursor.fetchone()
+    assert events is not None and events[0] == 1
     await db.close()

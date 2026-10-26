@@ -228,6 +228,13 @@ class DAGStore:
         if max_attempts <= 0:
             raise DAGValidationError("max_attempts deve ser positivo")
         async with self.db.execute(
+            "SELECT status FROM vectora_dag_executions WHERE execution_id=?",
+            (execution_id,),
+        ) as execution_cur:
+            execution = await execution_cur.fetchone()
+        if execution is None or execution[0] != "running":
+            return None
+        async with self.db.execute(
             "SELECT stage_id,depends_on_json,attempt FROM vectora_dag_stages WHERE execution_id=? AND status='pending' ORDER BY rowid",
             (execution_id,),
         ) as cur:
@@ -329,10 +336,17 @@ class DAGStore:
         execution_status = (
             "failed" if any(state == "failed" for state in statuses) else "passed"
         )
-        await self.db.execute(
+        cur = await self.db.execute(
             "UPDATE vectora_dag_executions SET status=? WHERE execution_id=? AND status='running'",
             (execution_status, execution_id),
         )
+        if cur.rowcount == 1:
+            await self._event(
+                execution_id,
+                None,
+                "execution_finished",
+                {"status": execution_status},
+            )
 
     async def recover_expired_claims(self, *, max_attempts: int = 3) -> int:
         if max_attempts <= 0:
