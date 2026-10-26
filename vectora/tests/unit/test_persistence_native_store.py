@@ -49,6 +49,28 @@ async def indexed_store(tmp_path):
 
 
 class TestPutGet:
+    async def test_purge_expired_pagina_por_chave_acima_de_um_lote(
+        self, store: VectoraStore
+    ) -> None:
+        """Expirados intercalados não fazem válidos sumirem nem repetem a página."""
+        namespace = ("user", "batch", "memories")
+        for index in range(240):
+            await store.aput(
+                namespace,
+                f"k-{index:03d}",
+                {
+                    "content": str(index),
+                    "valid_until": (
+                        "2000-01-01T00:00:00+00:00" if index % 2 == 0 else None
+                    ),
+                },
+            )
+
+        assert await store.purge_expired() == 120
+        remaining = await store.asearch(namespace, limit=300)
+        assert len(remaining) == 120
+        assert all(int(item.key[2:]) % 2 == 1 for item in remaining)
+
     async def test_purge_expired_remove_registros_fisicamente(
         self, store: VectoraStore
     ):

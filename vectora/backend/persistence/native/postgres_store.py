@@ -166,15 +166,22 @@ class VectoraPostgresStore:
         now = datetime.now(UTC)
         removed = 0
         async with self._pool.acquire() as conn:
-            offset = 0
+            last_key: tuple[str, str] | None = None
             while True:
-                rows = await conn.fetch(
-                    "SELECT namespace, key, value FROM vectora_store_items ORDER BY namespace, key LIMIT 200 OFFSET $1",
-                    offset,
-                )
+                if last_key is None:
+                    rows = await conn.fetch(
+                        "SELECT namespace, key, value FROM vectora_store_items "
+                        "ORDER BY namespace, key LIMIT 200"
+                    )
+                else:
+                    rows = await conn.fetch(
+                        "SELECT namespace, key, value FROM vectora_store_items "
+                        "WHERE (namespace, key) > ($1, $2) "
+                        "ORDER BY namespace, key LIMIT 200",
+                        *last_key,
+                    )
                 if not rows:
                     break
-                deleted = 0
                 for row in rows:
                     value = row["value"]
                     parsed = value
@@ -192,12 +199,8 @@ class VectoraPostgresStore:
                             row["key"],
                             value,
                         )
-                        deleted += int(result.rsplit(" ", 1)[-1])
-                removed += deleted
-                if deleted:
-                    offset = 0
-                else:
-                    offset += len(rows)
+                        removed += int(result.rsplit(" ", 1)[-1])
+                last_key = (str(rows[-1]["namespace"]), str(rows[-1]["key"]))
                 if len(rows) < 200:
                     break
         return removed

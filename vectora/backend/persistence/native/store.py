@@ -414,16 +414,28 @@ class VectoraStore:
         now = datetime.now(UTC)
         removed = 0
         async with self._pool.acquire() as conn:
-            offset = 0
+            last_key: tuple[str, str] | None = None
             while True:
-                cursor = await conn.execute(
-                    "SELECT namespace, key, value FROM store_items ORDER BY namespace, key LIMIT 200 OFFSET ?",
-                    (offset,),
+                if last_key is None:
+                    page_sql = (
+                        "SELECT namespace, key, value FROM store_items "
+                        "ORDER BY namespace, key LIMIT 200"
+                    )
+                    page_params: tuple[object, ...] = ()
+                else:
+                    page_sql = (
+                        "SELECT namespace, key, value FROM store_items "
+                        "WHERE (namespace, key) > (?, ?) "
+                        "ORDER BY namespace, key LIMIT 200"
+                    )
+                    page_params = last_key
+                page_cursor = await conn.execute(
+                    page_sql,
+                    page_params,
                 )
-                rows = list(await cursor.fetchall())
+                rows = list(await page_cursor.fetchall())
                 if not rows:
                     break
-                deleted = 0
                 for namespace, key, value_json in rows:
                     try:
                         value = json.loads(value_json)
@@ -434,12 +446,11 @@ class VectoraStore:
                             "DELETE FROM store_items WHERE namespace = ? AND key = ? AND value = ?",
                             (namespace, key, value_json),
                         )
-                        deleted += result.rowcount
-                removed += deleted
-                if deleted:
-                    offset = 0
-                else:
-                    offset += len(rows)
+                        removed += result.rowcount
+                # Commit each bounded batch so a long purge does not hold a
+                # write transaction or block concurrent memory writes.
+                await conn.commit()
+                last_key = (str(rows[-1][0]), str(rows[-1][1]))
                 if len(rows) < 200:
                     break
             await conn.commit()
