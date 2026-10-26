@@ -19,6 +19,12 @@ from backend.storage.backup_manifest import (
 )
 
 
+def test_manifest_rejeita_lista_vazia_fora_de_artifacts() -> None:
+    """Categorias de dados vazias não podem chegar ao restore como manifesto válido."""
+    with pytest.raises(ValueError, match="entrada de manifesto inválida"):
+        backup_module._manifest_files({"files": {"database": [], "artifacts": []}})
+
+
 def test_restore_rejeita_limite_agregado_antes_de_publicar(
     tmp_path: Path, monkeypatch
 ) -> None:
