@@ -205,8 +205,26 @@ async def backfill_thread_ledger(
             )
             row_bf = await cur_bf.fetchone()
             if row_bf and row_bf[0] == "done":
-                await conn.rollback()
-                return int(row_bf[1]), int(row_bf[2])
+                # Eventos live podem ter sido anexados depois do backfill.  O
+                # registro de controle guarda o último seq observado no
+                # momento da migração e não pode ser tratado como snapshot
+                # permanente do ledger.
+                cur_current = await conn.execute(
+                    "SELECT COALESCE(MAX(seq), 0) FROM thread_events "
+                    "WHERE thread_id = ?",
+                    (thread_id,),
+                )
+                row_current = await cur_current.fetchone()
+                current_seq = int(row_current[0]) if row_current else 0
+                if current_seq != int(row_bf[2]):
+                    await conn.execute(
+                        "UPDATE ledger_backfill SET last_seq = ? WHERE thread_id = ?",
+                        (current_seq, thread_id),
+                    )
+                    await conn.commit()
+                else:
+                    await conn.rollback()
+                return int(row_bf[1]), current_seq
 
             # Marcar como pending
             await conn.execute(
