@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.persistence.native.postgres_session_store import PostgresSessionStore
+from backend.persistence.native.agent_run import AgentRun
+from backend.persistence.native.postgres_session_store import (
+    PostgresSessionStore,
+    _RunEvidenceLockRegistry,
+)
 
 if TYPE_CHECKING:
     import asyncpg
@@ -15,35 +21,44 @@ if TYPE_CHECKING:
 
 class _AsyncContext:
     def __init__(self, value):
+        """Inicializa o estado da instância."""
         self.value = value
 
     async def __aenter__(self):
+        """Executa a operação aenter."""
         return self.value
 
     async def __aexit__(self, *_args):
+        """Executa a operação aexit."""
         return False
 
 
 class _Connection:
     def __init__(self, fetchval_results: list[object] | None = None):
+        """Inicializa o estado da instância."""
         self.fetchval_results = list(fetchval_results or [])
         self.fetchval = AsyncMock(side_effect=self.fetchval_results)
         self.fetch = AsyncMock()
+        self.fetchrow = AsyncMock()
         self.execute = AsyncMock()
 
     def transaction(self):
+        """Executa a operação transaction."""
         return _AsyncContext(None)
 
 
 class _Pool:
     def __init__(self, connection: _Connection):
+        """Inicializa o estado da instância."""
         self.connection = connection
 
     def acquire(self):
+        """Executa a operação acquire."""
         return _AsyncContext(self.connection)
 
 
 def _store(connection: _Connection) -> PostgresSessionStore:
+    """Executa a operação store."""
     pool = cast("asyncpg.Pool", _Pool(connection))
     store = PostgresSessionStore(pool)
     store.setup = AsyncMock()  # type: ignore[method-assign]
@@ -51,7 +66,39 @@ def _store(connection: _Connection) -> PostgresSessionStore:
 
 
 @pytest.mark.asyncio
+async def test_postgres_evidence_lock_keeps_entry_until_waiters_finish() -> None:
+    """Um waiter não pode observar um lock removido e criar uma segunda fila."""
+    registry = _RunEvidenceLockRegistry()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    waiter_entered = asyncio.Event()
+
+    async def first() -> None:
+        async with registry.acquire("run-1"):
+            entered.set()
+            await release.wait()
+
+    async def second() -> None:
+        await entered.wait()
+        async with registry.acquire("run-1"):
+            waiter_entered.set()
+
+    first_task = asyncio.create_task(first())
+    await entered.wait()
+    second_task = asyncio.create_task(second())
+    await asyncio.sleep(0)
+    assert len(registry) == 1
+    assert not waiter_entered.is_set()
+
+    release.set()
+    await asyncio.gather(first_task, second_task)
+    assert waiter_entered.is_set()
+    assert len(registry) == 0
+
+
+@pytest.mark.asyncio
 async def test_postgres_set_branch_head_serializa_thread_e_valida_ponta() -> None:
+    """Verifica o comportamento de postgres set branch head serializa thread e valida ponta."""
     conn = _Connection([1, 1])
     store = _store(conn)
 
@@ -65,6 +112,7 @@ async def test_postgres_set_branch_head_serializa_thread_e_valida_ponta() -> Non
 
 @pytest.mark.asyncio
 async def test_postgres_list_branch_heads_limita_e_inclui_contagem() -> None:
+    """Verifica o comportamento de postgres list branch heads limita e inclui contagem."""
     conn = _Connection()
     conn.fetch.return_value = [
         {
@@ -87,6 +135,7 @@ async def test_postgres_list_branch_heads_limita_e_inclui_contagem() -> None:
 
 @pytest.mark.asyncio
 async def test_postgres_compare_branches_separa_divergencias() -> None:
+    """Verifica o comportamento de postgres compare branches separa divergencias."""
     conn = _Connection([1])
     store = _store(conn)
     store.get_history_with_ids = AsyncMock(
@@ -106,3 +155,83 @@ async def test_postgres_compare_branches_separa_divergencias() -> None:
         "active_divergent_message_ids": [3],
         "selected_divergent_message_ids": [2],
     }
+
+
+@pytest.mark.asyncio
+async def test_postgres_agent_run_upsert_uses_for_update_and_preserves_untrusted_content() -> (
+    None
+):
+    """Verifica o comportamento de postgres agent run upsert uses for update and preserves untrusted content."""
+    conn = _Connection()
+    conn.fetchrow.return_value = {
+        "evidence_json": json.dumps([{"kind": "provenance", "untrusted_content": True}])
+    }
+    store = _store(conn)
+
+    run = AgentRun(
+        run_id="run-pg-1",
+        thread_id="t1",
+        status="waiting_approval",
+        untrusted_content=False,
+    )
+    await store.upsert_agent_run(run)
+
+    fetchrow_call = conn.fetchrow.await_args
+    assert fetchrow_call is not None
+    assert "FOR UPDATE" in fetchrow_call.args[0]
+
+    execute_call = conn.execute.await_args
+    assert execute_call is not None
+    evidence_saved = next(
+        json.loads(value)
+        for value in execute_call.args[1:]
+        if isinstance(value, str) and value.startswith("[{")
+    )
+    assert any(
+        isinstance(e, dict) and e.get("untrusted_content") is True
+        for e in evidence_saved
+    )
+
+
+@pytest.mark.asyncio
+async def test_postgres_get_and_list_agent_runs_derives_untrusted_content() -> None:
+    """Verifica o comportamento de postgres get and list agent runs derives untrusted content."""
+    conn = _Connection()
+    sample_row = {
+        "run_id": "run-pg-2",
+        "thread_id": "t1",
+        "turn_id": None,
+        "user_id": "u1",
+        "workspace_id": None,
+        "model": "gpt-4",
+        "provider": "openai",
+        "status": "passed",
+        "plan_step": None,
+        "tools_available_json": "[]",
+        "tools_used_json": "[]",
+        "approvals_json": "[]",
+        "files_touched_json": "[]",
+        "commands_run_json": "[]",
+        "tests_run_json": "[]",
+        "artifacts_json": "[]",
+        "metrics_json": "{}",
+        "evidence_json": json.dumps(
+            [{"kind": "provenance", "untrusted_content": True}]
+        ),
+        "detail": None,
+        "error_code": None,
+        "started_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+        "terminal_at": None,
+    }
+    conn.fetchrow.return_value = sample_row
+    conn.fetch.return_value = [sample_row]
+    store = _store(conn)
+
+    saved = await store.get_agent_run("run-pg-2")
+    assert saved is not None
+    assert saved.untrusted_content is True
+
+    listed = await store.list_agent_runs("t1")
+    assert len(listed) == 1
+    assert listed[0].untrusted_content is True

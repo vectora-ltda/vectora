@@ -1378,6 +1378,14 @@ async def resume_chat(
         """Executa a operação run."""
         run_ctx = ctx_from_config(config)
         run_ctx.store = await agent_factory.get_store()
+        if hasattr(session_store, "list_agent_runs"):
+            runs = await session_store.list_agent_runs(request.thread_id, limit=5)
+            paused_run = next(
+                (r for r in runs if r.status == "waiting_approval"),
+                runs[0] if runs else None,
+            )
+            if paused_run and paused_run.untrusted_content:
+                run_ctx._extra["untrusted_content"] = True
         resumed = await resume_conversation(
             session_store=session_store,
             tool_registry=effective_tool_registry,

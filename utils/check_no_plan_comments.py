@@ -58,12 +58,21 @@ _AI_TOOL_PATTERN: re.Pattern[str] = re.compile(
     r"(?i:\b(?:coderabbit(?:ai)?|claude(?:\s*code)?|chatgpt|copilot|codex)\b)(?!\.md)"
 )
 
-_PATTERN: re.Pattern[str] = re.compile(
-    f"{_PLAN_PATTERN.pattern}|{_AI_TOOL_PATTERN.pattern}"
+# Proíbe referências a rastreadores de tarefas, revisões abertas e automações de CI em comentários.
+_TRACKER_PATTERN: re.Pattern[str] = re.compile(
+    r"(?i:\b(?:issue|issues)\s*#?[1-9]\d*\b|#[1-9]\d*\b|\bpull\s+requests?(?:\s*#?[1-9]\d*)?\b|\b(?:pull\s*request|pr)\s*#?[1-9]\d*\b|https?://github\.com/[^\s/]+/[^\s/]+/(?:issues|pull)/[1-9]\d*|\bgha\b|\bgithub\s+actions\b)"
 )
+
+# Padrão único para metadados e comentários: planos artificiais,
+# ferramentas de IA e referências a rastreadores ou automações.
+_PR_METADATA_PATTERN: re.Pattern[str] = re.compile(
+    f"{_PLAN_PATTERN.pattern}|{_AI_TOOL_PATTERN.pattern}|{_TRACKER_PATTERN.pattern}"
+)
+_PATTERN: re.Pattern[str] = _PR_METADATA_PATTERN
 
 
 def _python_comments(text: str) -> list[tuple[int, str]]:
+    """Executa a operação python comments."""
     try:
         tokens = tokenize.generate_tokens(io.StringIO(text).readline)
         return [
@@ -165,6 +174,7 @@ def _js_comments(text: str) -> list[tuple[int, str]]:
 
 
 def _find_violations(path: str) -> list[tuple[int, str]]:
+    """Executa a operação find violations."""
     try:
         with open(path, encoding="utf-8", errors="replace") as f:
             text = f.read()
@@ -188,6 +198,7 @@ def _changed_diff_ref() -> str:
 
 
 def main(argv: list[str]) -> int:
+    """Executa a operação main."""
     if "--changed" in argv:
         try:
             result = subprocess.run(  # nosec B603, B607
@@ -230,11 +241,10 @@ def main(argv: list[str]) -> int:
             print(f"{path}:{lineno}: proveniência de processo em comentário: {comment}")
     if had_violation:
         print(
-            "\nComentários de código não referenciam Sprint/Bloco/Fase nem "
-            "ferramenta/revisor de IA (CodeRabbit, Claude, Copilot, etc). "
-            "Reescreva descrevendo só o estado atual do código — histórico de "
-            "planejamento/revisão vai em docs/, .claude/plans/ ou na mensagem "
-            "do commit."
+            "\nComentários de código não referenciam Sprint/Bloco/Fase, ferramentas de IA "
+            "(CodeRabbit, Claude, Copilot, etc), nem issues, PRs ou GitHub Actions (GHA). "
+            "Reescreva descrevendo apenas o que o código faz atualmente — histórico de "
+            "planejamento, issues e revisões mora em markdown, PR description ou na mensagem do commit."
         )
         return 1
     return 0

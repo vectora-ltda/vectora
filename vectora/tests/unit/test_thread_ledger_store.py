@@ -22,6 +22,7 @@ import pytest
 
 from backend.persistence.native.ledger import (
     ThreadLedgerEvent,
+    ensure_thread_backfilled,
     make_agent_turn_started_key,
     make_approval_requested_key,
     make_approval_resolved_key,
@@ -50,6 +51,21 @@ async def store(tmp_path: Path) -> AsyncGenerator[SessionStore]:
 
 
 class TestThreadLedgerStore:
+    async def test_ensure_thread_backfilled_ignores_unknown_thread(
+        self, store: SessionStore
+    ) -> None:
+        """IDs sem sessão não criam um registro de backfill órfão."""
+        assert await ensure_thread_backfilled(store._pool, "missing-thread") is False
+
+        async with store._pool.acquire() as conn:
+            row = await (
+                await conn.execute(
+                    "SELECT 1 FROM ledger_backfill WHERE thread_id = ?",
+                    ("missing-thread",),
+                )
+            ).fetchone()
+        assert row is None
+
     async def test_append_event_monotone_seq_and_idempotency(
         self, store: SessionStore
     ) -> None:

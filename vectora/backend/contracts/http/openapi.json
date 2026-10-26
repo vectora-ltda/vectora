@@ -181,6 +181,343 @@
         "title": "AgentProfileOut",
         "type": "object"
       },
+      "AgentRun": {
+        "description": "Contrato persistente único para execuções do agente.",
+        "properties": {
+          "approvals": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Approvals",
+            "type": "array"
+          },
+          "artifacts": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Artifacts",
+            "type": "array"
+          },
+          "checkpoint_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checkpoint Id"
+          },
+          "commands_run": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Commands Run",
+            "type": "array"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
+          "contract_version": {
+            "default": 1,
+            "title": "Contract Version",
+            "type": "integer"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "evidence": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "files_touched": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Files Touched",
+            "type": "array"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/AgentRunMetrics"
+          },
+          "model": {
+            "default": "",
+            "title": "Model",
+            "type": "string"
+          },
+          "parent_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Run Id"
+          },
+          "plan_step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Step"
+          },
+          "provider": {
+            "default": "",
+            "title": "Provider",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "started_at": {
+            "title": "Started At",
+            "type": "string"
+          },
+          "status": {
+            "default": "running",
+            "enum": [
+              "planned",
+              "admitted",
+              "running",
+              "waiting_approval",
+              "waiting_provider",
+              "tool_running",
+              "verifying",
+              "passed",
+              "degraded",
+              "failed",
+              "cancelled",
+              "recovery_required"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "terminal_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Terminal At"
+          },
+          "tests_run": {
+            "items": {
+              "additionalProperties": {
+                "$ref": "#/components/schemas/JsonValue"
+              },
+              "type": "object"
+            },
+            "title": "Tests Run",
+            "type": "array"
+          },
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "string"
+          },
+          "tools_available": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools Available",
+            "type": "array"
+          },
+          "tools_used": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools Used",
+            "type": "array"
+          },
+          "turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Turn Id"
+          },
+          "untrusted_content": {
+            "default": false,
+            "title": "Untrusted Content",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "user_id": {
+            "default": "",
+            "title": "User Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "required": ["run_id", "thread_id"],
+        "title": "AgentRun",
+        "type": "object"
+      },
+      "AgentRunMetrics": {
+        "description": "Métricas consolidadas de consumo e tempo de execução.",
+        "properties": {
+          "attempts": {
+            "default": 1,
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "cost_cents": {
+            "default": 0.0,
+            "title": "Cost Cents",
+            "type": "number"
+          },
+          "duration_ms": {
+            "default": 0,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "input_tokens": {
+            "default": 0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "default": 0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "retries": {
+            "default": 0,
+            "title": "Retries",
+            "type": "integer"
+          },
+          "total_tokens": {
+            "default": 0,
+            "title": "Total Tokens",
+            "type": "integer"
+          }
+        },
+        "title": "AgentRunMetrics",
+        "type": "object"
+      },
+      "AgentRunTimelineEntry": {
+        "description": "Entrada da linha do tempo da execução.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "event_key": {
+            "default": "",
+            "title": "Event Key",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Payload",
+            "type": "object"
+          },
+          "seq": {
+            "default": 0,
+            "title": "Seq",
+            "type": "integer"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type"],
+        "title": "AgentRunTimelineEntry",
+        "type": "object"
+      },
+      "AgentRunTimelineResponse": {
+        "description": "Timeline completa de eventos correlacionados à execução.",
+        "properties": {
+          "run": {
+            "$ref": "#/components/schemas/AgentRun"
+          },
+          "timeline": {
+            "items": {
+              "$ref": "#/components/schemas/AgentRunTimelineEntry"
+            },
+            "title": "Timeline",
+            "type": "array"
+          }
+        },
+        "required": ["run"],
+        "title": "AgentRunTimelineResponse",
+        "type": "object"
+      },
       "ApproveHooksRequest": {
         "properties": {
           "workspace_id": {
@@ -3721,6 +4058,7 @@
         "title": "JourneySkill",
         "type": "object"
       },
+      "JsonValue": {},
       "LaunchConfigModel": {
         "properties": {
           "env": {
@@ -5209,6 +5547,52 @@
         },
         "required": ["done", "total"],
         "title": "ProgressOut",
+        "type": "object"
+      },
+      "ProviderCapabilities": {
+        "description": "Capacidades declaradas por um provedor de Decision Models.",
+        "properties": {
+          "evidence": {
+            "default": "documented",
+            "description": "Nível de evidência declarado para este provedor e runtime.",
+            "enum": ["documented", "observed", "unverified"],
+            "title": "Evidence",
+            "type": "string"
+          },
+          "supported_models": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Supported Models",
+            "type": "array"
+          },
+          "supports_choice": {
+            "default": true,
+            "title": "Supports Choice",
+            "type": "boolean"
+          },
+          "supports_image": {
+            "default": false,
+            "title": "Supports Image",
+            "type": "boolean"
+          },
+          "supports_noul": {
+            "default": true,
+            "title": "Supports Noul",
+            "type": "boolean"
+          },
+          "supports_score": {
+            "default": true,
+            "title": "Supports Score",
+            "type": "boolean"
+          },
+          "supports_video": {
+            "default": false,
+            "title": "Supports Video",
+            "type": "boolean"
+          }
+        },
+        "title": "ProviderCapabilities",
         "type": "object"
       },
       "ProviderModel": {
@@ -6795,6 +7179,134 @@
         "title": "StructuredQuestionResponse",
         "type": "object"
       },
+      "SystemOneStatusResponse": {
+        "properties": {
+          "allow_remote_fallback": {
+            "title": "Allow Remote Fallback",
+            "type": "boolean"
+          },
+          "capabilities": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProviderCapabilities"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "clef_account_id": {
+            "title": "Clef Account Id",
+            "type": "string"
+          },
+          "clef_api_base_url": {
+            "title": "Clef Api Base Url",
+            "type": "string"
+          },
+          "clef_api_key_configured": {
+            "title": "Clef Api Key Configured",
+            "type": "boolean"
+          },
+          "clef_api_key_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clef Api Key Masked"
+          },
+          "clef_api_model": {
+            "title": "Clef Api Model",
+            "type": "string"
+          },
+          "confidence_threshold_hitl": {
+            "title": "Confidence Threshold Hitl",
+            "type": "number"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "is_healthy": {
+            "default": false,
+            "title": "Is Healthy",
+            "type": "boolean"
+          },
+          "jev_api_base_url": {
+            "title": "Jev Api Base Url",
+            "type": "string"
+          },
+          "jev_api_key_configured": {
+            "title": "Jev Api Key Configured",
+            "type": "boolean"
+          },
+          "jev_api_key_masked": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jev Api Key Masked"
+          },
+          "jev_api_model": {
+            "title": "Jev Api Model",
+            "type": "string"
+          },
+          "laya_api_key_configured": {
+            "title": "Laya Api Key Configured",
+            "type": "boolean"
+          },
+          "laya_base_url": {
+            "title": "Laya Base Url",
+            "type": "string"
+          },
+          "laya_model": {
+            "title": "Laya Model",
+            "type": "string"
+          },
+          "local_base_url": {
+            "title": "Local Base Url",
+            "type": "string"
+          },
+          "local_model": {
+            "title": "Local Model",
+            "type": "string"
+          },
+          "provider": {
+            "enum": ["clef-local", "laya-local", "clef-api", "jev-api"],
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "enabled",
+          "provider",
+          "local_base_url",
+          "local_model",
+          "laya_base_url",
+          "laya_model",
+          "laya_api_key_configured",
+          "clef_api_base_url",
+          "clef_account_id",
+          "clef_api_model",
+          "clef_api_key_configured",
+          "clef_api_key_masked",
+          "jev_api_base_url",
+          "jev_api_model",
+          "jev_api_key_configured",
+          "jev_api_key_masked",
+          "allow_remote_fallback",
+          "confidence_threshold_hitl"
+        ],
+        "title": "SystemOneStatusResponse",
+        "type": "object"
+      },
       "TaskDependencyOut": {
         "properties": {
           "id": {
@@ -7243,10 +7755,32 @@
             "title": "Content",
             "type": "string"
           },
+          "quality_gate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality Gate"
+          },
           "status": {
             "enum": ["pending", "in_progress", "completed"],
             "title": "Status",
             "type": "string"
+          },
+          "step_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step Id"
           }
         },
         "required": ["content", "status"],
@@ -7904,6 +8438,191 @@
         },
         "required": ["label"],
         "title": "UpdateSafeRootBody",
+        "type": "object"
+      },
+      "UpdateSystemOneConfigRequest": {
+        "properties": {
+          "allow_remote_fallback": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allow Remote Fallback"
+          },
+          "clef_account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clef Account Id"
+          },
+          "clef_api_base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clef Api Base Url"
+          },
+          "clef_api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clef Api Key"
+          },
+          "clef_api_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clef Api Model"
+          },
+          "confidence_threshold_hitl": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence Threshold Hitl"
+          },
+          "enabled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enabled"
+          },
+          "jev_api_base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jev Api Base Url"
+          },
+          "jev_api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jev Api Key"
+          },
+          "jev_api_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jev Api Model"
+          },
+          "laya_api_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Laya Api Key"
+          },
+          "laya_base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Laya Base Url"
+          },
+          "laya_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Laya Model"
+          },
+          "local_base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Base Url"
+          },
+          "local_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Model"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "enum": ["clef-local", "laya-local", "clef-api", "jev-api"],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          }
+        },
+        "title": "UpdateSystemOneConfigRequest",
         "type": "object"
       },
       "UpdateTaskRequest": {
@@ -10680,6 +11399,7 @@
     },
     "/auth/gitlab": {
       "delete": {
+        "description": "Executa a operação gitlab oauth disconnect.",
         "operationId": "gitlab_oauth_disconnect_auth_gitlab_delete",
         "responses": {
           "200": {
@@ -10699,6 +11419,7 @@
         "tags": ["oauth"]
       },
       "get": {
+        "description": "Executa a operação gitlab oauth start.",
         "operationId": "gitlab_oauth_start_auth_gitlab_get",
         "responses": {
           "200": {
@@ -10716,6 +11437,7 @@
     },
     "/auth/gitlab/callback": {
       "get": {
+        "description": "Executa a operação gitlab oauth callback.",
         "operationId": "gitlab_oauth_callback_auth_gitlab_callback_get",
         "parameters": [
           {
@@ -10765,6 +11487,7 @@
     },
     "/auth/gitlab/status": {
       "get": {
+        "description": "Executa a operação gitlab oauth status.",
         "operationId": "gitlab_oauth_status_auth_gitlab_status_get",
         "responses": {
           "200": {
@@ -10786,6 +11509,7 @@
     },
     "/auth/google": {
       "delete": {
+        "description": "Executa a operação google oauth disconnect.",
         "operationId": "google_oauth_disconnect_auth_google_delete",
         "responses": {
           "200": {
@@ -10805,6 +11529,7 @@
         "tags": ["oauth"]
       },
       "get": {
+        "description": "Executa a operação google oauth start.",
         "operationId": "google_oauth_start_auth_google_get",
         "responses": {
           "200": {
@@ -10822,6 +11547,7 @@
     },
     "/auth/google/callback": {
       "get": {
+        "description": "Executa a operação google oauth callback.",
         "operationId": "google_oauth_callback_auth_google_callback_get",
         "parameters": [
           {
@@ -10871,6 +11597,7 @@
     },
     "/auth/google/status": {
       "get": {
+        "description": "Executa a operação google oauth status.",
         "operationId": "google_oauth_status_auth_google_status_get",
         "responses": {
           "200": {
@@ -13205,6 +13932,66 @@
         "tags": ["plugins"]
       }
     },
+    "/provider-routing/decision-models/config": {
+      "post": {
+        "description": "Atualiza as configurações e credenciais de Decision Models.",
+        "operationId": "update_decision_models_config_provider_routing_decision_models_config_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateSystemOneConfigRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemOneStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Decision Models Config",
+        "tags": ["provider-routing"]
+      }
+    },
+    "/provider-routing/decision-models/status": {
+      "get": {
+        "description": "Retorna o status atual, capacidades e saúde do subsistema de Decision Models.",
+        "operationId": "get_decision_models_status_provider_routing_decision_models_status_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemOneStatusResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Decision Models Status",
+        "tags": ["provider-routing"]
+      }
+    },
     "/provider-routing/dmr/config": {
       "post": {
         "description": "Persiste apenas endpoint/modelo; operações Docker exigem a bridge.",
@@ -13632,6 +14419,7 @@
     },
     "/provider-routing/dmr/models/prepare": {
       "post": {
+        "description": "Executa a operação prepare dmr model.",
         "operationId": "prepare_dmr_model_provider_routing_dmr_models_prepare_post",
         "parameters": [
           {
@@ -14467,6 +15255,7 @@
     },
     "/provider-routing/llamacpp/config": {
       "delete": {
+        "description": "Executa a operação clear llamacpp config.",
         "operationId": "clear_llamacpp_config_provider_routing_llamacpp_config_delete",
         "responses": {
           "200": {
@@ -14484,6 +15273,7 @@
         "tags": ["provider-routing"]
       },
       "post": {
+        "description": "Executa a operação set llamacpp config.",
         "operationId": "set_llamacpp_config_provider_routing_llamacpp_config_post",
         "requestBody": {
           "content": {
@@ -14701,6 +15491,7 @@
     },
     "/provider-routing/llamacpp/models/confirmations": {
       "get": {
+        "description": "Executa a operação list llamacpp model confirmations.",
         "operationId": "list_llamacpp_model_confirmations_provider_routing_llamacpp_models_confirmations_get",
         "responses": {
           "200": {
@@ -14724,6 +15515,7 @@
     },
     "/provider-routing/llamacpp/registered": {
       "get": {
+        "description": "Executa a operação get registered llamacpp models.",
         "operationId": "get_registered_llamacpp_models_provider_routing_llamacpp_registered_get",
         "responses": {
           "200": {
@@ -14745,6 +15537,7 @@
         "tags": ["provider-routing"]
       },
       "post": {
+        "description": "Executa a operação register llamacpp model.",
         "operationId": "register_llamacpp_model_provider_routing_llamacpp_registered_post",
         "requestBody": {
           "content": {
@@ -14784,6 +15577,7 @@
     },
     "/provider-routing/llamacpp/registered/{model_id}": {
       "delete": {
+        "description": "Executa a operação unregister llamacpp model.",
         "operationId": "unregister_llamacpp_model_provider_routing_llamacpp_registered__model_id__delete",
         "parameters": [
           {
@@ -15408,6 +16202,7 @@
     },
     "/provider-routing/llamacpp/status": {
       "get": {
+        "description": "Executa a operação get llamacpp status.",
         "operationId": "get_llamacpp_status_provider_routing_llamacpp_status_get",
         "responses": {
           "200": {
@@ -15447,6 +16242,7 @@
     },
     "/provider-routing/nine-router/config": {
       "delete": {
+        "description": "Executa a operação clear nine router config.",
         "operationId": "clear_nine_router_config_provider_routing_nine_router_config_delete",
         "responses": {
           "200": {
@@ -15524,6 +16320,7 @@
     },
     "/provider-routing/nine-router/registered": {
       "get": {
+        "description": "Executa a operação list registered nine router models.",
         "operationId": "list_registered_nine_router_models_provider_routing_nine_router_registered_get",
         "responses": {
           "200": {
@@ -15545,6 +16342,7 @@
         "tags": ["provider-routing"]
       },
       "post": {
+        "description": "Executa a operação register nine router model.",
         "operationId": "register_nine_router_model_provider_routing_nine_router_registered_post",
         "requestBody": {
           "content": {
@@ -15584,6 +16382,7 @@
     },
     "/provider-routing/nine-router/registered/{model_id}": {
       "delete": {
+        "description": "Executa a operação unregister nine router model.",
         "operationId": "unregister_nine_router_model_provider_routing_nine_router_registered__model_id__delete",
         "parameters": [
           {
@@ -15628,6 +16427,7 @@
     },
     "/provider-routing/nine-router/status": {
       "get": {
+        "description": "Executa a operação get nine router status.",
         "operationId": "get_nine_router_status_provider_routing_nine_router_status_get",
         "responses": {
           "200": {
@@ -15667,6 +16467,7 @@
     },
     "/provider-routing/ollama/registered": {
       "get": {
+        "description": "Executa a operação list registered ollama models.",
         "operationId": "list_registered_ollama_models_provider_routing_ollama_registered_get",
         "responses": {
           "200": {
@@ -15688,6 +16489,7 @@
         "tags": ["provider-routing"]
       },
       "post": {
+        "description": "Executa a operação register ollama model.",
         "operationId": "register_ollama_model_provider_routing_ollama_registered_post",
         "requestBody": {
           "content": {
@@ -15727,6 +16529,7 @@
     },
     "/provider-routing/ollama/registered/{model_id}": {
       "delete": {
+        "description": "Executa a operação unregister ollama model.",
         "operationId": "unregister_ollama_model_provider_routing_ollama_registered__model_id__delete",
         "parameters": [
           {
@@ -15819,6 +16622,7 @@
     },
     "/provider-routing/ollama/runtime/status": {
       "get": {
+        "description": "Executa a operação ollama runtime status.",
         "operationId": "ollama_runtime_status_provider_routing_ollama_runtime_status_get",
         "responses": {
           "200": {
@@ -15838,6 +16642,7 @@
     },
     "/provider-routing/openrouter/key": {
       "delete": {
+        "description": "Executa a operação clear openrouter key.",
         "operationId": "clear_openrouter_key_provider_routing_openrouter_key_delete",
         "responses": {
           "200": {
@@ -15937,6 +16742,7 @@
     },
     "/provider-routing/openrouter/registered": {
       "get": {
+        "description": "Executa a operação list registered openrouter models.",
         "operationId": "list_registered_openrouter_models_provider_routing_openrouter_registered_get",
         "responses": {
           "200": {
@@ -15958,6 +16764,7 @@
         "tags": ["provider-routing"]
       },
       "post": {
+        "description": "Executa a operação register openrouter model.",
         "operationId": "register_openrouter_model_provider_routing_openrouter_registered_post",
         "requestBody": {
           "content": {
@@ -15997,6 +16804,7 @@
     },
     "/provider-routing/openrouter/registered/{model_id}": {
       "delete": {
+        "description": "Executa a operação unregister openrouter model.",
         "operationId": "unregister_openrouter_model_provider_routing_openrouter_registered__model_id__delete",
         "parameters": [
           {
@@ -16041,6 +16849,7 @@
     },
     "/provider-routing/openrouter/status": {
       "get": {
+        "description": "Executa a operação get openrouter status.",
         "operationId": "get_openrouter_status_provider_routing_openrouter_status_get",
         "responses": {
           "200": {
@@ -16264,6 +17073,109 @@
         },
         "summary": "Get Workspace Rag Summary",
         "tags": ["rag"]
+      }
+    },
+    "/runs/{run_id}": {
+      "get": {
+        "description": "Consulta o estado consolidado, evidências e métricas de um AgentRun.",
+        "operationId": "get_agent_run_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRun"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Agent Run"
+      }
+    },
+    "/runs/{run_id}/timeline": {
+      "get": {
+        "description": "Consulta o estado e a timeline de eventos correlacionados ao AgentRun.",
+        "operationId": "get_agent_run_timeline_runs__run_id__timeline_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentRunTimelineResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Agent Run Timeline"
       }
     },
     "/sessions/{thread_id}/background/board": {
@@ -18674,6 +19586,60 @@
         "summary": "Rewind Thread"
       }
     },
+    "/threads/{thread_id}/runs": {
+      "get": {
+        "description": "Lista as execuções de agente vinculadas a uma thread.",
+        "operationId": "list_thread_agent_runs_threads__thread_id__runs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "title": "Thread Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AgentRun"
+                  },
+                  "title": "Response List Thread Agent Runs Threads  Thread Id  Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Thread Agent Runs"
+      }
+    },
     "/threads/{thread_id}/structured-questions/answer": {
       "post": {
         "description": "Responde ou cancela uma pergunta pendente de forma idempotente.",
@@ -19185,6 +20151,7 @@
     },
     "/vectora.chat.v1.ThreadService/DeleteThread": {
       "post": {
+        "description": "Executa a operação delete thread.",
         "operationId": "delete_thread_vectora_chat_v1_ThreadService_DeleteThread_post",
         "requestBody": {
           "content": {
@@ -19303,6 +20270,7 @@
     },
     "/vectora.chat.v1.ThreadService/GetThread": {
       "post": {
+        "description": "Executa a operação get thread.",
         "operationId": "get_thread_vectora_chat_v1_ThreadService_GetThread_post",
         "requestBody": {
           "content": {
@@ -19341,6 +20309,7 @@
     },
     "/vectora.chat.v1.ThreadService/GetThreadPins": {
       "post": {
+        "description": "Executa a operação get thread pins.",
         "operationId": "get_thread_pins_vectora_chat_v1_ThreadService_GetThreadPins_post",
         "requestBody": {
           "content": {
@@ -19418,6 +20387,7 @@
     },
     "/vectora.chat.v1.ThreadService/SetThreadPins": {
       "post": {
+        "description": "Executa a operação set thread pins.",
         "operationId": "set_thread_pins_vectora_chat_v1_ThreadService_SetThreadPins_post",
         "requestBody": {
           "content": {

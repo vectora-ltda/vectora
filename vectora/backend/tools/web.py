@@ -58,6 +58,23 @@ def _get_extract_tool() -> Any:
     return resolve_backend()
 
 
+async def _check_egress_url(url: str, ctx: ToolContext | None = None) -> str | None:
+    """Apply the same resolved-DNS egress policy before any web provider call.
+
+    Tavily receives the target URL and can therefore be used to reach an
+    internal address unless we validate it locally first.  Keep this check in
+    the tool layer as a defence-in-depth boundary; the policy compiler is only
+    a preflight and cannot replace the asynchronous DNS resolution here.
+    """
+    from backend.services.egress_policy import EgressPolicy, async_is_url_allowed
+
+    policy = EgressPolicy.for_workspace(ctx.workspace_id if ctx else None)
+    allowed, reason, _ = await async_is_url_allowed(url, policy)
+    if not allowed:
+        return reason or "destino recusado pela política de egress"
+    return None
+
+
 async def _invoke_backend(tool: Any, payload: dict[str, Any]) -> Any:
     """Executa um backend de teste ou produção com a interface disponível.
 
@@ -192,6 +209,12 @@ async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
                 redirected = urljoin(url, location)
                 if not is_url_ssrf_safe(redirected):
                     raise ValueError("redirect recusado pelo SSRF guard")
+                redirect_egress_error = await _check_egress_url(redirected, ctx)
+                if redirect_egress_error is not None:
+                    raise ValueError(
+                        "redirect recusado pela política de egress: "
+                        f"{redirect_egress_error}"
+                    )
                 redirected_url = urlparse(redirected)
                 redirected_host = (redirected_url.hostname or "").lower()
                 redirected_headers = dict(headers)
@@ -384,6 +407,10 @@ async def fetch_url(url: str, ctx: ToolContext | None = None) -> str:
         logger.warning("fetch_url called with invalid URL", extra={"url": url})
         return "Error: URL must start with http:// or https://"
 
+    if (egress_error := await _check_egress_url(url, ctx)) is not None:
+        logger.warning("fetch_url refused by egress policy", extra={"url": url})
+        return f"Error: URL recusada pela política de egress: {egress_error}"
+
     from backend.browser.ssrf_guard import is_url_ssrf_safe
 
     if not is_url_ssrf_safe(url):
@@ -507,6 +534,7 @@ async def web_crawl(
     max_depth: int = 1,
     limit: int = 20,
     instructions: str | None = None,
+    ctx: ToolContext | None = None,
 ) -> str:
     """Varre um site a partir de uma URL, seguindo links internos.
 
@@ -524,6 +552,11 @@ async def web_crawl(
     """
     if not url.startswith(("http://", "https://")):
         return json.dumps({"error": "URL deve começar com http:// ou https://"})
+    if (egress_error := await _check_egress_url(url, ctx)) is not None:
+        logger.warning("web_crawl refused by egress policy", extra={"url": url})
+        return json.dumps(
+            {"error": f"URL recusada pela política de egress: {egress_error}"}
+        )
     if not settings.tavily_api_key:
         return json.dumps(
             {"error": "web_crawl exige TAVILY_API_KEY — sem fallback para varredura"}
@@ -551,7 +584,7 @@ async def web_crawl(
         icon="globe",
     )
 )
-async def web_map(url: str, limit: int = 50) -> str:
+async def web_map(url: str, limit: int = 50, ctx: ToolContext | None = None) -> str:
     """Mapeia a estrutura de links de um site, sem extrair o conteúdo.
 
     Mais barato que `web_crawl` (não lê as páginas), mas ainda percorre o
@@ -566,6 +599,11 @@ async def web_map(url: str, limit: int = 50) -> str:
     """
     if not url.startswith(("http://", "https://")):
         return json.dumps({"error": "URL deve começar com http:// ou https://"})
+    if (egress_error := await _check_egress_url(url, ctx)) is not None:
+        logger.warning("web_map refused by egress policy", extra={"url": url})
+        return json.dumps(
+            {"error": f"URL recusada pela política de egress: {egress_error}"}
+        )
     if not settings.tavily_api_key:
         return json.dumps(
             {"error": "web_map exige TAVILY_API_KEY — sem fallback para mapeamento"}

@@ -78,6 +78,9 @@ class TestFetchUrlFallback:
     async def test_sem_tavily_api_key_usa_fallback_via_chromium(self):
         with (
             patch("backend.tools.web.settings") as ms,
+            patch(
+                "backend.tools.web._check_egress_url", new=AsyncMock(return_value=None)
+            ),
             patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
             patch(
                 "backend.browser.search_fallback.fetch_fallback",
@@ -95,6 +98,9 @@ class TestFetchUrlFallback:
     async def test_sem_tavily_e_fallback_tambem_falha_retorna_erro_textual(self):
         with (
             patch("backend.tools.web.settings") as ms,
+            patch(
+                "backend.tools.web._check_egress_url", new=AsyncMock(return_value=None)
+            ),
             patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
             patch(
                 "backend.browser.search_fallback.fetch_fallback",
@@ -130,6 +136,9 @@ class TestFetchUrlSsrfGuard:
         mock_client = MagicMock()
         with (
             patch("backend.tools.web.settings") as ms,
+            patch(
+                "backend.tools.web._check_egress_url", new=AsyncMock(return_value=None)
+            ),
             patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
             patch("backend.tools.web._get_extract_tool", return_value=mock_client),
             patch(
@@ -170,6 +179,24 @@ class TestFetchUrlSsrfGuard:
         direct.assert_awaited_once()
         assert "github" in result
 
+    async def test_fetch_recusa_egress_antes_de_qualquer_backend(self) -> None:
+        client = MagicMock()
+        with (
+            patch("backend.tools.web.settings") as ms,
+            patch(
+                "backend.tools.web._check_egress_url",
+                new=AsyncMock(return_value="destino privado"),
+            ),
+            patch("backend.tools.web._get_extract_tool", return_value=client) as get,
+            patch("backend.tools.web._fetch_via_fallback", new=AsyncMock()) as fallback,
+        ):
+            ms.tavily_api_key = "real-key"
+            result = await fetch_url(url="https://internal.example")
+
+        assert "política de egress" in result
+        get.assert_not_called()
+        fallback.assert_not_awaited()
+
 
 @pytest.mark.asyncio
 class TestCrawlEMapExigemKey:
@@ -179,7 +206,12 @@ class TestCrawlEMapExigemKey:
     async def test_crawl_sem_key_devolve_erro_claro(self):
         from backend.tools.web import web_crawl
 
-        with patch("backend.tools.web.settings") as ms:
+        with (
+            patch("backend.tools.web.settings") as ms,
+            patch(
+                "backend.tools.web._check_egress_url", new=AsyncMock(return_value=None)
+            ),
+        ):
             ms.tavily_api_key = None
             resultado = json.loads(await web_crawl(url="https://x.test"))
 
@@ -204,8 +236,47 @@ class TestCrawlEMapExigemKey:
         with (
             patch("backend.tools.web.settings") as ms,
             patch("backend.tools.web._tavily_client", return_value=mock_client),
+            patch(
+                "backend.tools.web._check_egress_url", new=AsyncMock(return_value=None)
+            ),
         ):
             ms.tavily_api_key = "real-key"
             resultado = json.loads(await web_map(url="https://x.test"))
 
         assert resultado == ["/a", "/b"]
+
+    async def test_crawl_recusa_dns_privado_antes_de_chamar_tavily(self):
+        from backend.tools.web import web_crawl
+
+        client = MagicMock()
+        with (
+            patch("backend.tools.web.settings") as ms,
+            patch("backend.tools.web._tavily_client", return_value=client),
+            patch(
+                "backend.tools.web._check_egress_url",
+                new=AsyncMock(return_value="endereço privado bloqueado"),
+            ),
+        ):
+            ms.tavily_api_key = "real-key"
+            resultado = json.loads(await web_crawl(url="https://rebind.example"))
+
+        assert "política de egress" in resultado["error"]
+        client.crawl.assert_not_called()
+
+    async def test_map_recusa_dns_privado_antes_de_chamar_tavily(self):
+        from backend.tools.web import web_map
+
+        client = MagicMock()
+        with (
+            patch("backend.tools.web.settings") as ms,
+            patch("backend.tools.web._tavily_client", return_value=client),
+            patch(
+                "backend.tools.web._check_egress_url",
+                new=AsyncMock(return_value="endereço privado bloqueado"),
+            ),
+        ):
+            ms.tavily_api_key = "real-key"
+            resultado = json.loads(await web_map(url="https://rebind.example"))
+
+        assert "política de egress" in resultado["error"]
+        client.map.assert_not_called()
