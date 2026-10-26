@@ -280,13 +280,10 @@ async def backfill_thread_ledger(
                 # by their original timestamp instead of being appended after newer
                 # events.  Cursors are remapped by their old sequence below.
                 current_seq = len(existing_events) + len(missing)
-                descriptors: list[
-                    tuple[tuple[object, ...], str, dict[str, object]]
-                ] = []
-                for row in existing_events:
-                    descriptors.append(
-                        ((str(row[2] or now), 1, int(row[1])), str(row[0]), {})
-                    )
+                descriptors: list[tuple[tuple[object, ...], str, dict[str, object]]] = [
+                    ((str(row[2] or now), 1, int(row[1])), str(row[0]), {})
+                    for row in existing_events
+                ]
                 descriptors.extend(
                     (sort_key, str(data["event_key"]), data)
                     for sort_key, data in missing

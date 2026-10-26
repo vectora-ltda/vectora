@@ -415,8 +415,8 @@ class MemoryStore:
                     ids = [str(row["record_id"]) for row in rows]
                     marks = ",".join("?" for _ in ids)
                     cursor = connection.execute(
-                        "UPDATE context_memory_records SET invalidated_at = ? "
-                        f"WHERE invalidated_at IS NULL AND record_id IN ({marks})",  # noqa: S608  # nosec B608
+                        "UPDATE context_memory_records SET invalidated_at = ? "  # noqa: S608  # nosec B608
+                        f"WHERE invalidated_at IS NULL AND record_id IN ({marks})",
                         (cutoff, *ids),
                     )
                     changed += cursor.rowcount

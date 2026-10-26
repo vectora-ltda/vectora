@@ -537,7 +537,10 @@ def stream_engine_events(
                             continue
 
                         async def _consume_remainder(
-                            pending: asyncio.Task[Any], q: asyncio.Queue[Any]
+                            pending: asyncio.Task[Any],
+                            q: asyncio.Queue[Any],
+                            *,
+                            empty_model_response: bool = empty_model_response,
                         ) -> None:
                             """Executa a operação consume remainder."""
                             nonlocal accumulated_partial_content

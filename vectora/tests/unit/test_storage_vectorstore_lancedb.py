@@ -26,7 +26,7 @@ def backend() -> LanceDBBackend:
 
 
 @pytest.fixture
-def mock_db() -> Generator[lancedb.AsyncConnection, None, None]:
+def mock_db() -> Generator[lancedb.AsyncConnection]:
     """Executa a operação mock db."""
     db = fake_async_connection()
     with patch(

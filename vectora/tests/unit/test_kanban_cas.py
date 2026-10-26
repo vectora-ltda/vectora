@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import cast
 
 import aiosqlite
 import pytest
@@ -233,9 +234,8 @@ async def test_recompute_ready_atomic_promotion(
 async def test_version_migration_supports_dict_row_factory(tmp_path: Path) -> None:
     """A conexão usada pelo scheduler retorna dicts, não tuplas/Rows."""
     conn = await aiosqlite.connect(tmp_path / "dict-rows.db")
-    setattr(
-        conn,
-        "row_factory",
+    conn.row_factory = cast(
+        "type | None",
         lambda cursor, row: {
             column[0]: value
             for column, value in zip(cursor.description, row, strict=False)
