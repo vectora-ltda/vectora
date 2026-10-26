@@ -101,6 +101,21 @@ def test_policy_snapshot_egress_violation() -> None:
     assert "Egress policy violada" in reason
 
 
+@pytest.mark.parametrize("tool_name", ["browser_navigate", "browser_new_tab"])
+def test_policy_snapshot_browser_navigation_uses_egress_allowlist(
+    tool_name: str,
+) -> None:
+    """URLs do Browser Workbench não podem contornar a política de egress."""
+    snapshot = PolicySnapshot(egress_policy=EgressPolicy(allowed_hosts=["allowed.com"]))
+
+    ok, reason = snapshot.validate_call(
+        tool_name, {"url": "https://forbidden.com/private"}
+    )
+
+    assert ok is False
+    assert "Egress policy violada" in reason
+
+
 def test_compile_policy_snapshot() -> None:
     """Verifica o comportamento de compile policy snapshot."""
     ctx = ToolContext(

@@ -25,6 +25,21 @@ logger = logging.getLogger(__name__)
 #: Conjunto canônico de ferramentas com potencial destrutivo (compatibilidade)
 DESTRUCTIVE_TOOLS: frozenset[str] = REQUIRE_APPROVAL
 
+# Navegação do Browser Workbench usa o mesmo perímetro de egress das tools
+# web.  Manter a lista aqui evita que uma URL bloqueada passe pelo caminho CDP
+# apenas porque não é uma chamada HTTP explícita.
+_URL_EGRESS_TOOLS: frozenset[str] = frozenset(
+    {
+        "http_request",
+        "web_fetch",
+        "fetch_url",
+        "web_crawl",
+        "web_map",
+        "browser_navigate",
+        "browser_new_tab",
+    }
+)
+
 
 @dataclass(frozen=True)
 class PolicySnapshot:
@@ -82,7 +97,7 @@ class PolicySnapshot:
                 )
 
         # Checagem unificada de saída de rede (egress)
-        if tool_name in ("http_request", "web_fetch", "web_crawl", "web_map"):
+        if tool_name in _URL_EGRESS_TOOLS:
             url = args.get("url")
             if isinstance(url, str):
                 ok, egress_reason = is_url_allowed(url, self.egress_policy)
