@@ -67,6 +67,40 @@ def test_host_enforces_capabilities_before_rpc(tmp_path: Path) -> None:
         host.stop()
 
 
+def test_host_does_not_allow_read_capability_to_masquerade_as_write(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _source(source, ["workspace.read", "workspace.write"])
+    artifact = tmp_path / "host.vext"
+    build_vext(source, artifact)
+    host = VextHost(artifact, allow_unsigned=True, sandbox_required=False)
+    host.start()
+    try:
+        with pytest.raises(PermissionError, match=r"workspace\.write"):
+            host.request("write_file", {"path": "x"}, capability="workspace.read")
+    finally:
+        host.stop()
+
+
+def test_host_requires_declared_capability_for_privileged_method(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _source(source, ["workspace.read"])
+    artifact = tmp_path / "host.vext"
+    build_vext(source, artifact)
+    host = VextHost(artifact, allow_unsigned=True, sandbox_required=False)
+    host.start()
+    try:
+        with pytest.raises(PermissionError, match=r"workspace\.write"):
+            host.request("write_file", {"path": "x"})
+    finally:
+        host.stop()
+
+
 def test_host_requires_os_sandbox_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     manifest = VextManifest(
         id="host.test",

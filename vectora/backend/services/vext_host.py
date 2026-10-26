@@ -48,6 +48,33 @@ class CapabilityPolicy:
             raise PermissionError(f"capability não concedida: {capability}")
 
 
+def _method_capability(method: str) -> str | None:
+    """Map the host protocol's privileged operations to explicit capabilities.
+
+    A manifest is only a request for capabilities; the host remains the
+    authority.  Callers may not label a write, process or socket operation as
+    a harmless read merely by passing a different capability string.
+    """
+    normalized = method.strip().lower().replace("-", "_")
+    if any(token in normalized for token in ("secret", "credential", "token")):
+        return "secrets.read"
+    if any(token in normalized for token in ("spawn", "exec", "command", "process")):
+        return "process.spawn"
+    if any(
+        token in normalized
+        for token in ("socket", "connect", "fetch", "request", "http", "network")
+    ):
+        return "network"
+    if any(
+        token in normalized
+        for token in ("write", "delete", "remove", "update", "mutate", "move", "rename")
+    ):
+        return "workspace.write"
+    if any(token in normalized for token in ("read", "list", "get", "stat", "search")):
+        return "workspace.read"
+    return None
+
+
 class VextHost:
     """Manage one isolated Node or Python extension process."""
 
@@ -302,10 +329,19 @@ class VextHost:
         """Send one JSON-RPC request after enforcing its capability."""
         if self.process is None or self.process.stdin is None:
             raise RuntimeError("host VEXT não iniciado")
-        if capability is not None:
+        required_capability = _method_capability(method)
+        if required_capability is not None and capability not in {
+            None,
+            required_capability,
+        }:
+            raise PermissionError(
+                f"operação {method!r} exige capability {required_capability}"
+            )
+        effective_capability = capability or required_capability
+        if effective_capability is not None:
             if self.policy is None:
                 raise RuntimeError("política de capabilities indisponível")
-            self.policy.require(capability)
+            self.policy.require(effective_capability)
         self._next_request_id += 1
         request_id = self._next_request_id
         message = {
