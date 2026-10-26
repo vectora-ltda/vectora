@@ -539,7 +539,7 @@ class TestMarkThreadRead:
         assert exc_info.value.status_code == 404
 
     async def test_leitura_de_thread_inexistente_nao_cria_cursor(
-        self, session_store
+        self, session_store: SessionStore
     ) -> None:
         """Verifica o comportamento de leitura de thread inexistente nao cria cursor."""
         from fastapi import HTTPException
