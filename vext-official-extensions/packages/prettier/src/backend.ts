@@ -7,6 +7,23 @@ export type Request = {
 
 const MAX_OUTPUT = 2 * 1024 * 1024;
 
+export function appendBoundedOutput(
+  current: string,
+  chunk: string,
+  limit = MAX_OUTPUT,
+): { value: string; exceeded: boolean } {
+  const combined = Buffer.concat([
+    Buffer.from(current, "utf8"),
+    Buffer.from(chunk, "utf8"),
+  ]);
+  let value = combined.subarray(0, limit).toString("utf8");
+  while (Buffer.byteLength(value, "utf8") > limit) value = value.slice(0, -1);
+  return {
+    value,
+    exceeded: combined.byteLength > limit,
+  };
+}
+
 function runPrettier(args: string[], input: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn("prettier", args, { stdio: ["pipe", "pipe", "pipe"] });
@@ -19,11 +36,14 @@ function runPrettier(args: string[], input: string): Promise<string> {
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
-      output = (output + chunk).slice(0, MAX_OUTPUT);
-      if (output.length >= MAX_OUTPUT) child.kill("SIGKILL");
+      const bounded = appendBoundedOutput(output, chunk);
+      output = bounded.value;
+      if (bounded.exceeded) child.kill("SIGKILL");
     });
     child.stderr.on("data", (chunk: string) => {
-      error = (error + chunk).slice(0, MAX_OUTPUT);
+      const bounded = appendBoundedOutput(error, chunk);
+      error = bounded.value;
+      if (bounded.exceeded) child.kill("SIGKILL");
     });
     child.once("error", (cause) => {
       clearTimeout(timer);

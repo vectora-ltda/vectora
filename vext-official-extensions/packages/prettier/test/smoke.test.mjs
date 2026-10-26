@@ -12,3 +12,10 @@ test("backend validates formatting requests before invoking the tool", async () 
   await assert.rejects(() => handle({ method: "format" }), /text is required/);
 });
 
+test("backend bounds accumulated output by UTF-8 bytes", async () => {
+  const { appendBoundedOutput } = await import("../dist/backend.js");
+  const first = appendBoundedOutput("é", "é", 3);
+  assert.equal(first.exceeded, true);
+  assert.equal(Buffer.byteLength(first.value), 2);
+});
+
