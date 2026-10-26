@@ -152,6 +152,8 @@ async def test_load_persistent_context_memories_uses_memory_tool_namespace() -> 
     records = await _load_persistent_context_memories(context)
 
     assert [record.id for record in records] == ["rule"]
+    assert records[0].content == "Use testes determinísticos"
+    assert records[0].metadata == {"domain": "project"}
 
 
 def _tool_call_chunk(*, index: int, id: str, name: str, args: str) -> VMessageChunk:  # noqa: A002

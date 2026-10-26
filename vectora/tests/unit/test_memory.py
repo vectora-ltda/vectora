@@ -206,6 +206,42 @@ def store(monkeypatch):
 
 
 class TestSaveMemoryCategory:
+    @pytest.mark.asyncio
+    async def test_proveniencia_nao_pode_ser_promovida_por_metadata(
+        self, store
+    ) -> None:
+        from backend.tools.memory import save_memory
+
+        ctx = ToolContext(user_id="u1", _extra={"untrusted_content": True})
+        await save_memory(
+            ctx=ctx,
+            key="untrusted",
+            content="conteúdo externo",
+            metadata={"trust_level": "trusted"},
+        )
+        item = await store.aget(("user", "u1", "memories"), "untrusted")
+        assert item is not None
+        assert item.value["metadata"]["trust_level"] == "untrusted"
+
+    @pytest.mark.asyncio
+    async def test_contexto_sem_marcador_persiste_trusted_mesmo_com_extra_invalido(
+        self, store
+    ) -> None:
+        from backend.tools.memory import save_memory
+
+        for key, extra in (("default", {}), ("non-dict", "invalid")):
+            ctx = ToolContext(user_id="u1")
+            object.__setattr__(ctx, "_extra", extra)
+            await save_memory(
+                ctx=ctx,
+                key=key,
+                content="conteúdo confiável",
+                metadata={"trust_level": "untrusted"},
+            )
+            item = await store.aget(("user", "u1", "memories"), key)
+            assert item is not None
+            assert item.value["metadata"]["trust_level"] == "trusted"
+
     async def test_ttl_persiste_valid_until_e_rejeita_valor_invalido(
         self, store
     ) -> None:
