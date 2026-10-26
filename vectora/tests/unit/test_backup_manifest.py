@@ -146,6 +146,23 @@ def test_artifacts_root_symlink_is_rejected_before_reading(tmp_path: Path) -> No
         backup_module._artifact_entries(database)
 
 
+def test_restore_snapshots_reverte_arvore_de_artifacts_completa(tmp_path: Path) -> None:
+    root = tmp_path / "artifacts"
+    root.mkdir()
+    original = root / "original.bin"
+    original.write_bytes(b"before")
+    snapshots = {original: b"before"}
+    created = root / "created.bin"
+    created.write_bytes(b"after")
+
+    backup_module.restore_snapshots(
+        snapshots, boundary=tmp_path, artifact_roots=(root,)
+    )
+
+    assert original.read_bytes() == b"before"
+    assert not created.exists()
+
+
 def test_restore_accepts_symlinked_storage_boundary(tmp_path: Path) -> None:
     """A symlinked storage home is valid; descendants remain checked."""
     target = tmp_path / "real-home"

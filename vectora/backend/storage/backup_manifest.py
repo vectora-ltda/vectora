@@ -14,6 +14,7 @@ import os
 import sqlite3
 import tempfile
 import zipfile
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -688,9 +689,20 @@ def snapshot_targets(
 
 
 def restore_snapshots(
-    snapshots: dict[Path, bytes | None], *, boundary: Path | None = None
+    snapshots: Mapping[Path, bytes | None],
+    *,
+    boundary: Path | None = None,
+    artifact_roots: Iterable[Path] = (),
 ) -> None:
     """Reaplica snapshots capturados antes de uma promoção malsucedida."""
+    snapshot_paths = set(snapshots)
+    for root in artifact_roots:
+        _assert_safe_destination(root, boundary)
+        if not root.is_dir():
+            continue
+        for path in sorted(root.rglob("*"), reverse=True):
+            if path.is_file() and path not in snapshot_paths:
+                path.unlink(missing_ok=True)
     for path, previous in snapshots.items():
         if previous is None:
             path.unlink(missing_ok=True)
