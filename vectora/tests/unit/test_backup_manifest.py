@@ -146,6 +146,31 @@ def test_artifacts_root_symlink_is_rejected_before_reading(tmp_path: Path) -> No
         backup_module._artifact_entries(database)
 
 
+def test_artifact_oversize_is_rejected_before_payload_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Limites de tamanho devem falhar antes de materializar o payload."""
+    database = tmp_path / "data" / "vectora.db"
+    database.parent.mkdir()
+    database.write_bytes(b"sqlite-placeholder")
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    payload = artifacts / "large.bin"
+    payload.write_bytes(b"payload")
+
+    original_read_bytes = Path.read_bytes
+
+    def fake_read_bytes(path: Path):
+        if path == payload:
+            raise AssertionError("payload não deveria ser lido")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(backup_module, "MAX_ENTRY_BYTES", 1)
+    monkeypatch.setattr(Path, "read_bytes", fake_read_bytes)
+    with pytest.raises(ValueError, match="entrada de backup excede o limite"):
+        backup_module._artifact_entries(database)
+
+
 def test_restore_snapshots_reverte_arvore_de_artifacts_completa(tmp_path: Path) -> None:
     root = tmp_path / "artifacts"
     root.mkdir()
