@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -48,3 +49,28 @@ def test_cold_archive_rejects_path_traversal(tmp_path: Path) -> None:
     """Verifica o comportamento de cold archive rejects path traversal."""
     with pytest.raises(ValueError, match="thread_id"):
         export_cold_archive(tmp_path, "../escape", metadata={}, transcript=[])
+
+
+def test_cold_archive_concurrent_exports_do_not_share_staging_files(
+    tmp_path: Path,
+) -> None:
+    """Exports concorrentes publicam arquivos íntegros, sem staging compartilhado."""
+
+    def export(index: int):
+        return export_cold_archive(
+            tmp_path,
+            "same-thread",
+            metadata={"writer": index},
+            transcript=[{"sequence": index, "content": f"value-{index}"}],
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        archives = list(executor.map(export, (1, 2)))
+
+    for archive in archives:
+        records = read_cold_archive(
+            archive.path,
+            expected_sha256=archive.sha256,
+            expected_thread_id="same-thread",
+        )
+        assert len(records) == archive.record_count
