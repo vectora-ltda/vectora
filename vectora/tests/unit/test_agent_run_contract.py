@@ -233,6 +233,34 @@ class TestAgentRunLifecycle:
         assert loaded.tools_available == ["file_read", "terminal"]
         assert loaded.metrics.total_tokens == 120
 
+    async def test_rejeita_linhagem_conflitante_no_mesmo_run(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session("thread-lineage", user_id="user-123")
+        await store.upsert_agent_run(
+            AgentRun(
+                run_id="run-lineage",
+                thread_id="thread-lineage",
+                status="running",
+                parent_run_id="parent-a",
+                correlation_id="corr-a",
+            )
+        )
+        with pytest.raises(ValueError, match="parent_run_id conflitante"):
+            await store.upsert_agent_run(
+                AgentRun(
+                    run_id="run-lineage",
+                    thread_id="thread-lineage",
+                    status="failed",
+                    parent_run_id="parent-b",
+                    correlation_id="corr-a",
+                )
+            )
+        loaded = await store.get_agent_run("run-lineage")
+        assert loaded is not None
+        assert loaded.parent_run_id == "parent-a"
+        assert loaded.correlation_id == "corr-a"
+
     @pytest.mark.parametrize(
         ("terminal_status", "expected_legacy_status"),
         [

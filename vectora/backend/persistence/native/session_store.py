@@ -287,6 +287,25 @@ class SessionStore:
     ) -> None:
         """Persiste ou atualiza uma execução do agente na conexão fornecida."""
         now = _now()
+        existing_lineage = await (
+            await conn.execute(
+                "SELECT parent_run_id, correlation_id FROM agent_runs WHERE run_id = ?",
+                (run.run_id,),
+            )
+        ).fetchone()
+        if existing_lineage is not None:
+            for field, current, incoming in (
+                ("parent_run_id", existing_lineage[0], run.parent_run_id),
+                ("correlation_id", existing_lineage[1], run.correlation_id),
+            ):
+                if (
+                    current is not None
+                    and incoming is not None
+                    and str(current) != str(incoming)
+                ):
+                    raise ValueError(
+                        f"{field} conflitante para AgentRun {run.run_id!r}"
+                    )
         terminal_at = (
             (run.terminal_at or now)
             if run.status in TERMINAL_AGENT_RUN_STATUSES
@@ -635,39 +654,52 @@ class SessionStore:
         # made migrations/reconciliation unable to address a projection by
         # its public id.
         storage_projection_id = str(clean["projection_id"])
+        projection_row = (
+            storage_projection_id,
+            thread_id,
+            run_id,
+            str(clean.get("source_transcript_hash", "")),
+            int(cast("int", clean.get("start_seq", 0))),
+            int(cast("int", clean.get("end_seq", 0))),
+            str(clean.get("model", "")),
+            str(clean.get("policy_version", "")),
+            int(cast("int", clean.get("tokens_before", 0))),
+            int(cast("int", clean.get("tokens_after", 0))),
+            json.dumps(clean.get("preserved_decisions", []), ensure_ascii=False),
+            json.dumps(clean.get("preserved_errors", []), ensure_ascii=False),
+            json.dumps(clean.get("preserved_approvals", []), ensure_ascii=False),
+            json.dumps(clean.get("pending_tool_calls", []), ensure_ascii=False),
+            json.dumps(clean.get("omitted_sequences", []), ensure_ascii=False),
+            json.dumps(clean.get("content"), ensure_ascii=False)
+            if clean.get("content") is not None
+            else None,
+        )
         async with self._pool.acquire() as conn:
+            existing = await (
+                await conn.execute(
+                    "SELECT projection_id, thread_id, run_id, source_hash, "
+                    "covered_from_sequence, covered_to_sequence, model, policy_version, "
+                    "tokens_before, tokens_after, preserved_decisions_json, "
+                    "preserved_errors_json, preserved_approvals_json, "
+                    "pending_tool_calls_json, omitted_sequences_json, content_json "
+                    "FROM context_projections WHERE thread_id=? AND projection_id=?",
+                    (thread_id, storage_projection_id),
+                )
+            ).fetchone()
+            if existing is not None:
+                if tuple(existing) != projection_row:
+                    raise ValueError(
+                        f"projeção {storage_projection_id!r} já existe com conteúdo diferente"
+                    )
+                return
             await conn.execute(
-                "INSERT OR REPLACE INTO context_projections ("
+                "INSERT INTO context_projections ("
                 "projection_id, thread_id, run_id, source_hash, covered_from_sequence, "
                 "covered_to_sequence, model, policy_version, tokens_before, tokens_after, "
                 "preserved_decisions_json, preserved_errors_json, preserved_approvals_json, "
                 "pending_tool_calls_json, omitted_sequences_json, content_json, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    storage_projection_id,
-                    thread_id,
-                    run_id,
-                    str(clean.get("source_transcript_hash", "")),
-                    int(cast("int", clean.get("start_seq", 0))),
-                    int(cast("int", clean.get("end_seq", 0))),
-                    str(clean.get("model", "")),
-                    str(clean.get("policy_version", "")),
-                    int(cast("int", clean.get("tokens_before", 0))),
-                    int(cast("int", clean.get("tokens_after", 0))),
-                    json.dumps(
-                        clean.get("preserved_decisions", []), ensure_ascii=False
-                    ),
-                    json.dumps(clean.get("preserved_errors", []), ensure_ascii=False),
-                    json.dumps(
-                        clean.get("preserved_approvals", []), ensure_ascii=False
-                    ),
-                    json.dumps(clean.get("pending_tool_calls", []), ensure_ascii=False),
-                    json.dumps(clean.get("omitted_sequences", []), ensure_ascii=False),
-                    json.dumps(clean.get("content"), ensure_ascii=False)
-                    if clean.get("content") is not None
-                    else None,
-                    str(clean.get("created_at", _now())),
-                ),
+                (*projection_row, str(clean.get("created_at", _now()))),
             )
             await conn.commit()
 
@@ -740,25 +772,48 @@ class SessionStore:
         }
         if not clean.get("checkpoint_id"):
             raise ValueError("checkpoint sem checkpoint_id")
+        last_sequence = int(cast("int", clean.get("last_sequence", 0)))
+        source_hash = str(clean.get("source_hash", ""))
+        state_json = json.dumps(clean.get("state", {}), ensure_ascii=False)
+        artifact_refs_json = json.dumps(
+            clean.get("artifact_refs", []), ensure_ascii=False
+        )
         async with self._pool.acquire() as conn:
+            existing = await (
+                await conn.execute(
+                    "SELECT checkpoint_id, schema_version, state_json, artifact_refs_json "
+                    "FROM context_checkpoints WHERE thread_id=? AND run_id=? "
+                    "AND last_sequence=? AND source_hash=?",
+                    (thread_id, run_id, last_sequence, source_hash),
+                )
+            ).fetchone()
+            if existing is not None:
+                expected = (
+                    str(clean["checkpoint_id"]),
+                    str(clean.get("schema_version", "context.v1")),
+                    state_json,
+                    artifact_refs_json,
+                )
+                if tuple(existing) != expected:
+                    raise ValueError(
+                        "checkpoint idêntico possui estado divergente; replay rejeitado"
+                    )
+                return
             await conn.execute(
                 "INSERT INTO context_checkpoints ("
                 "checkpoint_id, thread_id, run_id, last_sequence, source_hash, "
                 "schema_version, state_json, artifact_refs_json, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                "ON CONFLICT(thread_id, run_id, last_sequence, source_hash) DO UPDATE SET "
-                "checkpoint_id=excluded.checkpoint_id, run_id=excluded.run_id, "
-                "schema_version=excluded.schema_version, state_json=excluded.state_json, "
-                "artifact_refs_json=excluded.artifact_refs_json, created_at=excluded.created_at",
+                "ON CONFLICT(thread_id, run_id, last_sequence, source_hash) DO NOTHING",
                 (
                     str(clean["checkpoint_id"]),
                     thread_id,
                     run_id,
-                    int(cast("int", clean.get("last_sequence", 0))),
-                    str(clean.get("source_hash", "")),
+                    last_sequence,
+                    source_hash,
                     str(clean.get("schema_version", "context.v1")),
-                    json.dumps(clean.get("state", {}), ensure_ascii=False),
-                    json.dumps(clean.get("artifact_refs", []), ensure_ascii=False),
+                    state_json,
+                    artifact_refs_json,
                     str(clean.get("created_at", _now())),
                 ),
             )
