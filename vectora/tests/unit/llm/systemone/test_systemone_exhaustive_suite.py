@@ -13,13 +13,16 @@ Cobre exaustivamente:
 from __future__ import annotations
 
 import math
-from typing import Any
 
 import httpx
 import pytest
 from pydantic import ValidationError
 
-from backend.llm.systemone.api_adapters import ClefApiAdapter, JevApiAdapter
+from backend.llm.systemone.api_adapters import (
+    BaseSystemOneApiAdapter,
+    ClefApiAdapter,
+    JevApiAdapter,
+)
 from backend.llm.systemone.clef_local import ClefLocalAdapter
 from backend.llm.systemone.errors import (
     SystemOneAuthenticationError,
@@ -30,6 +33,7 @@ from backend.llm.systemone.errors import (
     SystemOneTimeoutError,
     SystemOneValidationError,
 )
+from backend.llm.systemone.laya_local import LayaLocalAdapter
 from backend.llm.systemone.policy import DecisionPolicyEngine, PolicyDecisionOutcome
 from backend.llm.systemone.settings import (
     SystemOneSettings,
@@ -618,6 +622,13 @@ def _isolate_systemone_app_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     for attr in _SYSTEMONE_SETTING_ATTRS:
         if hasattr(app_settings, attr):
             monkeypatch.setattr(app_settings, attr, getattr(app_settings, attr))
+
+    async def healthy(_: object) -> bool:
+        """Mantém os testes de configuração independentes de serviços externos."""
+        return True
+
+    monkeypatch.setattr(BaseSystemOneApiAdapter, "health", healthy)
+    monkeypatch.setattr(LayaLocalAdapter, "health", healthy)
 
 
 @pytest.mark.asyncio
