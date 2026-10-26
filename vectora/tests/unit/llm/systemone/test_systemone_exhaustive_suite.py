@@ -291,7 +291,7 @@ async def test_clef_local_http_status_codes(
         questions={"q": NoulQuestion(criterion="crit")},
     )
 
-    async def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
+    async def fake_post(*args: object, **kwargs: object) -> httpx.Response:
         """Executa a operação fake post."""
         return httpx.Response(status_code, text="Erro simulado")
 
@@ -322,7 +322,7 @@ async def test_clef_local_network_errors(
         questions={"q": NoulQuestion(criterion="crit")},
     )
 
-    async def fake_post_err(*args: Any, **kwargs: Any) -> httpx.Response:
+    async def fake_post_err(*args: object, **kwargs: object) -> httpx.Response:
         """Executa a operação fake post err."""
         raise client_error
 
@@ -352,7 +352,7 @@ async def test_clef_local_health(
     """Verifica o comportamento de clef local health."""
     adapter = ClefLocalAdapter(base_url="http://127.0.0.1:8080")
 
-    async def fake_get(*args: Any, **kwargs: Any) -> httpx.Response:
+    async def fake_get(*args: object, **kwargs: object) -> httpx.Response:
         """Executa a operação fake get."""
         return httpx.Response(health_status, json={"status": "ok"} if is_ok else {})
 
@@ -419,7 +419,7 @@ async def test_clef_api_http_errors(
         questions={"q": NoulQuestion(criterion="c")},
     )
 
-    async def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
+    async def fake_post(*args: object, **kwargs: object) -> httpx.Response:
         """Executa a operação fake post."""
         return httpx.Response(status_code, text="Erro")
 
@@ -449,7 +449,7 @@ async def test_jev_api_http_errors(
         questions={"q": NoulQuestion(criterion="c")},
     )
 
-    async def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
+    async def fake_post(*args: object, **kwargs: object) -> httpx.Response:
         """Executa a operação fake post."""
         return httpx.Response(status_code, text="Erro")
 
@@ -625,11 +625,11 @@ async def test_get_decision_models_status_structure() -> None:
     """Verifica o comportamento de get decision models status structure."""
     res = await get_decision_models_status()
     assert isinstance(res, SystemOneStatusResponse)
-    assert res.provider in {"clef-local", "clef-api", "jev-api"}
+    assert res.provider in {"clef-local", "laya-local", "clef-api", "jev-api"}
     assert isinstance(res.is_healthy, bool)
 
 
-@pytest.mark.parametrize("prov", ["clef-local", "clef-api", "jev-api"])
+@pytest.mark.parametrize("prov", ["clef-local", "laya-local", "clef-api", "jev-api"])
 @pytest.mark.parametrize("enabled", [True, False])
 @pytest.mark.asyncio
 async def test_update_decision_models_config_provider_and_enabled(
