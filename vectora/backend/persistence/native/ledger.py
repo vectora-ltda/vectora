@@ -224,17 +224,15 @@ async def backfill_thread_ledger(
             )
             msgs = await cur_msgs.fetchall()
 
-            # Obter max_seq existente no ledger
-            cur_max = await conn.execute(
-                "SELECT COALESCE(MAX(seq), 0) FROM thread_events WHERE thread_id = ?",
-                (thread_id,),
-            )
-            row_max = await cur_max.fetchone()
-            current_seq = int(row_max[0]) if row_max else 0
-
             migrated_count = 0
             assistant_seq_list: list[int] = []
-
+            cur_events = await conn.execute(
+                "SELECT event_key, seq, created_at FROM thread_events "
+                "WHERE thread_id = ? ORDER BY seq ASC",
+                (thread_id,),
+            )
+            existing_events = list(await cur_events.fetchall())
+            missing: list[tuple[tuple[object, ...], dict[str, object]]] = []
             for m in msgs:
                 m_id, role, c_json, tc_id, is_err, turn_id, run_id, created_at = m
                 event_key = make_message_created_key(m_id)
@@ -245,11 +243,7 @@ async def backfill_thread_ledger(
                     (thread_id, event_key),
                 )
                 row_ev = await cur_ev.fetchone()
-                if row_ev is not None:
-                    event_seq = int(row_ev[0])
-                else:
-                    current_seq += 1
-                    event_seq = current_seq
+                if row_ev is None:
                     try:
                         blocks = json.loads(c_json or "[]")
                         text_val = "".join(
@@ -263,26 +257,103 @@ async def backfill_thread_ledger(
                         "content": text_val,
                         "is_error": bool(is_err),
                     }
-                    await conn.execute(
-                        "INSERT INTO thread_events (thread_id, seq, event_key, type, "
-                        "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
-                        "VALUES (?, ?, ?, 'message_created', ?, ?, ?, ?, NULL, ?, ?)",
+                    missing.append(
                         (
-                            thread_id,
-                            event_seq,
-                            event_key,
-                            turn_id,
-                            run_id,
-                            m_id,
-                            tc_id,
-                            json.dumps(payload, ensure_ascii=False),
-                            created_at or now,
-                        ),
+                            (str(created_at or now), 0, int(m_id)),
+                            {
+                                "event_key": event_key,
+                                "role": role,
+                                "turn_id": turn_id,
+                                "run_id": run_id,
+                                "message_id": m_id,
+                                "tool_call_id": tc_id,
+                                "payload_json": json.dumps(payload, ensure_ascii=False),
+                                "created_at": created_at or now,
+                            },
+                        )
                     )
                     migrated_count += 1
 
-                if role == "assistant":
-                    assistant_seq_list.append(event_seq)
+            if missing:
+                # A lazy backfill can run after live events were appended.  Rebuild
+                # the per-thread sequence atomically so legacy messages are ordered
+                # by their original timestamp instead of being appended after newer
+                # events.  Cursors are remapped by their old sequence below.
+                current_seq = len(existing_events) + len(missing)
+                descriptors: list[
+                    tuple[tuple[object, ...], str, dict[str, object]]
+                ] = []
+                for row in existing_events:
+                    descriptors.append(
+                        ((str(row[2] or now), 1, int(row[1])), str(row[0]), {})
+                    )
+                descriptors.extend(
+                    (sort_key, str(data["event_key"]), data)
+                    for sort_key, data in missing
+                )
+                descriptors.sort(key=lambda item: item[0])
+                remap = {
+                    int(row[1]): index
+                    for index, (_, key, _) in enumerate(descriptors, start=1)
+                    for row in existing_events
+                    if str(row[0]) == key
+                }
+                if existing_events:
+                    await conn.execute(
+                        "UPDATE thread_events SET seq = -1000000000 - seq "
+                        "WHERE thread_id = ?",
+                        (thread_id,),
+                    )
+                for index, (_, key, data) in enumerate(descriptors, start=1):
+                    if data:
+                        await conn.execute(
+                            "INSERT INTO thread_events (thread_id, seq, event_key, type, "
+                            "turn_id, run_id, message_id, tool_call_id, interrupt_id, payload_json, created_at) "
+                            "VALUES (?, ?, ?, 'message_created', ?, ?, ?, ?, NULL, ?, ?)",
+                            (
+                                thread_id,
+                                -1000000000 - index,
+                                key,
+                                data["turn_id"],
+                                data["run_id"],
+                                data["message_id"],
+                                data["tool_call_id"],
+                                data["payload_json"],
+                                data["created_at"],
+                            ),
+                        )
+                    await conn.execute(
+                        "UPDATE thread_events SET seq = ? WHERE thread_id = ? AND event_key = ?",
+                        (index, thread_id, key),
+                    )
+                for old_seq, new_seq in remap.items():
+                    await conn.execute(
+                        "UPDATE thread_event_cursors SET last_seen_seq = ? "
+                        "WHERE thread_id = ? AND last_seen_seq = ?",
+                        (new_seq, thread_id, old_seq),
+                    )
+
+            current_seq = max(
+                (
+                    int(row[0])
+                    for row in await (
+                        await conn.execute(
+                            "SELECT seq FROM thread_events WHERE thread_id = ?",
+                            (thread_id,),
+                        )
+                    ).fetchall()
+                ),
+                default=0,
+            )
+            cur_ordered = await conn.execute(
+                "SELECT seq, payload_json FROM thread_events WHERE thread_id = ? "
+                "AND type = 'message_created' ORDER BY seq ASC",
+                (thread_id,),
+            )
+            for row in await cur_ordered.fetchall():
+                payload = json.loads(row[1] or "{}")
+                if payload.get("role") == "assistant":
+                    assistant_seq_list.append(int(row[0]))
 
             # 3. Converter legacy_read_count para last_seen_seq
             if user_id:
