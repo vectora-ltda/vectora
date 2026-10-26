@@ -11,6 +11,7 @@ import httpx
 from httpcore._backends.auto import AutoBackend
 
 from backend.services.egress_policy import EgressPolicy, async_is_url_allowed
+from backend.services.policy_compiler import PolicySnapshot
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
@@ -90,7 +91,16 @@ async def http_request(
         Response body ou erro
     """
     try:
-        policy = EgressPolicy.for_workspace(ctx.workspace_id if ctx else None)
+        snapshot = (
+            ctx._extra.get("policy_snapshot")
+            if ctx is not None and isinstance(ctx._extra, dict)
+            else None
+        )
+        policy = (
+            snapshot.egress_policy
+            if isinstance(snapshot, PolicySnapshot)
+            else EgressPolicy.for_workspace(ctx.workspace_id if ctx else None)
+        )
 
         allowed, reason, pinned_ip = await async_is_url_allowed(url, policy)
         if not allowed or not pinned_ip:
