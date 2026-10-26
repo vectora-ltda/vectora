@@ -11,6 +11,7 @@ import gzip
 import hashlib
 import json
 import os
+import tempfile
 import zlib
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -83,7 +84,10 @@ def export_cold_archive(
     destination_root = Path(root).resolve()
     destination_root.mkdir(parents=True, exist_ok=True)
     final_path = destination_root / f"{safe_id}.jsonl.gz"
-    temporary = final_path.with_suffix(final_path.suffix + ".tmp")
+    with tempfile.NamedTemporaryFile(
+        prefix=f".{safe_id}.", suffix=".archive.tmp", dir=destination_root, delete=False
+    ) as handle:
+        temporary = Path(handle.name)
     records: list[ColdArchiveRecord] = [
         ColdArchiveRecord(kind="metadata", thread_id=safe_id, value=metadata)
     ]
@@ -134,15 +138,26 @@ def export_cold_archive(
         created_at=created_at,
     )
     manifest_path = final_path.with_suffix(final_path.suffix + ".artifact.json")
-    manifest_tmp = manifest_path.with_suffix(manifest_path.suffix + ".tmp")
-    manifest_tmp.write_text(
-        json.dumps(manifest.model_dump(), ensure_ascii=False, sort_keys=True),
-        encoding="utf-8",
-    )
-    with manifest_tmp.open("r+b") as stream:
-        stream.flush()
-        os.fsync(stream.fileno())
-    manifest_tmp.replace(manifest_path)
+    with tempfile.NamedTemporaryFile(
+        prefix=f".{safe_id}.",
+        suffix=".manifest.tmp",
+        dir=destination_root,
+        delete=False,
+    ) as handle:
+        manifest_tmp = Path(handle.name)
+        handle.write(
+            json.dumps(
+                manifest.model_dump(), ensure_ascii=False, sort_keys=True
+            ).encode("utf-8")
+        )
+    try:
+        with manifest_tmp.open("r+b") as stream:
+            stream.flush()
+            os.fsync(stream.fileno())
+        manifest_tmp.replace(manifest_path)
+    except BaseException:
+        manifest_tmp.unlink(missing_ok=True)
+        raise
     # The manifest is the publication point for the archive.  Persist the
     # directory entry as well so a crash cannot expose the archive without its
     # integrity metadata.
