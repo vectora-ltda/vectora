@@ -277,6 +277,25 @@ def test_memory_store_persistent_expiry_compares_offsets_as_instants(tmp_path) -
     assert MemoryStore(path).retrieve(scope_id="thread-1").records == []
 
 
+def test_memory_store_expiry_is_batched_and_rejects_invalid_batch(tmp_path) -> None:
+    path = tmp_path / "context-memory-batch.db"
+    store = MemoryStore(path)
+    for index in range(3):
+        store.store(
+            f"expired-{index}",
+            domain="session",
+            scope_id="thread-1",
+            content="temporary",
+            valid_until="2030-01-01T00:00:00+00:00",
+        )
+
+    with pytest.raises(ValueError, match="batch_size"):
+        store.expire(before="2031-01-01T00:00:00Z", batch_size=0)
+    assert store.expire(before="2031-01-01T00:00:00Z", batch_size=2) == 3
+    reloaded = MemoryStore(path)
+    assert reloaded.retrieve(scope_id="thread-1").records == []
+
+
 def test_memory_store_expire_compares_instants_not_iso_text() -> None:
     """Verifica o comportamento de memory store expire compares instants not iso text."""
     store = MemoryStore()

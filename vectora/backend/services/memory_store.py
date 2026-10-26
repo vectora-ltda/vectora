@@ -394,12 +394,39 @@ class MemoryStore:
                     )
             return True
 
-    def expire(self, *, before: str | None = None) -> int:
-        """Invalida registros expirados ou anteriores ao limite informado."""
+    def expire(self, *, before: str | None = None, batch_size: int = 500) -> int:
+        """Invalida registros expirados em lotes atômicos e auditáveis."""
+        if batch_size <= 0:
+            raise ValueError("batch_size deve ser positivo")
         cutoff_dt = self._parse_datetime(before) if before else datetime.now(UTC)
         cutoff = cutoff_dt.isoformat()
         changed = 0
-        changed_ids: list[str] = []
+        if self._path is not None:
+            while True:
+                with self._connect() as connection:
+                    rows = connection.execute(
+                        "SELECT record_id FROM context_memory_records "
+                        "WHERE invalidated_at IS NULL AND valid_until IS NOT NULL "
+                        "AND valid_until <= ? ORDER BY record_id LIMIT ?",
+                        (cutoff, batch_size),
+                    ).fetchall()
+                    if not rows:
+                        break
+                    ids = [str(row["record_id"]) for row in rows]
+                    marks = ",".join("?" for _ in ids)
+                    cursor = connection.execute(
+                        "UPDATE context_memory_records SET invalidated_at = ? "
+                        f"WHERE invalidated_at IS NULL AND record_id IN ({marks})",  # noqa: S608  # nosec B608
+                        (cutoff, *ids),
+                    )
+                    changed += cursor.rowcount
+                with self._lock:
+                    for record_id in ids:
+                        record = self._records.get(record_id)
+                        if record is not None and record.invalidated_at is None:
+                            record.invalidated_at = cutoff
+            return changed
+
         with self._lock:
             for record in self._records.values():
                 if not record.active or record.valid_until is None:
@@ -411,14 +438,6 @@ class MemoryStore:
                 if expires_at <= cutoff_dt:
                     record.invalidated_at = cutoff
                     changed += 1
-                    changed_ids.append(record.id)
-            if self._path is not None and changed_ids:
-                with self._connect() as connection:
-                    connection.executemany(
-                        "UPDATE context_memory_records SET invalidated_at = ? "
-                        "WHERE record_id = ? AND invalidated_at IS NULL",
-                        [(cutoff, record_id) for record_id in changed_ids],
-                    )
         return changed
 
     @staticmethod
