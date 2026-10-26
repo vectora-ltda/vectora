@@ -5,6 +5,19 @@ export type Request = {
   params?: { cwd?: string; files?: string[] };
 };
 
+const MAX_OUTPUT_BYTES = 2_000_000;
+
+function appendBounded(
+  current: string,
+  chunk: string,
+): { value: string; exceeded: boolean } {
+  const combined = Buffer.concat([Buffer.from(current), Buffer.from(chunk)]);
+  let value = combined.subarray(0, MAX_OUTPUT_BYTES).toString("utf8");
+  while (Buffer.byteLength(value) > MAX_OUTPUT_BYTES)
+    value = value.slice(0, -1);
+  return { value, exceeded: combined.byteLength > MAX_OUTPUT_BYTES };
+}
+
 function run(args: string[], cwd = process.cwd()): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn("pyright", args, {
@@ -20,11 +33,12 @@ function run(args: string[], cwd = process.cwd()): Promise<string> {
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
-      stdout = (stdout + chunk).slice(0, 2_000_000);
-      if (stdout.length >= 2_000_000) child.kill("SIGKILL");
+      const bounded = appendBounded(stdout, chunk);
+      stdout = bounded.value;
+      if (bounded.exceeded) child.kill("SIGKILL");
     });
     child.stderr.on("data", (chunk: string) => {
-      stderr = (stderr + chunk).slice(0, 2_000_000);
+      stderr = appendBounded(stderr, chunk).value;
     });
     child.once("error", (error) => {
       clearTimeout(timer);
