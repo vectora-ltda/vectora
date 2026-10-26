@@ -2292,9 +2292,23 @@ async def start_installed_huggingface_model(
     previous_base_url = settings.llamacpp_base_url
     previous_base_env = os.environ.get("LLAMACPP_BASE_URL")
     previous_mode_env = os.environ.get("LLAMACPP_MODE")
-    object.__setattr__(settings, "llamacpp_base_url", managed_base_url)
-    _set_env_key(env_file, "LLAMACPP_BASE_URL", managed_base_url)
-    os.environ["LLAMACPP_BASE_URL"] = managed_base_url
+
+    def restore_previous_configuration() -> None:
+        """Restore settings and environment when managed startup aborts."""
+        object.__setattr__(settings, "llamacpp_base_url", previous_base_url)
+        if previous_env_text is None:
+            env_file.unlink(missing_ok=True)
+        else:
+            env_file.write_text(previous_env_text, encoding="utf-8")
+        if previous_base_env is None:
+            os.environ.pop("LLAMACPP_BASE_URL", None)
+        else:
+            os.environ["LLAMACPP_BASE_URL"] = previous_base_env
+        if previous_mode_env is None:
+            os.environ.pop("LLAMACPP_MODE", None)
+        else:
+            os.environ["LLAMACPP_MODE"] = previous_mode_env
+
     tag = body.alias or str(manifest.get("alias") or model_entry["filename"])
     parameters: dict[str, str | int | float | bool | None] = {
         "alias": body.alias,
@@ -2306,6 +2320,9 @@ async def start_installed_huggingface_model(
         "jinja": body.jinja,
     }
     try:
+        object.__setattr__(settings, "llamacpp_base_url", managed_base_url)
+        _set_env_key(env_file, "LLAMACPP_BASE_URL", managed_base_url)
+        os.environ["LLAMACPP_BASE_URL"] = managed_base_url
         try:
             await _register("llamacpp_registered_models", tag)
         except HTTPException as exc:
@@ -2324,19 +2341,7 @@ async def start_installed_huggingface_model(
         from backend.services.llamacpp_sidecar import stop_llamacpp
 
         await stop_llamacpp()
-        object.__setattr__(settings, "llamacpp_base_url", previous_base_url)
-        if previous_env_text is None:
-            env_file.unlink(missing_ok=True)
-        else:
-            env_file.write_text(previous_env_text, encoding="utf-8")
-        if previous_base_env is None:
-            os.environ.pop("LLAMACPP_BASE_URL", None)
-        else:
-            os.environ["LLAMACPP_BASE_URL"] = previous_base_env
-        if previous_mode_env is None:
-            os.environ.pop("LLAMACPP_MODE", None)
-        else:
-            os.environ["LLAMACPP_MODE"] = previous_mode_env
+        restore_previous_configuration()
         if isinstance(exc, HTTPException):
             raise
         raise HTTPException(
@@ -2349,11 +2354,20 @@ async def start_installed_huggingface_model(
         "evidence_sha256": confirmation.evidence_sha256,
         "confirmed_at": confirmation.confirmed_at,
     }
-    await _write_json_atomic(manifest_path, manifest)
-    # Persist managed mode only after registration, startup and confirmation
-    # all succeeded; a failed probe must not leave a false managed state.
-    _set_env_key(_env_file(), "LLAMACPP_MODE", "managed")
-    os.environ["LLAMACPP_MODE"] = "managed"
+    try:
+        await _write_json_atomic(manifest_path, manifest)
+        # Persist managed mode only after registration, startup and confirmation
+        # all succeeded; a failed probe must not leave a false managed state.
+        _set_env_key(_env_file(), "LLAMACPP_MODE", "managed")
+        os.environ["LLAMACPP_MODE"] = "managed"
+    except Exception as exc:
+        from backend.services.llamacpp_sidecar import stop_llamacpp
+
+        await stop_llamacpp()
+        restore_previous_configuration()
+        raise HTTPException(
+            status_code=502, detail="não foi possível persistir o modelo iniciado"
+        ) from exc
     return {
         "running": True,
         "executable": str(executable),
