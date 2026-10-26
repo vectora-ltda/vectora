@@ -259,3 +259,49 @@ async def test_dag_failed_stage_finishes_execution_once(tmp_path) -> None:
         events = await cursor.fetchone()
     assert events is not None and events[0] == 1
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_dag_failure_blocks_pending_stages_and_is_terminal(tmp_path) -> None:
+    """A failed execution must not leave dependent work claimable forever."""
+    db = await aiosqlite.connect(tmp_path / "dag-failure-dependent.db")
+    db.row_factory = aiosqlite.Row
+    store = DAGStore(db)
+    await store.setup()
+    plan_id, plan_hash = await store.create_plan(
+        run_id="run-failure-dependent",
+        stages=[DAGStage("first", "First"), DAGStage("second", "Second", ("first",))],
+    )
+    await store.approve_plan(plan_id, plan_hash=plan_hash, approver="user-1")
+    execution = await store.start_execution(
+        plan_id,
+        run_id="run-failure-dependent",
+        idempotency_key="failure-dependent",
+    )
+    claimed = await store.claim_ready_stage(execution.execution_id)
+    assert claimed is not None
+    await store.finish_stage(
+        execution.execution_id,
+        claimed[0],
+        claim_token=claimed[1],
+        passed=False,
+        error="boom",
+    )
+
+    assert await store.claim_ready_stage(execution.execution_id) is None
+    async with db.execute(
+        "SELECT status,error FROM vectora_dag_stages "
+        "WHERE execution_id=? AND stage_id='second'",
+        (execution.execution_id,),
+    ) as cursor:
+        row = await cursor.fetchone()
+    assert row is not None
+    assert row[0] == "failed"
+    assert "outra etapa falhou" in row[1]
+    async with db.execute(
+        "SELECT status FROM vectora_dag_executions WHERE execution_id=?",
+        (execution.execution_id,),
+    ) as cursor:
+        execution_row = await cursor.fetchone()
+    assert execution_row is not None and execution_row[0] == "failed"
+    await db.close()

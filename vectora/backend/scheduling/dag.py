@@ -381,15 +381,41 @@ class DAGStore:
     async def _refresh_execution_status(self, execution_id: str) -> None:
         """Derive the execution status from its persisted stage states."""
         async with self.db.execute(
-            "SELECT status FROM vectora_dag_stages WHERE execution_id=?",
+            "SELECT stage_id,status FROM vectora_dag_stages WHERE execution_id=?",
             (execution_id,),
         ) as cur:
-            statuses = [str(row[0]) for row in await cur.fetchall()]
-        if not statuses or any(state in {"pending", "running"} for state in statuses):
+            rows = await cur.fetchall()
+        statuses = [str(row[1]) for row in rows]
+        if not statuses:
             return
-        execution_status = (
-            "failed" if any(state == "failed" for state in statuses) else "passed"
-        )
+        # A failed stage makes the execution terminal.  Leaving unrelated
+        # pending stages in place would keep the execution ``running``
+        # forever and allow a later scheduler tick to claim work after the
+        # failure.  Mark them explicitly as blocked before publishing the
+        # execution terminal event.
+        if "failed" in statuses and "running" not in statuses:
+            pending = [str(row[0]) for row in rows if row[1] == "pending"]
+            for stage_id in pending:
+                await self.db.execute(
+                    "UPDATE vectora_dag_stages SET status='failed',error=? "
+                    "WHERE execution_id=? AND stage_id=? AND status='pending'",
+                    (
+                        "etapa não executada porque outra etapa falhou",
+                        execution_id,
+                        stage_id,
+                    ),
+                )
+                await self._event(
+                    execution_id,
+                    stage_id,
+                    "stage_blocked",
+                    {"reason": "dependency_failed"},
+                )
+            execution_status = "failed"
+        elif any(state in {"pending", "running"} for state in statuses):
+            return
+        else:
+            execution_status = "passed"
         cur = await self.db.execute(
             "UPDATE vectora_dag_executions SET status=? WHERE execution_id=? AND status='running'",
             (execution_status, execution_id),
