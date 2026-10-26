@@ -483,7 +483,7 @@ def restore_backup(
             if len(payload) > MAX_ENTRY_BYTES:
                 raise ValueError("entrada de backup excede o limite")
             _atomic_write(destination, payload, boundary=boundary)
-        except Exception:
+        except BaseException:
             if previous is None:
                 destination.unlink(missing_ok=True)
             else:
@@ -601,7 +601,7 @@ def restore_backup(
             else:
                 staged_data = data
             _atomic_write(path, staged_data, boundary=boundary)
-    except Exception:
+    except BaseException:
         for path in staged:
             if path not in snapshots and path.is_file():
                 path.unlink(missing_ok=True)
