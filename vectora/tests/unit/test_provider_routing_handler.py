@@ -1534,6 +1534,7 @@ class TestLlamaCppAndHuggingFace:
             encoding="utf-8",
         )
         started: dict[str, object] = {}
+        stop = AsyncMock()
 
         async def fake_start(executable_arg, model_arg, **options):
             """Executa a operação fake start."""
@@ -1546,6 +1547,7 @@ class TestLlamaCppAndHuggingFace:
         monkeypatch.setattr(
             "backend.services.llamacpp_sidecar.start_llamacpp", fake_start
         )
+        monkeypatch.setattr("backend.services.llamacpp_sidecar.stop_llamacpp", stop)
         result = await start_installed_huggingface_model(
             HuggingFaceStartRequest(repo_id="org/model"), None
         )
@@ -1568,6 +1570,7 @@ class TestLlamaCppAndHuggingFace:
         assert result["model_tag"] == "weights.gguf"
         assert os.environ["LLAMACPP_MODE"] == "managed"
         assert "LLAMACPP_MODE=managed" in (tmp_path / ".env").read_text()
+        assert stop.await_count == 0
 
     @pytest.mark.asyncio
     async def test_huggingface_start_restores_configuration_when_confirmation_fails(
