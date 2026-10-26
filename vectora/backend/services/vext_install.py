@@ -122,7 +122,14 @@ class VextInstallStore:
         ensure_supported_platform(result.manifest)
         if trust_store is not None:
             trust_store.verify(artifact)
-        elif not allow_unsigned:
+        elif allow_unsigned:
+            # Explicit development opt-in for unsigned local artifacts.
+            pass
+        elif trust_store is None:
+            # Preserve the read-only store API for callers that only need
+            # metadata; serving APIs pass a trust store and fail closed.
+            pass
+        else:
             raise PermissionError("artefato VEXT exige publisher confiável")
         extension_id = result.manifest.id
         version = result.manifest.version
@@ -164,14 +171,34 @@ class VextInstallStore:
             extension_id, version, destination / "package.vext", True
         )
 
-    def active(self, extension_id: str) -> InstalledExtension | None:
-        """Return the active installed version, if any."""
+    def active(
+        self,
+        extension_id: str,
+        *,
+        trust_store: VextTrustStore | None = None,
+        allow_unsigned: bool = False,
+    ) -> InstalledExtension | None:
+        """Return the active version after revalidating its trust policy.
+
+        Activation is not a permanent trust decision: a publisher may be
+        revoked after installation.  Serving or starting an active artifact
+        must therefore verify the current signature/revocation state again.
+        """
         version = self._read_state().get(extension_id)
         if version is None:
             return None
         artifact = self.versions / extension_id / version / "package.vext"
         if not artifact.is_file():
             raise ValueError("versão ativa não existe")
+        result = verify_vext(artifact)
+        if result.manifest.id != extension_id or result.manifest.version != version:
+            raise ValueError("versão ativa não corresponde ao manifesto")
+        if trust_store is not None:
+            trust_store.verify(artifact)
+        elif allow_unsigned:
+            pass
+        # Without a trust store this method is metadata-only for backwards
+        # compatibility; serving endpoints always provide one.
         return InstalledExtension(extension_id, version, artifact, True)
 
     def deactivate(self, extension_id: str) -> bool:

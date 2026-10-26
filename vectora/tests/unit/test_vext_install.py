@@ -2,9 +2,11 @@ import json
 from pathlib import Path
 
 import pytest
+from nacl.signing import SigningKey
 
 from backend.services.vext_artifact import build_vext
 from backend.services.vext_install import VextInstallStore
+from backend.services.vext_registry import VextTrustStore
 
 
 def _source(root: Path, version: str) -> None:
@@ -99,3 +101,20 @@ def test_deactivate_preserva_versoes_e_activate_reutiliza_artefato(
     assert store.list_installed()[0].active is False
     restored = store.activate("install.test", "1.0.0", allow_unsigned=True)
     assert restored.active is True
+
+
+def test_active_revalida_revogacao_antes_de_servir_artefato(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _source(source, "1.0.0")
+    key = SigningKey.generate()
+    artifact = tmp_path / "signed.vext"
+    build_vext(source, artifact, signing_key=key)
+    trust = VextTrustStore()
+    record = trust.add("test", key.verify_key)
+    store = VextInstallStore(tmp_path / "extensions")
+    store.install(artifact, trust_store=trust)
+    assert store.active("install.test", trust_store=trust) is not None
+    trust.revoke("test", record.fingerprint)
+    with pytest.raises(PermissionError, match="revogado"):
+        store.active("install.test", trust_store=trust)

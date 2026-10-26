@@ -150,7 +150,7 @@ async def list_installed() -> InstalledExtensionsResponse:
 def _active_verified_archive(
     extension_id: str,
 ) -> tuple[VextBuildResult, zipfile.ZipFile]:
-    item = _store().active(extension_id)
+    item = _store().active(extension_id, trust_store=_trust_store())
     if item is None:
         raise HTTPException(status_code=404, detail="extensÃ£o nÃ£o instalada")
     try:
@@ -209,7 +209,7 @@ async def frontend(extension_id: str) -> Response:
     iframe, so installing an extension never writes executable files into the
     application bundle.
     """
-    item = _store().active(extension_id)
+    item = _store().active(extension_id, trust_store=_trust_store())
     if item is None:
         raise HTTPException(status_code=404, detail="extensÃ£o nÃ£o instalada")
     try:
@@ -247,7 +247,7 @@ async def frontend(extension_id: str) -> Response:
 @router.get("/{extension_id}/icon", response_class=Response)
 async def icon(extension_id: str) -> Response:
     """Serve an extension's declared SVG icon from its verified artifact."""
-    item = _store().active(extension_id)
+    item = _store().active(extension_id, trust_store=_trust_store())
     if item is None:
         raise HTTPException(status_code=404, detail="extensÃ£o nÃ£o instalada")
     try:
