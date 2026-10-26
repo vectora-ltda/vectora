@@ -344,6 +344,13 @@ class DAGStore:
             "AND attempt < ?",
             (now, max_attempts),
         )
+        async with self.db.execute(
+            "SELECT execution_id,stage_id FROM vectora_dag_stages "
+            "WHERE status='running' AND claim_expires_at IS NOT NULL AND claim_expires_at < ? "
+            "AND attempt >= ?",
+            (now, max_attempts),
+        ) as exhausted_cur:
+            exhausted_rows = await exhausted_cur.fetchall()
         exhausted = await self.db.execute(
             "UPDATE vectora_dag_stages SET status='failed',claim_token=NULL,"
             "claim_expires_at=NULL,error=? "
@@ -355,19 +362,14 @@ class DAGStore:
                 max_attempts,
             ),
         )
-        async with self.db.execute(
-            "SELECT execution_id,stage_id FROM vectora_dag_stages "
-            "WHERE status='failed' AND error=? AND claim_expires_at IS NULL",
-            ("limite de tentativas excedido após expiração da lease",),
-        ) as failed_cur:
-            for row in await failed_cur.fetchall():
-                await self._event(
-                    row["execution_id"],
-                    row["stage_id"],
-                    "stage_recovery_exhausted",
-                    {"max_attempts": max_attempts},
-                )
-                await self._refresh_execution_status(row["execution_id"])
+        for row in exhausted_rows:
+            await self._event(
+                row["execution_id"],
+                row["stage_id"],
+                "stage_recovery_exhausted",
+                {"max_attempts": max_attempts},
+            )
+            await self._refresh_execution_status(row["execution_id"])
         await self.db.commit()
         return cur.rowcount + exhausted.rowcount
 
