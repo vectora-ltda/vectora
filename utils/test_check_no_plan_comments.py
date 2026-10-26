@@ -118,6 +118,11 @@ class TestTrackerDeteccao:
         path = _write(tmp_path, "a.py", "# background-color: #00000080\nx = 1\n")
         assert _find_violations(path) == []
 
+    def test_nao_bloqueia_cores_css_curta(self, tmp_path: Path) -> None:
+        """Não confunde #000 e #0000 com referências de issue."""
+        path = _write(tmp_path, "a.py", "# color: #000; color: #0000\n")
+        assert _find_violations(path) == []
+
     def test_bloqueia_issue_com_numero(self, tmp_path: Path) -> None:
         """Verifica o comportamento de bloqueia issue com numero."""
         path = _write(tmp_path, "a.py", "# fix para issue #318\nx = 1\n")

@@ -151,6 +151,13 @@ def test_all_tools_count() -> None:
     """Verifica o comportamento de all tools count."""
     nomes = sorted(t.name for t in ALL_TOOLS)
     assert len(ALL_TOOLS) == 191, f"tools registradas: {nomes}"
+    nomes_registrados = set(nomes)
+    for esperado in (
+        "systemone_list_patterns",
+        "systemone_evaluate_pattern",
+        "systemone_propose_kanban_transition",
+    ):
+        assert esperado in nomes_registrados, f"Ferramenta ausente: {esperado}"
 
 
 def test_all_tools_sem_nome_duplicado() -> None:

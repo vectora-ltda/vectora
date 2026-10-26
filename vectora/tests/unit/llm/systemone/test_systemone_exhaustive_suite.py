@@ -13,13 +13,17 @@ Cobre exaustivamente:
 from __future__ import annotations
 
 import math
-from typing import Any
+from pathlib import Path
 
 import httpx
 import pytest
 from pydantic import ValidationError
 
-from backend.llm.systemone.api_adapters import ClefApiAdapter, JevApiAdapter
+from backend.llm.systemone.api_adapters import (
+    BaseSystemOneApiAdapter,
+    ClefApiAdapter,
+    JevApiAdapter,
+)
 from backend.llm.systemone.clef_local import ClefLocalAdapter
 from backend.llm.systemone.errors import (
     SystemOneAuthenticationError,
@@ -30,6 +34,7 @@ from backend.llm.systemone.errors import (
     SystemOneTimeoutError,
     SystemOneValidationError,
 )
+from backend.llm.systemone.laya_local import LayaLocalAdapter
 from backend.llm.systemone.policy import DecisionPolicyEngine, PolicyDecisionOutcome
 from backend.llm.systemone.settings import (
     SystemOneSettings,
@@ -291,7 +296,7 @@ async def test_clef_local_http_status_codes(
         questions={"q": NoulQuestion(criterion="crit")},
     )
 
-    async def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
+    async def fake_post(*args: object, **kwargs: object) -> httpx.Response:
         """Executa a operação fake post."""
         return httpx.Response(status_code, text="Erro simulado")
 
@@ -322,7 +327,7 @@ async def test_clef_local_network_errors(
         questions={"q": NoulQuestion(criterion="crit")},
     )
 
-    async def fake_post_err(*args: Any, **kwargs: Any) -> httpx.Response:
+    async def fake_post_err(*args: object, **kwargs: object) -> httpx.Response:
         """Executa a operação fake post err."""
         raise client_error
 
@@ -352,7 +357,7 @@ async def test_clef_local_health(
     """Verifica o comportamento de clef local health."""
     adapter = ClefLocalAdapter(base_url="http://127.0.0.1:8080")
 
-    async def fake_get(*args: Any, **kwargs: Any) -> httpx.Response:
+    async def fake_get(*args: object, **kwargs: object) -> httpx.Response:
         """Executa a operação fake get."""
         return httpx.Response(health_status, json={"status": "ok"} if is_ok else {})
 
@@ -419,7 +424,7 @@ async def test_clef_api_http_errors(
         questions={"q": NoulQuestion(criterion="c")},
     )
 
-    async def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
+    async def fake_post(*args: object, **kwargs: object) -> httpx.Response:
         """Executa a operação fake post."""
         return httpx.Response(status_code, text="Erro")
 
@@ -449,7 +454,7 @@ async def test_jev_api_http_errors(
         questions={"q": NoulQuestion(criterion="c")},
     )
 
-    async def fake_post(*args: Any, **kwargs: Any) -> httpx.Response:
+    async def fake_post(*args: object, **kwargs: object) -> httpx.Response:
         """Executa a operação fake post."""
         return httpx.Response(status_code, text="Erro")
 
@@ -601,7 +606,11 @@ _SYSTEMONE_SETTING_ATTRS = (
     "systemone_provider",
     "systemone_local_base_url",
     "systemone_local_model",
+    "systemone_laya_base_url",
+    "systemone_laya_model",
+    "systemone_laya_api_key",
     "systemone_clef_api_base_url",
+    "systemone_clef_account_id",
     "systemone_clef_api_model",
     "systemone_jev_api_base_url",
     "systemone_jev_api_model",
@@ -619,17 +628,24 @@ def _isolate_systemone_app_settings(monkeypatch: pytest.MonkeyPatch) -> None:
         if hasattr(app_settings, attr):
             monkeypatch.setattr(app_settings, attr, getattr(app_settings, attr))
 
+    async def healthy(_: object) -> bool:
+        """Mantém os testes de configuração independentes de serviços externos."""
+        return True
+
+    monkeypatch.setattr(BaseSystemOneApiAdapter, "health", healthy)
+    monkeypatch.setattr(LayaLocalAdapter, "health", healthy)
+
 
 @pytest.mark.asyncio
 async def test_get_decision_models_status_structure() -> None:
     """Verifica o comportamento de get decision models status structure."""
     res = await get_decision_models_status()
     assert isinstance(res, SystemOneStatusResponse)
-    assert res.provider in {"clef-local", "clef-api", "jev-api"}
+    assert res.provider in {"clef-local", "laya-local", "clef-api", "jev-api"}
     assert isinstance(res.is_healthy, bool)
 
 
-@pytest.mark.parametrize("prov", ["clef-local", "clef-api", "jev-api"])
+@pytest.mark.parametrize("prov", ["clef-local", "laya-local", "clef-api", "jev-api"])
 @pytest.mark.parametrize("enabled", [True, False])
 @pytest.mark.asyncio
 async def test_update_decision_models_config_provider_and_enabled(
@@ -674,6 +690,36 @@ async def test_update_decision_models_config_local_urls(local_url: str) -> None:
     req = UpdateSystemOneConfigRequest(local_base_url=local_url)
     res = await update_decision_models_config(req, _=None)
     assert res.local_base_url == local_url
+
+
+@pytest.mark.asyncio
+async def test_update_decision_models_config_persists_changed_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Toda alteração de configuração deve sobreviver a um novo processo."""
+    from backend.api.handlers import provider_routing
+
+    env_file = tmp_path / ".env"
+    monkeypatch.setattr(provider_routing, "_env_file", lambda: env_file)
+    res = await provider_routing.update_decision_models_config(
+        UpdateSystemOneConfigRequest(
+            local_base_url="http://127.0.0.1:9999",
+            local_model="decision-test",
+            laya_base_url="http://127.0.0.1:11434",
+            laya_model="laya-test",
+            clef_account_id="account-test",
+            confidence_threshold_hitl=0.7,
+        ),
+        _=None,
+    )
+
+    saved = env_file.read_text(encoding="utf-8")
+    assert "SYSTEMONE_LOCAL_BASE_URL=http://127.0.0.1:9999" in saved
+    assert "SYSTEMONE_LOCAL_MODEL=decision-test" in saved
+    assert "SYSTEMONE_LAYA_MODEL=laya-test" in saved
+    assert "SYSTEMONE_CLEF_ACCOUNT_ID=account-test" in saved
+    assert "SYSTEMONE_CONFIDENCE_THRESHOLD_HITL=0.7" in saved
+    assert res.clef_account_id == "account-test"
 
 
 @pytest.mark.parametrize(
