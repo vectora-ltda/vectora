@@ -3,6 +3,13 @@ import { join } from "node:path";
 
 const packagesDir = new URL("../packages/", import.meta.url);
 const packageNames = await readdir(packagesDir);
+const allowedPermissions = new Set([
+  "workspace.read",
+  "workspace.write",
+  "network",
+  "secrets.read",
+  "process.spawn",
+]);
 for (const packageName of packageNames) {
   const packageDir = new URL(`../packages/${packageName}/`, import.meta.url);
   const manifestPath = new URL(`../packages/${packageName}/vectora-extension.json`, import.meta.url);
@@ -18,8 +25,28 @@ for (const packageName of packageNames) {
       throw new Error(`${packageName}: missing manifest field ${field}`);
     }
   }
-  if (manifest.api_version !== 1 || !Array.isArray(manifest.permissions)) {
-    throw new Error(`${packageName}: invalid API version or permissions`);
+  if (
+    manifest.api_version !== 1 ||
+    manifest.protocol_version !== 1 ||
+    manifest.runtime !== "node" ||
+    !Array.isArray(manifest.permissions) ||
+    manifest.permissions.some(
+      (permission) =>
+        typeof permission !== "string" || !allowedPermissions.has(permission),
+    )
+  ) {
+    throw new Error(`${packageName}: invalid API, protocol, runtime or permissions`);
+  }
+  if (manifest.version !== packageJson.version) {
+    throw new Error(`${packageName}: manifest and package versions differ`);
+  }
+  for (const [alias, canonical] of [
+    ["frontend", "frontend_entrypoint"],
+    ["backend", "backend_entrypoint"],
+  ]) {
+    if (manifest[canonical] !== manifest[alias]) {
+      throw new Error(`${packageName}: ${alias} and ${canonical} differ`);
+    }
   }
   if (manifest.frontend === manifest.backend) {
     throw new Error(`${packageName}: frontend and backend must be separate entrypoints`);
