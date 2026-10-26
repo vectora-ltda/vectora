@@ -179,7 +179,12 @@ class TestCrawlEMapExigemKey:
     async def test_crawl_sem_key_devolve_erro_claro(self):
         from backend.tools.web import web_crawl
 
-        with patch("backend.tools.web.settings") as ms:
+        with (
+            patch("backend.tools.web.settings") as ms,
+            patch(
+                "backend.tools.web._check_egress_url", new=AsyncMock(return_value=None)
+            ),
+        ):
             ms.tavily_api_key = None
             resultado = json.loads(await web_crawl(url="https://x.test"))
 
@@ -204,8 +209,47 @@ class TestCrawlEMapExigemKey:
         with (
             patch("backend.tools.web.settings") as ms,
             patch("backend.tools.web._tavily_client", return_value=mock_client),
+            patch(
+                "backend.tools.web._check_egress_url", new=AsyncMock(return_value=None)
+            ),
         ):
             ms.tavily_api_key = "real-key"
             resultado = json.loads(await web_map(url="https://x.test"))
 
         assert resultado == ["/a", "/b"]
+
+    async def test_crawl_recusa_dns_privado_antes_de_chamar_tavily(self):
+        from backend.tools.web import web_crawl
+
+        client = MagicMock()
+        with (
+            patch("backend.tools.web.settings") as ms,
+            patch("backend.tools.web._tavily_client", return_value=client),
+            patch(
+                "backend.tools.web._check_egress_url",
+                new=AsyncMock(return_value="endereço privado bloqueado"),
+            ),
+        ):
+            ms.tavily_api_key = "real-key"
+            resultado = json.loads(await web_crawl(url="https://rebind.example"))
+
+        assert "política de egress" in resultado["error"]
+        client.crawl.assert_not_called()
+
+    async def test_map_recusa_dns_privado_antes_de_chamar_tavily(self):
+        from backend.tools.web import web_map
+
+        client = MagicMock()
+        with (
+            patch("backend.tools.web.settings") as ms,
+            patch("backend.tools.web._tavily_client", return_value=client),
+            patch(
+                "backend.tools.web._check_egress_url",
+                new=AsyncMock(return_value="endereço privado bloqueado"),
+            ),
+        ):
+            ms.tavily_api_key = "real-key"
+            resultado = json.loads(await web_map(url="https://rebind.example"))
+
+        assert "política de egress" in resultado["error"]
+        client.map.assert_not_called()
