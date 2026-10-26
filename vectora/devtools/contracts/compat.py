@@ -142,6 +142,13 @@ def check_schema_compatibility(
     for defs_key in ("$defs", "definitions"):
         old_defs = old_schema.get(defs_key, {})
         new_defs = new_schema.get(defs_key, {})
+        if not isinstance(old_defs, dict) or not isinstance(new_defs, dict):
+            continue
+        removed_defs = set(old_defs) - set(new_defs)
+        if removed_defs:
+            report.breaking.append(
+                f"{path}: definições removidas em {defs_key}: {sorted(removed_defs)}"
+            )
         for d_key in set(old_defs.keys()) & set(new_defs.keys()):
             sub_report = check_schema_compatibility(
                 old_defs[d_key],
