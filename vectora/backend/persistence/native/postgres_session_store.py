@@ -1108,33 +1108,53 @@ class PostgresSessionStore:
         await self.setup()
         now = _now()
         async with self._pool.acquire() as conn:
-            max_seq = await conn.fetchval(
-                "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
-                thread_id,
-            )
-            clamped_seq = max(0, min(seen_seq, int(max_seq or 0)))
+            # Manter a atualização e a leitura do cursor/contagem na mesma
+            # transação evita que dispositivos concorrentes produzam um par
+            # read_seq/unread_count calculado a partir de snapshots distintos.
+            async with conn.transaction():
+                max_seq = await conn.fetchval(
+                    "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
+                    thread_id,
+                )
+                clamped_seq = max(0, min(seen_seq, int(max_seq or 0)))
 
-            await conn.execute(
-                "INSERT INTO vectora_native_thread_event_cursors "
-                "(thread_id, user_id, device_id, last_seen_seq, updated_at) "
-                "VALUES ($1, $2, $3, $4, $5) "
-                "ON CONFLICT (thread_id, user_id, device_id) DO UPDATE SET "
-                "last_seen_seq = GREATEST(vectora_native_thread_event_cursors.last_seen_seq, EXCLUDED.last_seen_seq), "
-                "updated_at = EXCLUDED.updated_at",
-                thread_id,
-                user_id,
-                device_id,
-                clamped_seq,
-                now,
-            )
-
-        summaries = await self.get_thread_summaries([thread_id], user_id=user_id)
-        if summaries:
-            return {
-                "read_seq": summaries[0].read_seq,
-                "unread_count": summaries[0].unread_count,
-            }
-        return {"read_seq": clamped_seq, "unread_count": 0}
+                await conn.execute(
+                    "INSERT INTO vectora_native_thread_event_cursors "
+                    "(thread_id, user_id, device_id, last_seen_seq, updated_at) "
+                    "VALUES ($1, $2, $3, $4, $5) "
+                    "ON CONFLICT (thread_id, user_id, device_id) DO UPDATE SET "
+                    "last_seen_seq = GREATEST(vectora_native_thread_event_cursors.last_seen_seq, EXCLUDED.last_seen_seq), "
+                    "updated_at = EXCLUDED.updated_at",
+                    thread_id,
+                    user_id,
+                    device_id,
+                    clamped_seq,
+                    now,
+                )
+                read_seq = int(
+                    await conn.fetchval(
+                        "SELECT COALESCE(MAX(last_seen_seq), 0) "
+                        "FROM vectora_native_thread_event_cursors "
+                        "WHERE thread_id = $1 AND user_id = $2",
+                        thread_id,
+                        user_id,
+                    )
+                    or 0
+                )
+                unread_count = int(
+                    await conn.fetchval(
+                        "SELECT COALESCE(SUM(CASE WHEN seq > $1 AND "
+                        "(type = ANY($2::text[]) OR (type = 'message_created' AND "
+                        "payload_json::jsonb->>'role' = 'assistant')) "
+                        "THEN 1 ELSE 0 END), 0) "
+                        "FROM vectora_native_thread_events WHERE thread_id = $3",
+                        read_seq,
+                        ["approval_requested", "run_failed"],
+                        thread_id,
+                    )
+                    or 0
+                )
+        return {"read_seq": read_seq, "unread_count": unread_count}
 
     async def get_thread_summaries(
         self, thread_ids: list[str], *, user_id: str
