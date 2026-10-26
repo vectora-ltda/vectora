@@ -2286,6 +2286,7 @@ async def start_installed_huggingface_model(
     # chat report a false "unreachable" state after restart.
     managed_base_url = f"http://127.0.0.1:{body.port}/v1"
     env_file = _env_file()
+    env_file_existed = env_file.exists()
     previous_base_url = settings.llamacpp_base_url
     previous_base_env = os.environ.get("LLAMACPP_BASE_URL")
 
@@ -2297,6 +2298,8 @@ async def start_installed_huggingface_model(
             os.environ.pop("LLAMACPP_BASE_URL", None)
         else:
             os.environ["LLAMACPP_BASE_URL"] = previous_base_env
+        if not env_file_existed:
+            env_file.unlink(missing_ok=True)
 
     tag = body.alias or str(manifest.get("alias") or model_entry["filename"])
     parameters: dict[str, str | int | float | bool | None] = {

@@ -1635,6 +1635,61 @@ class TestLlamaCppAndHuggingFace:
             == "LLAMACPP_BASE_URL=http://old.local/v1\n"
         )
 
+    @pytest.mark.asyncio
+    async def test_huggingface_start_removes_new_env_when_confirmation_fails(
+        self, app, tmp_path, monkeypatch
+    ):
+        """Falha sem .env prévio não deixa um arquivo vazio persistente."""
+        from backend.api.handlers.provider_routing import (
+            HuggingFaceStartRequest,
+            start_installed_huggingface_model,
+        )
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "vectora_home", tmp_path)
+        model_root = tmp_path / "models" / "huggingface" / "org" / "fresh-model"
+        model_root.mkdir(parents=True)
+        (model_root / "weights.gguf").write_bytes(b"weights")
+        runtime_dir = tmp_path / "tools" / "llama.cpp" / "versions" / "runtime-1"
+        runtime_dir.mkdir(parents=True)
+        (runtime_dir / "llama-server").write_bytes(b"server")
+        runtime_root = runtime_dir.parents[1]
+        (runtime_root / "active-runtime").write_text("runtime-1", encoding="utf-8")
+        (runtime_root / "runtime-manifest.json").write_text(
+            json.dumps(
+                {"runtimes": [{"id": "runtime-1", "directory": str(runtime_dir)}]}
+            ),
+            encoding="utf-8",
+        )
+        (model_root / "model-manifest.json").write_text(
+            json.dumps({"files": [{"filename": "weights.gguf", "role": "model"}]}),
+            encoding="utf-8",
+        )
+
+        async def fake_start(*args, **kwargs):
+            return None
+
+        async def fail_confirmation(*args, **kwargs):
+            raise RuntimeError("probe failed")
+
+        stop = AsyncMock()
+        monkeypatch.setattr(
+            "backend.services.llamacpp_sidecar.start_llamacpp", fake_start
+        )
+        monkeypatch.setattr("backend.services.llamacpp_sidecar.stop_llamacpp", stop)
+        monkeypatch.setattr(
+            "backend.api.handlers.provider_routing.confirm_llamacpp_model",
+            fail_confirmation,
+        )
+
+        with pytest.raises(HTTPException, match="não foi possível confirmar"):
+            await start_installed_huggingface_model(
+                HuggingFaceStartRequest(repo_id="org/fresh-model"), None
+            )
+
+        assert stop.await_count == 1
+        assert not (tmp_path / ".env").exists()
+
     def test_llamacpp_install_rejects_non_official_url(self, client):
         """Verifica o comportamento de llamacpp install rejects non official url."""
         response = client.post(
