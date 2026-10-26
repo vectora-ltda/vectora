@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import tempfile
+import threading
 import zlib
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -21,6 +22,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 _MAX_DECOMPRESSED_BYTES = 512 * 1024 * 1024
+_COLD_PUBLISH_LOCK = threading.Lock()
 
 type JsonValue = (
     bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"] | None
@@ -115,7 +117,15 @@ def export_cold_archive(
         raise
     with temporary.open("r+b") as stream:
         os.fsync(stream.fileno())
-    temporary.replace(final_path)
+    try:
+        # Windows cannot replace an open target reliably when two exports of
+        # the same thread publish concurrently.  Serialize only the short
+        # publication step; archive generation remains fully concurrent.
+        with _COLD_PUBLISH_LOCK:
+            temporary.replace(final_path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
     # Durabilidade do rename: o arquivo e a entrada do diretório precisam
     # sobreviver a uma queda de energia antes de publicar o manifesto.
     try:
@@ -154,7 +164,8 @@ def export_cold_archive(
         with manifest_tmp.open("r+b") as stream:
             stream.flush()
             os.fsync(stream.fileno())
-        manifest_tmp.replace(manifest_path)
+        with _COLD_PUBLISH_LOCK:
+            manifest_tmp.replace(manifest_path)
     except BaseException:
         manifest_tmp.unlink(missing_ok=True)
         raise
