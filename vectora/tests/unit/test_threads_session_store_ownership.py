@@ -510,7 +510,9 @@ class TestMarkThreadRead:
 
         assert await th._unread_count("thread-tools", "alice") == 1
 
-    async def test_cursor_isolado_por_usuario(self, session_store) -> None:
+    async def test_cursor_isolado_por_usuario(
+        self, session_store: SessionStore
+    ) -> None:
         """Verifica o comportamento de cursor isolado por usuario."""
         await session_store.create_session("thread-alice", user_id="alice")
         await th._upsert_session("thread-alice")
