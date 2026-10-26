@@ -77,7 +77,14 @@ from uuid import uuid4
 
 from backend.engine.conversation_loop import LoopConfig, run_conversation
 from backend.engine.stream_events import MessageChunk, SubagentOutput
+from backend.persistence.native.agent_run import AgentRunStatus
 from backend.rbac import tool_policy
+from backend.services.egress_policy import EgressPolicy
+from backend.services.policy_compiler import (
+    DESTRUCTIVE_TOOLS,
+    PolicySnapshot,
+    compile_policy_snapshot,
+)
 from backend.tools.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
@@ -179,6 +186,7 @@ def request_hard_interrupt(
 
 
 def _sub_thread_id(parent_thread_id: str, subagent_name: str) -> str:
+    """Executa a operação  sub thread id."""
     return f"{parent_thread_id}:{subagent_name}:{uuid4()}"
 
 
@@ -224,6 +232,7 @@ async def run_subagent(
     | None,
     turn_budget: TurnBudget | None = None,
     liveness: LivenessConfig | None = None,
+    parent_policy_snapshot: PolicySnapshot | None = None,
 ) -> str:
     """Roda `spec` até completar (ou pausar em HITL) e devolve o texto
     final. Sem `spec.correlation_id`, delega direto pra
@@ -246,6 +255,7 @@ async def run_subagent(
             should_require_approval=should_require_approval,
             turn_budget=turn_budget,
             liveness=liveness,
+            parent_policy_snapshot=parent_policy_snapshot,
         )
 
     correlation_id = spec.correlation_id
@@ -268,6 +278,7 @@ async def run_subagent(
             should_require_approval=should_require_approval,
             turn_budget=turn_budget,
             liveness=liveness,
+            parent_policy_snapshot=parent_policy_snapshot,
         )
     except BaseException as exc:
         if not future.done():
@@ -297,6 +308,7 @@ async def _run_subagent_once(
     | None = None,
     turn_budget: TurnBudget | None = None,
     liveness: LivenessConfig | None = None,
+    parent_policy_snapshot: PolicySnapshot | None = None,
 ) -> str:
     """Roda `spec` uma única vez até completar (ou pausar em HITL) e
     devolve o texto final — instância nova e isolada do motor, sessão
@@ -321,14 +333,27 @@ async def _run_subagent_once(
     momento, distinto do watchdog de liveness (só timeout de inatividade).
 
     Erro/borda: `spec.tools` pedindo tool fora do escopo RBAC do usuário
-    (`ctx.user_id`, via `backend.rbac.tool_policy.effective_disabled`) é
+    (`ctx.user_id`, via `backend.rbac.tool_policy.effective_disabled`) ou
+    bloqueada por políticas de governança/conteúdo não confiável é
     rejeitado antes de qualquer sessão ser criada — erro tipado, nenhuma
     chamada ao chat client."""
     fora_do_escopo = _tools_outside_user_scope(spec.tools, ctx.user_id)
+    if parent_policy_snapshot is not None:
+        for t in spec.tools:
+            allowed, _ = parent_policy_snapshot.is_tool_allowed(t.name)
+            if not allowed and t.name not in fora_do_escopo:
+                fora_do_escopo.append(t.name)
+    else:
+        extra = getattr(ctx, "_extra", {})
+        if isinstance(extra, dict) and extra.get("untrusted_content"):
+            for t in spec.tools:
+                if t.name in DESTRUCTIVE_TOOLS and t.name not in fora_do_escopo:
+                    fora_do_escopo.append(t.name)
+
     if fora_do_escopo:
         return (
             f"Error: subagente '{spec.name}' pede tool(s) fora do escopo "
-            f"RBAC do usuário atual: {', '.join(sorted(fora_do_escopo))}."
+            f"RBAC ou bloqueadas por política de segurança: {', '.join(sorted(fora_do_escopo))}."
         )
 
     if turn_budget is not None:
@@ -362,7 +387,63 @@ async def _run_subagent_once(
     for tool_spec in spec.tools:
         sub_registry.register(tool_spec)
 
-    sub_ctx = replace(ctx, thread_id=thread_id)
+    child_run_id = f"run_{uuid4().hex}"
+    parent_run_id = ctx.run_id or (config.run_id if config else None) or None
+    corr_id = (
+        str(spec.correlation_id)
+        if spec.correlation_id
+        else (ctx.correlation_id or None)
+    )
+
+    base_policy = compile_policy_snapshot(ctx)
+
+    child_disabled = set(base_policy.disabled_tools)
+    is_untrusted = base_policy.untrusted_content
+    is_jailed = base_policy.is_jailed
+    allow_force_push = base_policy.allow_force_push
+    egress_policy = base_policy.egress_policy
+
+    if parent_policy_snapshot is not None:
+        child_disabled.update(parent_policy_snapshot.disabled_tools)
+        is_untrusted = is_untrusted or parent_policy_snapshot.untrusted_content
+        is_jailed = is_jailed or parent_policy_snapshot.is_jailed
+        allow_force_push = allow_force_push and parent_policy_snapshot.allow_force_push
+        if parent_policy_snapshot.egress_policy is not None:
+            egress_policy = parent_policy_snapshot.egress_policy
+
+    child_policy = replace(
+        base_policy,
+        disabled_tools=frozenset(child_disabled),
+        untrusted_content=is_untrusted,
+        is_jailed=is_jailed,
+        allow_force_push=allow_force_push,
+        egress_policy=egress_policy,
+    )
+
+    if hasattr(session_store, "upsert_agent_run"):
+        from backend.persistence.native.agent_run import AgentRun
+
+        child_run = AgentRun(
+            run_id=child_run_id,
+            thread_id=thread_id,
+            parent_run_id=parent_run_id,
+            correlation_id=corr_id,
+            user_id=ctx.user_id,
+            workspace_id=ctx.workspace_id or None,
+            model=ctx.model or "",
+            status="running",
+            tools_available=[t.name for t in spec.tools],
+            untrusted_content=is_untrusted,
+        )
+        await session_store.upsert_agent_run(child_run)
+
+    sub_ctx = replace(
+        ctx,
+        thread_id=thread_id,
+        run_id=child_run_id,
+        correlation_id=corr_id or "",
+    )
+    sub_config = replace(config or LoopConfig(), run_id=child_run_id)
 
     if on_event is not None:
         await on_event(
@@ -377,6 +458,7 @@ async def _run_subagent_once(
     last_activity = [time.monotonic()]
 
     async def _on_event_com_liveness(event: Any) -> None:
+        """Executa a operação  on event com liveness."""
         last_activity[0] = time.monotonic()
         if on_event is not None:
             # O output textual do subagente pertence ao card da delegação na
@@ -402,14 +484,28 @@ async def _run_subagent_once(
             tool_registry=sub_registry,
             ctx=sub_ctx,
             thread_id=thread_id,
-            config=config or LoopConfig(),
+            config=sub_config,
             on_event=_on_event_com_liveness,
             should_require_approval=should_require_approval,
+            policy_snapshot=child_policy,
         )
     )
 
     if spec.correlation_id:
         _ACTIVE_CONVERSATION_TASKS[spec.correlation_id] = conversation_task
+
+    async def _mark_child_status(status: AgentRunStatus, detail: str) -> None:
+        """Executa a operação  mark child status."""
+        if not hasattr(session_store, "update_agent_run_status"):
+            return
+        try:
+            await session_store.update_agent_run_status(
+                child_run_id, status=status, detail=detail
+            )
+        except Exception:
+            logger.exception(
+                "Falha ao persistir status do subagente %s (%s)", child_run_id, status
+            )
 
     try:
         if liveness is not None:
@@ -428,6 +524,7 @@ async def _run_subagent_once(
                     f"progresso por "
                     f"{liveness.heartbeat_interval_s * liveness.max_stalled_heartbeats:.0f}s."
                 )
+                await _mark_child_status("cancelled", texto_cancelado)
                 if on_event is not None:
                     await on_event(
                         SubagentOutput(
@@ -454,6 +551,7 @@ async def _run_subagent_once(
                 f"Subagente '{spec.name}' cancelado por pedido explícito "
                 f"(hard interrupt)."
             )
+            await _mark_child_status("cancelled", texto_cancelado)
             if on_event is not None:
                 await on_event(
                     SubagentOutput(
@@ -464,6 +562,10 @@ async def _run_subagent_once(
                     )
                 )
             return texto_cancelado
+        except Exception as exc:
+            texto_falha = f"Subagente '{spec.name}' falhou: {exc}"
+            await _mark_child_status("failed", texto_falha)
+            raise
     finally:
         if spec.correlation_id:
             _ACTIVE_CONVERSATION_TASKS.pop(spec.correlation_id, None)

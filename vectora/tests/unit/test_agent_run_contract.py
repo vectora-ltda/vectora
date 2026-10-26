@@ -24,7 +24,10 @@ from backend.persistence.native.agent_run import (
     redact_sensitive_data,
 )
 from backend.persistence.native.ledger import LedgerEventType, make_tool_started_key
-from backend.persistence.native.session_store import SessionStore
+from backend.persistence.native.session_store import (
+    SessionStore,
+    _RunEvidenceLockRegistry,
+)
 from backend.storage.sqlite.pool import AsyncConnectionPool
 
 
@@ -80,6 +83,50 @@ class TestRedaction:
         assert res["normal_field"] == "conteudo livre"
         assert res["nested"]["token"] == "[REDACTED]"
         assert res["nested"]["safe"] == "ok"
+
+    def test_redact_preserves_numeric_usage_counters(self) -> None:
+        """Evidence keeps token accounting while still redacting credentials."""
+        res = redact_sensitive_data(
+            {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15}
+        )
+        assert res == {"input_tokens": 12, "output_tokens": 3, "total_tokens": 15}
+
+
+class TestRunEvidenceLockRegistry:
+    async def test_registry_shares_lock_with_waiters_and_releases_entries(self) -> None:
+        """Verifica o comportamento de registry shares lock with waiters and releases entries."""
+        registry = _RunEvidenceLockRegistry()
+        entered: list[str] = []
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+
+        async def writer(label: str) -> None:
+            """Executa a operação writer."""
+            async with registry.acquire("run-1"):
+                entered.append(label)
+                if label == "first":
+                    first_started.set()
+                    await release_first.wait()
+
+        first = asyncio.create_task(writer("first"))
+        await first_started.wait()
+        second = asyncio.create_task(writer("second"))
+        await asyncio.sleep(0)
+        assert entered == ["first"]
+        assert len(registry) == 1
+
+        release_first.set()
+        await asyncio.gather(first, second)
+        assert entered == ["first", "second"]
+        assert len(registry) == 0
+
+    async def test_registry_keeps_different_runs_independent(self) -> None:
+        """Verifica o comportamento de registry keeps different runs independent."""
+        registry = _RunEvidenceLockRegistry()
+        async with registry.acquire("run-a"):
+            async with registry.acquire("run-b"):
+                assert len(registry) == 2
+        assert len(registry) == 0
 
 
 class TestAgentRunLifecycle:
@@ -185,6 +232,62 @@ class TestAgentRunLifecycle:
         assert loaded.plan_step == "Etapa 1: Iniciar scaffolding"
         assert loaded.tools_available == ["file_read", "terminal"]
         assert loaded.metrics.total_tokens == 120
+
+    async def test_rejeita_linhagem_conflitante_no_mesmo_run(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session("thread-lineage", user_id="user-123")
+        await store.upsert_agent_run(
+            AgentRun(
+                run_id="run-lineage",
+                thread_id="thread-lineage",
+                status="running",
+                parent_run_id="parent-a",
+                correlation_id="corr-a",
+            )
+        )
+        with pytest.raises(ValueError, match="parent_run_id conflitante"):
+            await store.upsert_agent_run(
+                AgentRun(
+                    run_id="run-lineage",
+                    thread_id="thread-lineage",
+                    status="failed",
+                    parent_run_id="parent-b",
+                    correlation_id="corr-a",
+                )
+            )
+        loaded = await store.get_agent_run("run-lineage")
+        assert loaded is not None
+        assert loaded.parent_run_id == "parent-a"
+        assert loaded.correlation_id == "corr-a"
+
+    async def test_preserva_linhagem_de_run_terminal(self, store: SessionStore) -> None:
+        """Uma atualização terminal não pode reescrever a origem do run."""
+        await store.create_session("thread-terminal-lineage", user_id="user-123")
+        await store.upsert_agent_run(
+            AgentRun(
+                run_id="run-terminal-lineage",
+                thread_id="thread-terminal-lineage",
+                status="passed",
+                parent_run_id="parent-original",
+                correlation_id="corr-original",
+            )
+        )
+        with pytest.raises(ValueError, match="parent_run_id conflitante"):
+            await store.upsert_agent_run(
+                AgentRun(
+                    run_id="run-terminal-lineage",
+                    thread_id="thread-terminal-lineage",
+                    status="failed",
+                    parent_run_id="parent-conflicting",
+                    correlation_id="corr-conflicting",
+                )
+            )
+        loaded = await store.get_agent_run("run-terminal-lineage")
+        assert loaded is not None
+        assert loaded.status == "passed"
+        assert loaded.parent_run_id == "parent-original"
+        assert loaded.correlation_id == "corr-original"
 
     @pytest.mark.parametrize(
         ("terminal_status", "expected_legacy_status"),
@@ -416,6 +519,16 @@ class TestAgentRunLifecycle:
         assert len(loaded.tools_used) == 5
         assert len(loaded.evidence) == 5
 
+    async def test_evidence_lock_registry_releases_unknown_runs(
+        self, store: SessionStore
+    ) -> None:
+        """Uma execução ausente não pode deixar um lock retido para sempre."""
+        for index in range(100):
+            await store.record_run_evidence(
+                f"missing-run-{index}", evidence={"step": index}
+            )
+        assert len(store._run_evidence_locks) == 0
+
     async def test_rehydrate_after_restart(self, tmp_path: Path) -> None:
         """Verifica o comportamento de rehydrate after restart."""
         db_path = str(tmp_path / "restart_test.db")
@@ -486,3 +599,35 @@ class TestAgentRunLifecycle:
         assert timeline[0].type == "agent_turn_started"
         assert timeline[1].type == "tool_started"
         assert timeline[1].payload.get("tool_name") == "bash"
+
+    async def test_upsert_preserves_untrusted_content_provenance(
+        self, store: SessionStore
+    ):
+        """Verifica o comportamento de upsert preserves untrusted content provenance."""
+        await store.create_session("thread-untrusted-preservation", user_id="user-xyz")
+        run_id = "run-untrusted-1"
+        await store.upsert_agent_run(
+            AgentRun(
+                run_id=run_id,
+                thread_id="thread-untrusted-preservation",
+                status="waiting_approval",
+                untrusted_content=True,
+            )
+        )
+        saved = await store.get_agent_run(run_id)
+        assert saved is not None
+        assert saved.untrusted_content is True
+
+        # Atualização subsequente com run sem flag explícita
+        await store.upsert_agent_run(
+            AgentRun(
+                run_id=run_id,
+                thread_id="thread-untrusted-preservation",
+                status="passed",
+                untrusted_content=False,
+            )
+        )
+        updated = await store.get_agent_run(run_id)
+        assert updated is not None
+        assert updated.status == "passed"
+        assert updated.untrusted_content is True

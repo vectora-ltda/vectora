@@ -135,6 +135,43 @@ CREATE TABLE IF NOT EXISTS ledger_backfill (
     started_at TEXT NOT NULL,
     completed_at TEXT
 );
+CREATE TABLE IF NOT EXISTS context_projections (
+    projection_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
+    run_id TEXT NOT NULL,
+    source_hash TEXT NOT NULL,
+    covered_from_sequence INTEGER NOT NULL,
+    covered_to_sequence INTEGER NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    policy_version TEXT NOT NULL,
+    tokens_before INTEGER NOT NULL DEFAULT 0,
+    tokens_after INTEGER NOT NULL DEFAULT 0,
+    preserved_decisions_json TEXT NOT NULL DEFAULT '[]',
+    preserved_errors_json TEXT NOT NULL DEFAULT '[]',
+    preserved_approvals_json TEXT NOT NULL DEFAULT '[]',
+    pending_tool_calls_json TEXT NOT NULL DEFAULT '[]',
+    omitted_sequences_json TEXT NOT NULL DEFAULT '[]',
+    content_json TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (thread_id, projection_id)
+);
+CREATE INDEX IF NOT EXISTS ix_context_projections_thread
+    ON context_projections(thread_id, covered_to_sequence DESC, created_at DESC);
+CREATE TABLE IF NOT EXISTS context_checkpoints (
+    checkpoint_id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
+    run_id TEXT NOT NULL,
+    last_sequence INTEGER NOT NULL,
+    source_hash TEXT NOT NULL,
+    schema_version TEXT NOT NULL,
+    state_json TEXT NOT NULL DEFAULT '{}',
+    artifact_refs_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_context_checkpoints_thread_sequence
+    ON context_checkpoints(thread_id, run_id, last_sequence, source_hash);
+CREATE INDEX IF NOT EXISTS ix_context_checkpoints_thread_created
+    ON context_checkpoints(thread_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS agent_runs (
     run_id TEXT PRIMARY KEY,
     thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
@@ -176,6 +213,15 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
     """Cria e migra todas as tabelas e índices necessários no SQLite (sessions.db)."""
     async with pool.acquire() as conn:
         await conn.executescript(SQLITE_SESSIONS_SCHEMA)
+        # The run is part of checkpoint identity: two runs may legitimately
+        # checkpoint the same transcript sequence under different state.
+        await conn.execute(
+            "DROP INDEX IF EXISTS ix_context_checkpoints_thread_sequence"
+        )
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_context_checkpoints_thread_sequence "
+            "ON context_checkpoints(thread_id, run_id, last_sequence, source_hash)"
+        )
         # Expande a constraint de status sem perder AgentRuns já persistidos.
         # SQLite não suporta ALTER CONSTRAINT; a reconstrução é idempotente e
         # mantém a mesma ordem de colunas usada pelo store.
@@ -424,6 +470,43 @@ CREATE TABLE IF NOT EXISTS vectora_native_ledger_backfill (
     started_at TEXT NOT NULL,
     completed_at TEXT
 );
+CREATE TABLE IF NOT EXISTS vectora_native_context_projections (
+    projection_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL REFERENCES vectora_native_sessions(thread_id),
+    run_id TEXT NOT NULL,
+    source_hash TEXT NOT NULL,
+    covered_from_sequence BIGINT NOT NULL,
+    covered_to_sequence BIGINT NOT NULL,
+    model TEXT NOT NULL DEFAULT '',
+    policy_version TEXT NOT NULL,
+    tokens_before INTEGER NOT NULL DEFAULT 0,
+    tokens_after INTEGER NOT NULL DEFAULT 0,
+    preserved_decisions_json TEXT NOT NULL DEFAULT '[]',
+    preserved_errors_json TEXT NOT NULL DEFAULT '[]',
+    preserved_approvals_json TEXT NOT NULL DEFAULT '[]',
+    pending_tool_calls_json TEXT NOT NULL DEFAULT '[]',
+    omitted_sequences_json TEXT NOT NULL DEFAULT '[]',
+    content_json TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (thread_id, projection_id)
+);
+CREATE INDEX IF NOT EXISTS ix_vectora_native_context_projections_thread
+    ON vectora_native_context_projections(thread_id, covered_to_sequence DESC, created_at DESC);
+CREATE TABLE IF NOT EXISTS vectora_native_context_checkpoints (
+    checkpoint_id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL REFERENCES vectora_native_sessions(thread_id),
+    run_id TEXT NOT NULL,
+    last_sequence BIGINT NOT NULL,
+    source_hash TEXT NOT NULL,
+    schema_version TEXT NOT NULL,
+    state_json TEXT NOT NULL DEFAULT '{}',
+    artifact_refs_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS ix_vectora_native_context_checkpoints_thread_sequence
+    ON vectora_native_context_checkpoints(thread_id, run_id, last_sequence, source_hash);
+CREATE INDEX IF NOT EXISTS ix_vectora_native_context_checkpoints_thread_created
+    ON vectora_native_context_checkpoints(thread_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS vectora_native_agent_runs (
     run_id TEXT PRIMARY KEY,
     thread_id TEXT NOT NULL REFERENCES vectora_native_sessions(thread_id),
@@ -465,6 +548,19 @@ async def setup_postgres_session_schema(pool: asyncpg.Pool) -> None:
     """Cria e migra todas as tabelas e índices necessários no PostgreSQL."""
     async with pool.acquire() as conn:
         await conn.execute(POSTGRES_SESSIONS_SCHEMA)
+        index_row = await conn.fetchrow(
+            "SELECT indexdef FROM pg_indexes "
+            "WHERE schemaname = current_schema() "
+            "AND indexname = 'ix_vectora_native_context_checkpoints_thread_sequence'"
+        )
+        if index_row and "run_id" not in str(index_row["indexdef"]):
+            await conn.execute(
+                "DROP INDEX ix_vectora_native_context_checkpoints_thread_sequence"
+            )
+        await conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ix_vectora_native_context_checkpoints_thread_sequence "
+            "ON vectora_native_context_checkpoints(thread_id, run_id, last_sequence, source_hash)"
+        )
         for statement in (
             (
                 "ALTER TABLE vectora_native_pending_approvals "

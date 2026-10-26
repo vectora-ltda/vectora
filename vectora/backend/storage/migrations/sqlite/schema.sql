@@ -211,6 +211,8 @@ ALTER TABLE vectora_background_tasks ADD COLUMN priority TEXT NOT NULL DEFAULT '
 -- ao próprio budget_cents). Nunca pausa nada sozinho; só o hard-stop de
 -- budget_cents estourado bloqueia (backend/scheduling/budget.py).
 ALTER TABLE vectora_background_tasks ADD COLUMN budget_warn_percent INTEGER;
+-- Controle de concorrência otimista (CAS) monotônico no ciclo Kanban.
+ALTER TABLE vectora_background_tasks ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
 
 CREATE INDEX IF NOT EXISTS idx_background_tasks_session ON vectora_background_tasks(session_id);
 CREATE INDEX IF NOT EXISTS idx_background_tasks_due     ON vectora_background_tasks(enabled, trigger_type);

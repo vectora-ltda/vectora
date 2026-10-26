@@ -13,6 +13,8 @@ import pytest
 
 from backend.engine.conversation_loop import (
     LoopConfig,
+    _load_persistent_context_memories,
+    _preserve_latest_tool_result,
     resume_conversation,
     run_conversation,
 )
@@ -32,6 +34,8 @@ from backend.engine.stream_events import (
     WorkbenchInvalidate,
 )
 from backend.persistence.native.session_store import SessionStore
+from backend.services.context_planner import compute_transcript_hash
+from backend.services.policy_compiler import PolicySnapshot
 from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.tools import media as _media_module
 from backend.tools import planning as _planning_module
@@ -48,7 +52,7 @@ from backend.vtypes.message import (
 
 
 def _register(registry: ToolRegistry, nome: str) -> None:
-    """Executa a operação register."""
+    """Executa a operação  register."""
     spec = TOOL_REGISTRY.get(nome)
     assert spec is not None
     registry.register(spec)
@@ -100,12 +104,60 @@ def ctx() -> ToolContext:
 
 
 def _texto_chunk(texto: str) -> VMessageChunk:
-    """Executa a operação texto chunk."""
+    """Executa a operação  texto chunk."""
     return VMessageChunk(delta_text=texto)
 
 
+@pytest.mark.parametrize(
+    ("model_id", "expected"),
+    [
+        ("ollama:qwen3", True),
+        ("llamacpp:qwen2.5-0.5b", True),
+        ("dmr:hf.co/Qwen/Qwen3-0.6B", True),
+        ("openrouter:openai/gpt-4.1-mini", False),
+        ("", False),
+    ],
+)
+def test_local_models_preserve_latest_tool_result(
+    model_id: str, expected: bool
+) -> None:
+    """Providers locais preservam a saída causal mais recente da ferramenta."""
+    assert _preserve_latest_tool_result(model_id) is expected
+
+
+@pytest.mark.asyncio
+async def test_load_persistent_context_memories_uses_memory_tool_namespace() -> None:
+    """Verifica o comportamento de load persistent context memories uses memory tool namespace."""
+
+    class Store:
+        async def asearch(self, namespace, *, limit):
+            """Executa a operação asearch."""
+            assert namespace == ("user", "workspace_ws-1", "memories")
+            assert limit == 5
+            return [
+                type(
+                    "Item",
+                    (),
+                    {
+                        "key": "rule",
+                        "value": {
+                            "content": "Use testes determinísticos",
+                            "metadata": {"domain": "project"},
+                        },
+                    },
+                )()
+            ]
+
+    context = ToolContext(user_id="local", workspace_id="ws-1", store=Store())
+    records = await _load_persistent_context_memories(context)
+
+    assert [record.id for record in records] == ["rule"]
+    assert records[0].content == "Use testes determinísticos"
+    assert records[0].metadata == {"domain": "project"}
+
+
 def _tool_call_chunk(*, index: int, id: str, name: str, args: str) -> VMessageChunk:  # noqa: A002
-    """Executa a operação tool call chunk."""
+    """Executa a operação  tool call chunk."""
     return VMessageChunk(
         tool_call_chunks=[
             ToolCallChunk(index=index, id=id, name=name, args_fragment=args)
@@ -114,6 +166,99 @@ def _tool_call_chunk(*, index: int, id: str, name: str, args: str) -> VMessageCh
 
 
 class TestParadaNormal:
+    async def test_quality_gate_persiste_evidencia_antes_do_status_terminal(
+        self, session_store, ctx, monkeypatch
+    ):
+        """A evidência fica durável enquanto o run ainda está em verifying.
+
+        Isso evita que uma falha entre o upsert da evidência e a transição
+        terminal deixe o histórico com um status terminal sem o artefato que
+        explica a decisão do gate.
+        """
+        from backend.persistence.native.agent_run import AgentRun
+        from backend.services.verification import VerificationResult
+
+        await session_store.upsert_agent_run(
+            AgentRun(run_id="run-gate-order", thread_id="thread-1", status="running")
+        )
+        statuses_seen: list[str] = []
+        original_upsert = session_store.upsert_agent_run
+
+        async def record_upsert(run):
+            """Executa a operação record upsert."""
+            statuses_seen.append(run.status)
+            await original_upsert(run)
+
+        monkeypatch.setattr(session_store, "upsert_agent_run", record_upsert)
+
+        async def fake_verification(*_args, **_kwargs):
+            """Executa a operação fake verification."""
+            return VerificationResult(
+                passed=True,
+                status="passed",
+                outcome="passed",
+                snapshot_sha256="snapshot",
+            )
+
+        monkeypatch.setattr(
+            "backend.services.verification.run_verification", fake_verification
+        )
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=_ScriptedChatClient([[_texto_chunk("ok")]]),
+            tool_registry=ToolRegistry(),
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(run_id="run-gate-order"),
+        )
+
+        assert resultado.stopped_reason == "stop"
+        assert statuses_seen == ["verifying"]
+        stored = await session_store.get_agent_run("run-gate-order")
+        assert stored is not None
+        assert stored.status == "passed"
+        assert stored.evidence[-1]["snapshot_sha256"] == "snapshot"
+
+    async def test_checkpoint_de_tool_impede_reexecucao_cego(self, session_store, ctx):
+        """Verifica o comportamento de checkpoint de tool impede reexecucao cego."""
+        from backend.persistence.native.agent_run import AgentRun
+
+        await session_store.upsert_agent_run(
+            AgentRun(run_id="run-recovery", thread_id="thread-1", status="running")
+        )
+        await session_store.save_context_checkpoint(
+            "thread-1",
+            "run-recovery",
+            {
+                "checkpoint_id": "run-recovery:seq:0:tool_running",
+                "last_sequence": 0,
+                "source_hash": compute_transcript_hash([]),
+                "schema_version": "context.v1",
+                "state": {
+                    "phase": "tool_running",
+                    "pending_tool_call_ids": ["tool-1"],
+                },
+            },
+        )
+        client = _ScriptedChatClient([[_texto_chunk("não deveria chamar")]])
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=ToolRegistry(),
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(run_id="run-recovery"),
+        )
+
+        assert resultado.stopped_reason == "recovery_required"
+        assert client.chamadas == 0
+        stored = await session_store.get_agent_run("run-recovery")
+        assert stored is not None
+        assert stored.status == "recovery_required"
+        assert stored.error_code == "CHECKPOINT_TOOL_RECONCILIATION_REQUIRED"
+
     async def test_sem_tool_calls_para_no_primeiro_turno(self, session_store, ctx):
         """Verifica o comportamento de sem tool calls para no primeiro turno."""
         client = _ScriptedChatClient([[_texto_chunk("olá!")]])
@@ -736,6 +881,7 @@ class TestEmissaoDeEventos:
             tool_registry: ToolRegistry,
             ctx: ToolContext,
             on_event: EventSink | None = None,
+            policy_snapshot: PolicySnapshot | None = None,
         ) -> VMessage:
             """Executa a operação fake execute."""
             chamadas.append(dict(tool_call.args))
@@ -1605,3 +1751,35 @@ class TestResumeConversation:
         )
         assert chamadas == []
         assert await session_store.get_pending_approval("thread-1") is None
+
+    async def test_run_conversation_restores_untrusted_content_from_run(
+        self, session_store: SessionStore, ctx: ToolContext
+    ) -> None:
+        """Verifica o comportamento de run conversation restores untrusted content from run."""
+        from backend.persistence.native.agent_run import AgentRun
+
+        await session_store.upsert_agent_run(
+            AgentRun(
+                run_id="run-untrusted-ctx",
+                thread_id="thread-1",
+                status="waiting_approval",
+                untrusted_content=True,
+            )
+        )
+
+        client = _ScriptedChatClient([[_texto_chunk("olá")]])
+        registry = ToolRegistry()
+
+        assert "untrusted_content" not in ctx._extra
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+        )
+
+        assert resultado.stopped_reason == "stop"
+        assert ctx._extra.get("untrusted_content") is True

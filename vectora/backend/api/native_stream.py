@@ -20,7 +20,7 @@ import logging
 import time
 import uuid
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 from backend.api.adapters import (
     _mark_thread_has_content,
@@ -138,7 +138,7 @@ async def _persist_terminal_outcome(
     thread_id: str,
     run_id: str,
     *,
-    status: Literal["failed", "cancelled"],
+    status: str,
     detail: str,
 ) -> None:
     """Make provider failures/cancellations visible in the durable history.
@@ -166,7 +166,7 @@ async def _persist_terminal_outcome(
         if hasattr(store, "update_agent_run_status"):
             await store.update_agent_run_status(
                 run_id,
-                status=status,
+                status=status,  # type: ignore
                 detail=detail,
             )
         turn_id = f"{run_id}:terminal"
@@ -312,51 +312,43 @@ def stream_engine_events(
         # the consumer loop below is entered.
         try:
             resolved_run_id = run_id or uuid.uuid4().hex
-            try:
-                from backend.services import agent_factory
+            if run_id:
+                try:
+                    from backend.services import agent_factory
 
-                store = await agent_factory.get_session_store()
-                persist_run = True
-                get_session = getattr(store, "get_session", None)
-                if callable(get_session):
-                    persist_run = await get_session(thread_id) is not None
-                    if not persist_run:
-                        logger.warning(
-                            "native_stream: thread ausente; execução não será persistida",
-                            extra={"thread_id": thread_id, "run_id": resolved_run_id},
-                        )
-                if persist_run and hasattr(store, "start_run"):
-                    await store.start_run(
-                        thread_id,
-                        resolved_run_id,
-                        detail="Provider ainda não iniciado.",
-                        provider_model=provider_model,
-                    )
-                if persist_run and hasattr(store, "upsert_agent_run"):
-                    from backend.persistence.native.agent_run import AgentRun
-
-                    prov, _, mod = (provider_model or "").partition(":")
-                    await store.upsert_agent_run(
-                        AgentRun(
-                            run_id=resolved_run_id,
-                            thread_id=thread_id,
-                            user_id=user_id or "",
-                            workspace_id=workspace_id or None,
-                            provider=prov if mod else "",
-                            model=mod or prov,
-                            status="running",
+                    store = await agent_factory.get_session_store()
+                    if hasattr(store, "start_run"):
+                        await store.start_run(
+                            thread_id,
+                            resolved_run_id,
                             detail="Provider ainda não iniciado.",
+                            provider_model=provider_model,
                         )
+                    if hasattr(store, "upsert_agent_run"):
+                        from backend.persistence.native.agent_run import AgentRun
+
+                        prov, _, mod = (provider_model or "").partition(":")
+                        await store.upsert_agent_run(
+                            AgentRun(
+                                run_id=resolved_run_id,
+                                thread_id=thread_id,
+                                user_id=user_id or "",
+                                workspace_id=workspace_id or None,
+                                provider=prov if mod else "",
+                                model=mod or prov,
+                                status="running",
+                                detail="Provider ainda não iniciado.",
+                            )
+                        )
+                except Exception as exc:
+                    logger.exception(
+                        "native_stream: falha ao registrar início do run",
+                        extra={"thread_id": thread_id, "run_id": resolved_run_id},
                     )
-            except Exception as exc:
-                logger.exception(
-                    "native_stream: falha ao registrar início do run",
-                    extra={"thread_id": thread_id, "run_id": resolved_run_id},
-                )
-                raise RuntimeError(
-                    "Não foi possível persistir o início da execução; "
-                    "o provider não será iniciado."
-                ) from exc
+                    raise RuntimeError(
+                        "Não foi possível persistir o início da execução; "
+                        "o provider não será iniciado."
+                    ) from exc
             turn_snapshot = await asyncio.to_thread(
                 capture, workspace_id, thread_id, resolved_run_id
             )
@@ -381,6 +373,7 @@ def stream_engine_events(
         background_tasks: set[asyncio.Task[None]] = set()
         run_error: BaseException | None = None
         stopped_reason = "stop"
+        empty_model_response = False
         turn_files_payload: list[dict[str, object]] = []
         event_count = 0
         message_chunk_count = 0
@@ -395,8 +388,6 @@ def stream_engine_events(
                 "user_id": user_id or "",
             },
         )
-
-        empty_model_response = False
 
         async def on_event(event: EngineEvent) -> None:
             """Executa a operação on event."""
@@ -554,16 +545,8 @@ def stream_engine_events(
                                 first_item: object | None = None
                                 with contextlib.suppress(Exception):
                                     first_item = await pending
-                                items: list[object] = []
-                                if first_item is not _SENTINEL:
-                                    items.append(first_item)
-                                with contextlib.suppress(Exception):
-                                    while True:
-                                        item = await q.get()
-                                        if item is _SENTINEL:
-                                            break
-                                        items.append(item)
-                                for item in items:
+                                item = first_item
+                                while item is not _SENTINEL:
                                     if isinstance(item, MessageChunk):
                                         accumulated_partial_content += item.content
                                         await _spawn_save_partial(
@@ -575,6 +558,34 @@ def stream_engine_events(
                                             resolved_run_id,
                                             status="streaming",
                                             partial_text=accumulated_partial_content,
+                                        )
+                                    item = await q.get()
+                                if (
+                                    stopped_reason == "stop"
+                                    and run_error is None
+                                    and not empty_model_response
+                                ):
+                                    await _update_persisted_run(
+                                        resolved_run_id,
+                                        status="completed",
+                                        partial_text=accumulated_partial_content,
+                                    )
+                                    with contextlib.suppress(Exception):
+                                        await _clear_partial(thread_id)
+                                    if workspace_id:
+                                        with contextlib.suppress(Exception):
+                                            await _record_turn_checkpoint(
+                                                workspace_id,
+                                                thread_id,
+                                                {"run_id": str(uuid.uuid4())},
+                                            )
+                                    from backend.services.remember_trigger import (
+                                        maybe_trigger_remember,
+                                    )
+
+                                    with contextlib.suppress(Exception):
+                                        await maybe_trigger_remember(
+                                            thread_id, user_id or "local"
                                         )
                             finally:
                                 _release_workspace_lock()
@@ -643,6 +654,8 @@ def stream_engine_events(
                     event = replace(event, pre_approved=pre)
 
                 if isinstance(event, ErrorSignal):
+                    if event.code == "EMPTY_MODEL_RESPONSE":
+                        empty_model_response = True
                     logger.warning(
                         "native_stream_event_error",
                         extra={
