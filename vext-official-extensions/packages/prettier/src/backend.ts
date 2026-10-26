@@ -19,11 +19,11 @@ function runPrettier(args: string[], input: string): Promise<string> {
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
-      output += chunk;
-      if (output.length > MAX_OUTPUT) child.kill("SIGKILL");
+      output = (output + chunk).slice(0, MAX_OUTPUT);
+      if (output.length >= MAX_OUTPUT) child.kill("SIGKILL");
     });
     child.stderr.on("data", (chunk: string) => {
-      error += chunk.slice(0, MAX_OUTPUT);
+      error = (error + chunk).slice(0, MAX_OUTPUT);
     });
     child.once("error", (cause) => {
       clearTimeout(timer);
@@ -32,7 +32,11 @@ function runPrettier(args: string[], input: string): Promise<string> {
     child.once("close", (code) => {
       clearTimeout(timer);
       if (code !== 0) {
-        reject(new Error(error.trim() || `Prettier exited with code ${code ?? "unknown"}`));
+        reject(
+          new Error(
+            error.trim() || `Prettier exited with code ${code ?? "unknown"}`,
+          ),
+        );
         return;
       }
       resolve(output);
@@ -47,7 +51,10 @@ export async function handle(request: Request): Promise<{ items: unknown[] }> {
   if (typeof text !== "string") throw new Error("text is required");
   const parser = request.params?.parser ?? "babel";
   if (!/^[a-z][a-z0-9-]{1,31}$/.test(parser)) throw new Error("invalid parser");
-  const formatted = await runPrettier(["--parser", parser, "--stdin-filepath", `input.${parser}`], text);
+  const formatted = await runPrettier(
+    ["--parser", parser, "--stdin-filepath", `input.${parser}`],
+    text,
+  );
   return request.method === "check"
     ? { items: [{ formatted, changed: formatted !== text }] }
     : { items: [{ text: formatted }] };

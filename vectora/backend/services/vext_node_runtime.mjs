@@ -15,7 +15,7 @@ if (rootIndex < 0 || entrypointIndex < 0) {
   const extension = await import(pathToFileURL(modulePath).href);
   const handler = extension.handle ?? extension.default?.handle;
   if (typeof handler !== "function") {
-    throw new Error("entrypoint must export handle(method, params)");
+    throw new Error("entrypoint must export handle(request)");
   }
   const input = readline.createInterface({
     input: process.stdin,
@@ -59,10 +59,7 @@ if (rootIndex < 0 || entrypointIndex < 0) {
         throw new Error("invalid JSON-RPC id");
       }
       requestId = request.id ?? null;
-      const result = await handler(
-        String(request.method ?? ""),
-        request.params ?? {},
-      );
+      const result = await handler(request);
       process.stdout.write(
         `${JSON.stringify({ jsonrpc: "2.0", id: requestId, result: result ?? null })}\n`,
       );
