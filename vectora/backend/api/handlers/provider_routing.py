@@ -4396,6 +4396,54 @@ async def update_decision_models_config(
         settings.systemone_confidence_threshold_hitl = body.confidence_threshold_hitl
 
     env_file = _env_file()
+    env_updates = {
+        "SYSTEMONE_ENABLED": str(settings.systemone_enabled).lower()
+        if body.enabled is not None
+        else None,
+        "SYSTEMONE_PROVIDER": str(settings.systemone_provider)
+        if body.provider is not None
+        else None,
+        "SYSTEMONE_LOCAL_BASE_URL": settings.systemone_local_base_url
+        if body.local_base_url is not None
+        else None,
+        "SYSTEMONE_LOCAL_MODEL": settings.systemone_local_model
+        if body.local_model is not None
+        else None,
+        "SYSTEMONE_LAYA_BASE_URL": settings.systemone_laya_base_url
+        if body.laya_base_url is not None
+        else None,
+        "SYSTEMONE_LAYA_MODEL": settings.systemone_laya_model
+        if body.laya_model is not None
+        else None,
+        "SYSTEMONE_LAYA_API_KEY": settings.systemone_laya_api_key or ""
+        if body.laya_api_key is not None
+        else None,
+        "SYSTEMONE_CLEF_API_BASE_URL": settings.systemone_clef_api_base_url
+        if body.clef_api_base_url is not None
+        else None,
+        "SYSTEMONE_CLEF_API_MODEL": settings.systemone_clef_api_model
+        if body.clef_api_model is not None
+        else None,
+        "SYSTEMONE_JEV_API_BASE_URL": settings.systemone_jev_api_base_url
+        if body.jev_api_base_url is not None
+        else None,
+        "SYSTEMONE_JEV_API_MODEL": settings.systemone_jev_api_model
+        if body.jev_api_model is not None
+        else None,
+        "SYSTEMONE_ALLOW_REMOTE_FALLBACK": str(
+            settings.systemone_allow_remote_fallback
+        ).lower()
+        if body.allow_remote_fallback is not None
+        else None,
+        "SYSTEMONE_CONFIDENCE_THRESHOLD_HITL": str(
+            settings.systemone_confidence_threshold_hitl
+        )
+        if body.confidence_threshold_hitl is not None
+        else None,
+    }
+    for key, value in env_updates.items():
+        if value is not None:
+            _set_env_key(env_file, key, value)
     if body.clef_account_id is not None:
         _set_env_key(
             env_file, "SYSTEMONE_CLEF_ACCOUNT_ID", settings.systemone_clef_account_id

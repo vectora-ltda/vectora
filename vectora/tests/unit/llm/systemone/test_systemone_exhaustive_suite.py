@@ -13,6 +13,7 @@ Cobre exaustivamente:
 from __future__ import annotations
 
 import math
+from pathlib import Path
 
 import httpx
 import pytest
@@ -689,6 +690,36 @@ async def test_update_decision_models_config_local_urls(local_url: str) -> None:
     req = UpdateSystemOneConfigRequest(local_base_url=local_url)
     res = await update_decision_models_config(req, _=None)
     assert res.local_base_url == local_url
+
+
+@pytest.mark.asyncio
+async def test_update_decision_models_config_persists_changed_fields(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Toda alteração de configuração deve sobreviver a um novo processo."""
+    from backend.api.handlers import provider_routing
+
+    env_file = tmp_path / ".env"
+    monkeypatch.setattr(provider_routing, "_env_file", lambda: env_file)
+    res = await provider_routing.update_decision_models_config(
+        UpdateSystemOneConfigRequest(
+            local_base_url="http://127.0.0.1:9999",
+            local_model="decision-test",
+            laya_base_url="http://127.0.0.1:11434",
+            laya_model="laya-test",
+            clef_account_id="account-test",
+            confidence_threshold_hitl=0.7,
+        ),
+        _=None,
+    )
+
+    saved = env_file.read_text(encoding="utf-8")
+    assert "SYSTEMONE_LOCAL_BASE_URL=http://127.0.0.1:9999" in saved
+    assert "SYSTEMONE_LOCAL_MODEL=decision-test" in saved
+    assert "SYSTEMONE_LAYA_MODEL=laya-test" in saved
+    assert "SYSTEMONE_CLEF_ACCOUNT_ID=account-test" in saved
+    assert "SYSTEMONE_CONFIDENCE_THRESHOLD_HITL=0.7" in saved
+    assert res.clef_account_id == "account-test"
 
 
 @pytest.mark.parametrize(
