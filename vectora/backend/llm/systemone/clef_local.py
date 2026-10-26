@@ -118,13 +118,21 @@ class ClefLocalAdapter(SystemOneProvider):
                 serialized_questions[q_id] = {
                     "type": "noul",
                     "criterion": q.criterion,
-                    "instructions": q.instructions,
+                    **(
+                        {"instructions": q.instructions}
+                        if q.instructions is not None
+                        else {}
+                    ),
                 }
             elif isinstance(q, ChoiceQuestion):
                 serialized_questions[q_id] = {
                     "type": "choice",
                     "options": q.options,
-                    "instructions": q.instructions,
+                    **(
+                        {"instructions": q.instructions}
+                        if q.instructions is not None
+                        else {}
+                    ),
                 }
             elif isinstance(q, ScoreQuestion):
                 serialized_questions[q_id] = {
@@ -132,7 +140,11 @@ class ClefLocalAdapter(SystemOneProvider):
                     "criterion": q.criterion,
                     "min_score": q.min_score,
                     "max_score": q.max_score,
-                    "instructions": q.instructions,
+                    **(
+                        {"instructions": q.instructions}
+                        if q.instructions is not None
+                        else {}
+                    ),
                 }
 
         payload: dict[str, Any] = {

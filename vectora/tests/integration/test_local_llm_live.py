@@ -94,7 +94,7 @@ async def test_llamacpp_systemone_endpoint_or_clef_adapter() -> None:
     )
 
     async with httpx.AsyncClient(base_url=server_base, timeout=_TIMEOUT) as client:
-        res = await client.post("/v1/systemone", json=req.model_dump())
+        res = await client.post("/v1/systemone", json=req.model_dump(exclude_none=True))
         if res.status_code == 200:
             ans = res.json()["answers"]
             assert "is_file_operation" in ans

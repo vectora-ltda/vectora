@@ -125,7 +125,7 @@ class SystemOneRerank:
         self.workspace_id = workspace_id
 
     async def acompress_documents(
-        self, documents: Sequence[Document], query: str, callbacks: object = None
+        self, documents: Sequence[Document], query: str, callbacks: object | None = None
     ) -> list[Document]:
         """Executa a operação acompress documents."""
         docs = list(documents)
@@ -166,7 +166,7 @@ class SystemOneRerank:
             return docs[:limit]
 
     def compress_documents(
-        self, documents: Sequence[Document], query: str, callbacks: object = None
+        self, documents: Sequence[Document], query: str, callbacks: object | None = None
     ) -> list[Document]:
         """Executa a operação compress documents."""
         try:
