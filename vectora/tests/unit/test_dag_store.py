@@ -96,6 +96,15 @@ async def test_dag_is_idempotent_and_resumes_after_expired_claim(tmp_path) -> No
             passed=True,
             output={"stale": True},
         )
+    async with db.execute(
+        "SELECT status, output_json FROM vectora_dag_stages "
+        "WHERE execution_id=? AND stage_id=?",
+        (execution.execution_id, claimed[0]),
+    ) as cursor:
+        stale_row = await cursor.fetchone()
+    assert stale_row is not None
+    assert stale_row[0] == "running"
+    assert stale_row[1] is None
     await store.finish_stage(
         execution.execution_id,
         claimed[0],

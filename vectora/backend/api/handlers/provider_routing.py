@@ -2357,8 +2357,12 @@ async def start_installed_huggingface_model(
     except Exception as exc:
         from backend.services.llamacpp_sidecar import stop_llamacpp
 
-        await stop_llamacpp()
-        restore_previous_configuration()
+        try:
+            await stop_llamacpp()
+        finally:
+            # Mesmo se o sidecar falhar ao parar, nunca deixe a configuração
+            # persistida apontando para um runtime que não foi confirmado.
+            restore_previous_configuration()
         raise HTTPException(
             status_code=502, detail="não foi possível persistir o modelo iniciado"
         ) from exc

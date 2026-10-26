@@ -229,7 +229,7 @@ class TestMemorySharedStoreWithAgent:
     @pytest.mark.asyncio
     async def test_memory_created_via_api_is_visible_to_agent_tool(
         self, client, store, monkeypatch
-    ):
+    ) -> None:
         """Verifica o comportamento de memory created via api is visible to agent tool."""
         from backend.tools.context import ToolContext
         from backend.tools.memory import get_memory
@@ -241,6 +241,27 @@ class TestMemorySharedStoreWithAgent:
         out = await get_memory(ctx=ToolContext(user_id="local"), key="from_api")
         assert '"status": "found"' in out
         assert "salvo pelo painel" in out
+
+    @pytest.mark.asyncio
+    async def test_save_memory_untrusted_content_cannot_promote_trust(
+        self, store, monkeypatch
+    ) -> None:
+        """Conteúdo marcado como não confiável permanece não confiável."""
+        from backend.tools.context import ToolContext
+        from backend.tools.memory import save_memory
+
+        monkeypatch.setattr("backend.tools.memory._get_store", lambda ctx: store)
+        ctx = ToolContext(user_id="local", _extra={"untrusted_content": True})
+        result = await save_memory(
+            ctx=ctx,
+            key="untrusted",
+            content="conteúdo externo",
+            metadata={"trust_level": "trusted"},
+        )
+        assert '"status": "saved"' in result
+        saved = await store.aget(("user", "local"), "untrusted")
+        assert saved is not None
+        assert saved["metadata"]["trust_level"] == "untrusted"
 
 
 class TestJourney:
