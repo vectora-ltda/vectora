@@ -387,6 +387,8 @@ registry.post("/extensions/publish", async (c) => {
   )
     return c.json({ error: "invalid_metadata" }, 400);
   let manifestPayload: Record<string, unknown>;
+  let manifestPlatforms: string[];
+  let manifestPermissions: string[];
   try {
     const parsed = JSON.parse(manifest) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
@@ -402,6 +404,29 @@ registry.post("/extensions/publish", async (c) => {
     )
       return c.json({ error: "manifest_mismatch" }, 422);
     JSON.parse(integrity);
+    if (
+      manifestPayload.api_version !== 1 ||
+      manifestPayload.protocol_version !== 1
+    )
+      return c.json({ error: "manifest_mismatch" }, 422);
+    if (
+      !Array.isArray(manifestPayload.platforms) ||
+      !manifestPayload.platforms.every((value) => typeof value === "string") ||
+      !Array.isArray(manifestPayload.permissions) ||
+      !manifestPayload.permissions.every((value) => typeof value === "string")
+    )
+      return c.json({ error: "invalid_manifest" }, 400);
+    manifestPlatforms = [...manifestPayload.platforms];
+    manifestPermissions = [...manifestPayload.permissions];
+    const submittedPlatforms = JSON.parse(text("platforms") || '["any"]');
+    const submittedPermissions = JSON.parse(text("permissions") || "[]");
+    if (
+      JSON.stringify(submittedPlatforms) !==
+        JSON.stringify(manifestPlatforms) ||
+      JSON.stringify(submittedPermissions) !==
+        JSON.stringify(manifestPermissions)
+    )
+      return c.json({ error: "manifest_mismatch" }, 422);
   } catch {
     return c.json({ error: "invalid_manifest" }, 400);
   }
@@ -470,8 +495,8 @@ registry.post("/extensions/publish", async (c) => {
         extensionId,
         version,
         runtime,
-        text("platforms") || '["any"]',
-        text("permissions") || "[]",
+        JSON.stringify(manifestPlatforms),
+        JSON.stringify(manifestPermissions),
         artifact.size,
         digest,
         r2Key,
