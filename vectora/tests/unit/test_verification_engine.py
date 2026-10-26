@@ -190,6 +190,54 @@ async def test_run_verification_passing_gate(test_workspace: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_run_verification_runs_patterned_gates_when_paths_are_unknown(
+    test_workspace: Path,
+) -> None:
+    """Unknown tool paths must fail closed into evaluating every configured gate."""
+    gate = QualityGateSpec(
+        id="python_gate",
+        name="Python gate",
+        command=[sys.executable, "-c", "print('executed')"],
+        file_patterns=["**/*.py"],
+        policy="block",
+    )
+    profile = WorkspaceVerificationProfile(
+        workspace_id="unknown_paths",
+        enabled=True,
+        gates=[gate],
+    )
+
+    # ``None`` means a tool did not report paths; it must not silently skip a gate.
+    result = await run_verification(
+        "unknown_paths", test_workspace, files_touched=None, profile=profile
+    )
+
+    assert [item.gate_id for item in result.gate_results] == ["python_gate"]
+    assert result.gate_results[0].passed is True
+
+
+@pytest.mark.asyncio
+async def test_run_verification_bounds_gate_output(test_workspace: Path) -> None:
+    """Unbounded gate output must not be retained in verification evidence."""
+    gate = QualityGateSpec(
+        id="noisy_gate",
+        name="Noisy gate",
+        command=[sys.executable, "-c", "print('x' * 50000)"],
+        policy="block",
+    )
+    profile = WorkspaceVerificationProfile(
+        workspace_id="noisy_output",
+        enabled=True,
+        gates=[gate],
+    )
+
+    result = await run_verification("noisy_output", test_workspace, profile=profile)
+
+    assert result.gate_results[0].passed is True
+    assert len(result.gate_results[0].output) <= 10_000
+
+
+@pytest.mark.asyncio
 async def test_run_verification_blocking_failure(test_workspace: Path) -> None:
     """Verifica o comportamento de run verification blocking failure."""
     gate = QualityGateSpec(
