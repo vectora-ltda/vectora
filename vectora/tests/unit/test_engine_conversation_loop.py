@@ -321,6 +321,41 @@ class TestParadaNormal:
             for record in caplog.records
         )
 
+    async def test_provider_sem_id_usa_identidade_nova_em_turnos_consecutivos(
+        self, session_store: SessionStore, ctx: ToolContext
+    ) -> None:
+        """IDs derivados não podem colidir entre duas mensagens da mesma thread."""
+
+        @vtool(extras=ToolExtras())
+        async def lembrar(ctx: ToolContext) -> str:
+            """Tool sem efeitos usada para capturar a correlação do chamado."""
+            return "ok"
+
+        registry = ToolRegistry()
+        _register(registry, "lembrar")
+        turn = [_tool_call_chunk(index=0, id="", name="lembrar", args="{}")]
+
+        for _ in range(2):
+            client = _ScriptedChatClient([turn, [_texto_chunk("fim")]])
+            result = await run_conversation(
+                session_store=session_store,
+                chat_client=client,
+                tool_registry=registry,
+                ctx=ctx,
+                thread_id="thread-1",
+                config=LoopConfig(max_iterations=2),
+            )
+            assert result.stopped_reason == "stop"
+
+        calls = [
+            call.id
+            for message in await session_store.get_history("thread-1")
+            for call in message.tool_calls
+        ]
+        assert len(calls) == 2
+        assert all(calls)
+        assert len(set(calls)) == 2
+
 
 class TestMaxIterations:
     async def test_estoura_o_teto_sem_nunca_parar_naturalmente(

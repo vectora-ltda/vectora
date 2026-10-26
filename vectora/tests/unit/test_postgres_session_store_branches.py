@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock
@@ -9,7 +10,10 @@ from unittest.mock import AsyncMock
 import pytest
 
 from backend.persistence.native.agent_run import AgentRun
-from backend.persistence.native.postgres_session_store import PostgresSessionStore
+from backend.persistence.native.postgres_session_store import (
+    PostgresSessionStore,
+    _RunEvidenceLockRegistry,
+)
 
 if TYPE_CHECKING:
     import asyncpg
@@ -59,6 +63,37 @@ def _store(connection: _Connection) -> PostgresSessionStore:
     store = PostgresSessionStore(pool)
     store.setup = AsyncMock()  # type: ignore[method-assign]
     return store
+
+
+@pytest.mark.asyncio
+async def test_postgres_evidence_lock_keeps_entry_until_waiters_finish() -> None:
+    """Um waiter não pode observar um lock removido e criar uma segunda fila."""
+    registry = _RunEvidenceLockRegistry()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    waiter_entered = asyncio.Event()
+
+    async def first() -> None:
+        async with registry.acquire("run-1"):
+            entered.set()
+            await release.wait()
+
+    async def second() -> None:
+        await entered.wait()
+        async with registry.acquire("run-1"):
+            waiter_entered.set()
+
+    first_task = asyncio.create_task(first())
+    await entered.wait()
+    second_task = asyncio.create_task(second())
+    await asyncio.sleep(0)
+    assert len(registry) == 1
+    assert not waiter_entered.is_set()
+
+    release.set()
+    await asyncio.gather(first_task, second_task)
+    assert waiter_entered.is_set()
+    assert len(registry) == 0
 
 
 @pytest.mark.asyncio

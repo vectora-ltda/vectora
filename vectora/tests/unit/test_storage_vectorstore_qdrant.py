@@ -244,11 +244,19 @@ class TestQdrantBackendDelete:
     ) -> None:
         """Verifica o comportamento de delete concorrente coordena exclusoes."""
         count = 1
+        active_counts = 0
+        max_active_counts = 0
 
         async def fake_count(*args: object, **kwargs: object) -> CountResult:
             """Executa a operação fake count."""
-            await asyncio.sleep(0)
-            return CountResult(count=count)
+            nonlocal active_counts, max_active_counts
+            active_counts += 1
+            max_active_counts = max(max_active_counts, active_counts)
+            try:
+                await asyncio.sleep(0)
+                return CountResult(count=count)
+            finally:
+                active_counts -= 1
 
         async def fake_delete(*args: object, **kwargs: object) -> None:
             """Executa a operação fake delete."""
@@ -262,6 +270,7 @@ class TestQdrantBackendDelete:
             backend.delete("articles", ["p1"]),
             backend.delete("articles", ["p1"]),
         )
+        assert max_active_counts == 1
         assert sorted(results) == [0, 1]
         mock_client.delete.assert_awaited_once()
 

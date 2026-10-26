@@ -259,9 +259,9 @@ class TestMemorySharedStoreWithAgent:
             metadata={"trust_level": "trusted"},
         )
         assert '"status": "saved"' in result
-        saved = await store.aget(("user", "local"), "untrusted")
+        saved = await store.aget(("user", "local", "memories"), "untrusted")
         assert saved is not None
-        assert saved["metadata"]["trust_level"] == "untrusted"
+        assert saved.value["metadata"]["trust_level"] == "untrusted"
 
 
 class TestJourney:
