@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 from pydantic import BaseModel
 
-from backend.engine.subagents import SubagentSpec, run_subagent
+from backend.engine.subagents import (
+    LivenessConfig,
+    SubagentSpec,
+    request_hard_interrupt,
+    run_subagent,
+    subagent_capability_token,
+)
 from backend.persistence.native.session_store import SessionStore
 from backend.services.policy_compiler import PolicySnapshot
 from backend.storage.sqlite.pool import AsyncConnectionPool
@@ -134,6 +141,14 @@ async def test_subagent_run_creates_child_agent_run(session_store, ctx):
         assert len(rows) == 1
         assert rows[0][1] == "run-parent-99"
         assert rows[0][2] == "corr-child-101"
+    async with session_store._pool.acquire() as conn:
+        cur = await conn.execute(
+            "SELECT run_id FROM agent_runs WHERE parent_run_id = ?",
+            ("run-parent-99",),
+        )
+        child = await session_store.get_agent_run((await cur.fetchone())[0])
+    assert child is not None
+    assert child.status in {"complete", "passed"}
 
 
 @pytest.mark.asyncio
@@ -213,3 +228,118 @@ async def test_subagent_untrusted_content_blocks_destructive_tool(
         assert "fake_terminal" in res
     finally:
         TOOL_REGISTRY._tools.pop("fake_terminal", None)
+
+
+@pytest.mark.asyncio
+async def test_subagent_liveness_marks_child_cancelled(session_store, ctx, monkeypatch):
+    """Watchdog cancela a conversa e persiste o estado observável."""
+    started = asyncio.Event()
+
+    async def stalled(*_args, **_kwargs):
+        started.set()
+        await asyncio.Future()
+
+    monkeypatch.setattr("backend.engine.subagents.run_conversation", stalled)
+    spec = SubagentSpec(
+        name="stalled",
+        description="stalled",
+        system_prompt="wait",
+        tools=[],
+    )
+    task = asyncio.create_task(
+        run_subagent(
+            spec,
+            "wait",
+            session_store=session_store,
+            chat_client=_SimpleChatClient([]),
+            ctx=ctx,
+            parent_thread_id="thread-parent",
+            should_require_approval=None,
+            liveness=LivenessConfig(
+                heartbeat_interval_s=0.001, max_stalled_heartbeats=1
+            ),
+        )
+    )
+    await started.wait()
+    result = await task
+    assert "cancelado por inatividade" in result
+    async with session_store._pool.acquire() as conn:
+        cur = await conn.execute(
+            "SELECT run_id FROM agent_runs WHERE status = 'cancelled'"
+        )
+        assert await cur.fetchone()
+
+
+@pytest.mark.asyncio
+async def test_subagent_hard_interrupt_marks_child_cancelled(
+    session_store, ctx, monkeypatch
+):
+    """Interrupção autorizada cancela a task e persiste cancelled."""
+    started = asyncio.Event()
+
+    async def stalled(*_args, **_kwargs):
+        started.set()
+        await asyncio.Future()
+
+    monkeypatch.setattr("backend.engine.subagents.run_conversation", stalled)
+    correlation = CorrelationId("corr-hard-interrupt")
+    spec = SubagentSpec(
+        name="interruptible",
+        description="interruptible",
+        system_prompt="wait",
+        tools=[],
+        correlation_id=correlation,
+    )
+    task = asyncio.create_task(
+        run_subagent(
+            spec,
+            "wait",
+            session_store=session_store,
+            chat_client=_SimpleChatClient([]),
+            ctx=ctx,
+            parent_thread_id="thread-parent",
+            should_require_approval=None,
+        )
+    )
+    await started.wait()
+    assert request_hard_interrupt(correlation, subagent_capability_token(correlation))
+    result = await task
+    assert "hard interrupt" in result
+    async with session_store._pool.acquire() as conn:
+        cur = await conn.execute(
+            "SELECT run_id FROM agent_runs WHERE status = 'cancelled'"
+        )
+        assert await cur.fetchone()
+
+
+@pytest.mark.asyncio
+async def test_subagent_exception_marks_child_failed_and_propagates(
+    session_store, ctx, monkeypatch
+):
+    """Falha inesperada do loop fica persistida e não é engolida."""
+
+    async def failing(*_args, **_kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr("backend.engine.subagents.run_conversation", failing)
+    spec = SubagentSpec(
+        name="failing",
+        description="failing",
+        system_prompt="fail",
+        tools=[],
+    )
+    with pytest.raises(RuntimeError, match="boom"):
+        await run_subagent(
+            spec,
+            "fail",
+            session_store=session_store,
+            chat_client=_SimpleChatClient([]),
+            ctx=ctx,
+            parent_thread_id="thread-parent",
+            should_require_approval=None,
+        )
+    async with session_store._pool.acquire() as conn:
+        cur = await conn.execute(
+            "SELECT run_id FROM agent_runs WHERE status = 'failed'"
+        )
+        assert await cur.fetchone()

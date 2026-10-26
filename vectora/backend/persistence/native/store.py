@@ -420,7 +420,7 @@ class VectoraStore:
                     "SELECT namespace, key, value FROM store_items ORDER BY namespace, key LIMIT 200 OFFSET ?",
                     (offset,),
                 )
-                rows = await cursor.fetchall()
+                rows = list(await cursor.fetchall())
                 if not rows:
                     break
                 deleted = 0

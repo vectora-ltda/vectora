@@ -224,10 +224,11 @@ class DAGStore:
             if deps:
                 marks = ",".join("?" for _ in deps)
                 async with self.db.execute(
-                    f"SELECT COUNT(*) FROM vectora_dag_stages WHERE execution_id=? AND stage_id IN ({marks}) AND status='passed'",  # noqa: S608
+                    f"SELECT COUNT(*) FROM vectora_dag_stages WHERE execution_id=? AND stage_id IN ({marks}) AND status='passed'",  # nosec B608
                     (execution_id, *deps),
                 ) as cur:
-                    if (await cur.fetchone())[0] != len(deps):
+                    count_row = await cur.fetchone()
+                    if count_row is None or count_row[0] != len(deps):
                         continue
             token = str(uuid.uuid4())
             expires = (datetime.now(UTC) + timedelta(seconds=lease_seconds)).isoformat()

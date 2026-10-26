@@ -212,9 +212,14 @@ async def test_recompute_ready_atomic_promotion(
 async def test_version_migration_supports_dict_row_factory(tmp_path: Path) -> None:
     """A conexão usada pelo scheduler retorna dicts, não tuplas/Rows."""
     conn = await aiosqlite.connect(tmp_path / "dict-rows.db")
-    conn.row_factory = lambda cursor, row: {
-        column[0]: value for column, value in zip(cursor.description, row, strict=False)
-    }
+    setattr(
+        conn,
+        "row_factory",
+        lambda cursor, row: {
+            column[0]: value
+            for column, value in zip(cursor.description, row, strict=False)
+        },
+    )
     await conn.execute(
         "CREATE TABLE vectora_background_tasks (id TEXT PRIMARY KEY, updated_at TEXT)"
     )

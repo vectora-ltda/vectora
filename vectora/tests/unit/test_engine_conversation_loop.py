@@ -220,6 +220,11 @@ class TestParadaNormal:
 
     async def test_checkpoint_de_tool_impede_reexecucao_cego(self, session_store, ctx):
         """Verifica o comportamento de checkpoint de tool impede reexecucao cego."""
+        from backend.persistence.native.agent_run import AgentRun
+
+        await session_store.upsert_agent_run(
+            AgentRun(run_id="run-recovery", thread_id="thread-1", status="running")
+        )
         await session_store.save_context_checkpoint(
             "thread-1",
             "run-recovery",
@@ -247,6 +252,10 @@ class TestParadaNormal:
 
         assert resultado.stopped_reason == "recovery_required"
         assert client.chamadas == 0
+        stored = await session_store.get_agent_run("run-recovery")
+        assert stored is not None
+        assert stored.status == "recovery_required"
+        assert stored.error_code == "CHECKPOINT_TOOL_RECONCILIATION_REQUIRED"
 
     async def test_sem_tool_calls_para_no_primeiro_turno(self, session_store, ctx):
         """Verifica o comportamento de sem tool calls para no primeiro turno."""
