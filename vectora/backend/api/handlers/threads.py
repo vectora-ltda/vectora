@@ -1606,6 +1606,7 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
                 role=entry.role,
                 content=entry.text,
                 message_id=entry.message_id,
+                is_error=entry.is_error,
                 checkpoint_id=entry.checkpoint_id,
                 attachments=entry.attachments,
                 edited_files=[file.model_dump() for file in entry.edited_files],
@@ -1616,9 +1617,15 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
             request.thread_id,
             workspace_id=thread.workspace_id or None,
         )
+        summaries = await (await _get_session_store()).get_thread_summaries(
+            [request.thread_id]
+        )
+        summary = summaries[0] if summaries else None
         return GetHistoryResponse(
             messages=history,
             todos=[TodoItem.model_validate(todo) for todo in todos],
+            run_status=summary.status if summary else "idle",
+            last_seq=summary.last_seq if summary else 0,
         )
 
     except Exception as exc:
@@ -2120,6 +2127,7 @@ async def get_thread_history_paginated(
             role=entry.role,
             content=entry.text,
             message_id=entry.message_id,
+            is_error=entry.is_error,
             checkpoint_id=entry.checkpoint_id,
             attachments=entry.attachments,
             edited_files=[file.model_dump() for file in entry.edited_files],
@@ -2153,10 +2161,16 @@ async def get_thread_history_paginated(
                 exc_info=True,
             )
 
+    summaries = await (await _get_session_store()).get_thread_summaries(
+        [thread_id], user_id=_user_id(request)
+    )
+    summary = summaries[0] if summaries else None
     return PagedHistoryResponse(
         messages=messages,
         has_more=has_more,
         total_count=total,
+        run_status=summary.status if summary else "idle",
+        last_seq=summary.last_seq if summary else 0,
     )
 
 

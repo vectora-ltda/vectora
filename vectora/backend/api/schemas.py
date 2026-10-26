@@ -667,6 +667,7 @@ class HistoryMessage(BaseModel):
     seq: int | None = None
     turn_id: str | None = None
     run_id: str | None = None
+    is_error: bool = False
     finish_reason: str | None = None
     created_at: str = ""
     # Checkpoint pai (estado do thread imediatamente antes desta mensagem

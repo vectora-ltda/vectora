@@ -844,6 +844,7 @@ async def aget_thread_messages_with_files(
 ) -> list[ThreadHistoryEntry]:
     """Histórico com o payload de arquivos editados persistido por mensagem."""
     from backend.vtypes.history import HistoryEditedFile, ThreadHistoryEntry
+    from backend.vtypes.message import MessageRole
 
     store = await get_session_store()
     files_by_id = await store.get_edited_files_for_thread(thread_id)
@@ -857,12 +858,22 @@ async def aget_thread_messages_with_files(
         except ValueError:
             return []
 
+    error_by_id: dict[str, bool] = {}
+    try:
+        error_by_id = {
+            str(message_id): bool(message.is_error)
+            for message_id, message in await store.get_history_with_ids(thread_id)
+        }
+    except Exception:
+        logger.debug("history: não foi possível carregar flags is_error", exc_info=True)
+
     return [
         ThreadHistoryEntry(
             role=cast("Literal['human', 'assistant']", item[0]),
             text=item[1],
             checkpoint_id=item[2],
             message_id=int(item[2]) if item[2].isdigit() else None,
+            is_error=error_by_id.get(item[2], False),
             attachments=item[3],
             edited_files=files_for_checkpoint(item[2]),
         )
@@ -923,6 +934,8 @@ async def aget_thread_pending_interrupt(
     restart. Retorna ``None`` sem pendência; nunca lança, é consultado num
     reload de página.
     """
+    from backend.vtypes.message import MessageRole
+
     store = await get_session_store()
     pending = await store.get_pending_approval(thread_id)
     if pending is None:
