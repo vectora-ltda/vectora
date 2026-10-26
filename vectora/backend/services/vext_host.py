@@ -19,6 +19,7 @@ import tempfile
 import threading
 import zipfile
 from collections import deque
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Self
@@ -31,6 +32,7 @@ MAX_RPC_LINE: Final = 1 * 1024 * 1024
 OVERSIZED_RESPONSE: Final = "__vectora_vext_oversized_response__"
 DEFAULT_REQUEST_TIMEOUT: Final = 10.0
 MAX_STDERR_BYTES: Final = 256 * 1024
+MAX_QUEUED_RESPONSES: Final = 128
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,7 +100,11 @@ class VextHost:
         self.allow_unsigned = allow_unsigned
         self.request_timeout = request_timeout
         self.sandbox_required = sandbox_required
-        self._response_queue: queue.Queue[str] = queue.Queue()
+        # A hostile/noisy extension must not be able to grow this queue
+        # without bound while the host is waiting on another request.
+        self._response_queue: queue.Queue[str] = queue.Queue(
+            maxsize=MAX_QUEUED_RESPONSES
+        )
         self._request_lock = threading.Lock()
         self._reader_threads: list[threading.Thread] = []
         self._stderr_buffer: deque[str] = deque(maxlen=1)
@@ -285,6 +291,19 @@ class VextHost:
         stdout = process.stdout
         stderr = process.stderr
 
+        def enqueue_response(line: str) -> None:
+            try:
+                self._response_queue.put_nowait(line)
+            except queue.Full:
+                # Discard queued output and fail the next request closed.  Do
+                # not block the reader thread: a blocked reader can deadlock
+                # the child process when its stdout pipe fills up.
+                with suppress(queue.Empty):
+                    while True:
+                        self._response_queue.get_nowait()
+                with suppress(queue.Full):
+                    self._response_queue.put_nowait(OVERSIZED_RESPONSE)
+
         def read_stdout() -> None:
             while True:
                 line = stdout.readline(MAX_RPC_LINE + 1)
@@ -295,9 +314,9 @@ class VextHost:
                         line = stdout.readline(MAX_RPC_LINE + 1)
                         if not line:
                             break
-                    self._response_queue.put(OVERSIZED_RESPONSE)
+                    enqueue_response(OVERSIZED_RESPONSE)
                     continue
-                self._response_queue.put(line)
+                enqueue_response(line)
 
         def append_stderr(chunk: str) -> None:
             current = self._stderr_buffer[0] if self._stderr_buffer else ""
@@ -404,7 +423,7 @@ class VextHost:
             thread.join(timeout=2)
         self.process = None
         self._reader_threads.clear()
-        self._response_queue = queue.Queue()
+        self._response_queue = queue.Queue(maxsize=MAX_QUEUED_RESPONSES)
         if self.root is not None:
             shutil.rmtree(self.root, ignore_errors=True)
         self.root = None
