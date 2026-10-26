@@ -208,6 +208,19 @@ def test_compare_cassettes_unequal_lengths():
     assert report.details[1].get("missing") == "candidate"
 
 
+def test_compare_cassettes_rejects_duplicate_interaction_ids() -> None:
+    """Duplicate IDs must not be silently aligned as separate cases."""
+    cassette = Cassette(
+        cassette_id="dup",
+        interactions=[
+            CassetteInteraction(interaction_id="same", messages=[]),
+            CassetteInteraction(interaction_id="same", messages=[]),
+        ],
+    )
+    with pytest.raises(ValueError, match="duplicado"):
+        compare_cassettes(cassette, Cassette(cassette_id="other"))
+
+
 def test_total_tokens_helper():
     """Verifica o comportamento de total tokens helper."""
     assert _total_tokens({}) == 0
