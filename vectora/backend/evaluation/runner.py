@@ -55,9 +55,25 @@ def compare_cassettes(
     baseline_cassette: Cassette, candidate_cassette: Cassette
 ) -> EvalReport:
     """Compara duas cassetes (ex: baseline SystemTwo vs candidato SystemOne)."""
-    b_len = len(baseline_cassette.interactions)
-    c_len = len(candidate_cassette.interactions)
-    total = max(b_len, c_len)
+    baseline_ids = [item.interaction_id for item in baseline_cassette.interactions]
+    candidate_ids = [item.interaction_id for item in candidate_cassette.interactions]
+    if len(set(baseline_ids)) != len(baseline_ids) or len(set(candidate_ids)) != len(
+        candidate_ids
+    ):
+        raise ValueError("cassetes não podem conter interaction_id duplicado")
+    baseline_by_id = {
+        item.interaction_id: item for item in baseline_cassette.interactions
+    }
+    candidate_by_id = {
+        item.interaction_id: item for item in candidate_cassette.interactions
+    }
+    # Keep baseline order, then append candidate-only interactions. This makes
+    # missing/extra cases explicit instead of hiding an early termination with
+    # positional min(len(baseline), len(candidate)) alignment.
+    interaction_ids = baseline_ids + [
+        item_id for item_id in candidate_ids if item_id not in baseline_by_id
+    ]
+    total = len(interaction_ids)
     if total == 0:
         return EvalReport(
             suite_name="comparison",
@@ -75,9 +91,9 @@ def compare_cassettes(
     total_candidate_tokens = 0
     details: list[dict[str, Any]] = []
 
-    for i in range(total):
-        b_item = baseline_cassette.interactions[i] if i < b_len else None
-        c_item = candidate_cassette.interactions[i] if i < c_len else None
+    for i, interaction_id in enumerate(interaction_ids):
+        b_item = baseline_by_id.get(interaction_id)
+        c_item = candidate_by_id.get(interaction_id)
 
         if b_item is not None and c_item is not None:
             b_tools = [t.get("name") for t in b_item.tool_calls]
@@ -94,6 +110,7 @@ def compare_cassettes(
             details.append(
                 {
                     "index": i,
+                    "interaction_id": interaction_id,
                     "matched": is_match,
                     "baseline_tools": b_tools,
                     "candidate_tools": c_tools,
@@ -111,6 +128,7 @@ def compare_cassettes(
             details.append(
                 {
                     "index": i,
+                    "interaction_id": interaction_id,
                     "matched": False,
                     "missing": "candidate",
                     "baseline_tools": b_tools,
@@ -129,6 +147,7 @@ def compare_cassettes(
             details.append(
                 {
                     "index": i,
+                    "interaction_id": interaction_id,
                     "matched": False,
                     "missing": "baseline",
                     "baseline_tools": None,
