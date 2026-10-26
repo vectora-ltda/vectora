@@ -285,7 +285,25 @@ class DAGStore:
         await self._event(
             execution_id, stage_id, f"stage_{status}", {"error": error} if error else {}
         )
+        await self._refresh_execution_status(execution_id)
         await self.db.commit()
+
+    async def _refresh_execution_status(self, execution_id: str) -> None:
+        """Derive the execution status from its persisted stage states."""
+        async with self.db.execute(
+            "SELECT status FROM vectora_dag_stages WHERE execution_id=?",
+            (execution_id,),
+        ) as cur:
+            statuses = [str(row[0]) for row in await cur.fetchall()]
+        if not statuses or any(state in {"pending", "running"} for state in statuses):
+            return
+        execution_status = (
+            "failed" if any(state == "failed" for state in statuses) else "passed"
+        )
+        await self.db.execute(
+            "UPDATE vectora_dag_executions SET status=? WHERE execution_id=? AND status='running'",
+            (execution_status, execution_id),
+        )
 
     async def recover_expired_claims(self) -> int:
         now = _now()

@@ -86,6 +86,20 @@ async def test_dag_is_idempotent_and_resumes_after_expired_claim(tmp_path) -> No
     )
     next_stage = await store.claim_ready_stage(execution.execution_id)
     assert next_stage is not None and next_stage[0] == "final"
+    await store.finish_stage(
+        execution.execution_id,
+        "final",
+        claim_token=next_stage[1],
+        passed=True,
+        output={"done": True},
+    )
+    async with db.execute(
+        "SELECT status FROM vectora_dag_executions WHERE execution_id=?",
+        (execution.execution_id,),
+    ) as cursor:
+        execution_row = await cursor.fetchone()
+    assert execution_row is not None
+    assert execution_row[0] == "passed"
     with pytest.raises(DAGValidationError):
         await store.finish_stage(
             execution.execution_id, "final", claim_token="wrong", passed=True
