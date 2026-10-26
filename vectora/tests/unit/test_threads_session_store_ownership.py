@@ -510,7 +510,9 @@ class TestMarkThreadRead:
 
         assert await th._unread_count("thread-tools", "alice") == 1
 
-    async def test_cursor_isolado_por_usuario(self, session_store) -> None:
+    async def test_cursor_isolado_por_usuario(
+        self, session_store: SessionStore
+    ) -> None:
         """Verifica o comportamento de cursor isolado por usuario."""
         await session_store.create_session("thread-alice", user_id="alice")
         await th._upsert_session("thread-alice")
@@ -539,7 +541,7 @@ class TestMarkThreadRead:
         assert exc_info.value.status_code == 404
 
     async def test_leitura_de_thread_inexistente_nao_cria_cursor(
-        self, session_store
+        self, session_store: SessionStore
     ) -> None:
         """Verifica o comportamento de leitura de thread inexistente nao cria cursor."""
         from fastapi import HTTPException
@@ -554,6 +556,17 @@ class TestMarkThreadRead:
             ("thread-missing",),
         ) as cursor:
             assert await cursor.fetchone() is None
+
+    async def test_listagem_de_runs_de_thread_inexistente_rejeita_usuario(
+        self, session_store: SessionStore
+    ) -> None:
+        """A listagem de AgentRun não pode consultar uma thread órfã."""
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await th.list_thread_agent_runs("thread-missing", _http_request("alice"))
+
+        assert exc_info.value.status_code == 404
 
     async def test_repetir_leitura_e_idempotente_e_novas_mensagens_voltam_a_contar(
         self, session_store

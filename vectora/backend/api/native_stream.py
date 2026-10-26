@@ -489,17 +489,43 @@ def stream_engine_events(
                             pending: asyncio.Task[Any], q: asyncio.Queue[Any]
                         ) -> None:
                             """Executa a operação consume remainder."""
+                            nonlocal accumulated_partial_content
                             try:
                                 first_item: object | None = None
                                 with contextlib.suppress(Exception):
                                     first_item = await pending
-                                if first_item is _SENTINEL:
-                                    return
-                                with contextlib.suppress(Exception):
-                                    while True:
-                                        item = await q.get()
-                                        if item is _SENTINEL:
-                                            break
+                                item = first_item
+                                while item is not _SENTINEL:
+                                    if isinstance(item, MessageChunk):
+                                        accumulated_partial_content += item.content
+                                    item = await q.get()
+                                if (
+                                    stopped_reason == "stop"
+                                    and run_error is None
+                                    and not empty_model_response
+                                ):
+                                    await _update_persisted_run(
+                                        resolved_run_id,
+                                        status="completed",
+                                        partial_text=accumulated_partial_content,
+                                    )
+                                    with contextlib.suppress(Exception):
+                                        await _clear_partial(thread_id)
+                                    if workspace_id:
+                                        with contextlib.suppress(Exception):
+                                            await _record_turn_checkpoint(
+                                                workspace_id,
+                                                thread_id,
+                                                {"run_id": str(uuid.uuid4())},
+                                            )
+                                    from backend.services.remember_trigger import (
+                                        maybe_trigger_remember,
+                                    )
+
+                                    with contextlib.suppress(Exception):
+                                        await maybe_trigger_remember(
+                                            thread_id, user_id or "local"
+                                        )
                             finally:
                                 _release_workspace_lock()
 
