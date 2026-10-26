@@ -469,7 +469,6 @@ registry.post("/extensions/publish", async (c) => {
         versionId,
         extensionId,
         version,
-        version,
         runtime,
         text("platforms") || '["any"]',
         text("permissions") || "[]",

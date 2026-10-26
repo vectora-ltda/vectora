@@ -154,10 +154,18 @@ def _collect_files(source_dir: Path, manifest: VextManifest) -> dict[str, bytes]
     total_bytes = 0
     for relative in sorted(declared):
         path = _safe_source_file(source_dir, relative)
-        data = path.read_bytes()
-        total_bytes += len(data)
-        if total_bytes > MAX_UNCOMPRESSED_BYTES:
+        # Enforce the aggregate limit before reading file contents.  This
+        # prevents a single oversized declared file from being loaded into
+        # memory only to reject it afterwards.
+        file_size = path.stat().st_size
+        if file_size > MAX_UNCOMPRESSED_BYTES - total_bytes:
             raise ValueError("conteúdo descompactado excede o limite")
+        data = path.read_bytes()
+        if len(data) > file_size:
+            # A file can grow between stat() and read(); keep the same bound
+            # even in that race window.
+            raise ValueError("conteúdo descompactado excede o limite")
+        total_bytes += len(data)
         payload[relative] = data
     if manifest.entrypoint not in payload:
         raise ValueError("entrypoint não foi incluído no artefato")

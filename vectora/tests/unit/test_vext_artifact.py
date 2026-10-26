@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from nacl.signing import SigningKey
 
+from backend.services import vext_artifact
 from backend.services.vext_artifact import build_vext, verify_vext
 
 
@@ -108,6 +109,29 @@ def test_build_rejects_reserved_directory_conflict(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="reservados"):
         build_vext(source, tmp_path / "collision.vext")
+
+
+def test_build_rejects_oversized_file_before_reading(
+    tmp_path: Path, monkeypatch
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _source(source)
+    payload = source / "main.py"
+    original_read_bytes = Path.read_bytes
+    reads: list[Path] = []
+
+    def tracked_read_bytes(path: Path) -> bytes:
+        reads.append(path)
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(vext_artifact, "MAX_UNCOMPRESSED_BYTES", 1)
+    monkeypatch.setattr(Path, "read_bytes", tracked_read_bytes)
+
+    with pytest.raises(ValueError, match="descompactado"):
+        build_vext(source, tmp_path / "oversized.vext")
+
+    assert payload not in reads
 
 
 def test_inspect_rejects_file_directory_conflict(tmp_path: Path) -> None:
