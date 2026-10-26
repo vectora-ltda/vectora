@@ -561,6 +561,32 @@ class TestCreateArtifact:
         assert h2.read_text(encoding="utf-8") == "v2"
         assert r1["path"] == str(current)  # 1ª chamada já grava no path final
 
+    async def test_sidecar_rotation_failure_keeps_current_artifact(
+        self, tmp_path, monkeypatch
+    ):
+        """Uma falha ao mover o sidecar não pode perder o Markdown atual."""
+        from backend.tools.fs import _rotate_artifact_history
+
+        artifact_dir = tmp_path / "artifacts"
+        artifact_dir.mkdir()
+        current = artifact_dir / "plan.md"
+        integrity = artifact_dir / "plan.artifact.json"
+        current.write_text("versão antiga", encoding="utf-8")
+        integrity.write_text(json.dumps({"artifact_id": "plan"}), encoding="utf-8")
+        original_replace = Path.replace
+
+        def fail_sidecar(source: Path, target: Path) -> Path:
+            if source.name == "plan.artifact.json":
+                raise OSError("sidecar indisponível")
+            return original_replace(source, target)
+
+        monkeypatch.setattr(Path, "replace", fail_sidecar)
+        rotated = _rotate_artifact_history(artifact_dir, "plan", "versão nova")
+
+        assert rotated == current
+        assert current.read_text(encoding="utf-8") == "versão nova"
+        assert integrity.exists()
+
     async def test_writes_artifact_type_sidecar_read_by_api(
         self, tmp_path, monkeypatch
     ):

@@ -1328,27 +1328,33 @@ def _rotate_artifact_history(artifact_dir: Path, slug: str, content: str) -> Pat
         n = 1
         while (artifact_dir / f"{slug}-{n}.md").exists():
             n += 1
-        current.replace(artifact_dir / f"{slug}-{n}.md")
+        historical_path = artifact_dir / f"{slug}-{n}.md"
+        current_moved = False
         integrity = artifact_dir / f"{slug}.artifact.json"
-        if integrity.exists():
-            historical_integrity = artifact_dir / f"{slug}-{n}.artifact.json"
-            try:
+        historical_integrity = artifact_dir / f"{slug}-{n}.artifact.json"
+        try:
+            current.replace(historical_path)
+            current_moved = True
+            if integrity.exists():
                 integrity.replace(historical_integrity)
                 metadata = json.loads(historical_integrity.read_text(encoding="utf-8"))
                 if isinstance(metadata, dict):
-                    historical_path = artifact_dir / f"{slug}-{n}.md"
                     metadata["artifact_id"] = historical_path.stem
                     metadata["storage_uri"] = str(historical_path)
                     historical_integrity.write_text(
                         json.dumps(metadata, ensure_ascii=False, sort_keys=True),
                         encoding="utf-8",
                     )
-            except (OSError, UnicodeError, json.JSONDecodeError):
-                logger.warning(
-                    "create_artifact: sidecar histórico inválido para %s",
-                    slug,
-                    exc_info=True,
-                )
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            if historical_integrity.exists() and not integrity.exists():
+                historical_integrity.replace(integrity)
+            if current_moved and not current.exists():
+                historical_path.replace(current)
+            logger.warning(
+                "create_artifact: rotação histórica falhou para %s",
+                slug,
+                exc_info=True,
+            )
     current.write_text(content, encoding="utf-8")
     return current
 
