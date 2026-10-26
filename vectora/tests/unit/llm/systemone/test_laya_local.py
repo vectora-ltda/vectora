@@ -103,3 +103,20 @@ def test_laya_provider_factory() -> None:
     )
     assert isinstance(provider, LayaLocalAdapter)
     assert provider.provider_id == "laya-local"
+
+
+def test_laya_normalizes_normalized_score_without_levels() -> None:
+    """Converte score normalizado do Laya para a escala configurada."""
+    request = SystemOneRequest(
+        model="convaiinnovations/laya",
+        state="state",
+        questions={
+            "score": ScoreQuestion(
+                criterion="score", min_score=1, max_score=5, levels=None
+            )
+        },
+    )
+    normalized = LayaLocalAdapter._normalize_response(
+        {"answers": {"score": {"score": 0.5}}}, request
+    )
+    assert normalized["answers"]["score"]["score"] == 3.0

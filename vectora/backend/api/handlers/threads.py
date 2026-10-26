@@ -2695,7 +2695,7 @@ async def list_thread_agent_runs(
     thread_id: str, request: Request, limit: int = 50
 ) -> list[AgentRun]:
     """Lista as execuções de agente vinculadas a uma thread."""
-    await _assert_owns_thread(thread_id, request)
+    await _assert_owns_thread(thread_id, request, require_existing=True)
     session_store = await _get_session_store()
     if not hasattr(session_store, "list_agent_runs"):
         return []

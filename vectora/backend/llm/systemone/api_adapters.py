@@ -192,6 +192,20 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
                 provider=self.provider_id,
             ) from exc
 
+        if (
+            self.provider_id == "clef-api"
+            and isinstance(data, dict)
+            and "success" in data
+        ):
+            if data.get("success") is not True or not isinstance(
+                data.get("result"), dict
+            ):
+                raise SystemOneValidationError(
+                    "Envelope REST do Cloudflare indica falha ou resultado inválido",
+                    provider=self.provider_id,
+                )
+            data = data["result"]
+
         return parse_systemone_response(
             data,
             request,

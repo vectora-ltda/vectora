@@ -7195,6 +7195,10 @@
               }
             ]
           },
+          "clef_account_id": {
+            "title": "Clef Account Id",
+            "type": "string"
+          },
           "clef_api_base_url": {
             "title": "Clef Api Base Url",
             "type": "string"
@@ -7289,6 +7293,7 @@
           "laya_model",
           "laya_api_key_configured",
           "clef_api_base_url",
+          "clef_account_id",
           "clef_api_model",
           "clef_api_key_configured",
           "clef_api_key_masked",
@@ -8447,6 +8452,17 @@
               }
             ],
             "title": "Allow Remote Fallback"
+          },
+          "clef_account_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clef Account Id"
           },
           "clef_api_base_url": {
             "anyOf": [
@@ -11383,6 +11399,7 @@
     },
     "/auth/gitlab": {
       "delete": {
+        "description": "Executa a operação gitlab oauth disconnect.",
         "operationId": "gitlab_oauth_disconnect_auth_gitlab_delete",
         "responses": {
           "200": {
@@ -11402,6 +11419,7 @@
         "tags": ["oauth"]
       },
       "get": {
+        "description": "Executa a operação gitlab oauth start.",
         "operationId": "gitlab_oauth_start_auth_gitlab_get",
         "responses": {
           "200": {
@@ -11419,6 +11437,7 @@
     },
     "/auth/gitlab/callback": {
       "get": {
+        "description": "Executa a operação gitlab oauth callback.",
         "operationId": "gitlab_oauth_callback_auth_gitlab_callback_get",
         "parameters": [
           {
@@ -11468,6 +11487,7 @@
     },
     "/auth/gitlab/status": {
       "get": {
+        "description": "Executa a operação gitlab oauth status.",
         "operationId": "gitlab_oauth_status_auth_gitlab_status_get",
         "responses": {
           "200": {
@@ -11489,6 +11509,7 @@
     },
     "/auth/google": {
       "delete": {
+        "description": "Executa a operação google oauth disconnect.",
         "operationId": "google_oauth_disconnect_auth_google_delete",
         "responses": {
           "200": {
@@ -11508,6 +11529,7 @@
         "tags": ["oauth"]
       },
       "get": {
+        "description": "Executa a operação google oauth start.",
         "operationId": "google_oauth_start_auth_google_get",
         "responses": {
           "200": {
@@ -11525,6 +11547,7 @@
     },
     "/auth/google/callback": {
       "get": {
+        "description": "Executa a operação google oauth callback.",
         "operationId": "google_oauth_callback_auth_google_callback_get",
         "parameters": [
           {
@@ -11574,6 +11597,7 @@
     },
     "/auth/google/status": {
       "get": {
+        "description": "Executa a operação google oauth status.",
         "operationId": "google_oauth_status_auth_google_status_get",
         "responses": {
           "200": {
@@ -14395,6 +14419,7 @@
     },
     "/provider-routing/dmr/models/prepare": {
       "post": {
+        "description": "Executa a operação prepare dmr model.",
         "operationId": "prepare_dmr_model_provider_routing_dmr_models_prepare_post",
         "parameters": [
           {
@@ -15230,6 +15255,7 @@
     },
     "/provider-routing/llamacpp/config": {
       "delete": {
+        "description": "Executa a operação clear llamacpp config.",
         "operationId": "clear_llamacpp_config_provider_routing_llamacpp_config_delete",
         "responses": {
           "200": {
@@ -15247,6 +15273,7 @@
         "tags": ["provider-routing"]
       },
       "post": {
+        "description": "Executa a operação set llamacpp config.",
         "operationId": "set_llamacpp_config_provider_routing_llamacpp_config_post",
         "requestBody": {
           "content": {
@@ -15464,6 +15491,7 @@
     },
     "/provider-routing/llamacpp/models/confirmations": {
       "get": {
+        "description": "Executa a operação list llamacpp model confirmations.",
         "operationId": "list_llamacpp_model_confirmations_provider_routing_llamacpp_models_confirmations_get",
         "responses": {
           "200": {
@@ -15487,6 +15515,7 @@
     },
     "/provider-routing/llamacpp/registered": {
       "get": {
+        "description": "Executa a operação get registered llamacpp models.",
         "operationId": "get_registered_llamacpp_models_provider_routing_llamacpp_registered_get",
         "responses": {
           "200": {
@@ -15508,6 +15537,7 @@
         "tags": ["provider-routing"]
       },
       "post": {
+        "description": "Executa a operação register llamacpp model.",
         "operationId": "register_llamacpp_model_provider_routing_llamacpp_registered_post",
         "requestBody": {
           "content": {
@@ -15547,6 +15577,7 @@
     },
     "/provider-routing/llamacpp/registered/{model_id}": {
       "delete": {
+        "description": "Executa a operação unregister llamacpp model.",
         "operationId": "unregister_llamacpp_model_provider_routing_llamacpp_registered__model_id__delete",
         "parameters": [
           {
@@ -16171,6 +16202,7 @@
     },
     "/provider-routing/llamacpp/status": {
       "get": {
+        "description": "Executa a operação get llamacpp status.",
         "operationId": "get_llamacpp_status_provider_routing_llamacpp_status_get",
         "responses": {
           "200": {
@@ -16210,6 +16242,7 @@
     },
     "/provider-routing/nine-router/config": {
       "delete": {
+        "description": "Executa a operação clear nine router config.",
         "operationId": "clear_nine_router_config_provider_routing_nine_router_config_delete",
         "responses": {
           "200": {
@@ -16287,6 +16320,7 @@
     },
     "/provider-routing/nine-router/registered": {
       "get": {
+        "description": "Executa a operação list registered nine router models.",
         "operationId": "list_registered_nine_router_models_provider_routing_nine_router_registered_get",
         "responses": {
           "200": {
@@ -16308,6 +16342,7 @@
         "tags": ["provider-routing"]
       },
       "post": {
+        "description": "Executa a operação register nine router model.",
         "operationId": "register_nine_router_model_provider_routing_nine_router_registered_post",
         "requestBody": {
           "content": {
@@ -16347,6 +16382,7 @@
     },
     "/provider-routing/nine-router/registered/{model_id}": {
       "delete": {
+        "description": "Executa a operação unregister nine router model.",
         "operationId": "unregister_nine_router_model_provider_routing_nine_router_registered__model_id__delete",
         "parameters": [
           {
@@ -16391,6 +16427,7 @@
     },
     "/provider-routing/nine-router/status": {
       "get": {
+        "description": "Executa a operação get nine router status.",
         "operationId": "get_nine_router_status_provider_routing_nine_router_status_get",
         "responses": {
           "200": {
@@ -16430,6 +16467,7 @@
     },
     "/provider-routing/ollama/registered": {
       "get": {
+        "description": "Executa a operação list registered ollama models.",
         "operationId": "list_registered_ollama_models_provider_routing_ollama_registered_get",
         "responses": {
           "200": {
@@ -16451,6 +16489,7 @@
         "tags": ["provider-routing"]
       },
       "post": {
+        "description": "Executa a operação register ollama model.",
         "operationId": "register_ollama_model_provider_routing_ollama_registered_post",
         "requestBody": {
           "content": {
@@ -16490,6 +16529,7 @@
     },
     "/provider-routing/ollama/registered/{model_id}": {
       "delete": {
+        "description": "Executa a operação unregister ollama model.",
         "operationId": "unregister_ollama_model_provider_routing_ollama_registered__model_id__delete",
         "parameters": [
           {
@@ -16582,6 +16622,7 @@
     },
     "/provider-routing/ollama/runtime/status": {
       "get": {
+        "description": "Executa a operação ollama runtime status.",
         "operationId": "ollama_runtime_status_provider_routing_ollama_runtime_status_get",
         "responses": {
           "200": {
@@ -16601,6 +16642,7 @@
     },
     "/provider-routing/openrouter/key": {
       "delete": {
+        "description": "Executa a operação clear openrouter key.",
         "operationId": "clear_openrouter_key_provider_routing_openrouter_key_delete",
         "responses": {
           "200": {
@@ -16700,6 +16742,7 @@
     },
     "/provider-routing/openrouter/registered": {
       "get": {
+        "description": "Executa a operação list registered openrouter models.",
         "operationId": "list_registered_openrouter_models_provider_routing_openrouter_registered_get",
         "responses": {
           "200": {
@@ -16721,6 +16764,7 @@
         "tags": ["provider-routing"]
       },
       "post": {
+        "description": "Executa a operação register openrouter model.",
         "operationId": "register_openrouter_model_provider_routing_openrouter_registered_post",
         "requestBody": {
           "content": {
@@ -16760,6 +16804,7 @@
     },
     "/provider-routing/openrouter/registered/{model_id}": {
       "delete": {
+        "description": "Executa a operação unregister openrouter model.",
         "operationId": "unregister_openrouter_model_provider_routing_openrouter_registered__model_id__delete",
         "parameters": [
           {
@@ -16804,6 +16849,7 @@
     },
     "/provider-routing/openrouter/status": {
       "get": {
+        "description": "Executa a operação get openrouter status.",
         "operationId": "get_openrouter_status_provider_routing_openrouter_status_get",
         "responses": {
           "200": {
@@ -20105,6 +20151,7 @@
     },
     "/vectora.chat.v1.ThreadService/DeleteThread": {
       "post": {
+        "description": "Executa a operação delete thread.",
         "operationId": "delete_thread_vectora_chat_v1_ThreadService_DeleteThread_post",
         "requestBody": {
           "content": {
@@ -20223,6 +20270,7 @@
     },
     "/vectora.chat.v1.ThreadService/GetThread": {
       "post": {
+        "description": "Executa a operação get thread.",
         "operationId": "get_thread_vectora_chat_v1_ThreadService_GetThread_post",
         "requestBody": {
           "content": {
@@ -20261,6 +20309,7 @@
     },
     "/vectora.chat.v1.ThreadService/GetThreadPins": {
       "post": {
+        "description": "Executa a operação get thread pins.",
         "operationId": "get_thread_pins_vectora_chat_v1_ThreadService_GetThreadPins_post",
         "requestBody": {
           "content": {
@@ -20338,6 +20387,7 @@
     },
     "/vectora.chat.v1.ThreadService/SetThreadPins": {
       "post": {
+        "description": "Executa a operação set thread pins.",
         "operationId": "set_thread_pins_vectora_chat_v1_ThreadService_SetThreadPins_post",
         "requestBody": {
           "content": {
