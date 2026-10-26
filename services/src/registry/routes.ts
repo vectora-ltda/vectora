@@ -317,15 +317,23 @@ registry.get("/extensions/:id/versions", async (c) => {
 
 registry.get("/extensions/:id/download/:version", async (c) => {
   const row = await c.env.DB.prepare(
-    `SELECT v.r2_key, v.digest FROM vext_versions v
+    `SELECT v.r2_key, v.digest, v.size_bytes FROM vext_versions v
       JOIN vext_extensions e ON e.id = v.extension_id
       JOIN vext_publishers p ON p.id = e.publisher_id
       WHERE e.id = ? AND v.version = ? AND v.status = 'published'
         AND e.revoked = 0 AND p.revoked = 0`,
   )
     .bind(c.req.param("id"), c.req.param("version"))
-    .first<{ r2_key: string; digest: string }>();
+    .first<{ r2_key: string; digest: string; size_bytes: number }>();
   if (!row) return c.json({ error: "not_found" }, 404);
+  // Inspect the object metadata before opening its body.  A published D1 row
+  // must never turn an unexpectedly large or corrupted R2 object into an
+  // unbounded response stream.
+  const head = await c.env.R2.head(row.r2_key);
+  if (!head || head.size > MAX_VEXT_ARTIFACT_BYTES)
+    return c.json({ error: "artifact_unavailable" }, 503);
+  if (head.size !== row.size_bytes)
+    return c.json({ error: "artifact_unavailable" }, 503);
   const object = await c.env.R2.get(row.r2_key);
   if (!object) return c.json({ error: "artifact_unavailable" }, 503);
   return new Response(object.body, {

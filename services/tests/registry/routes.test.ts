@@ -375,6 +375,69 @@ describe("POST /registry/extensions/publish", () => {
   });
 });
 
+describe("GET /registry/extensions/:id/download/:version", () => {
+  async function seedPublishedExtension(size: number) {
+    const userId = crypto.randomUUID();
+    const publisherId = crypto.randomUUID();
+    const extensionId = crypto.randomUUID();
+    const versionId = crypto.randomUUID();
+    const r2Key = `vext/${publisherId}/${extensionId}/1.0.0/test.vext`;
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO users (id, email, password_hash, full_name, role) VALUES (?, ?, ?, ?, 'user')",
+      ).bind(userId, `${userId}@example.com`, "pbkdf2$1$AA==$AA==", "User"),
+      env.DB.prepare(
+        "INSERT INTO vext_publishers (id, owner_user_id, name, public_key, fingerprint) VALUES (?, ?, ?, ?, ?)",
+      ).bind(publisherId, userId, "Publisher", "key", crypto.randomUUID()),
+      env.DB.prepare(
+        "INSERT INTO vext_extensions (id, publisher_id, name, description, readme) VALUES (?, ?, ?, ?, ?)",
+      ).bind(extensionId, publisherId, "Extension", "desc", "readme"),
+      env.DB.prepare(
+        "INSERT INTO vext_versions (id, extension_id, version, api_version, protocol_version, runtime, size_bytes, digest, r2_key, signature, signature_verified, status) VALUES (?, ?, ?, 1, 1, 'none', ?, ?, ?, ?, 1, 'published')",
+      ).bind(
+        versionId,
+        extensionId,
+        "1.0.0",
+        size,
+        "digest",
+        r2Key,
+        "signature",
+      ),
+    ]);
+    return { extensionId, r2Key };
+  }
+
+  it("rejects an oversized object before opening the R2 body", async () => {
+    const { extensionId, r2Key } = await seedPublishedExtension(
+      50 * 1024 * 1024 + 1,
+    );
+    await env.R2.put(r2Key, new Uint8Array(1));
+
+    const res = await registry.request(
+      `/extensions/${extensionId}/download/1.0.0`,
+      {},
+      env,
+    );
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "artifact_unavailable" });
+  });
+
+  it("rejects an R2 object whose size differs from the immutable metadata", async () => {
+    const { extensionId, r2Key } = await seedPublishedExtension(4);
+    await env.R2.put(r2Key, new Uint8Array([1, 2, 3]));
+
+    const res = await registry.request(
+      `/extensions/${extensionId}/download/1.0.0`,
+      {},
+      env,
+    );
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "artifact_unavailable" });
+  });
+});
+
 describe("PATCH /registry/admin/skills/:id/verify", () => {
   it("seta verified=1 quando chamado por admin", async () => {
     const id = await makeSkill({ catalogSource: "community" });
