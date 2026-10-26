@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -124,7 +125,7 @@ class SystemOneRerank:
         self.workspace_id = workspace_id
 
     async def acompress_documents(
-        self, documents: Any, query: str, callbacks: Any = None
+        self, documents: Sequence[Document], query: str, callbacks: object = None
     ) -> list[Document]:
         """Executa a operação acompress documents."""
         docs = list(documents)
@@ -165,7 +166,7 @@ class SystemOneRerank:
             return docs[:limit]
 
     def compress_documents(
-        self, documents: Any, query: str, callbacks: Any = None
+        self, documents: Sequence[Document], query: str, callbacks: object = None
     ) -> list[Document]:
         """Executa a operação compress documents."""
         try:
