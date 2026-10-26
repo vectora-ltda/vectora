@@ -4256,6 +4256,7 @@ class SystemOneStatusResponse(BaseModel):
     laya_model: str
     laya_api_key_configured: bool
     clef_api_base_url: str
+    clef_account_id: str
     clef_api_model: str
     clef_api_key_configured: bool
     clef_api_key_masked: str | None
@@ -4278,6 +4279,7 @@ class UpdateSystemOneConfigRequest(BaseModel):
     laya_model: str | None = None
     laya_api_key: str | None = None
     clef_api_base_url: str | None = None
+    clef_account_id: str | None = None
     clef_api_model: str | None = None
     clef_api_key: str | None = None
     jev_api_base_url: str | None = None
@@ -4336,6 +4338,7 @@ async def get_decision_models_status(
         laya_model=settings.systemone_laya_model,
         laya_api_key_configured=bool(settings.systemone_laya_api_key),
         clef_api_base_url=settings.systemone_clef_api_base_url,
+        clef_account_id=settings.systemone_clef_account_id,
         clef_api_model=settings.systemone_clef_api_model,
         clef_api_key_configured=bool(settings.clef_api_key),
         clef_api_key_masked=None,
@@ -4375,6 +4378,8 @@ async def update_decision_models_config(
         )
     if body.clef_api_base_url is not None:
         settings.systemone_clef_api_base_url = body.clef_api_base_url
+    if body.clef_account_id is not None:
+        settings.systemone_clef_account_id = body.clef_account_id.strip()
     if body.clef_api_model is not None:
         settings.systemone_clef_api_model = body.clef_api_model
     if body.clef_api_key is not None:
@@ -4389,5 +4394,15 @@ async def update_decision_models_config(
         settings.systemone_allow_remote_fallback = body.allow_remote_fallback
     if body.confidence_threshold_hitl is not None:
         settings.systemone_confidence_threshold_hitl = body.confidence_threshold_hitl
+
+    env_file = _env_file()
+    if body.clef_account_id is not None:
+        _set_env_key(
+            env_file, "SYSTEMONE_CLEF_ACCOUNT_ID", settings.systemone_clef_account_id
+        )
+    if body.clef_api_key is not None:
+        _set_env_key(env_file, "CLEF_API_KEY", settings.clef_api_key or "")
+    if body.jev_api_key is not None:
+        _set_env_key(env_file, "JEV_API_KEY", settings.jev_api_key or "")
 
     return await get_decision_models_status(_)

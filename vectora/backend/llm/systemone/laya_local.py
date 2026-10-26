@@ -166,10 +166,17 @@ class LayaLocalAdapter(SystemOneProvider):
                 if "score" not in raw:
                     raise ValueError("Resposta Score do Laya ausente")
                 score = float(raw["score"])
-                if question.levels and 0 <= score <= len(question.levels) - 1:
+                if question.levels and len(question.levels) > 1:
                     span = question.max_score - question.min_score
                     score = question.min_score + span * score / (
                         len(question.levels) - 1
+                    )
+                elif not question.levels and 0.0 <= score <= 1.0:
+                    # Laya emits a normalized index when no explicit labels
+                    # are supplied; map it to the contract's configured scale.
+                    score = (
+                        question.min_score
+                        + (question.max_score - question.min_score) * score
                     )
                 answer = {
                     "type": "score",

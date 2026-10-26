@@ -275,6 +275,67 @@ class TestApiAdapters:
         assert seen["url"].endswith("/account-test/ai/run/@cf/custom/clef-test")
 
     @pytest.mark.asyncio
+    async def test_clef_api_unwraps_cloudflare_success_envelope(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Aceita o envelope ``success/result`` retornado pela API Cloudflare."""
+        adapter = ClefApiAdapter(api_key="key", account_id="account-test")
+        req = SystemOneRequest(
+            model="@cf/cloudflare/clef-flash",
+            state="State",
+            questions={"q": NoulQuestion(criterion="crit")},
+        )
+
+        async def fake_post(
+            client: httpx.AsyncClient, url: str, **kwargs: object
+        ) -> httpx.Response:
+            """Executa a operação fake post."""
+            return httpx.Response(
+                200,
+                json={
+                    "success": True,
+                    "result": {
+                        "answers": {
+                            "q": {
+                                "type": "noul",
+                                "probability": 0.8,
+                                "confidence": 0.9,
+                            }
+                        },
+                        "usage": {"total_tokens": 2},
+                    },
+                },
+            )
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+        result = await adapter.decide(req)
+        answer = result.answers["q"]
+        assert isinstance(answer, NoulAnswer)
+        assert answer.probability == 0.8
+
+    @pytest.mark.asyncio
+    async def test_clef_api_rejects_failed_cloudflare_envelope(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Não trata ``success=false`` como uma resposta de decisão válida."""
+        adapter = ClefApiAdapter(api_key="key", account_id="account-test")
+        req = SystemOneRequest(
+            model="@cf/cloudflare/clef-flash",
+            state="State",
+            questions={"q": NoulQuestion(criterion="crit")},
+        )
+
+        async def fake_post(
+            client: httpx.AsyncClient, url: str, **kwargs: object
+        ) -> httpx.Response:
+            """Executa a operação fake post."""
+            return httpx.Response(200, json={"success": False, "result": None})
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+        with pytest.raises(SystemOneValidationError):
+            await adapter.decide(req)
+
+    @pytest.mark.asyncio
     async def test_jev_api_adapter_decide_success(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
