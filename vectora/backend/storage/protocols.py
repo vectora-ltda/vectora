@@ -21,10 +21,12 @@ from backend.vtypes.storage import HealthResult
 
 
 def _ok() -> HealthResult:
+    """Executa a operação ok."""
     return {"ok": True, "error": None}
 
 
 def _err(msg: str) -> HealthResult:
+    """Executa a operação err."""
     return {"ok": False, "error": msg}
 
 
@@ -79,32 +81,11 @@ class StoreBackend(Protocol):
 # ---------------------------------------------------------------------------
 
 
-@runtime_checkable
-class VectorStoreBackend(Protocol):
-    """Backend de VectorStore para busca semântica (RAG).
-
-    Implementações:
-        lite     — ``LanceDBBackend`` nativo (F6)
-        complete — ``QdrantBackend`` nativo (F6)
-    """
-
-    async def asimilarity_search(
-        self,
-        query: str,
-        k: int = 4,
-        **kwargs: Any,
-    ) -> list[Any]:
-        """Busca os k documentos mais similares."""
-        ...
-
-    async def aadd_documents(self, documents: list[Any], **kwargs: Any) -> list[str]:
-        """Indexa documentos e retorna seus IDs."""
-        ...
-
-    async def health(self) -> HealthResult:
-        """Verifica se o backend está acessível."""
-        ...
-
+from backend.storage.vectorstore.base import (
+    VectorHit,
+    VectorRow,
+    VectorStoreBackend,
+)
 
 # ---------------------------------------------------------------------------
 # AuthDB — usuários, tokens, audit, invites
@@ -234,6 +215,8 @@ __all__ = [
     "SessionDB",
     "StoreBackend",
     "TracesDB",
+    "VectorHit",
+    "VectorRow",
     "VectorStoreBackend",
     "_err",
     "_ok",

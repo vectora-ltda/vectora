@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import ctypes
 import errno
+import hashlib
 import json
 import logging
 import os
@@ -42,7 +43,7 @@ from backend.services.security import (
 from backend.services.terminal_stream import emit_terminal_line
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
-from backend.vtypes.documents import VALID_ARTIFACT_TYPES
+from backend.vtypes.documents import VALID_ARTIFACT_TYPES, ArtifactIntegrity
 
 logger = logging.getLogger(__name__)
 
@@ -770,6 +771,7 @@ async def file_search(query: str, ctx: ToolContext, path: str = ".") -> str:
 
 
 def _grep_sync(pattern: str, search_path: Path) -> list[str]:
+    """Executa a operação  grep sync."""
     results: list[str] = []
     base_dir = search_path if search_path.is_dir() else search_path.parent
     spec = _load_ignore_spec(base_dir)
@@ -837,6 +839,7 @@ async def grep(pattern: str, ctx: ToolContext, path: str = ".") -> str:
 
 
 def _list_dir_sync(dir_path: Path, recursive: bool) -> list[str]:
+    """Executa a operação  list dir sync."""
     spec = _load_ignore_spec(dir_path)
     items: list[str] = []
     if recursive:
@@ -942,11 +945,13 @@ async def _drain_terminal_output(
         last_activity = [time.monotonic()]
 
         async def _stream(stream: asyncio.StreamReader | None) -> None:
+            """Executa a operação  stream."""
             if stream is None:
                 return
             pending = bytearray()
 
             def append_line(raw_line: bytes) -> None:
+                """Executa a operação append line."""
                 line = raw_line.decode("utf-8", errors="replace").rstrip("\r")
                 # PowerShell/ConPTY emits cursor-mode probes and other ANSI
                 # control sequences during startup. They are terminal UI
@@ -1323,7 +1328,33 @@ def _rotate_artifact_history(artifact_dir: Path, slug: str, content: str) -> Pat
         n = 1
         while (artifact_dir / f"{slug}-{n}.md").exists():
             n += 1
-        current.rename(artifact_dir / f"{slug}-{n}.md")
+        historical_path = artifact_dir / f"{slug}-{n}.md"
+        current_moved = False
+        integrity = artifact_dir / f"{slug}.artifact.json"
+        historical_integrity = artifact_dir / f"{slug}-{n}.artifact.json"
+        try:
+            current.replace(historical_path)
+            current_moved = True
+            if integrity.exists():
+                integrity.replace(historical_integrity)
+                metadata = json.loads(historical_integrity.read_text(encoding="utf-8"))
+                if isinstance(metadata, dict):
+                    metadata["artifact_id"] = historical_path.stem
+                    metadata["storage_uri"] = str(historical_path)
+                    historical_integrity.write_text(
+                        json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                        encoding="utf-8",
+                    )
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            if historical_integrity.exists() and not integrity.exists():
+                historical_integrity.replace(integrity)
+            if current_moved and not current.exists():
+                historical_path.replace(current)
+            logger.warning(
+                "create_artifact: rotação histórica falhou para %s",
+                slug,
+                exc_info=True,
+            )
     current.write_text(content, encoding="utf-8")
     return current
 
@@ -1337,6 +1368,23 @@ def _write_artifact_type_sidecar(
     (`{slug}-N.md`) não têm sidecar próprio e caem no default ao serem
     listadas — aceitável, o histórico não é navegado por tipo."""
     (artifact_dir / f"{slug}.artifact_type").write_text(artifact_type, encoding="utf-8")
+
+
+def _write_artifact_integrity_sidecar(
+    path: Path, *, retention_class: str = "run"
+) -> dict[str, object]:
+    """Persiste checksum/tamanho fora do payload, para auditoria e GC futuro."""
+    metadata = ArtifactIntegrity(
+        artifact_id=path.stem,
+        byte_size=path.stat().st_size,
+        sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
+        storage_uri=str(path),
+        retention_class=retention_class,
+    ).model_dump()
+    path.with_suffix(".artifact.json").write_text(
+        json.dumps(metadata, ensure_ascii=False, sort_keys=True), encoding="utf-8"
+    )
+    return metadata
 
 
 def _mirror_artifact_to_workspace(
@@ -1363,13 +1411,15 @@ def _mirror_artifact_to_workspace(
 
 def _create_artifact_sync(
     ctx: ToolContext, artifact_type: str, slug: str, session_id: str, content: str
-) -> Path:
+) -> tuple[Path, dict[str, object]]:
+    """Executa a operação  create artifact sync."""
     artifact_dir = Path.home() / ".vectora" / "artifacts" / session_id
     artifact_dir.mkdir(parents=True, exist_ok=True)
     path = _rotate_artifact_history(artifact_dir, slug, content)
     _write_artifact_type_sidecar(artifact_dir, slug, artifact_type)
+    integrity = _write_artifact_integrity_sidecar(path)
     _mirror_artifact_to_workspace(ctx, artifact_type, slug, content)
-    return path
+    return path, integrity
 
 
 @vtool(
@@ -1449,7 +1499,7 @@ async def create_artifact(
 
     try:
         stripped_content = content.strip()
-        path = await asyncio.to_thread(
+        path, integrity = await asyncio.to_thread(
             _create_artifact_sync,
             ctx,
             artifact_type,
@@ -1473,6 +1523,7 @@ async def create_artifact(
                 "artifact_type": artifact_type,
                 "session_id": session_id,
                 "created_at": created_at,
+                **integrity,
             },
             ensure_ascii=False,
         )

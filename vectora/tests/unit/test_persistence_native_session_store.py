@@ -4,6 +4,7 @@ Fixture com pool real sobre `tmp_path`, sem mock."""
 from __future__ import annotations
 
 import asyncio
+from typing import cast
 
 import pytest
 
@@ -77,6 +78,59 @@ class TestCreateSession:
         assert session is not None
         assert session["permission_mode"] == "bypass"
         assert session["workspace_id"] == "ws-1"
+
+
+class TestContextReplayIdempotency:
+    async def test_projection_conflict_does_not_replace_original(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session("thread-projection", user_id="alice")
+        base = {
+            "projection_id": "projection-1",
+            "source_transcript_hash": "a" * 64,
+            "start_seq": 1,
+            "end_seq": 2,
+            "policy_version": "p1",
+            "content": {"text": "original"},
+        }
+        await store.save_context_projection("thread-projection", "run-1", base)
+        await store.save_context_projection("thread-projection", "run-1", base)
+        with pytest.raises(ValueError, match="conteúdo diferente"):
+            await store.save_context_projection(
+                "thread-projection",
+                "run-1",
+                {**base, "content": {"text": "alterado"}},
+            )
+        projection = await store.get_latest_context_projection(
+            "thread-projection", source_transcript_hash="a" * 64
+        )
+        assert projection is not None
+        assert projection["content"] == {"text": "original"}
+
+    async def test_checkpoint_conflict_does_not_replace_pending_tools(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session("thread-checkpoint", user_id="alice")
+        base = {
+            "checkpoint_id": "checkpoint-1",
+            "last_sequence": 4,
+            "source_hash": "b" * 64,
+            "schema_version": "context.v1",
+            "state": {"phase": "tool_running", "pending_tool_call_ids": ["t1"]},
+            "artifact_refs": [],
+        }
+        await store.save_context_checkpoint("thread-checkpoint", "run-1", base)
+        await store.save_context_checkpoint("thread-checkpoint", "run-1", base)
+        with pytest.raises(ValueError, match="estado divergente"):
+            await store.save_context_checkpoint(
+                "thread-checkpoint",
+                "run-1",
+                {**base, "state": {"phase": "done", "pending_tool_call_ids": []}},
+            )
+        checkpoint = await store.get_latest_context_checkpoint("thread-checkpoint")
+        assert checkpoint is not None
+        state = cast("dict[str, object]", checkpoint["state"])
+        assert state["pending_tool_call_ids"] == ["t1"]
 
 
 class TestSessionRuns:
