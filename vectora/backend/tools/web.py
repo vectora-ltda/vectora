@@ -401,6 +401,10 @@ async def fetch_url(url: str, ctx: ToolContext | None = None) -> str:
         logger.warning("fetch_url called with invalid URL", extra={"url": url})
         return "Error: URL must start with http:// or https://"
 
+    if (egress_error := await _check_egress_url(url, ctx)) is not None:
+        logger.warning("fetch_url refused by egress policy", extra={"url": url})
+        return f"Error: URL recusada pela política de egress: {egress_error}"
+
     from backend.browser.ssrf_guard import is_url_ssrf_safe
 
     if not is_url_ssrf_safe(url):
