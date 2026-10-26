@@ -107,7 +107,9 @@ def ctx() -> ToolContext:
 
 
 @pytest.mark.asyncio
-async def test_subagent_run_creates_child_agent_run(session_store, ctx):
+async def test_subagent_run_creates_child_agent_run(
+    session_store: SessionStore, ctx: ToolContext
+) -> None:
     """Verifica o comportamento de subagent run creates child agent run."""
     spec = SubagentSpec(
         name="worker",
@@ -137,7 +139,7 @@ async def test_subagent_run_creates_child_agent_run(session_store, ctx):
             "SELECT run_id, parent_run_id, correlation_id FROM agent_runs WHERE parent_run_id = ?",
             ("run-parent-99",),
         )
-        rows = await cur.fetchall()
+        rows = list(await cur.fetchall())
         assert len(rows) == 1
         assert rows[0][1] == "run-parent-99"
         assert rows[0][2] == "corr-child-101"
@@ -146,15 +148,17 @@ async def test_subagent_run_creates_child_agent_run(session_store, ctx):
             "SELECT run_id FROM agent_runs WHERE parent_run_id = ?",
             ("run-parent-99",),
         )
-        child = await session_store.get_agent_run((await cur.fetchone())[0])
+        child_row = await cur.fetchone()
+        assert child_row is not None
+        child = await session_store.get_agent_run(child_row[0])
     assert child is not None
     assert child.status in {"complete", "passed"}
 
 
 @pytest.mark.asyncio
 async def test_subagent_permission_intersection_blocks_disabled_tool(
-    session_store, ctx
-):
+    session_store: SessionStore, ctx: ToolContext
+) -> None:
     """Verifica o comportamento de subagent permission intersection blocks disabled tool."""
     spec = SubagentSpec(
         name="deleter",
@@ -231,7 +235,9 @@ async def test_subagent_untrusted_content_blocks_destructive_tool(
 
 
 @pytest.mark.asyncio
-async def test_subagent_liveness_marks_child_cancelled(session_store, ctx, monkeypatch):
+async def test_subagent_liveness_marks_child_cancelled(
+    session_store: SessionStore, ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Watchdog cancela a conversa e persiste o estado observável."""
     started = asyncio.Event()
 
@@ -265,19 +271,22 @@ async def test_subagent_liveness_marks_child_cancelled(session_store, ctx, monke
     assert "cancelado por inatividade" in result
     async with session_store._pool.acquire() as conn:
         cur = await conn.execute(
-            "SELECT run_id, status FROM agent_runs WHERE parent_run_id = ? "
-            "AND status = 'cancelled'",
+            "SELECT run_id, parent_run_id, correlation_id, status "
+            "FROM agent_runs WHERE parent_run_id = ?",
             (ctx.run_id,),
         )
-        rows = await cur.fetchall()
+        rows = list(await cur.fetchall())
         assert len(rows) == 1
-        assert rows[0][1] == "cancelled"
+        assert rows[0][1] == ctx.run_id
+        assert rows[0][3] == "cancelled"
 
 
 @pytest.mark.asyncio
 async def test_subagent_hard_interrupt_marks_child_cancelled(
-    session_store, ctx, monkeypatch
-):
+    session_store: SessionStore,
+    ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Interrupção autorizada cancela a task e persiste cancelled."""
     started = asyncio.Event()
 
@@ -317,14 +326,16 @@ async def test_subagent_hard_interrupt_marks_child_cancelled(
             "AND status = 'cancelled'",
             (ctx.run_id, str(correlation)),
         )
-        rows = await cur.fetchall()
+        rows = list(await cur.fetchall())
         assert len(rows) == 1
 
 
 @pytest.mark.asyncio
 async def test_subagent_exception_marks_child_failed_and_propagates(
-    session_store, ctx, monkeypatch
-):
+    session_store: SessionStore,
+    ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Falha inesperada do loop fica persistida e não é engolida."""
 
     async def failing(*_args, **_kwargs):
@@ -349,10 +360,11 @@ async def test_subagent_exception_marks_child_failed_and_propagates(
         )
     async with session_store._pool.acquire() as conn:
         cur = await conn.execute(
-            "SELECT run_id, status FROM agent_runs WHERE parent_run_id = ? "
-            "AND status = 'failed'",
+            "SELECT run_id, parent_run_id, correlation_id, status "
+            "FROM agent_runs WHERE parent_run_id = ?",
             (ctx.run_id,),
         )
-        rows = await cur.fetchall()
+        rows = list(await cur.fetchall())
         assert len(rows) == 1
-        assert rows[0][1] == "failed"
+        assert rows[0][1] == ctx.run_id
+        assert rows[0][3] == "failed"

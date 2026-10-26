@@ -8,10 +8,12 @@ Todas as mutações usam CAS (claim token) e deixam um evento auditável.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import uuid
-from collections.abc import Sequence
+from collections.abc import AsyncGenerator, Sequence
+from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -291,6 +293,58 @@ class DAGStore:
         )
         await self.db.commit()
         return cur.rowcount == 1
+
+    @asynccontextmanager
+    async def stage_lease_watchdog(
+        self,
+        execution_id: str,
+        stage_id: str,
+        *,
+        claim_token: str,
+        lease_seconds: int = 900,
+        interval_seconds: float | None = None,
+    ) -> AsyncGenerator[None]:
+        """Mantém a lease viva enquanto o executor trabalha na etapa.
+
+        O watchdog usa o mesmo ``claim_token`` e a renovação CAS de
+        :meth:`heartbeat_stage`. Se outro worker recuperar a etapa, a
+        renovação falha e o próximo ``finish_stage`` rejeita o token antigo.
+        O intervalo padrão é um terço da lease, limitado a pelo menos 100 ms;
+        testes e executores podem fornecer um intervalo menor explicitamente.
+        """
+        if lease_seconds <= 0:
+            raise DAGValidationError("lease_seconds deve ser positivo")
+        interval = (
+            interval_seconds
+            if interval_seconds is not None
+            else max(0.1, lease_seconds / 3)
+        )
+        if interval <= 0:
+            raise DAGValidationError("interval_seconds deve ser positivo")
+
+        lost_claim = asyncio.Event()
+
+        async def renew() -> None:
+            while True:
+                await asyncio.sleep(interval)
+                if not await self.heartbeat_stage(
+                    execution_id,
+                    stage_id,
+                    claim_token=claim_token,
+                    lease_seconds=lease_seconds,
+                ):
+                    lost_claim.set()
+                    return
+
+        task = asyncio.create_task(renew())
+        try:
+            yield
+        finally:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+        if lost_claim.is_set():
+            raise DAGValidationError("lease da etapa foi perdida durante a execução")
 
     async def finish_stage(
         self,

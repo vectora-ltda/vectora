@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime
+
 import aiosqlite
 import pytest
 
@@ -167,6 +170,47 @@ async def test_dag_heartbeat_extends_lease_and_recovery_exhausts_attempts(
         row = await cursor.fetchone()
     assert row is not None and row[0] == "failed"
     assert await store.claim_ready_stage(execution.execution_id) is None
+    await db.close()
+
+
+@pytest.mark.asyncio
+async def test_dag_watchdog_renews_claim_until_executor_finishes(tmp_path) -> None:
+    db = await aiosqlite.connect(tmp_path / "dag-watchdog.db")
+    db.row_factory = aiosqlite.Row
+    store = DAGStore(db)
+    await store.setup()
+    plan_id, plan_hash = await store.create_plan(
+        run_id="run-watchdog", stages=[DAGStage("only", "Only")]
+    )
+    await store.approve_plan(plan_id, plan_hash=plan_hash, approver="user-1")
+    execution = await store.start_execution(
+        plan_id, run_id="run-watchdog", idempotency_key="watchdog"
+    )
+    claimed = await store.claim_ready_stage(execution.execution_id, lease_seconds=1)
+    assert claimed is not None
+    async with store.stage_lease_watchdog(
+        execution.execution_id,
+        claimed[0],
+        claim_token=claimed[1],
+        lease_seconds=1,
+        interval_seconds=0.01,
+    ):
+        await asyncio.sleep(0.03)
+        async with db.execute(
+            "SELECT claim_expires_at FROM vectora_dag_stages "
+            "WHERE execution_id=? AND stage_id=?",
+            (execution.execution_id, claimed[0]),
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row is not None
+        assert row[0] > datetime.now(UTC).isoformat()
+    await store.finish_stage(
+        execution.execution_id,
+        claimed[0],
+        claim_token=claimed[1],
+        passed=True,
+        output={"ok": True},
+    )
     await db.close()
 
 
