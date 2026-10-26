@@ -209,6 +209,12 @@ async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
                 redirected = urljoin(url, location)
                 if not is_url_ssrf_safe(redirected):
                     raise ValueError("redirect recusado pelo SSRF guard")
+                redirect_egress_error = await _check_egress_url(redirected, ctx)
+                if redirect_egress_error is not None:
+                    raise ValueError(
+                        "redirect recusado pela política de egress: "
+                        f"{redirect_egress_error}"
+                    )
                 redirected_url = urlparse(redirected)
                 redirected_host = (redirected_url.hostname or "").lower()
                 redirected_headers = dict(headers)
