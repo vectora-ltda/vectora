@@ -105,3 +105,41 @@ async def test_dag_is_idempotent_and_resumes_after_expired_claim(tmp_path) -> No
             execution.execution_id, "final", claim_token="wrong", passed=True
         )
     await db.close()
+
+
+@pytest.mark.asyncio
+async def test_dag_heartbeat_extends_lease_and_recovery_exhausts_attempts(
+    tmp_path,
+) -> None:
+    db = await aiosqlite.connect(tmp_path / "dag-heartbeat.db")
+    db.row_factory = aiosqlite.Row
+    store = DAGStore(db)
+    await store.setup()
+    plan_id, plan_hash = await store.create_plan(
+        run_id="run-heartbeat", stages=[DAGStage("only", "Only")]
+    )
+    await store.approve_plan(plan_id, plan_hash=plan_hash, approver="user-1")
+    execution = await store.start_execution(
+        plan_id, run_id="run-heartbeat", idempotency_key="heartbeat"
+    )
+    claimed = await store.claim_ready_stage(execution.execution_id, lease_seconds=60)
+    assert claimed is not None
+    assert await store.heartbeat_stage(
+        execution.execution_id, claimed[0], claim_token=claimed[1], lease_seconds=60
+    )
+    assert not await store.heartbeat_stage(
+        execution.execution_id, claimed[0], claim_token="stale", lease_seconds=60
+    )
+    await db.execute(
+        "UPDATE vectora_dag_stages SET claim_expires_at=? WHERE execution_id=?",
+        ("2000-01-01T00:00:00+00:00", execution.execution_id),
+    )
+    await db.commit()
+    assert await store.recover_expired_claims(max_attempts=1) == 1
+    async with db.execute(
+        "SELECT status FROM vectora_dag_stages WHERE execution_id=?",
+        (execution.execution_id,),
+    ) as cursor:
+        row = await cursor.fetchone()
+    assert row is not None and row[0] == "failed"
+    await db.close()
