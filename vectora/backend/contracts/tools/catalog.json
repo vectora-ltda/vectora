@@ -4979,6 +4979,81 @@
     }
   },
   {
+    "category": "planning",
+    "description": "Executa uma avaliação consultiva sobre um Decision Pattern registrado.",
+    "destructive": false,
+    "name": "systemone_evaluate_pattern",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "pattern_id": {
+          "description": "Identificador canônico de um pattern registrado.",
+          "title": "Pattern Id",
+          "type": "string"
+        },
+        "pattern_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Versão opcional do pattern (padrão: versão ativa mais recente).",
+          "title": "Pattern Version"
+        },
+        "state": {
+          "additionalProperties": true,
+          "description": "Dicionário estruturado contendo as evidências obrigatórias do pattern.",
+          "title": "State",
+          "type": "object"
+        }
+      },
+      "required": ["pattern_id", "state"],
+      "title": "systemone_evaluate_patternArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "planning",
+    "description": "Lista os Decision Patterns versionados registrados no catálogo SystemOne.",
+    "destructive": false,
+    "name": "systemone_list_patterns",
+    "render_hint": "default",
+    "schema": {
+      "properties": {},
+      "title": "systemone_list_patternsArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "workspace",
+    "description": "Propõe de forma consultiva uma transição válida para um card Kanban da sessão atual.",
+    "destructive": false,
+    "name": "systemone_propose_kanban_transition",
+    "render_hint": "default",
+    "schema": {
+      "properties": {
+        "evidence_summary": {
+          "default": "",
+          "description": "Resumo estruturado das evidências observadas.",
+          "title": "Evidence Summary",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "ID do card Kanban pertencente à sessão atual.",
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": ["task_id"],
+      "title": "systemone_propose_kanban_transitionArgs",
+      "type": "object"
+    }
+  },
+  {
     "category": "filesystem",
     "description": "Executa um comando shell de forma assíncrona (não bloqueia o event loop).",
     "destructive": true,
@@ -5430,10 +5505,36 @@
               "title": "Content",
               "type": "string"
             },
+            "quality_gate": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "ID de um quality gate configurado no perfil do workspace; omita se não houver.",
+              "title": "Quality Gate"
+            },
             "status": {
               "enum": ["pending", "in_progress", "completed"],
               "title": "Status",
               "type": "string"
+            },
+            "step_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "ID estável da etapa do plano.",
+              "title": "Step Id"
             }
           },
           "required": ["content", "status"],

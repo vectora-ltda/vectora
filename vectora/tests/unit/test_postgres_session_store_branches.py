@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from typing import TYPE_CHECKING, cast
 from unittest.mock import AsyncMock
 
 import pytest
 
-from backend.persistence.native.postgres_session_store import PostgresSessionStore
+from backend.persistence.native.agent_run import AgentRun
+from backend.persistence.native.postgres_session_store import (
+    PostgresSessionStore,
+    _RunEvidenceLockRegistry,
+)
 
 if TYPE_CHECKING:
     import asyncpg
@@ -57,6 +63,37 @@ def _store(connection: _Connection) -> PostgresSessionStore:
     store = PostgresSessionStore(pool)
     store.setup = AsyncMock()  # type: ignore[method-assign]
     return store
+
+
+@pytest.mark.asyncio
+async def test_postgres_evidence_lock_keeps_entry_until_waiters_finish() -> None:
+    """Um waiter não pode observar um lock removido e criar uma segunda fila."""
+    registry = _RunEvidenceLockRegistry()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    waiter_entered = asyncio.Event()
+
+    async def first() -> None:
+        async with registry.acquire("run-1"):
+            entered.set()
+            await release.wait()
+
+    async def second() -> None:
+        await entered.wait()
+        async with registry.acquire("run-1"):
+            waiter_entered.set()
+
+    first_task = asyncio.create_task(first())
+    await entered.wait()
+    second_task = asyncio.create_task(second())
+    await asyncio.sleep(0)
+    assert len(registry) == 1
+    assert not waiter_entered.is_set()
+
+    release.set()
+    await asyncio.gather(first_task, second_task)
+    assert waiter_entered.is_set()
+    assert len(registry) == 0
 
 
 @pytest.mark.asyncio
@@ -118,3 +155,83 @@ async def test_postgres_compare_branches_separa_divergencias() -> None:
         "active_divergent_message_ids": [3],
         "selected_divergent_message_ids": [2],
     }
+
+
+@pytest.mark.asyncio
+async def test_postgres_agent_run_upsert_uses_for_update_and_preserves_untrusted_content() -> (
+    None
+):
+    """Verifica o comportamento de postgres agent run upsert uses for update and preserves untrusted content."""
+    conn = _Connection()
+    conn.fetchrow.return_value = {
+        "evidence_json": json.dumps([{"kind": "provenance", "untrusted_content": True}])
+    }
+    store = _store(conn)
+
+    run = AgentRun(
+        run_id="run-pg-1",
+        thread_id="t1",
+        status="waiting_approval",
+        untrusted_content=False,
+    )
+    await store.upsert_agent_run(run)
+
+    fetchrow_call = conn.fetchrow.await_args
+    assert fetchrow_call is not None
+    assert "FOR UPDATE" in fetchrow_call.args[0]
+
+    execute_call = conn.execute.await_args
+    assert execute_call is not None
+    evidence_saved = next(
+        json.loads(value)
+        for value in execute_call.args[1:]
+        if isinstance(value, str) and value.startswith("[{")
+    )
+    assert any(
+        isinstance(e, dict) and e.get("untrusted_content") is True
+        for e in evidence_saved
+    )
+
+
+@pytest.mark.asyncio
+async def test_postgres_get_and_list_agent_runs_derives_untrusted_content() -> None:
+    """Verifica o comportamento de postgres get and list agent runs derives untrusted content."""
+    conn = _Connection()
+    sample_row = {
+        "run_id": "run-pg-2",
+        "thread_id": "t1",
+        "turn_id": None,
+        "user_id": "u1",
+        "workspace_id": None,
+        "model": "gpt-4",
+        "provider": "openai",
+        "status": "passed",
+        "plan_step": None,
+        "tools_available_json": "[]",
+        "tools_used_json": "[]",
+        "approvals_json": "[]",
+        "files_touched_json": "[]",
+        "commands_run_json": "[]",
+        "tests_run_json": "[]",
+        "artifacts_json": "[]",
+        "metrics_json": "{}",
+        "evidence_json": json.dumps(
+            [{"kind": "provenance", "untrusted_content": True}]
+        ),
+        "detail": None,
+        "error_code": None,
+        "started_at": "2026-01-01T00:00:00Z",
+        "updated_at": "2026-01-01T00:00:00Z",
+        "terminal_at": None,
+    }
+    conn.fetchrow.return_value = sample_row
+    conn.fetch.return_value = [sample_row]
+    store = _store(conn)
+
+    saved = await store.get_agent_run("run-pg-2")
+    assert saved is not None
+    assert saved.untrusted_content is True
+
+    listed = await store.list_agent_runs("t1")
+    assert len(listed) == 1
+    assert listed[0].untrusted_content is True

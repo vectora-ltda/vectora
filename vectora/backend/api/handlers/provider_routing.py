@@ -67,7 +67,7 @@ from urllib.parse import quote, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from backend.api.handlers.admin import require_admin
 from backend.services.subprocess_logging import pipe_to_logger
@@ -165,6 +165,7 @@ def _runtime_transition(  # noqa: UP047
 
     @wraps(handler)
     async def guarded(*args: _RuntimeP.args, **kwargs: _RuntimeP.kwargs) -> _RuntimeR:
+        """Executa a operação guarded."""
         async with _runtime_transition_lock:
             return await handler(*args, **kwargs)
 
@@ -370,10 +371,12 @@ class LlamaCppSidecarRequest(BaseModel):
 
 
 def _llamacpp_runtime_root() -> Path:
+    """Executa a operação  llamacpp runtime root."""
     return (settings.vectora_home / "tools" / "llama.cpp").resolve()
 
 
 def _llamacpp_manifest_path() -> Path:
+    """Executa a operação  llamacpp manifest path."""
     return _llamacpp_runtime_root() / "runtime-manifest.json"
 
 
@@ -412,6 +415,7 @@ def _extract_llamacpp_archive(archive: Path, destination_root: Path) -> list[str
     extracted: list[str] = []
 
     def safe_target(name: str) -> Path:
+        """Executa a operação safe target."""
         target = (destination_root / name).resolve()
         if destination_root.resolve() not in target.parents:
             raise ValueError("arquivo do runtime fora do diretório permitido")
@@ -507,6 +511,7 @@ async def _get_db() -> Any:
 # (ollama_registered_models / openrouter_registered_models) — f-string é
 # segura aqui, sem risco de SQL injection via request.
 async def _ensure_registry_table(db: Any, table: str) -> None:
+    """Executa a operação  ensure registry table."""
     await db.execute(f"""
         CREATE TABLE IF NOT EXISTS {table} (
             id         TEXT PRIMARY KEY,
@@ -518,6 +523,7 @@ async def _ensure_registry_table(db: Any, table: str) -> None:
 
 
 async def _ensure_llamacpp_confirmation_table(db: Any) -> None:
+    """Executa a operação  ensure llamacpp confirmation table."""
     await db.execute(
         """
         CREATE TABLE IF NOT EXISTS llamacpp_model_confirmations (
@@ -535,12 +541,14 @@ async def _ensure_llamacpp_confirmation_table(db: Any) -> None:
 
 
 async def _clear_llamacpp_confirmations(db: Any) -> None:
+    """Executa a operação  clear llamacpp confirmations."""
     await _ensure_llamacpp_confirmation_table(db)
     await db.execute("DELETE FROM llamacpp_model_confirmations")
     await db.commit()
 
 
 async def _list_registered(table: str) -> list[RegisteredModel]:
+    """Executa a operação  list registered."""
     db = await _get_db()
     await _ensure_registry_table(db, table)
     async with db.execute(
@@ -551,6 +559,7 @@ async def _list_registered(table: str) -> list[RegisteredModel]:
 
 
 async def _register(table: str, tag: str) -> RegisteredModel:
+    """Executa a operação  register."""
     tag = tag.strip()
     if not tag:
         raise HTTPException(status_code=400, detail="tag vazia")
@@ -573,6 +582,7 @@ async def _register(table: str, tag: str) -> RegisteredModel:
 
 
 async def _unregister(table: str, model_id: str) -> None:
+    """Executa a operação  unregister."""
     db = await _get_db()
     await _ensure_registry_table(db, table)
     await db.execute(f"DELETE FROM {table} WHERE id = ?", (model_id,))  # noqa: S608  # nosec B608
@@ -953,6 +963,7 @@ async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> bool
         process.kill()
 
     async def _safe_wait(wait_timeout: float) -> None:
+        """Executa a operação  safe wait."""
         wait_fn = getattr(process, "wait", None)
         if not callable(wait_fn):
             return
@@ -1001,6 +1012,7 @@ async def stop_managed_ollama() -> None:
 
 
 async def _ollama_http_status() -> tuple[bool, str | None]:
+    """Executa a operação  ollama http status."""
     import httpx
 
     base_url = (settings.ollama_base_url or "http://127.0.0.1:11434").rstrip("/")
@@ -1017,6 +1029,7 @@ async def _ollama_http_status() -> tuple[bool, str | None]:
 
 @router.get("/ollama/runtime/status")
 async def ollama_runtime_status() -> OllamaRuntimeStatus:
+    """Executa a operação ollama runtime status."""
     executable = await asyncio.to_thread(_ollama_executable)
     reachable, version = await _ollama_http_status()
     if _ollama_install_phase in {"failed", "cancelled"} and not reachable:
@@ -1241,6 +1254,7 @@ async def install_ollama_runtime(_: ProviderAdmin) -> OllamaRuntimeStatus:
 
 @router.get("/ollama/registered")
 async def list_registered_ollama_models() -> list[RegisteredModel]:
+    """Executa a operação list registered ollama models."""
     return await _list_registered("ollama_registered_models")
 
 
@@ -1248,11 +1262,13 @@ async def list_registered_ollama_models() -> list[RegisteredModel]:
 async def register_ollama_model(
     body: RegisterModelRequest, _: ProviderAdmin
 ) -> RegisteredModel:
+    """Executa a operação register ollama model."""
     return await _register("ollama_registered_models", body.tag)
 
 
 @router.delete("/ollama/registered/{model_id}")
 async def unregister_ollama_model(model_id: str, _: ProviderAdmin) -> dict[str, bool]:
+    """Executa a operação unregister ollama model."""
     await _unregister("ollama_registered_models", model_id)
     return {"ok": True}
 
@@ -1365,6 +1381,7 @@ async def list_registered_llamacpp_models() -> list[RegisteredModel]:
 @router.get("/llamacpp/registered")
 @router.get("/llama-cpp/registered", include_in_schema=False)
 async def get_registered_llamacpp_models() -> list[RegisteredModel]:
+    """Executa a operação get registered llamacpp models."""
     return await list_registered_llamacpp_models()
 
 
@@ -1374,6 +1391,7 @@ async def register_llamacpp_model(
     body: RegisterModelRequest,
     _: ProviderAdmin,
 ) -> RegisteredModel:
+    """Executa a operação register llamacpp model."""
     return await _register("llamacpp_registered_models", body.tag)
 
 
@@ -1383,6 +1401,7 @@ async def unregister_llamacpp_model(
     model_id: str,
     _: ProviderAdmin,
 ) -> dict[str, bool]:
+    """Executa a operação unregister llamacpp model."""
     await _unregister("llamacpp_registered_models", model_id)
     return {"ok": True}
 
@@ -1460,6 +1479,7 @@ async def confirm_llamacpp_model(
 @router.get("/llamacpp/models/confirmations")
 @router.get("/llama-cpp/models/confirmations", include_in_schema=False)
 async def list_llamacpp_model_confirmations() -> list[LlamaCppModelConfirmation]:
+    """Executa a operação list llamacpp model confirmations."""
     db = await _get_db()
     await _ensure_llamacpp_confirmation_table(db)
     async with db.execute(
@@ -1527,6 +1547,7 @@ async def list_llamacpp_model_confirmations() -> list[LlamaCppModelConfirmation]
 @router.get("/llamacpp/status")
 @router.get("/llama-cpp/status", include_in_schema=False)
 async def get_llamacpp_status() -> LlamaCppStatus:
+    """Executa a operação get llamacpp status."""
     key = settings.llamacpp_api_key or ""
     configured_url = settings.llamacpp_base_url or "http://127.0.0.1:18080/v1"
     mode_value = os.getenv("LLAMACPP_MODE")
@@ -1552,6 +1573,7 @@ async def set_llamacpp_config(
     body: LlamaCppConfigRequest,
     _: ProviderAdmin,
 ) -> LlamaCppStatus:
+    """Executa a operação set llamacpp config."""
     from urllib.parse import urlparse
 
     base_url = body.base_url.strip().rstrip("/")
@@ -1582,6 +1604,7 @@ async def set_llamacpp_config(
 async def clear_llamacpp_config(
     _: ProviderAdmin,
 ) -> LlamaCppStatus:
+    """Executa a operação clear llamacpp config."""
     env_file = _env_file()
     for key in (
         "LLAMACPP_BASE_URL",
@@ -1946,6 +1969,7 @@ async def _prepare_dmr_model(body: DmrModelRequest) -> dict[str, object]:
 async def prepare_dmr_model(
     body: DmrModelRequest, _: ProviderAdmin
 ) -> dict[str, object]:
+    """Executa a operação prepare dmr model."""
     return await _prepare_dmr_model(body)
 
 
@@ -2261,9 +2285,22 @@ async def start_installed_huggingface_model(
     # the sidecar so a previous external/old port cannot make discovery and
     # chat report a false "unreachable" state after restart.
     managed_base_url = f"http://127.0.0.1:{body.port}/v1"
-    object.__setattr__(settings, "llamacpp_base_url", managed_base_url)
-    _set_env_key(_env_file(), "LLAMACPP_BASE_URL", managed_base_url)
-    os.environ["LLAMACPP_BASE_URL"] = managed_base_url
+    env_file = _env_file()
+    env_file_existed = env_file.exists()
+    previous_base_url = settings.llamacpp_base_url
+    previous_base_env = os.environ.get("LLAMACPP_BASE_URL")
+
+    def restore_previous_configuration() -> None:
+        """Restore settings and environment when managed startup aborts."""
+        object.__setattr__(settings, "llamacpp_base_url", previous_base_url)
+        _set_env_key(env_file, "LLAMACPP_BASE_URL", previous_base_env or "")
+        if previous_base_env is None:
+            os.environ.pop("LLAMACPP_BASE_URL", None)
+        else:
+            os.environ["LLAMACPP_BASE_URL"] = previous_base_env
+        if not env_file_existed:
+            env_file.unlink(missing_ok=True)
+
     tag = body.alias or str(manifest.get("alias") or model_entry["filename"])
     parameters: dict[str, str | int | float | bool | None] = {
         "alias": body.alias,
@@ -2275,6 +2312,9 @@ async def start_installed_huggingface_model(
         "jinja": body.jinja,
     }
     try:
+        object.__setattr__(settings, "llamacpp_base_url", managed_base_url)
+        _set_env_key(env_file, "LLAMACPP_BASE_URL", managed_base_url)
+        os.environ["LLAMACPP_BASE_URL"] = managed_base_url
         try:
             await _register("llamacpp_registered_models", tag)
         except HTTPException as exc:
@@ -2292,7 +2332,10 @@ async def start_installed_huggingface_model(
     except Exception as exc:
         from backend.services.llamacpp_sidecar import stop_llamacpp
 
-        await stop_llamacpp()
+        try:
+            await stop_llamacpp()
+        finally:
+            restore_previous_configuration()
         if isinstance(exc, HTTPException):
             raise
         raise HTTPException(
@@ -2305,7 +2348,24 @@ async def start_installed_huggingface_model(
         "evidence_sha256": confirmation.evidence_sha256,
         "confirmed_at": confirmation.confirmed_at,
     }
-    await _write_json_atomic(manifest_path, manifest)
+    try:
+        await _write_json_atomic(manifest_path, manifest)
+        # Persist managed mode only after registration, startup and confirmation
+        # all succeeded; a failed probe must not leave a false managed state.
+        _set_env_key(_env_file(), "LLAMACPP_MODE", "managed")
+        os.environ["LLAMACPP_MODE"] = "managed"
+    except Exception as exc:
+        from backend.services.llamacpp_sidecar import stop_llamacpp
+
+        try:
+            await stop_llamacpp()
+        finally:
+            # Mesmo se o sidecar falhar ao parar, nunca deixe a configuração
+            # persistida apontando para um runtime que não foi confirmado.
+            restore_previous_configuration()
+        raise HTTPException(
+            status_code=502, detail="não foi possível persistir o modelo iniciado"
+        ) from exc
     return {
         "running": True,
         "executable": str(executable),
@@ -2478,6 +2538,7 @@ async def search_huggingface_models(
 
 
 def _validate_hf_path(value: str, *, field: str) -> str:
+    """Executa a operação  validate hf path."""
     value = value.strip()
     if (
         not value
@@ -2512,6 +2573,7 @@ def _read_json_file(path: Path) -> object:
 
 
 async def _read_json_file_async(path: Path) -> object:
+    """Executa a operação  read json file async."""
     return await asyncio.to_thread(_read_json_file, path)
 
 
@@ -2807,6 +2869,7 @@ async def download_huggingface_model(
                                 raise ValueError("tamanho publicado incompatível")
 
                             def _hash_existing() -> None:
+                                """Executa a operação  hash existing."""
                                 with partial.open("rb") as existing:
                                     while chunk := existing.read(1024 * 1024):
                                         digest.update(chunk)
@@ -3151,6 +3214,7 @@ async def list_llamacpp_releases() -> dict[str, list[dict[str, object]]]:
     )
 
     def asset_payload(asset: dict[str, object]) -> dict[str, object]:
+        """Executa a operação asset payload."""
         name = str(asset.get("name", ""))
         lowered = name.lower()
         recommended = bool(
@@ -3390,6 +3454,7 @@ async def llamacpp_runtime_status() -> dict[str, object]:
         }
 
     def _list_files() -> list[str]:
+        """Executa a operação  list files."""
         return [str(path) for path in root.rglob("*") if path.is_file()]
 
     files = await asyncio.to_thread(_list_files)
@@ -3722,6 +3787,7 @@ class OpenRouterCatalogResponse(BaseModel):
 
 
 def _env_file() -> Path:
+    """Executa a operação  env file."""
     p = settings.vectora_home / ".env"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
@@ -3743,6 +3809,7 @@ def _set_env_key(env_file: Path, key: str, value: str) -> None:
 
 
 def _mask_key(value: str) -> str:
+    """Executa a operação  mask key."""
     if not value:
         return ""
     if len(value) <= 10:
@@ -3751,6 +3818,7 @@ def _mask_key(value: str) -> str:
 
 
 def _remove_env_key(env_file: Path, key: str) -> None:
+    """Executa a operação  remove env key."""
     if not env_file.exists():
         return
     lines = [
@@ -3763,6 +3831,7 @@ def _remove_env_key(env_file: Path, key: str) -> None:
 
 @router.get("/openrouter/status")
 async def get_openrouter_status() -> OpenRouterStatus:
+    """Executa a operação get openrouter status."""
     import os
 
     raw = os.environ.get("OPENROUTER_API_KEY", "").strip()
@@ -3814,6 +3883,7 @@ async def set_openrouter_key(
 
 @router.delete("/openrouter/key")
 async def clear_openrouter_key(_: ProviderAdmin) -> OpenRouterStatus:
+    """Executa a operação clear openrouter key."""
     import os
 
     from backend.settings import settings
@@ -3954,6 +4024,7 @@ async def openrouter_model_supports_image(model_id: str) -> bool:
 
 @router.get("/openrouter/registered")
 async def list_registered_openrouter_models() -> list[RegisteredModel]:
+    """Executa a operação list registered openrouter models."""
     return await _list_registered("openrouter_registered_models")
 
 
@@ -3961,6 +4032,7 @@ async def list_registered_openrouter_models() -> list[RegisteredModel]:
 async def register_openrouter_model(
     body: RegisterModelRequest, _: ProviderAdmin
 ) -> RegisteredModel:
+    """Executa a operação register openrouter model."""
     return await _register("openrouter_registered_models", body.tag)
 
 
@@ -3968,6 +4040,7 @@ async def register_openrouter_model(
 async def unregister_openrouter_model(
     model_id: str, _: ProviderAdmin
 ) -> dict[str, bool]:
+    """Executa a operação unregister openrouter model."""
     await _unregister("openrouter_registered_models", model_id)
     return {"ok": True}
 
@@ -4005,6 +4078,7 @@ class NineRouterCatalogResponse(BaseModel):
 
 @router.get("/nine-router/status")
 async def get_nine_router_status() -> NineRouterStatus:
+    """Executa a operação get nine router status."""
     base_url = settings.nine_router_base_url
     api_key = settings.nine_router_api_key or ""
     return NineRouterStatus(
@@ -4046,6 +4120,7 @@ async def set_nine_router_config(
 
 @router.delete("/nine-router/config")
 async def clear_nine_router_config(_: ProviderAdmin) -> NineRouterStatus:
+    """Executa a operação clear nine router config."""
     import os
 
     _remove_env_key(_env_file(), "NINE_ROUTER_BASE_URL")
@@ -4104,6 +4179,7 @@ _CATALOG_FAILURE_BACKOFF_S = 30.0
 
 
 def _normalize_modalities(values: list[str]) -> set[str]:
+    """Executa a operação  normalize modalities."""
     return {value.strip().lower().replace("-", "_") for value in values}
 
 
@@ -4168,6 +4244,7 @@ def invalidate_catalog_cache() -> None:
 
 @router.get("/nine-router/registered")
 async def list_registered_nine_router_models() -> list[RegisteredModel]:
+    """Executa a operação list registered nine router models."""
     return await _list_registered("nine_router_registered_models")
 
 
@@ -4175,6 +4252,7 @@ async def list_registered_nine_router_models() -> list[RegisteredModel]:
 async def register_nine_router_model(
     body: RegisterModelRequest, _: ProviderAdmin
 ) -> RegisteredModel:
+    """Executa a operação register nine router model."""
     return await _register("nine_router_registered_models", body.tag)
 
 
@@ -4182,5 +4260,239 @@ async def register_nine_router_model(
 async def unregister_nine_router_model(
     model_id: str, _: ProviderAdmin
 ) -> dict[str, bool]:
+    """Executa a operação unregister nine router model."""
     await _unregister("nine_router_registered_models", model_id)
     return {"ok": True}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Decision Models (SystemOne: JEV & Clef)
+# ─────────────────────────────────────────────────────────────────────────────
+
+from pydantic import BaseModel, Field
+
+from backend.llm.systemone.settings import (
+    SystemOneSettings,
+    get_systemone_provider,
+)
+from backend.llm.systemone.types import (
+    DecisionProviderType,
+    NoulQuestion,
+    ProviderCapabilities,
+    SystemOneRequest,
+)
+
+
+class SystemOneStatusResponse(BaseModel):
+    enabled: bool
+    provider: DecisionProviderType
+    local_base_url: str
+    local_model: str
+    laya_base_url: str
+    laya_model: str
+    laya_api_key_configured: bool
+    clef_api_base_url: str
+    clef_account_id: str
+    clef_api_model: str
+    clef_api_key_configured: bool
+    clef_api_key_masked: str | None
+    jev_api_base_url: str
+    jev_api_model: str
+    jev_api_key_configured: bool
+    jev_api_key_masked: str | None
+    allow_remote_fallback: bool
+    confidence_threshold_hitl: float
+    capabilities: ProviderCapabilities | None = None
+    is_healthy: bool = False
+
+
+class UpdateSystemOneConfigRequest(BaseModel):
+    enabled: bool | None = None
+    provider: DecisionProviderType | None = None
+    local_base_url: str | None = None
+    local_model: str | None = None
+    laya_base_url: str | None = None
+    laya_model: str | None = None
+    laya_api_key: str | None = None
+    clef_api_base_url: str | None = None
+    clef_account_id: str | None = None
+    clef_api_model: str | None = None
+    clef_api_key: str | None = None
+    jev_api_base_url: str | None = None
+    jev_api_model: str | None = None
+    jev_api_key: str | None = None
+    allow_remote_fallback: bool | None = None
+    confidence_threshold_hitl: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+@router.get("/decision-models/status")
+async def get_decision_models_status(
+    _: ProviderAdmin = None,
+) -> SystemOneStatusResponse:
+    """Retorna o status atual, capacidades e saúde do subsistema de Decision Models."""
+    from backend.settings import settings
+
+    try:
+        sys_settings = SystemOneSettings(
+            enabled=settings.systemone_enabled,
+            provider=settings.systemone_provider,  # type: ignore[arg-type]
+            local_base_url=settings.systemone_local_base_url,
+            local_model=settings.systemone_local_model,
+            laya_base_url=settings.systemone_laya_base_url,
+            laya_model=settings.systemone_laya_model,
+            laya_api_key=settings.systemone_laya_api_key,
+            clef_api_base_url=settings.systemone_clef_api_base_url,
+            clef_account_id=settings.systemone_clef_account_id,
+            clef_api_model=settings.systemone_clef_api_model,
+            jev_api_base_url=settings.systemone_jev_api_base_url,
+            jev_api_model=settings.systemone_jev_api_model,
+            allow_remote_fallback=settings.systemone_allow_remote_fallback,
+            confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Configuração do Decision Model inválida",
+        ) from exc
+
+    caps: ProviderCapabilities | None = None
+    is_healthy = False
+    try:
+        prov = get_systemone_provider(
+            sys_settings,
+            clef_api_key=settings.clef_api_key,
+            jev_api_key=settings.jev_api_key,
+        )
+        caps = await prov.capabilities()
+        is_healthy = await prov.health()
+    except Exception:
+        logger.warning(
+            "provider_routing: falha ao verificar saúde do provider SystemOne",
+            exc_info=True,
+        )
+
+    return SystemOneStatusResponse(
+        enabled=settings.systemone_enabled,
+        provider=settings.systemone_provider,
+        local_base_url=settings.systemone_local_base_url,
+        local_model=settings.systemone_local_model,
+        laya_base_url=settings.systemone_laya_base_url,
+        laya_model=settings.systemone_laya_model,
+        laya_api_key_configured=bool(settings.systemone_laya_api_key),
+        clef_api_base_url=settings.systemone_clef_api_base_url,
+        clef_account_id=settings.systemone_clef_account_id,
+        clef_api_model=settings.systemone_clef_api_model,
+        clef_api_key_configured=bool(settings.clef_api_key),
+        clef_api_key_masked=None,
+        jev_api_base_url=settings.systemone_jev_api_base_url,
+        jev_api_model=settings.systemone_jev_api_model,
+        jev_api_key_configured=bool(settings.jev_api_key),
+        jev_api_key_masked=None,
+        allow_remote_fallback=settings.systemone_allow_remote_fallback,
+        confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
+        capabilities=caps,
+        is_healthy=is_healthy,
+    )
+
+
+@router.post("/decision-models/config")
+async def update_decision_models_config(
+    body: UpdateSystemOneConfigRequest, _: ProviderAdmin
+) -> SystemOneStatusResponse:
+    """Atualiza as configurações e credenciais de Decision Models."""
+    from backend.settings import settings
+
+    if body.enabled is not None:
+        settings.systemone_enabled = body.enabled
+    if body.provider is not None:
+        settings.systemone_provider = body.provider  # type: ignore[assignment]
+    if body.local_base_url is not None:
+        settings.systemone_local_base_url = body.local_base_url
+    if body.local_model is not None:
+        settings.systemone_local_model = body.local_model
+    if body.laya_base_url is not None:
+        settings.systemone_laya_base_url = body.laya_base_url
+    if body.laya_model is not None:
+        settings.systemone_laya_model = body.laya_model
+    if body.laya_api_key is not None:
+        settings.systemone_laya_api_key = (
+            body.laya_api_key if body.laya_api_key.strip() else None
+        )
+    if body.clef_api_base_url is not None:
+        settings.systemone_clef_api_base_url = body.clef_api_base_url
+    if body.clef_account_id is not None:
+        settings.systemone_clef_account_id = body.clef_account_id.strip()
+    if body.clef_api_model is not None:
+        settings.systemone_clef_api_model = body.clef_api_model
+    if body.clef_api_key is not None:
+        settings.clef_api_key = body.clef_api_key if body.clef_api_key.strip() else None
+    if body.jev_api_base_url is not None:
+        settings.systemone_jev_api_base_url = body.jev_api_base_url
+    if body.jev_api_model is not None:
+        settings.systemone_jev_api_model = body.jev_api_model
+    if body.jev_api_key is not None:
+        settings.jev_api_key = body.jev_api_key if body.jev_api_key.strip() else None
+    if body.allow_remote_fallback is not None:
+        settings.systemone_allow_remote_fallback = body.allow_remote_fallback
+    if body.confidence_threshold_hitl is not None:
+        settings.systemone_confidence_threshold_hitl = body.confidence_threshold_hitl
+
+    env_file = _env_file()
+    env_updates = {
+        "SYSTEMONE_ENABLED": str(settings.systemone_enabled).lower()
+        if body.enabled is not None
+        else None,
+        "SYSTEMONE_PROVIDER": str(settings.systemone_provider)
+        if body.provider is not None
+        else None,
+        "SYSTEMONE_LOCAL_BASE_URL": settings.systemone_local_base_url
+        if body.local_base_url is not None
+        else None,
+        "SYSTEMONE_LOCAL_MODEL": settings.systemone_local_model
+        if body.local_model is not None
+        else None,
+        "SYSTEMONE_LAYA_BASE_URL": settings.systemone_laya_base_url
+        if body.laya_base_url is not None
+        else None,
+        "SYSTEMONE_LAYA_MODEL": settings.systemone_laya_model
+        if body.laya_model is not None
+        else None,
+        "SYSTEMONE_LAYA_API_KEY": settings.systemone_laya_api_key or ""
+        if body.laya_api_key is not None
+        else None,
+        "SYSTEMONE_CLEF_API_BASE_URL": settings.systemone_clef_api_base_url
+        if body.clef_api_base_url is not None
+        else None,
+        "SYSTEMONE_CLEF_API_MODEL": settings.systemone_clef_api_model
+        if body.clef_api_model is not None
+        else None,
+        "SYSTEMONE_JEV_API_BASE_URL": settings.systemone_jev_api_base_url
+        if body.jev_api_base_url is not None
+        else None,
+        "SYSTEMONE_JEV_API_MODEL": settings.systemone_jev_api_model
+        if body.jev_api_model is not None
+        else None,
+        "SYSTEMONE_ALLOW_REMOTE_FALLBACK": str(
+            settings.systemone_allow_remote_fallback
+        ).lower()
+        if body.allow_remote_fallback is not None
+        else None,
+        "SYSTEMONE_CONFIDENCE_THRESHOLD_HITL": str(
+            settings.systemone_confidence_threshold_hitl
+        )
+        if body.confidence_threshold_hitl is not None
+        else None,
+    }
+    for key, value in env_updates.items():
+        if value is not None:
+            _set_env_key(env_file, key, value)
+    if body.clef_account_id is not None:
+        _set_env_key(
+            env_file, "SYSTEMONE_CLEF_ACCOUNT_ID", settings.systemone_clef_account_id
+        )
+    if body.clef_api_key is not None:
+        _set_env_key(env_file, "CLEF_API_KEY", settings.clef_api_key or "")
+    if body.jev_api_key is not None:
+        _set_env_key(env_file, "JEV_API_KEY", settings.jev_api_key or "")
+
+    return await get_decision_models_status(_)

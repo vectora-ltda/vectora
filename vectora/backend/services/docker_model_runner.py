@@ -42,6 +42,7 @@ def _docker_executable() -> str:
             return str(path.resolve())
 
     def trusted(path: Path) -> bool:
+        """Executa a operação trusted."""
         if not path.is_absolute() or not path.is_file():
             return False
         resolved = path.resolve()
@@ -151,6 +152,7 @@ def _jobs_store_path() -> Path:
 
 
 def _job_record(job: DmrJob) -> dict[str, object]:
+    """Executa a operação job record."""
     return {
         "id": job.id,
         "operation": job.operation,
@@ -166,6 +168,7 @@ def _job_record(job: DmrJob) -> dict[str, object]:
 
 
 def _job_from_record(record: object) -> DmrJob | None:
+    """Executa a operação job from record."""
     if not isinstance(record, dict):
         return None
     job_id = record.get("id")
@@ -227,6 +230,7 @@ async def _persist_jobs() -> None:
     path = _jobs_store_path()
 
     def write() -> None:
+        """Executa a operação write."""
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_suffix(f"{path.suffix}.tmp")
         temporary.write_text(
@@ -521,7 +525,13 @@ async def docker_model_available() -> tuple[bool, str | None]:
         output = await run_docker_model("version", command_timeout=10)
     except (OSError, RuntimeError, ValueError) as exc:
         return False, str(exc)
-    return True, output[-1000:] or None
+    detail = output[-1000:] or None
+    # The Docker CLI may exit zero while the Desktop proxy reports that the
+    # inference server is unreachable. Treat that as unavailable so callers do
+    # not start a pull/run workflow that can only fail with a later 502.
+    if detail and "not reachable" in detail.casefold():
+        return False, detail
+    return True, detail
 
 
 async def prepare_model(reference: str) -> str:
@@ -600,6 +610,7 @@ async def _run_job(job: DmrJob) -> None:
     started = False
 
     async def stop_started_model() -> None:
+        """Executa a operação stop started model."""
         if not started or job.operation != "start":
             return
         try:

@@ -11,8 +11,12 @@ a sintaxe SQL mudam (``$1``/``$2`` de placeholder, ``BIGSERIAL``,
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from collections.abc import AsyncGenerator, Mapping
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -38,6 +42,10 @@ from backend.persistence.native.ledger import (
     make_message_created_key,
 )
 from backend.persistence.native.schema import setup_postgres_session_schema
+from backend.services.context_manifest import (
+    ContextCheckpointContract,
+    ContextProjectionContract,
+)
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import VMessage
 
@@ -54,15 +62,53 @@ _CHAIN_DEPTH_CAP = 100_000
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class _RunEvidenceLockEntry:
+    """Lock e número de usuários ativos de uma execução."""
+
+    lock: asyncio.Lock
+    users: int = 0
+
+
+class _RunEvidenceLockRegistry:
+    """Retém locks somente enquanto há escritores ou waiters ativos."""
+
+    def __init__(self) -> None:
+        """Inicializa o registro vazio."""
+        self._entries: dict[str, _RunEvidenceLockEntry] = {}
+
+    @asynccontextmanager
+    async def acquire(self, run_id: str) -> AsyncGenerator[None]:
+        """Serializa um run sem remover o lock enquanto há waiters."""
+        entry = self._entries.get(run_id)
+        if entry is None:
+            entry = _RunEvidenceLockEntry(lock=asyncio.Lock())
+            self._entries[run_id] = entry
+        entry.users += 1
+        try:
+            async with entry.lock:
+                yield
+        finally:
+            current = self._entries.get(run_id)
+            if current is entry:
+                entry.users -= 1
+                if entry.users == 0:
+                    self._entries.pop(run_id, None)
+
+    def __len__(self) -> int:
+        """Retorna o número de runs com atividade de evidência."""
+        return len(self._entries)
+
+
 def _now() -> str:
-    """Executa a operação now."""
+    """Executa a operação  now."""
     return datetime.now(UTC).isoformat()
 
 
 def _message_to_row(
     msg: VMessage,
 ) -> tuple[str, str, str | None, str | None, str | None]:
-    """Executa a operação message to row."""
+    """Executa a operação  message to row."""
     data = msg.to_dict()
     for block in data["content"]:
         if block.get("kind") == "image_url" and (
@@ -87,7 +133,7 @@ def _message_to_row(
 
 
 def _row_to_message(row: Any) -> VMessage:
-    """Executa a operação row to message."""
+    """Executa a operação  row to message."""
     data = {
         "role": row["role"],
         "content": json.loads(row["content_json"]),
@@ -110,6 +156,7 @@ class PostgresSessionStore:
         """Inicializa o estado da instância."""
         self._pool = pool
         self._is_setup = False
+        self._run_evidence_locks = _RunEvidenceLockRegistry()
 
     async def setup(self) -> None:
         """Executa a operação setup."""
@@ -919,6 +966,14 @@ class PostgresSessionStore:
                 thread_id,
             )
             await conn.execute(
+                "DELETE FROM vectora_native_context_projections WHERE thread_id = $1",
+                thread_id,
+            )
+            await conn.execute(
+                "DELETE FROM vectora_native_context_checkpoints WHERE thread_id = $1",
+                thread_id,
+            )
+            await conn.execute(
                 "DELETE FROM vectora_native_ledger_backfill WHERE thread_id = $1",
                 thread_id,
             )
@@ -1390,21 +1445,55 @@ class PostgresSessionStore:
         tests_run = json.dumps(redact_sensitive_data(run.tests_run), ensure_ascii=False)
         artifacts = json.dumps(redact_sensitive_data(run.artifacts), ensure_ascii=False)
         metrics = json.dumps(run.metrics.model_dump(), ensure_ascii=False)
-        evidence = json.dumps(redact_sensitive_data(run.evidence), ensure_ascii=False)
+        evidence_list = list(run.evidence)
+        if run.untrusted_content and not any(
+            isinstance(item, dict) and item.get("untrusted_content") is True
+            for item in evidence_list
+        ):
+            evidence_list.append({"kind": "provenance", "untrusted_content": True})
+        previous = await conn.fetchrow(
+            "SELECT evidence_json FROM vectora_native_agent_runs "
+            "WHERE run_id = $1 FOR UPDATE",
+            run.run_id,
+        )
+        if previous and previous["evidence_json"]:
+            try:
+                old = json.loads(previous["evidence_json"])
+                if any(
+                    isinstance(item, dict) and item.get("untrusted_content") is True
+                    for item in old
+                ):
+                    if not any(
+                        isinstance(item, dict) and item.get("untrusted_content") is True
+                        for item in evidence_list
+                    ):
+                        evidence_list.append(
+                            {"kind": "provenance", "untrusted_content": True}
+                        )
+            except Exception:
+                logger.exception(
+                    "postgres_session_store: falha ao ler proveniência anterior"
+                )
+        evidence = json.dumps(redact_sensitive_data(evidence_list), ensure_ascii=False)
 
         await conn.execute(
             "INSERT INTO vectora_native_agent_runs ("
             "run_id, thread_id, contract_version, turn_id, user_id, workspace_id, model, provider, "
             "status, plan_step, checkpoint_id, tools_available_json, tools_used_json, approvals_json, "
             "files_touched_json, commands_run_json, tests_run_json, artifacts_json, "
-            "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at) "
-            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25) "
+            "metrics_json, evidence_json, detail, error_code, started_at, updated_at, terminal_at, "
+            "parent_run_id, correlation_id) "
+            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27) "
             "ON CONFLICT(run_id) DO UPDATE SET "
             "contract_version = EXCLUDED.contract_version, "
             "status = CASE WHEN vectora_native_agent_runs.status IN ('passed', 'degraded', 'failed', 'cancelled') "
             "THEN vectora_native_agent_runs.status ELSE EXCLUDED.status END, "
             "plan_step = COALESCE(EXCLUDED.plan_step, vectora_native_agent_runs.plan_step), "
             "checkpoint_id = COALESCE(EXCLUDED.checkpoint_id, vectora_native_agent_runs.checkpoint_id), "
+            "parent_run_id = CASE WHEN vectora_native_agent_runs.status IN ('passed', 'degraded', 'failed', 'cancelled') "
+            "THEN vectora_native_agent_runs.parent_run_id ELSE COALESCE(EXCLUDED.parent_run_id, vectora_native_agent_runs.parent_run_id) END, "
+            "correlation_id = CASE WHEN vectora_native_agent_runs.status IN ('passed', 'degraded', 'failed', 'cancelled') "
+            "THEN vectora_native_agent_runs.correlation_id ELSE COALESCE(EXCLUDED.correlation_id, vectora_native_agent_runs.correlation_id) END, "
             "tools_available_json = EXCLUDED.tools_available_json, "
             "tools_used_json = EXCLUDED.tools_used_json, "
             "approvals_json = EXCLUDED.approvals_json, "
@@ -1444,6 +1533,8 @@ class PostgresSessionStore:
             run.started_at,
             now,
             terminal_at,
+            run.parent_run_id,
+            run.correlation_id,
         )
 
     async def upsert_agent_run(
@@ -1453,7 +1544,8 @@ class PostgresSessionStore:
         """Cria ou atualiza uma execução do agente no PostgreSQL com redação de segredos."""
         await self.setup()
         async with self._pool.acquire() as conn:
-            await self._upsert_agent_run_on_conn(conn, run)
+            async with conn.transaction():
+                await self._upsert_agent_run_on_conn(conn, run)
 
     async def update_agent_run_status(
         self,
@@ -1521,7 +1613,7 @@ class PostgresSessionStore:
             "model, provider, status, plan_step, checkpoint_id, tools_available_json, "
             "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
             "tests_run_json, artifacts_json, metrics_json, evidence_json, "
-            "detail, error_code, started_at, updated_at, terminal_at "
+            "detail, error_code, started_at, updated_at, terminal_at, parent_run_id, correlation_id "
             "FROM vectora_native_agent_runs WHERE run_id = $1"
         )
         if for_update:
@@ -1529,10 +1621,15 @@ class PostgresSessionStore:
         row = await conn.fetchrow(query, run_id)
         if row is None:
             return None
+        evidence_data = json.loads(row["evidence_json"] or "[]")
+        is_untrusted = any(
+            isinstance(item, dict) and item.get("untrusted_content") is True
+            for item in evidence_data
+        )
         return AgentRun(
             run_id=str(row["run_id"]),
             thread_id=str(row["thread_id"]),
-            contract_version=int(row["contract_version"] or 1),
+            contract_version=int(row.get("contract_version", 1) or 1),
             turn_id=str(row["turn_id"]) if row["turn_id"] else None,
             user_id=str(row["user_id"] or ""),
             workspace_id=str(row["workspace_id"]) if row["workspace_id"] else None,
@@ -1540,7 +1637,9 @@ class PostgresSessionStore:
             provider=str(row["provider"] or ""),
             status=cast("AgentRunStatus", row["status"]),
             plan_step=str(row["plan_step"]) if row["plan_step"] else None,
-            checkpoint_id=str(row["checkpoint_id"]) if row["checkpoint_id"] else None,
+            checkpoint_id=(
+                str(row.get("checkpoint_id")) if row.get("checkpoint_id") else None
+            ),
             tools_available=json.loads(row["tools_available_json"] or "[]"),
             tools_used=json.loads(row["tools_used_json"] or "[]"),
             approvals=json.loads(row["approvals_json"] or "[]"),
@@ -1549,12 +1648,19 @@ class PostgresSessionStore:
             tests_run=json.loads(row["tests_run_json"] or "[]"),
             artifacts=json.loads(row["artifacts_json"] or "[]"),
             metrics=AgentRunMetrics(**json.loads(row["metrics_json"] or "{}")),
-            evidence=json.loads(row["evidence_json"] or "[]"),
+            evidence=evidence_data,
+            untrusted_content=is_untrusted,
             detail=str(row["detail"]) if row["detail"] else None,
             error_code=str(row["error_code"]) if row["error_code"] else None,
             started_at=str(row["started_at"]),
             updated_at=str(row["updated_at"]),
             terminal_at=str(row["terminal_at"]) if row["terminal_at"] else None,
+            parent_run_id=(
+                str(row.get("parent_run_id")) if row.get("parent_run_id") else None
+            ),
+            correlation_id=(
+                str(row.get("correlation_id")) if row.get("correlation_id") else None
+            ),
         )
 
     async def record_run_evidence(
@@ -1571,48 +1677,298 @@ class PostgresSessionStore:
     ) -> None:
         """Registra evidências incrementais no AgentRun de forma atômica."""
         await self.setup()
+        async with self._run_evidence_locks.acquire(run_id):
+            async with self._pool.acquire() as conn:
+                async with conn.transaction():
+                    run = await self._get_agent_run_on_conn(
+                        conn, run_id, for_update=True
+                    )
+                    if run is None:
+                        return
+                    if evidence:
+                        clean_evidence = redact_sensitive_data(evidence)
+                        evidence_id = (
+                            clean_evidence.get("projection_id")
+                            if isinstance(clean_evidence, dict)
+                            else None
+                        )
+                        if evidence_id is None or not any(
+                            isinstance(item, dict)
+                            and item.get("projection_id") == evidence_id
+                            for item in run.evidence
+                        ):
+                            run.evidence.append(clean_evidence)
+                    if artifact:
+                        clean_artifact = redact_sensitive_data(artifact)
+                        artifact_id = (
+                            clean_artifact.get("artifact_id")
+                            if isinstance(clean_artifact, dict)
+                            else None
+                        )
+                        if artifact_id is None or not any(
+                            isinstance(item, dict)
+                            and item.get("artifact_id") == artifact_id
+                            for item in run.artifacts
+                        ):
+                            run.artifacts.append(clean_artifact)
+                    if command:
+                        run.commands_run.append(redact_sensitive_data(command))
+                    if test_result:
+                        run.tests_run.append(redact_sensitive_data(test_result))
+                    if tool_used and tool_used not in run.tools_used:
+                        run.tools_used.append(tool_used)
+                    if approval:
+                        run.approvals.append(redact_sensitive_data(approval))
+                    if file_touched:
+                        run.files_touched.append(redact_sensitive_data(file_touched))
+                    await self._upsert_agent_run_on_conn(conn, run)
+
+    async def save_context_projection(
+        self,
+        thread_id: str,
+        run_id: str,
+        projection: ContextProjectionContract | Mapping[str, object],
+    ) -> None:
+        """Persiste a projeção versionada fora do transcript canônico."""
+        await self.setup()
+        # Preserve numeric sequence/token metadata; the generic redactor marks
+        # any key containing ``token`` as sensitive, which would corrupt the
+        # projection budget counters.
+        projection_values = (
+            projection.model_dump()
+            if isinstance(projection, ContextProjectionContract)
+            else projection
+        )
+        clean: dict[str, object] = {
+            key: value
+            if key
+            in {
+                "start_seq",
+                "end_seq",
+                "tokens_before",
+                "tokens_after",
+            }
+            else redact_sensitive_data(value)
+            for key, value in projection_values.items()
+        }
+        if not isinstance(clean, dict) or not clean.get("projection_id"):
+            raise ValueError("projeção sem projection_id")
+        # ``thread_id`` already participates in the table primary key.  Keep
+        # the projection identity opaque and stable so SQLite and PostgreSQL
+        # expose the same persisted key.
+        storage_projection_id = str(clean["projection_id"])
         async with self._pool.acquire() as conn:
-            async with conn.transaction():
-                run = await self._get_agent_run_on_conn(conn, run_id, for_update=True)
-                if run is None:
-                    return
-                if evidence:
-                    clean_evidence = redact_sensitive_data(evidence)
-                    evidence_id = (
-                        clean_evidence.get("projection_id")
-                        if isinstance(clean_evidence, dict)
-                        else None
+            existing = await conn.fetchrow(
+                "SELECT run_id, source_hash, covered_from_sequence, covered_to_sequence, model, "
+                "policy_version, tokens_before, tokens_after, preserved_decisions_json, "
+                "preserved_errors_json, preserved_approvals_json, pending_tool_calls_json, "
+                "omitted_sequences_json, content_json FROM vectora_native_context_projections "
+                "WHERE thread_id = $1 AND projection_id = $2",
+                thread_id,
+                storage_projection_id,
+            )
+            expected = (
+                run_id,
+                str(clean.get("source_transcript_hash", "")),
+                int(cast("int", clean.get("start_seq", 0))),
+                int(cast("int", clean.get("end_seq", 0))),
+                str(clean.get("model", "")),
+                str(clean.get("policy_version", "")),
+                int(cast("int", clean.get("tokens_before", 0))),
+                int(cast("int", clean.get("tokens_after", 0))),
+                json.dumps(clean.get("preserved_decisions", []), ensure_ascii=False),
+                json.dumps(clean.get("preserved_errors", []), ensure_ascii=False),
+                json.dumps(clean.get("preserved_approvals", []), ensure_ascii=False),
+                json.dumps(clean.get("pending_tool_calls", []), ensure_ascii=False),
+                json.dumps(clean.get("omitted_sequences", []), ensure_ascii=False),
+                json.dumps(clean.get("content"), ensure_ascii=False)
+                if clean.get("content") is not None
+                else None,
+            )
+            if existing is not None:
+                if tuple(existing.values()) != expected:
+                    raise ValueError(
+                        f"projeção {storage_projection_id!r} já existe com conteúdo diferente"
                     )
-                    if evidence_id is None or not any(
-                        isinstance(item, dict)
-                        and item.get("projection_id") == evidence_id
-                        for item in run.evidence
-                    ):
-                        run.evidence.append(clean_evidence)
-                if artifact:
-                    clean_artifact = redact_sensitive_data(artifact)
-                    artifact_id = (
-                        clean_artifact.get("artifact_id")
-                        if isinstance(clean_artifact, dict)
-                        else None
-                    )
-                    if artifact_id is None or not any(
-                        isinstance(item, dict)
-                        and item.get("artifact_id") == artifact_id
-                        for item in run.artifacts
-                    ):
-                        run.artifacts.append(clean_artifact)
-                if command:
-                    run.commands_run.append(redact_sensitive_data(command))
-                if test_result:
-                    run.tests_run.append(redact_sensitive_data(test_result))
-                if tool_used and tool_used not in run.tools_used:
-                    run.tools_used.append(tool_used)
-                if approval:
-                    run.approvals.append(redact_sensitive_data(approval))
-                if file_touched:
-                    run.files_touched.append(redact_sensitive_data(file_touched))
-                await self._upsert_agent_run_on_conn(conn, run)
+                return
+            await conn.execute(
+                "INSERT INTO vectora_native_context_projections ("
+                "projection_id, thread_id, run_id, source_hash, covered_from_sequence, "
+                "covered_to_sequence, model, policy_version, tokens_before, tokens_after, "
+                "preserved_decisions_json, preserved_errors_json, preserved_approvals_json, "
+                "pending_tool_calls_json, omitted_sequences_json, content_json, created_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) "
+                "ON CONFLICT (thread_id, projection_id) DO UPDATE SET run_id = EXCLUDED.run_id, "
+                "source_hash = EXCLUDED.source_hash, covered_from_sequence = EXCLUDED.covered_from_sequence, "
+                "covered_to_sequence = EXCLUDED.covered_to_sequence, model = EXCLUDED.model, "
+                "policy_version = EXCLUDED.policy_version, tokens_before = EXCLUDED.tokens_before, "
+                "tokens_after = EXCLUDED.tokens_after, preserved_decisions_json = EXCLUDED.preserved_decisions_json, "
+                "preserved_errors_json = EXCLUDED.preserved_errors_json, preserved_approvals_json = EXCLUDED.preserved_approvals_json, "
+                "pending_tool_calls_json = EXCLUDED.pending_tool_calls_json, omitted_sequences_json = EXCLUDED.omitted_sequences_json, "
+                "content_json = EXCLUDED.content_json, created_at = EXCLUDED.created_at",
+                storage_projection_id,
+                thread_id,
+                run_id,
+                str(clean.get("source_transcript_hash", "")),
+                int(cast("int", clean.get("start_seq", 0))),
+                int(cast("int", clean.get("end_seq", 0))),
+                str(clean.get("model", "")),
+                str(clean.get("policy_version", "")),
+                int(cast("int", clean.get("tokens_before", 0))),
+                int(cast("int", clean.get("tokens_after", 0))),
+                json.dumps(clean.get("preserved_decisions", []), ensure_ascii=False),
+                json.dumps(clean.get("preserved_errors", []), ensure_ascii=False),
+                json.dumps(clean.get("preserved_approvals", []), ensure_ascii=False),
+                json.dumps(clean.get("pending_tool_calls", []), ensure_ascii=False),
+                json.dumps(clean.get("omitted_sequences", []), ensure_ascii=False),
+                json.dumps(clean.get("content"), ensure_ascii=False)
+                if clean.get("content") is not None
+                else None,
+                str(clean.get("created_at", _now())),
+            )
+
+    async def get_latest_context_projection(
+        self,
+        thread_id: str,
+        *,
+        policy_version: str | None = None,
+        source_transcript_hash: str | None = None,
+    ) -> dict[str, object] | None:
+        """Carrega projeção compatível com política e hash, se informados."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            query = (
+                "SELECT projection_id, run_id, source_hash, covered_from_sequence, "
+                "covered_to_sequence, model, policy_version, tokens_before, tokens_after, "
+                "preserved_decisions_json, preserved_errors_json, preserved_approvals_json, "
+                "pending_tool_calls_json, omitted_sequences_json, content_json, created_at "
+                "FROM vectora_native_context_projections WHERE thread_id = $1 "
+            )
+            params: list[Any] = [thread_id]
+            clauses = ["thread_id = $1"]
+            if policy_version is not None:
+                params.append(policy_version)
+                clauses.append(f"policy_version = ${len(params)}")
+            if source_transcript_hash is not None:
+                params.append(source_transcript_hash)
+                clauses.append(f"source_hash = ${len(params)}")
+            query = query.replace(
+                "FROM vectora_native_context_projections WHERE thread_id = $1 ",
+                "FROM vectora_native_context_projections WHERE "
+                + " AND ".join(clauses)
+                + " ",
+            )
+            query += "ORDER BY covered_to_sequence DESC, created_at DESC LIMIT 1"
+            row = await conn.fetchrow(query, *params)
+        if row is None:
+            return None
+        value = row.get
+        return {
+            "projection_id": str(value("projection_id")),
+            "run_id": value("run_id"),
+            "source_hash": value("source_hash"),
+            "covered_from_sequence": value("covered_from_sequence"),
+            "covered_to_sequence": value("covered_to_sequence"),
+            "model": value("model"),
+            "policy_version": value("policy_version"),
+            "tokens_before": value("tokens_before"),
+            "tokens_after": value("tokens_after"),
+            "preserved_decisions": json.loads(
+                value("preserved_decisions_json") or "[]"
+            ),
+            "preserved_errors": json.loads(value("preserved_errors_json") or "[]"),
+            "preserved_approvals": json.loads(
+                value("preserved_approvals_json") or "[]"
+            ),
+            "pending_tool_calls": json.loads(value("pending_tool_calls_json") or "[]"),
+            "omitted_sequences": json.loads(value("omitted_sequences_json") or "[]"),
+            "content": json.loads(value("content_json"))
+            if value("content_json")
+            else None,
+            "created_at": value("created_at"),
+        }
+
+    async def save_context_checkpoint(
+        self,
+        thread_id: str,
+        run_id: str,
+        checkpoint: ContextCheckpointContract | Mapping[str, object],
+    ) -> None:
+        """Persiste o estado mínimo para retomada por snapshot + deltas."""
+        await self.setup()
+        checkpoint_values = (
+            checkpoint.model_dump()
+            if isinstance(checkpoint, ContextCheckpointContract)
+            else checkpoint
+        )
+        clean: dict[str, object] = {
+            key: redact_sensitive_data(value)
+            for key, value in checkpoint_values.items()
+        }
+        if not clean.get("checkpoint_id"):
+            raise ValueError("checkpoint sem checkpoint_id")
+        async with self._pool.acquire() as conn, conn.transaction():
+            await conn.execute(
+                "INSERT INTO vectora_native_context_checkpoints ("
+                "checkpoint_id, thread_id, run_id, last_sequence, source_hash, "
+                "schema_version, state_json, artifact_refs_json, created_at) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) "
+                "ON CONFLICT (thread_id, run_id, last_sequence, source_hash) DO UPDATE SET "
+                "checkpoint_id = EXCLUDED.checkpoint_id, "
+                "thread_id = EXCLUDED.thread_id, run_id = EXCLUDED.run_id, "
+                "last_sequence = EXCLUDED.last_sequence, source_hash = EXCLUDED.source_hash, "
+                "schema_version = EXCLUDED.schema_version, state_json = EXCLUDED.state_json, "
+                "artifact_refs_json = EXCLUDED.artifact_refs_json, created_at = EXCLUDED.created_at",
+                str(clean["checkpoint_id"]),
+                thread_id,
+                run_id,
+                int(cast("int", clean.get("last_sequence", 0))),
+                str(clean.get("source_hash", "")),
+                str(clean.get("schema_version", "context.v1")),
+                json.dumps(clean.get("state", {}), ensure_ascii=False),
+                json.dumps(clean.get("artifact_refs", []), ensure_ascii=False),
+                str(clean.get("created_at", _now())),
+            )
+
+    async def get_latest_context_checkpoint(
+        self,
+        thread_id: str,
+        *,
+        source_hash: str | None = None,
+        run_id: str | None = None,
+    ) -> dict[str, object] | None:
+        """Carrega o checkpoint mais recente compatível com o transcript."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            clauses = ["thread_id = $1"]
+            params: list[Any] = [thread_id]
+            if source_hash is not None:
+                params.append(source_hash)
+                clauses.append(f"source_hash = ${len(params)}")
+            if run_id is not None:
+                params.append(run_id)
+                clauses.append(f"run_id = ${len(params)}")
+            row = await conn.fetchrow(
+                "SELECT checkpoint_id, run_id, last_sequence, source_hash, "  # nosec B608 - clauses are fixed column names
+                "schema_version, state_json, artifact_refs_json, created_at "
+                "FROM vectora_native_context_checkpoints WHERE "
+                + " AND ".join(clauses)
+                + " ORDER BY last_sequence DESC, created_at DESC LIMIT 1",
+                *params,
+            )
+        if row is None:
+            return None
+        value = row.get
+        return {
+            "checkpoint_id": value("checkpoint_id"),
+            "run_id": value("run_id"),
+            "last_sequence": value("last_sequence"),
+            "source_hash": value("source_hash"),
+            "schema_version": value("schema_version"),
+            "state": json.loads(value("state_json") or "{}"),
+            "artifact_refs": json.loads(value("artifact_refs_json") or "[]"),
+            "created_at": value("created_at"),
+        }
 
     async def get_agent_run(self, run_id: str) -> AgentRun | None:
         """Obtém uma execução persistida por run_id."""
@@ -1632,44 +1988,68 @@ class PostgresSessionStore:
                 "model, provider, status, plan_step, checkpoint_id, tools_available_json, "
                 "tools_used_json, approvals_json, files_touched_json, commands_run_json, "
                 "tests_run_json, artifacts_json, metrics_json, evidence_json, "
-                "detail, error_code, started_at, updated_at, terminal_at "
+                "detail, error_code, started_at, updated_at, terminal_at, parent_run_id, correlation_id "
                 "FROM vectora_native_agent_runs WHERE thread_id = $1 "
                 "ORDER BY started_at DESC LIMIT $2",
                 thread_id,
                 safe_limit,
             )
-            return [
-                AgentRun(
-                    run_id=str(r["run_id"]),
-                    thread_id=str(r["thread_id"]),
-                    contract_version=int(r["contract_version"] or 1),
-                    turn_id=str(r["turn_id"]) if r["turn_id"] else None,
-                    user_id=str(r["user_id"] or ""),
-                    workspace_id=str(r["workspace_id"]) if r["workspace_id"] else None,
-                    model=str(r["model"] or ""),
-                    provider=str(r["provider"] or ""),
-                    status=cast("AgentRunStatus", r["status"]),
-                    plan_step=str(r["plan_step"]) if r["plan_step"] else None,
-                    checkpoint_id=str(r["checkpoint_id"])
-                    if r["checkpoint_id"]
-                    else None,
-                    tools_available=json.loads(r["tools_available_json"] or "[]"),
-                    tools_used=json.loads(r["tools_used_json"] or "[]"),
-                    approvals=json.loads(r["approvals_json"] or "[]"),
-                    files_touched=json.loads(r["files_touched_json"] or "[]"),
-                    commands_run=json.loads(r["commands_run_json"] or "[]"),
-                    tests_run=json.loads(r["tests_run_json"] or "[]"),
-                    artifacts=json.loads(r["artifacts_json"] or "[]"),
-                    metrics=AgentRunMetrics(**json.loads(r["metrics_json"] or "{}")),
-                    evidence=json.loads(r["evidence_json"] or "[]"),
-                    detail=str(r["detail"]) if r["detail"] else None,
-                    error_code=str(r["error_code"]) if r["error_code"] else None,
-                    started_at=str(r["started_at"]),
-                    updated_at=str(r["updated_at"]),
-                    terminal_at=str(r["terminal_at"]) if r["terminal_at"] else None,
+            runs: list[AgentRun] = []
+            for r in rows:
+                evidence_data = json.loads(r["evidence_json"] or "[]")
+                is_untrusted = any(
+                    isinstance(item, dict) and item.get("untrusted_content") is True
+                    for item in evidence_data
                 )
-                for r in rows
-            ]
+                runs.append(
+                    AgentRun(
+                        run_id=str(r["run_id"]),
+                        thread_id=str(r["thread_id"]),
+                        contract_version=int(r.get("contract_version", 1) or 1),
+                        turn_id=str(r["turn_id"]) if r["turn_id"] else None,
+                        user_id=str(r["user_id"] or ""),
+                        workspace_id=str(r["workspace_id"])
+                        if r["workspace_id"]
+                        else None,
+                        model=str(r["model"] or ""),
+                        provider=str(r["provider"] or ""),
+                        status=cast("AgentRunStatus", r["status"]),
+                        plan_step=str(r["plan_step"]) if r["plan_step"] else None,
+                        checkpoint_id=(
+                            str(r.get("checkpoint_id"))
+                            if r.get("checkpoint_id")
+                            else None
+                        ),
+                        tools_available=json.loads(r["tools_available_json"] or "[]"),
+                        tools_used=json.loads(r["tools_used_json"] or "[]"),
+                        approvals=json.loads(r["approvals_json"] or "[]"),
+                        files_touched=json.loads(r["files_touched_json"] or "[]"),
+                        commands_run=json.loads(r["commands_run_json"] or "[]"),
+                        tests_run=json.loads(r["tests_run_json"] or "[]"),
+                        artifacts=json.loads(r["artifacts_json"] or "[]"),
+                        metrics=AgentRunMetrics(
+                            **json.loads(r["metrics_json"] or "{}")
+                        ),
+                        evidence=evidence_data,
+                        untrusted_content=is_untrusted,
+                        detail=str(r["detail"]) if r["detail"] else None,
+                        error_code=str(r["error_code"]) if r["error_code"] else None,
+                        started_at=str(r["started_at"]),
+                        updated_at=str(r["updated_at"]),
+                        terminal_at=str(r["terminal_at"]) if r["terminal_at"] else None,
+                        parent_run_id=(
+                            str(r.get("parent_run_id"))
+                            if r.get("parent_run_id")
+                            else None
+                        ),
+                        correlation_id=(
+                            str(r.get("correlation_id"))
+                            if r.get("correlation_id")
+                            else None
+                        ),
+                    )
+                )
+            return runs
 
     async def get_agent_run_timeline(
         self, run_id: str, *, limit: int = 500, offset: int = 0

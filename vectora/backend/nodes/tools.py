@@ -90,6 +90,9 @@ from backend.tools import (
     slack as _slack_module,
 )
 from backend.tools import (
+    systemone_tools as _systemone_tools_module,
+)
+from backend.tools import (
     terminal_sessions as _terminal_sessions_module,
 )
 from backend.tools import (
@@ -309,6 +312,15 @@ extract_audio = _bridge("extract_audio")
 transcribe_local = _bridge("transcribe_local")
 write_todos = _bridge("write_todos")
 ask_structured_question = _bridge("ask_structured_question")
+systemone_list_patterns = _bridge("systemone_list_patterns")
+systemone_evaluate_pattern = _bridge("systemone_evaluate_pattern")
+systemone_propose_kanban_transition = _bridge("systemone_propose_kanban_transition")
+
+SYSTEMONE_TOOLS: list[ToolSpec] = [
+    systemone_list_patterns,
+    systemone_evaluate_pattern,
+    systemone_propose_kanban_transition,
+]
 
 # ---------------------------------------------------------------------------
 # Grupos semânticos (referência — não são usados diretamente pelos agentes)
@@ -718,6 +730,10 @@ for _t in [
     # Planejamento (checklist de progresso, todo agente)
     write_todos,
     ask_structured_question,
+    # SystemOne — decisões e transições determinísticas do workspace
+    systemone_list_patterns,
+    systemone_evaluate_pattern,
+    systemone_propose_kanban_transition,
 ]:
     _all[_t.name] = _t
 

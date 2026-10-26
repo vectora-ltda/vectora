@@ -8,17 +8,24 @@ disco produzido por ``create_artifact`` (``src/tools/fs.py``):
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import logging
 from datetime import UTC
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, TypedDict
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from backend.settings import settings
-from backend.vtypes.documents import DEFAULT_ARTIFACT_TYPE, ArtifactMetadata
+from backend.vtypes.documents import (
+    DEFAULT_ARTIFACT_TYPE,
+    ArtifactIntegrity,
+    ArtifactMetadata,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +43,15 @@ class ArtifactContent(BaseModel):
     created_at: str
     content: str
     artifact_type: str = DEFAULT_ARTIFACT_TYPE
+    byte_size: int = 0
+    sha256: str = ""
+    retention_class: str = "run"
+
+
+class _IntegrityFields(TypedDict):
+    byte_size: int
+    sha256: str
+    retention_class: str
 
 
 def _artifacts_dir(session_id: str) -> Path:
@@ -58,6 +74,7 @@ async def _require_session_owner(request: Request | None, session_id: str) -> No
 
 
 def _read_preview(path: Path, limit: int = 200) -> str | None:
+    """Executa a operação  read preview."""
     try:
         with path.open("r", encoding="utf-8", errors="replace") as f:
             return f.read(limit + 1)[:limit]
@@ -74,6 +91,38 @@ def _read_artifact_type(path: Path) -> str:
         return sidecar.read_text(encoding="utf-8").strip() or DEFAULT_ARTIFACT_TYPE
     except OSError:
         return DEFAULT_ARTIFACT_TYPE
+
+
+def _sha256_file(path: Path, chunk_size: int = 1024 * 1024) -> str:
+    """Executa a operação  sha256 file."""
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(chunk_size), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _read_integrity(path: Path) -> _IntegrityFields:
+    """Lê checksum persistido ou calcula integridade para artifacts legados."""
+    sidecar = path.with_suffix(".artifact.json")
+    try:
+        raw = json.loads(sidecar.read_text(encoding="utf-8"))
+        parsed = ArtifactIntegrity.model_validate(raw)
+        return {
+            "byte_size": parsed.byte_size,
+            "sha256": parsed.sha256,
+            "retention_class": parsed.retention_class,
+        }
+    except (OSError, ValueError, TypeError, ValidationError):
+        pass
+    try:
+        return {
+            "byte_size": path.stat().st_size,
+            "sha256": _sha256_file(path),
+            "retention_class": "run",
+        }
+    except OSError:
+        return {"byte_size": 0, "sha256": "", "retention_class": "run"}
 
 
 @router.get("/", response_model=ListArtifactsResponse)
@@ -114,10 +163,11 @@ async def list_artifacts(
                 created_at=_format_mtime(stat.st_mtime),
                 artifact_type=_read_artifact_type(path),
                 content_preview=_read_preview(path),
+                **_read_integrity(path),
             )
         )
 
-    items.extend(_media_artifacts(base, session_id))
+    items.extend(await asyncio.to_thread(_media_artifacts, base, session_id))
     items.sort(key=lambda a: a.created_at, reverse=True)
     return ListArtifactsResponse(artifacts=items)
 
@@ -154,6 +204,11 @@ def _media_artifacts(base: Path, session_id: str) -> list[ArtifactMetadata]:
                 # Binário não tem preview de texto — `None` em vez de tentar
                 # decodificar bytes, que encheria a lista de lixo.
                 content_preview=None,
+                byte_size=stat.st_size,
+                # Mídia não possui sidecar de integridade; listar não deve
+                # reabrir e hashear payloads potencialmente grandes.
+                sha256="",
+                retention_class="run",
             )
         )
     return found
@@ -194,6 +249,7 @@ async def get_artifact(
         created_at=created,
         content=content,
         artifact_type=_read_artifact_type(path),
+        **_read_integrity(path),
     )
 
 
@@ -226,6 +282,7 @@ async def get_media_artifact(
 
 
 def _format_mtime(ts: float) -> str:
-    from datetime import datetime, timezone
+    """Executa a operação  format mtime."""
+    from datetime import datetime
 
     return datetime.fromtimestamp(ts, tz=UTC).isoformat()
