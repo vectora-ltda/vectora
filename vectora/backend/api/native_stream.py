@@ -439,6 +439,13 @@ def stream_engine_events(
                         status="cancelled",
                         detail="A execução foi cancelada antes de produzir uma resposta.",
                     )
+                elif stopped_reason == "loop_cap_exceeded":
+                    await _persist_terminal_outcome(
+                        thread_id,
+                        resolved_run_id,
+                        status="failed",
+                        detail="A execução excedeu o limite de segurança do loop.",
+                    )
                 elif stopped_reason == "stop":
                     if empty_model_response:
                         await _persist_terminal_outcome(
@@ -542,6 +549,16 @@ def stream_engine_events(
                                 while item is not _SENTINEL:
                                     if isinstance(item, MessageChunk):
                                         accumulated_partial_content += item.content
+                                        await _spawn_save_partial(
+                                            thread_id,
+                                            accumulated_partial_content,
+                                            background_tasks,
+                                        )
+                                        await _update_persisted_run(
+                                            resolved_run_id,
+                                            status="streaming",
+                                            partial_text=accumulated_partial_content,
+                                        )
                                     item = await q.get()
                                 if (
                                     stopped_reason == "stop"
