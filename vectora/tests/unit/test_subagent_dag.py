@@ -21,7 +21,7 @@ from backend.services.policy_compiler import PolicySnapshot
 from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.tools.context import ToolContext
 from backend.tools.registry import TOOL_REGISTRY, ToolExtras, ToolSpec
-from backend.vtypes.ids import CorrelationId
+from backend.vtypes.ids import CapabilityToken, CorrelationId
 from backend.vtypes.message import VMessage, VMessageChunk
 
 
@@ -302,12 +302,15 @@ async def test_subagent_hard_interrupt_marks_child_cancelled(
         )
     )
     await started.wait()
+    assert not request_hard_interrupt(correlation, CapabilityToken("invalid-token"))
     assert request_hard_interrupt(correlation, subagent_capability_token(correlation))
     result = await task
     assert "hard interrupt" in result
     async with session_store._pool.acquire() as conn:
         cur = await conn.execute(
-            "SELECT run_id FROM agent_runs WHERE status = 'cancelled'"
+            "SELECT run_id FROM agent_runs "
+            "WHERE parent_run_id = ? AND status = 'cancelled'",
+            (ctx.run_id,),
         )
         assert await cur.fetchone()
 
