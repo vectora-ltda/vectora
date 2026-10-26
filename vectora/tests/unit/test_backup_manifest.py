@@ -146,6 +146,18 @@ def test_artifacts_root_symlink_is_rejected_before_reading(tmp_path: Path) -> No
         backup_module._artifact_entries(database)
 
 
+def test_restore_accepts_symlinked_storage_boundary(tmp_path: Path) -> None:
+    """A symlinked storage home is valid; descendants remain checked."""
+    target = tmp_path / "real-home"
+    target.mkdir()
+    linked = tmp_path / "linked-home"
+    try:
+        linked.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink não disponível neste ambiente")
+    backup_module._assert_safe_destination(linked / "data" / "backend.db", linked)
+
+
 def test_restore_respeita_destino_customizado_e_selecao_vazia(tmp_path: Path) -> None:
     """Verifica o comportamento de restore respeita destino customizado e selecao vazia."""
     database = tmp_path / "vectora.db"

@@ -88,7 +88,13 @@ async def restore_local_backup(
         # Fechá-los antes da promoção evita handles antigos apontando para o
         # inode anterior (especialmente no Windows).
         snapshots = snapshot_targets(
-            db_path, set(selected or {"database", "workspaces", "threads", "memories"})
+            db_path,
+            set(selected or {"database", "workspaces", "threads", "memories"}),
+            boundary=(
+                db_path.parent.parent
+                if db_path.parent.name == "data"
+                else db_path.parent
+            ),
         )
 
         async def reopen_consumers() -> None:

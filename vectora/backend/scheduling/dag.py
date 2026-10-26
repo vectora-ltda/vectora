@@ -59,6 +59,8 @@ def validate_stages(stages: Sequence[DAGStage]) -> None:
     ids = [s.stage_id for s in stages]
     if not ids or any(not i.strip() for i in ids) or len(set(ids)) != len(ids):
         raise DAGValidationError("estágios devem ter IDs únicos e não vazios")
+    if any(len(s.depends_on) != len(set(s.depends_on)) for s in stages):
+        raise DAGValidationError("dependências de estágio não podem ser duplicadas")
     known = set(ids)
     graph = {s.stage_id: set(s.depends_on) for s in stages}
     if any(dep not in known for deps in graph.values() for dep in deps):
@@ -86,6 +88,7 @@ class DAGStore:
 
     def __init__(self, db: aiosqlite.Connection) -> None:
         self.db = db
+        self.db.row_factory = aiosqlite.Row
 
     async def setup(self) -> None:
         await self.db.executescript(
@@ -180,6 +183,10 @@ class DAGStore:
         ) as cur:
             existing = await cur.fetchone()
         if existing is not None:
+            if existing["plan_id"] != plan_id:
+                raise DAGValidationError(
+                    "idempotency_key já está vinculada a outro plano"
+                )
             return DAGExecution(*existing)
         execution_id = str(uuid.uuid4())
         stages = json.loads(plan["stages_json"])

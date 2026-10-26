@@ -18,6 +18,8 @@ def test_validate_rejects_cycle_and_unknown_dependency() -> None:
         validate_stages([DAGStage("a", "A", ("b",)), DAGStage("b", "B", ("a",))])
     with pytest.raises(DAGValidationError):
         validate_stages([DAGStage("a", "A", ("missing",))])
+    with pytest.raises(DAGValidationError):
+        validate_stages([DAGStage("a", "A", ("b", "b")), DAGStage("b", "B")])
 
 
 @pytest.mark.asyncio
@@ -53,6 +55,14 @@ async def test_dag_is_idempotent_and_resumes_after_expired_claim(tmp_path) -> No
         plan_id, run_id="run-1", idempotency_key="idem-1"
     )
     assert same.execution_id == execution.execution_id
+    other_plan, other_hash = await store.create_plan(
+        run_id="run-2", stages=[DAGStage("other", "Other")]
+    )
+    await store.approve_plan(other_plan, plan_hash=other_hash, approver="user-1")
+    with pytest.raises(DAGValidationError, match="outro plano"):
+        await store.start_execution(
+            other_plan, run_id="run-2", idempotency_key="idem-1"
+        )
     claimed = await store.claim_ready_stage(execution.execution_id, lease_seconds=-1)
     assert claimed is not None
     assert await store.recover_expired_claims() == 1

@@ -90,9 +90,16 @@ def _artifact_entries(database: Path) -> list[tuple[str, bytes]]:
     if not root.is_dir():
         return []
     entries: list[tuple[str, bytes]] = []
+    total_bytes = 0
     for path in sorted(root.rglob("*")):
         if not path.is_file() or path.is_symlink():
             continue
+        size = path.stat().st_size
+        if size > MAX_ENTRY_BYTES:
+            raise ValueError("entrada de backup excede o limite")
+        total_bytes += size
+        if total_bytes > MAX_ARCHIVE_BYTES:
+            raise ValueError("backup excede o limite de tamanho")
         relative = path.relative_to(root).as_posix()
         entries.append((f"artifacts/{relative}", path.read_bytes()))
     return entries
@@ -395,9 +402,16 @@ def _assert_safe_destination(path: Path, boundary: Path | None = None) -> None:
     if boundary is not None:
         boundary = boundary.absolute()
         lexical = path.absolute()
-        if boundary not in lexical.parents and lexical != boundary:
-            raise ValueError(f"destino fora da raiz de restore: {path}")
-        path = lexical
+        try:
+            relative = lexical.relative_to(boundary)
+        except ValueError as exc:
+            raise ValueError(f"destino fora da raiz de restore: {path}") from exc
+        current = boundary
+        for part in relative.parts:
+            current /= part
+            if current.is_symlink():
+                raise ValueError(f"destino de restore contém symlink: {current}")
+        return
     current = path
     while boundary is None or current != boundary:
         if current.is_symlink():
