@@ -261,6 +261,34 @@ class TestAgentRunLifecycle:
         assert loaded.parent_run_id == "parent-a"
         assert loaded.correlation_id == "corr-a"
 
+    async def test_preserva_linhagem_de_run_terminal(self, store: SessionStore) -> None:
+        """Uma atualização terminal não pode reescrever a origem do run."""
+        await store.create_session("thread-terminal-lineage", user_id="user-123")
+        await store.upsert_agent_run(
+            AgentRun(
+                run_id="run-terminal-lineage",
+                thread_id="thread-terminal-lineage",
+                status="passed",
+                parent_run_id="parent-original",
+                correlation_id="corr-original",
+            )
+        )
+        with pytest.raises(ValueError, match="parent_run_id conflitante"):
+            await store.upsert_agent_run(
+                AgentRun(
+                    run_id="run-terminal-lineage",
+                    thread_id="thread-terminal-lineage",
+                    status="failed",
+                    parent_run_id="parent-conflicting",
+                    correlation_id="corr-conflicting",
+                )
+            )
+        loaded = await store.get_agent_run("run-terminal-lineage")
+        assert loaded is not None
+        assert loaded.status == "passed"
+        assert loaded.parent_run_id == "parent-original"
+        assert loaded.correlation_id == "corr-original"
+
     @pytest.mark.parametrize(
         ("terminal_status", "expected_legacy_status"),
         [

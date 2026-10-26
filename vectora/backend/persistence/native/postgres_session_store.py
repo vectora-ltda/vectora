@@ -1428,8 +1428,10 @@ class PostgresSessionStore:
             "THEN vectora_native_agent_runs.status ELSE EXCLUDED.status END, "
             "plan_step = COALESCE(EXCLUDED.plan_step, vectora_native_agent_runs.plan_step), "
             "checkpoint_id = COALESCE(EXCLUDED.checkpoint_id, vectora_native_agent_runs.checkpoint_id), "
-            "parent_run_id = COALESCE(EXCLUDED.parent_run_id, vectora_native_agent_runs.parent_run_id), "
-            "correlation_id = COALESCE(EXCLUDED.correlation_id, vectora_native_agent_runs.correlation_id), "
+            "parent_run_id = CASE WHEN vectora_native_agent_runs.status IN ('passed', 'degraded', 'failed', 'cancelled') "
+            "THEN vectora_native_agent_runs.parent_run_id ELSE COALESCE(EXCLUDED.parent_run_id, vectora_native_agent_runs.parent_run_id) END, "
+            "correlation_id = CASE WHEN vectora_native_agent_runs.status IN ('passed', 'degraded', 'failed', 'cancelled') "
+            "THEN vectora_native_agent_runs.correlation_id ELSE COALESCE(EXCLUDED.correlation_id, vectora_native_agent_runs.correlation_id) END, "
             "tools_available_json = EXCLUDED.tools_available_json, "
             "tools_used_json = EXCLUDED.tools_used_json, "
             "approvals_json = EXCLUDED.approvals_json, "
@@ -1691,6 +1693,39 @@ class PostgresSessionStore:
         # expose the same persisted key.
         storage_projection_id = str(clean["projection_id"])
         async with self._pool.acquire() as conn:
+            existing = await conn.fetchrow(
+                "SELECT run_id, source_hash, covered_from_sequence, covered_to_sequence, model, "
+                "policy_version, tokens_before, tokens_after, preserved_decisions_json, "
+                "preserved_errors_json, preserved_approvals_json, pending_tool_calls_json, "
+                "omitted_sequences_json, content_json FROM vectora_native_context_projections "
+                "WHERE thread_id = $1 AND projection_id = $2",
+                thread_id,
+                storage_projection_id,
+            )
+            expected = (
+                run_id,
+                str(clean.get("source_transcript_hash", "")),
+                int(cast("int", clean.get("start_seq", 0))),
+                int(cast("int", clean.get("end_seq", 0))),
+                str(clean.get("model", "")),
+                str(clean.get("policy_version", "")),
+                int(cast("int", clean.get("tokens_before", 0))),
+                int(cast("int", clean.get("tokens_after", 0))),
+                json.dumps(clean.get("preserved_decisions", []), ensure_ascii=False),
+                json.dumps(clean.get("preserved_errors", []), ensure_ascii=False),
+                json.dumps(clean.get("preserved_approvals", []), ensure_ascii=False),
+                json.dumps(clean.get("pending_tool_calls", []), ensure_ascii=False),
+                json.dumps(clean.get("omitted_sequences", []), ensure_ascii=False),
+                json.dumps(clean.get("content"), ensure_ascii=False)
+                if clean.get("content") is not None
+                else None,
+            )
+            if existing is not None:
+                if tuple(existing.values()) != expected:
+                    raise ValueError(
+                        f"projeção {storage_projection_id!r} já existe com conteúdo diferente"
+                    )
+                return
             await conn.execute(
                 "INSERT INTO vectora_native_context_projections ("
                 "projection_id, thread_id, run_id, source_hash, covered_from_sequence, "
