@@ -167,7 +167,11 @@ async def _run_one(
         call_context = replace(
             ctx,
             tool_call_id=tool_call.id,
-            _extra={**ctx._extra, "event_sink": on_event},
+            _extra={
+                **ctx._extra,
+                "event_sink": on_event,
+                "policy_snapshot": policy_snapshot,
+            },
         )
         if spec.extras.category == "media":
             call_context = await apply_media_billing_source(call_context)

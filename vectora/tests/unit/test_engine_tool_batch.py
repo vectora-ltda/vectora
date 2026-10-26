@@ -13,6 +13,8 @@ import pytest
 
 from backend.engine.guardrails import LoopCapConfig, TurnBudget
 from backend.engine.tool_batch import _redact_secrets, execute_tool_batch
+from backend.services.egress_policy import EgressPolicy
+from backend.services.policy_compiler import PolicySnapshot
 from backend.tools.context import ToolContext
 from backend.tools.registry import TOOL_REGISTRY, ToolExtras, ToolRegistry, vtool
 from backend.vtypes.message import ToolCall
@@ -229,3 +231,29 @@ class TestRedacaoDeSegredosPosExecucao:
 
         assert "sk-abcdefghijklmnopqrstuvwx" not in resultados[0].text()
         assert "[REDACTED]" in resultados[0].text()
+
+    async def test_propagates_immutable_policy_snapshot_to_tool_context(self, ctx):
+        """A tool recebe o snapshot do run, sem recompilar settings mutáveis."""
+        seen: list[object] = []
+
+        @vtool(extras=ToolExtras(destructive=False))
+        async def snapshot_probe(ctx: ToolContext) -> str:
+            seen.append(ctx._extra.get("policy_snapshot"))
+            return "ok"
+
+        registry = ToolRegistry()
+        _register(registry, "snapshot_probe")
+        snapshot = PolicySnapshot(
+            workspace_id="ws-policy",
+            egress_policy=EgressPolicy(allowed_hosts=["example.com"]),
+        )
+
+        results = await execute_tool_batch(
+            [ToolCall(id="snapshot", name="snapshot_probe", args={})],
+            tool_registry=registry,
+            ctx=ctx,
+            policy_snapshot=snapshot,
+        )
+
+        assert results[0].text() == "ok"
+        assert seen == [snapshot]
