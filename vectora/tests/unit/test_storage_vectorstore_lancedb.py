@@ -4,8 +4,10 @@ resposta errada) sem depender de um banco LanceDB real em disco."""
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import lancedb
 import numpy as np
 import pandas as pd
 import pytest
@@ -16,12 +18,12 @@ from ._lancedb_fakes import fake_async_connection, fake_async_table
 
 
 @pytest.fixture
-def backend():
+def backend() -> LanceDBBackend:
     return LanceDBBackend(lancedb_dir="/tmp/fake-lancedb")
 
 
 @pytest.fixture
-def mock_db():
+def mock_db() -> Generator[lancedb.AsyncConnection, None, None]:
     db = fake_async_connection()
     with patch(
         "backend.storage.vectorstore.lancedb_backend.lancedb.connect_async",
