@@ -67,7 +67,7 @@ from urllib.parse import quote, urlparse
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from backend.api.handlers.admin import require_admin
 from backend.services.subprocess_logging import pipe_to_logger
@@ -4296,22 +4296,28 @@ async def get_decision_models_status(
     """Retorna o status atual, capacidades e saúde do subsistema de Decision Models."""
     from backend.settings import settings
 
-    sys_settings = SystemOneSettings(
-        enabled=settings.systemone_enabled,
-        provider=settings.systemone_provider,  # type: ignore[arg-type]
-        local_base_url=settings.systemone_local_base_url,
-        local_model=settings.systemone_local_model,
-        laya_base_url=settings.systemone_laya_base_url,
-        laya_model=settings.systemone_laya_model,
-        laya_api_key=settings.systemone_laya_api_key,
-        clef_api_base_url=settings.systemone_clef_api_base_url,
-        clef_account_id=settings.systemone_clef_account_id,
-        clef_api_model=settings.systemone_clef_api_model,
-        jev_api_base_url=settings.systemone_jev_api_base_url,
-        jev_api_model=settings.systemone_jev_api_model,
-        allow_remote_fallback=settings.systemone_allow_remote_fallback,
-        confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
-    )
+    try:
+        sys_settings = SystemOneSettings(
+            enabled=settings.systemone_enabled,
+            provider=settings.systemone_provider,  # type: ignore[arg-type]
+            local_base_url=settings.systemone_local_base_url,
+            local_model=settings.systemone_local_model,
+            laya_base_url=settings.systemone_laya_base_url,
+            laya_model=settings.systemone_laya_model,
+            laya_api_key=settings.systemone_laya_api_key,
+            clef_api_base_url=settings.systemone_clef_api_base_url,
+            clef_account_id=settings.systemone_clef_account_id,
+            clef_api_model=settings.systemone_clef_api_model,
+            jev_api_base_url=settings.systemone_jev_api_base_url,
+            jev_api_model=settings.systemone_jev_api_model,
+            allow_remote_fallback=settings.systemone_allow_remote_fallback,
+            confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
+        )
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail="Configuração do Decision Model inválida",
+        ) from exc
 
     caps: ProviderCapabilities | None = None
     is_healthy = False
