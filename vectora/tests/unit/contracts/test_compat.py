@@ -249,6 +249,17 @@ def test_schema_compat_combinator_removal_from_middle() -> None:
     assert response_report.is_compatible
 
 
+def test_schema_compat_removed_shared_definition_is_breaking() -> None:
+    """Uma definição removida pode quebrar referências existentes."""
+    old = {"$defs": {"Payload": {"type": "object"}}}
+    new = {"$defs": {}}
+
+    report = check_schema_compatibility(old, new)
+
+    assert not report.is_compatible
+    assert any("Payload" in item for item in report.breaking)
+
+
 def test_contract_baseline_prefers_ci_base_and_explicit_override(monkeypatch) -> None:
     """Verifica o comportamento de contract baseline prefers ci base and explicit override."""
     from devtools.contracts.__main__ import _contract_baseline_ref
