@@ -353,6 +353,28 @@ describe("POST /registry/skills", () => {
   });
 });
 
+describe("POST /registry/extensions/publish", () => {
+  it("rejects an oversized multipart request before parsing the body", async () => {
+    const { token } = await createUser();
+    const form = new FormData();
+    form.append(
+      "artifact",
+      new File([new Uint8Array(50 * 1024 * 1024 + 1)], "large.vext"),
+    );
+    const res = await registry.request(
+      "/extensions/publish",
+      authed(token, {
+        method: "POST",
+        body: form,
+      }),
+      env,
+    );
+
+    expect(res.status).toBe(413);
+    expect(await res.json()).toEqual({ error: "artifact_too_large" });
+  });
+});
+
 describe("PATCH /registry/admin/skills/:id/verify", () => {
   it("seta verified=1 quando chamado por admin", async () => {
     const id = await makeSkill({ catalogSource: "community" });

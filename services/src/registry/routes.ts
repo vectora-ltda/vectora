@@ -27,6 +27,12 @@ import { compareVersions, latestPerPackage } from "../lib/versioning";
 
 export const registry = new Hono<{ Bindings: Env }>();
 
+// Keep the upload bounded before parsing the multipart body.  The artifact
+// itself is checked again after parsing because Content-Length is optional and
+// includes multipart framing.
+const MAX_VEXT_ARTIFACT_BYTES = 50 * 1024 * 1024;
+const MAX_VEXT_MULTIPART_BYTES = MAX_VEXT_ARTIFACT_BYTES + 1024 * 1024;
+
 /** `?q=` casa em name/description (LIKE, case-insensitive via `nocase`). */
 function buildSearchClause(
   q: string | undefined,
@@ -357,12 +363,20 @@ registry.post("/extensions/publish", async (c) => {
   if (!userId) return c.json({ error: "unauthorized" }, 401);
   if (!(c.req.header("Content-Type") ?? "").includes("multipart/form-data"))
     return c.json({ error: "invalid_content_type" }, 400);
+  const declaredLength = Number(c.req.header("Content-Length") ?? "");
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_VEXT_MULTIPART_BYTES
+  )
+    return c.json({ error: "artifact_too_large" }, 413);
   const body = await c.req.parseBody();
   const artifact = body.artifact;
   const text = (key: string) =>
     typeof body[key] === "string" ? body[key].trim() : "";
   if (!(artifact instanceof File) || artifact.size === 0)
     return c.json({ error: "artifact_required" }, 400);
+  if (artifact.size > MAX_VEXT_ARTIFACT_BYTES)
+    return c.json({ error: "artifact_too_large" }, 413);
   const name = text("name"),
     description = text("description"),
     readme = text("readme"),
@@ -477,6 +491,28 @@ registry.post("/extensions/publish", async (c) => {
     .first<{ id: string; publisher_id: string }>();
   if (extensionByName && extensionByName.id !== extensionId)
     return c.json({ error: "extension_id_conflict" }, 409);
+  const existingVersion = await c.env.DB.prepare(
+    "SELECT id, digest, status FROM vext_versions WHERE extension_id = ? AND version = ?",
+  )
+    .bind(extensionId, version)
+    .first<{ id: string; digest: string; status: string }>();
+  if (existingVersion) {
+    if (existingVersion.digest !== digest)
+      return c.json({ error: "version_conflict" }, 409);
+    // Publishing the same immutable digest twice is safe and idempotent. Do
+    // not overwrite the R2 object or create a second database row.
+    return c.json(
+      {
+        ok: true,
+        id: extensionId,
+        version_id: existingVersion.id,
+        digest,
+        status: existingVersion.status,
+        idempotent: true,
+      },
+      200,
+    );
+  }
   const versionId = crypto.randomUUID();
   const r2Key = `vext/${publisher.id}/${extensionId}/${version}/${digest}.vext`;
   await c.env.R2.put(r2Key, bytes, {
@@ -505,7 +541,20 @@ registry.post("/extensions/publish", async (c) => {
       ),
     ]);
   } catch (error) {
-    await c.env.R2.delete(r2Key);
+    // A D1 response can be lost after a successful commit.  Deleting the
+    // object blindly would then remove a valid immutable artifact.  Delete
+    // only when the database proves that no version references this key; on a
+    // lookup failure, keep the object for later reconciliation.
+    try {
+      const reference = await c.env.DB.prepare(
+        "SELECT id FROM vext_versions WHERE r2_key = ?",
+      )
+        .bind(r2Key)
+        .first<{ id: string }>();
+      if (!reference) await c.env.R2.delete(r2Key);
+    } catch (cleanupError) {
+      console.error("vext artifact cleanup deferred", { r2Key, cleanupError });
+    }
     throw error;
   }
   const extension = await c.env.DB.prepare(
