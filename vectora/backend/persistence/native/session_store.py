@@ -2005,32 +2005,50 @@ class SessionStore:
         await self.setup()
         now = _now()
         async with self._pool.acquire() as conn:
-            cur_max = await conn.execute(
-                "SELECT COALESCE(MAX(seq), 0) FROM thread_events WHERE thread_id = ?",
-                (thread_id,),
-            )
-            row_max = await cur_max.fetchone()
-            max_seq = int(row_max[0]) if row_max else 0
-            clamped_seq = max(0, min(seen_seq, max_seq))
+            # O cursor e a contagem precisam ser observados no mesmo snapshot.
+            # Caso contrário, outro dispositivo pode confirmar a leitura entre
+            # as duas consultas e devolver um par impossível (read_seq antigo
+            # com unread_count calculado a partir de um cursor novo).
+            await conn.execute("BEGIN IMMEDIATE")
+            try:
+                cur_max = await conn.execute(
+                    "SELECT COALESCE(MAX(seq), 0) FROM thread_events WHERE thread_id = ?",
+                    (thread_id,),
+                )
+                row_max = await cur_max.fetchone()
+                max_seq = int(row_max[0]) if row_max else 0
+                clamped_seq = max(0, min(seen_seq, max_seq))
 
-            await conn.execute(
-                "INSERT INTO thread_event_cursors (thread_id, user_id, device_id, last_seen_seq, updated_at) "
-                "VALUES (?, ?, ?, ?, ?) "
-                "ON CONFLICT(thread_id, user_id, device_id) DO UPDATE SET "
-                "last_seen_seq = MAX(thread_event_cursors.last_seen_seq, excluded.last_seen_seq), "
-                "updated_at = excluded.updated_at",
-                (thread_id, user_id, device_id, clamped_seq, now),
-            )
-            await conn.commit()
-
-        # Recalcular unread_count para a thread
-        summaries = await self.get_thread_summaries([thread_id], user_id=user_id)
-        if summaries:
-            return {
-                "read_seq": summaries[0].read_seq,
-                "unread_count": summaries[0].unread_count,
-            }
-        return {"read_seq": clamped_seq, "unread_count": 0}
+                await conn.execute(
+                    "INSERT INTO thread_event_cursors (thread_id, user_id, device_id, last_seen_seq, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?) "
+                    "ON CONFLICT(thread_id, user_id, device_id) DO UPDATE SET "
+                    "last_seen_seq = MAX(thread_event_cursors.last_seen_seq, excluded.last_seen_seq), "
+                    "updated_at = excluded.updated_at",
+                    (thread_id, user_id, device_id, clamped_seq, now),
+                )
+                cursor = await conn.execute(
+                    "SELECT COALESCE(MAX(last_seen_seq), 0) "
+                    "FROM thread_event_cursors WHERE thread_id = ? AND user_id = ?",
+                    (thread_id, user_id),
+                )
+                cursor_row = await cursor.fetchone()
+                read_seq = int(cursor_row[0]) if cursor_row else 0
+                unread = await conn.execute(
+                    "SELECT COALESCE(SUM(CASE WHEN seq > ? AND "
+                    "(type IN ('approval_requested','run_failed') OR "
+                    "(type = 'message_created' AND "
+                    "json_extract(payload_json, '$.role') = 'assistant')) "
+                    "THEN 1 ELSE 0 END), 0) FROM thread_events WHERE thread_id = ?",
+                    (read_seq, thread_id),
+                )
+                unread_row = await unread.fetchone()
+                unread_count = int(unread_row[0]) if unread_row else 0
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
+        return {"read_seq": read_seq, "unread_count": unread_count}
 
     async def get_thread_summaries(
         self, thread_ids: list[str], *, user_id: str

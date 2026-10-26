@@ -11,8 +11,12 @@ a sintaxe SQL mudam (``$1``/``$2`` de placeholder, ``BIGSERIAL``,
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -52,6 +56,44 @@ if TYPE_CHECKING:
 _CHAIN_DEPTH_CAP = 100_000
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class _RunEvidenceLockEntry:
+    """Lock e número de usuários ativos de uma execução."""
+
+    lock: asyncio.Lock
+    users: int = 0
+
+
+class _RunEvidenceLockRegistry:
+    """Retém locks somente enquanto há escritores ou waiters ativos."""
+
+    def __init__(self) -> None:
+        """Inicializa o registro vazio."""
+        self._entries: dict[str, _RunEvidenceLockEntry] = {}
+
+    @asynccontextmanager
+    async def acquire(self, run_id: str) -> AsyncGenerator[None]:
+        """Serializa um run sem remover o lock enquanto há waiters."""
+        entry = self._entries.get(run_id)
+        if entry is None:
+            entry = _RunEvidenceLockEntry(lock=asyncio.Lock())
+            self._entries[run_id] = entry
+        entry.users += 1
+        try:
+            async with entry.lock:
+                yield
+        finally:
+            current = self._entries.get(run_id)
+            if current is entry:
+                entry.users -= 1
+                if entry.users == 0:
+                    self._entries.pop(run_id, None)
+
+    def __len__(self) -> int:
+        """Retorna o número de runs com atividade de evidência."""
+        return len(self._entries)
 
 
 def _now() -> str:
@@ -110,6 +152,7 @@ class PostgresSessionStore:
         """Inicializa o estado da instância."""
         self._pool = pool
         self._is_setup = False
+        self._run_evidence_locks = _RunEvidenceLockRegistry()
 
     async def setup(self) -> None:
         """Executa a operação setup."""
@@ -1108,33 +1151,53 @@ class PostgresSessionStore:
         await self.setup()
         now = _now()
         async with self._pool.acquire() as conn:
-            max_seq = await conn.fetchval(
-                "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
-                thread_id,
-            )
-            clamped_seq = max(0, min(seen_seq, int(max_seq or 0)))
+            # Manter a atualização e a leitura do cursor/contagem na mesma
+            # transação evita que dispositivos concorrentes produzam um par
+            # read_seq/unread_count calculado a partir de snapshots distintos.
+            async with conn.transaction():
+                max_seq = await conn.fetchval(
+                    "SELECT COALESCE(MAX(seq), 0) FROM vectora_native_thread_events WHERE thread_id = $1",
+                    thread_id,
+                )
+                clamped_seq = max(0, min(seen_seq, int(max_seq or 0)))
 
-            await conn.execute(
-                "INSERT INTO vectora_native_thread_event_cursors "
-                "(thread_id, user_id, device_id, last_seen_seq, updated_at) "
-                "VALUES ($1, $2, $3, $4, $5) "
-                "ON CONFLICT (thread_id, user_id, device_id) DO UPDATE SET "
-                "last_seen_seq = GREATEST(vectora_native_thread_event_cursors.last_seen_seq, EXCLUDED.last_seen_seq), "
-                "updated_at = EXCLUDED.updated_at",
-                thread_id,
-                user_id,
-                device_id,
-                clamped_seq,
-                now,
-            )
-
-        summaries = await self.get_thread_summaries([thread_id], user_id=user_id)
-        if summaries:
-            return {
-                "read_seq": summaries[0].read_seq,
-                "unread_count": summaries[0].unread_count,
-            }
-        return {"read_seq": clamped_seq, "unread_count": 0}
+                await conn.execute(
+                    "INSERT INTO vectora_native_thread_event_cursors "
+                    "(thread_id, user_id, device_id, last_seen_seq, updated_at) "
+                    "VALUES ($1, $2, $3, $4, $5) "
+                    "ON CONFLICT (thread_id, user_id, device_id) DO UPDATE SET "
+                    "last_seen_seq = GREATEST(vectora_native_thread_event_cursors.last_seen_seq, EXCLUDED.last_seen_seq), "
+                    "updated_at = EXCLUDED.updated_at",
+                    thread_id,
+                    user_id,
+                    device_id,
+                    clamped_seq,
+                    now,
+                )
+                read_seq = int(
+                    await conn.fetchval(
+                        "SELECT COALESCE(MAX(last_seen_seq), 0) "
+                        "FROM vectora_native_thread_event_cursors "
+                        "WHERE thread_id = $1 AND user_id = $2",
+                        thread_id,
+                        user_id,
+                    )
+                    or 0
+                )
+                unread_count = int(
+                    await conn.fetchval(
+                        "SELECT COALESCE(SUM(CASE WHEN seq > $1 AND "
+                        "(type = ANY($2::text[]) OR (type = 'message_created' AND "
+                        "payload_json::jsonb->>'role' = 'assistant')) "
+                        "THEN 1 ELSE 0 END), 0) "
+                        "FROM vectora_native_thread_events WHERE thread_id = $3",
+                        read_seq,
+                        ["approval_requested", "run_failed"],
+                        thread_id,
+                    )
+                    or 0
+                )
+        return {"read_seq": read_seq, "unread_count": unread_count}
 
     async def get_thread_summaries(
         self, thread_ids: list[str], *, user_id: str
@@ -1589,48 +1652,51 @@ class PostgresSessionStore:
     ) -> None:
         """Registra evidências incrementais no AgentRun de forma atômica."""
         await self.setup()
-        async with self._pool.acquire() as conn:
-            async with conn.transaction():
-                run = await self._get_agent_run_on_conn(conn, run_id, for_update=True)
-                if run is None:
-                    return
-                if evidence:
-                    clean_evidence = redact_sensitive_data(evidence)
-                    evidence_id = (
-                        clean_evidence.get("projection_id")
-                        if isinstance(clean_evidence, dict)
-                        else None
+        async with self._run_evidence_locks.acquire(run_id):
+            async with self._pool.acquire() as conn:
+                async with conn.transaction():
+                    run = await self._get_agent_run_on_conn(
+                        conn, run_id, for_update=True
                     )
-                    if evidence_id is None or not any(
-                        isinstance(item, dict)
-                        and item.get("projection_id") == evidence_id
-                        for item in run.evidence
-                    ):
-                        run.evidence.append(clean_evidence)
-                if artifact:
-                    clean_artifact = redact_sensitive_data(artifact)
-                    artifact_id = (
-                        clean_artifact.get("artifact_id")
-                        if isinstance(clean_artifact, dict)
-                        else None
-                    )
-                    if artifact_id is None or not any(
-                        isinstance(item, dict)
-                        and item.get("artifact_id") == artifact_id
-                        for item in run.artifacts
-                    ):
-                        run.artifacts.append(clean_artifact)
-                if command:
-                    run.commands_run.append(redact_sensitive_data(command))
-                if test_result:
-                    run.tests_run.append(redact_sensitive_data(test_result))
-                if tool_used and tool_used not in run.tools_used:
-                    run.tools_used.append(tool_used)
-                if approval:
-                    run.approvals.append(redact_sensitive_data(approval))
-                if file_touched:
-                    run.files_touched.append(redact_sensitive_data(file_touched))
-                await self._upsert_agent_run_on_conn(conn, run)
+                    if run is None:
+                        return
+                    if evidence:
+                        clean_evidence = redact_sensitive_data(evidence)
+                        evidence_id = (
+                            clean_evidence.get("projection_id")
+                            if isinstance(clean_evidence, dict)
+                            else None
+                        )
+                        if evidence_id is None or not any(
+                            isinstance(item, dict)
+                            and item.get("projection_id") == evidence_id
+                            for item in run.evidence
+                        ):
+                            run.evidence.append(clean_evidence)
+                    if artifact:
+                        clean_artifact = redact_sensitive_data(artifact)
+                        artifact_id = (
+                            clean_artifact.get("artifact_id")
+                            if isinstance(clean_artifact, dict)
+                            else None
+                        )
+                        if artifact_id is None or not any(
+                            isinstance(item, dict)
+                            and item.get("artifact_id") == artifact_id
+                            for item in run.artifacts
+                        ):
+                            run.artifacts.append(clean_artifact)
+                    if command:
+                        run.commands_run.append(redact_sensitive_data(command))
+                    if test_result:
+                        run.tests_run.append(redact_sensitive_data(test_result))
+                    if tool_used and tool_used not in run.tools_used:
+                        run.tools_used.append(tool_used)
+                    if approval:
+                        run.approvals.append(redact_sensitive_data(approval))
+                    if file_touched:
+                        run.files_touched.append(redact_sensitive_data(file_touched))
+                    await self._upsert_agent_run_on_conn(conn, run)
 
     async def get_agent_run(self, run_id: str) -> AgentRun | None:
         """Obtém uma execução persistida por run_id."""

@@ -4,7 +4,7 @@ resposta errada) sem depender de um banco LanceDB real em disco."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Generator
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -26,7 +26,7 @@ def backend() -> LanceDBBackend:
 
 
 @pytest.fixture
-def mock_db() -> Iterator[lancedb.AsyncConnection]:
+def mock_db() -> Generator[lancedb.AsyncConnection, None, None]:
     """Executa a operação mock db."""
     db = fake_async_connection()
     with patch(
