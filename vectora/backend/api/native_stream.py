@@ -448,6 +448,50 @@ def stream_engine_events(
                         status="cancelled",
                         detail="A execução foi cancelada antes de produzir uma resposta.",
                     )
+                elif stopped_reason == "stop":
+                    if empty_model_response:
+                        await _persist_terminal_outcome(
+                            thread_id,
+                            resolved_run_id,
+                            status="failed",
+                            detail="O provedor LLM encerrou o stream sem retornar texto ou ferramenta.",
+                        )
+                    else:
+                        await _update_persisted_run(
+                            resolved_run_id,
+                            status="completed",
+                            partial_text=accumulated_partial_content,
+                        )
+                        try:
+                            await _clear_partial(thread_id)
+                        except Exception:
+                            logger.warning(
+                                "native_stream: falha ao limpar rascunho parcial",
+                                exc_info=True,
+                            )
+                        if workspace_id:
+                            try:
+                                await _record_turn_checkpoint(
+                                    workspace_id,
+                                    thread_id,
+                                    {"run_id": str(uuid.uuid4())},
+                                )
+                            except Exception:
+                                logger.warning(
+                                    "native_stream: falha ao registrar checkpoint",
+                                    exc_info=True,
+                                )
+                        from backend.services.remember_trigger import (
+                            maybe_trigger_remember,
+                        )
+
+                        try:
+                            await maybe_trigger_remember(thread_id, user_id or "local")
+                        except Exception:
+                            logger.warning(
+                                "native_stream: falha ao disparar remember",
+                                exc_info=True,
+                            )
                 await queue.put(_SENTINEL)
 
         term_queue: asyncio.Queue[str] = asyncio.Queue()
@@ -612,62 +656,7 @@ def stream_engine_events(
                     exc_info=run_error,
                 )
                 code, friendly = classify_stream_error(run_error)
-                await _persist_terminal_outcome(
-                    thread_id,
-                    resolved_run_id,
-                    status="failed",
-                    detail=f"{code}: {friendly}",
-                )
                 yield encode_event(ErrorEvent(message=friendly, code=code))
-            elif stopped_reason in {"cancelled", "canceled", "aborted"}:
-                await _persist_terminal_outcome(
-                    thread_id,
-                    resolved_run_id,
-                    status="cancelled",
-                    detail="A execução foi cancelada antes de produzir uma resposta.",
-                )
-            elif stopped_reason == "stop" and not disconnected:
-                if empty_model_response:
-                    await _persist_terminal_outcome(
-                        thread_id,
-                        resolved_run_id,
-                        status="failed",
-                        detail="O provedor LLM encerrou o stream sem retornar texto ou ferramenta.",
-                    )
-                else:
-                    await _update_persisted_run(
-                        resolved_run_id,
-                        status="completed",
-                        partial_text=accumulated_partial_content,
-                    )
-                    try:
-                        await _clear_partial(thread_id)
-                    except Exception:
-                        logger.warning(
-                            "native_stream: falha ao limpar rascunho parcial",
-                            exc_info=True,
-                        )
-                    if workspace_id:
-                        try:
-                            await _record_turn_checkpoint(
-                                workspace_id,
-                                thread_id,
-                                {"run_id": str(uuid.uuid4())},
-                            )
-                        except Exception:
-                            logger.warning(
-                                "native_stream: falha ao registrar checkpoint",
-                                exc_info=True,
-                            )
-                    from backend.services.remember_trigger import maybe_trigger_remember
-
-                    try:
-                        await maybe_trigger_remember(thread_id, user_id or "local")
-                    except Exception:
-                        logger.warning(
-                            "native_stream: falha ao disparar remember",
-                            exc_info=True,
-                        )
 
         except Exception as exc:
             logger.exception("native_stream: erro no stream nativo")
