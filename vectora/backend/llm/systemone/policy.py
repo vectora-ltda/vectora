@@ -94,6 +94,7 @@ class DecisionPolicyEngine:
                 outcome="requires_hitl",
                 requires_hitl=True,
                 reason="systemone_empty_answers",
+                answers={},
                 response=response,
             )
 

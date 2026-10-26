@@ -13,7 +13,9 @@ from backend.llm.systemone.settings import SystemOneSettings
 from backend.llm.systemone.types import (
     ChoiceQuestion,
     ScoreQuestion,
+    SystemOneMetadata,
     SystemOneRequest,
+    SystemOneResponse,
     parse_systemone_response,
 )
 
@@ -116,6 +118,21 @@ def test_missing_confidence_requires_review() -> None:
     )
     assert result.requires_hitl
     assert response.raw_payload is None
+
+
+def test_empty_answers_require_hitl() -> None:
+    """Uma resposta sem decisões deve ser encaminhada para revisão humana."""
+    response = SystemOneResponse(
+        answers={},
+        metadata=SystemOneMetadata(provider="test", model="test", latency_ms=0),
+    )
+    result = DecisionPolicyEngine(SystemOneSettings(enabled=True)).evaluate_response(
+        response
+    )
+    assert result.outcome == "requires_hitl"
+    assert result.requires_hitl is True
+    assert result.reason == "systemone_empty_answers"
+    assert result.answers == {}
 
 
 @pytest.mark.parametrize(
