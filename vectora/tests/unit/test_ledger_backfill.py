@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from backend.persistence.native.ledger import (
+    ThreadLedgerEvent,
     backfill_thread_ledger,
     ensure_thread_backfilled,
 )
@@ -109,3 +110,43 @@ class TestLedgerBackfill:
 
         events = await store.list_events("thread-lazy")
         assert len(events) >= 1
+
+    async def test_late_backfill_reorders_legacy_messages_before_new_events(
+        self, pool: AsyncConnectionPool
+    ) -> None:
+        """Backfill tardio não coloca histórico antigo depois de eventos live."""
+        store = SessionStore(pool)
+        await store.create_session("thread-late", user_id="alice")
+        async with pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO messages (thread_id, role, content_json, is_branch_head, created_at) "
+                "VALUES (?, 'user', ?, 1, ?)",
+                (
+                    "thread-late",
+                    '[{"kind":"text","text":"histórico"}]',
+                    "2026-10-01T10:00:00Z",
+                ),
+            )
+            await conn.commit()
+
+        await store.append_event(
+            "thread-late",
+            ThreadLedgerEvent(
+                thread_id="thread-late",
+                event_key="live:started",
+                type="agent_turn_started",
+                created_at="2026-10-02T10:00:00Z",
+            ),
+        )
+        migrated, last_seq = await backfill_thread_ledger(
+            pool, "thread-late", user_id="alice"
+        )
+
+        assert migrated == 1
+        assert last_seq == 2
+        events = await store.list_events("thread-late")
+        assert [event.type for event in events] == [
+            "message_created",
+            "agent_turn_started",
+        ]
+        assert [event.seq for event in events] == [1, 2]
