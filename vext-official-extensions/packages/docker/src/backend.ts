@@ -8,6 +8,20 @@ export type DockerRequest = {
 const MAX_OUTPUT = 2 * 1024 * 1024;
 const TIMEOUT_MS = 10_000;
 
+export function appendBoundedOutput(
+  current: string,
+  chunk: string,
+  limit = MAX_OUTPUT,
+): { value: string; exceeded: boolean } {
+  const combined = Buffer.concat([
+    Buffer.from(current, "utf8"),
+    Buffer.from(chunk, "utf8"),
+  ]);
+  let value = combined.subarray(0, limit).toString("utf8");
+  while (Buffer.byteLength(value, "utf8") > limit) value = value.slice(0, -1);
+  return { value, exceeded: combined.byteLength > limit };
+}
+
 function runDocker(args: string[]): Promise<unknown[]> {
   return new Promise((resolve, reject) => {
     const child = spawn("docker", args, { stdio: ["ignore", "pipe", "pipe"] });
@@ -20,11 +34,14 @@ function runDocker(args: string[]): Promise<unknown[]> {
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-      if (stdout.length > MAX_OUTPUT) child.kill("SIGKILL");
+      const bounded = appendBoundedOutput(stdout, chunk);
+      stdout = bounded.value;
+      if (bounded.exceeded) child.kill("SIGKILL");
     });
     child.stderr.on("data", (chunk: string) => {
-      stderr += chunk.slice(0, MAX_OUTPUT);
+      const bounded = appendBoundedOutput(stderr, chunk);
+      stderr = bounded.value;
+      if (bounded.exceeded) child.kill("SIGKILL");
     });
     child.once("error", (error) => {
       clearTimeout(timer);
@@ -33,11 +50,20 @@ function runDocker(args: string[]): Promise<unknown[]> {
     child.once("close", (code) => {
       clearTimeout(timer);
       if (code !== 0) {
-        reject(new Error(stderr.trim() || `Docker exited with code ${code ?? "unknown"}`));
+        reject(
+          new Error(
+            stderr.trim() || `Docker exited with code ${code ?? "unknown"}`,
+          ),
+        );
         return;
       }
       try {
-        resolve(stdout.split(/\r?\n/).filter(Boolean).map((line) => JSON.parse(line)));
+        resolve(
+          stdout
+            .split(/\r?\n/)
+            .filter(Boolean)
+            .map((line) => JSON.parse(line)),
+        );
       } catch {
         reject(new Error("Docker returned invalid JSON"));
       }
@@ -45,12 +71,29 @@ function runDocker(args: string[]): Promise<unknown[]> {
   });
 }
 
-export async function handle(request: DockerRequest): Promise<{ items: unknown[] }> {
+export async function handle(
+  request: DockerRequest,
+): Promise<{ items: unknown[] }> {
   if (request.method === "images") {
-    return { items: await runDocker(["image", "ls", "--format", "{{json .}}", ...(request.params?.all ? ["--all"] : [])]) };
+    return {
+      items: await runDocker([
+        "image",
+        "ls",
+        "--format",
+        "{{json .}}",
+        ...(request.params?.all ? ["--all"] : []),
+      ]),
+    };
   }
   if (request.method === "containers") {
-    return { items: await runDocker(["ps", "--format", "{{json .}}", ...(request.params?.all ? ["--all"] : [])]) };
+    return {
+      items: await runDocker([
+        "ps",
+        "--format",
+        "{{json .}}",
+        ...(request.params?.all ? ["--all"] : []),
+      ]),
+    };
   }
   throw new Error("Unsupported Docker method");
 }
