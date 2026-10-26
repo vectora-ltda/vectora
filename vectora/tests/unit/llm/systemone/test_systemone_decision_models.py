@@ -223,6 +223,16 @@ class TestClefLocalAdapter:
         with pytest.raises(SystemOneTimeoutError):
             await adapter.decide(req)
 
+        async def fake_not_implemented(
+            *args: object, **kwargs: object
+        ) -> httpx.Response:
+            """Simula um servidor que não implementa decisões estruturadas."""
+            return httpx.Response(501, text="systemone not implemented")
+
+        monkeypatch.setattr(httpx.AsyncClient, "post", fake_not_implemented)
+        with pytest.raises(SystemOneConnectionError):
+            await adapter.decide(req)
+
 
 class TestApiAdapters:
     """Testes de contrato para os adapters JEV API e Clef API."""

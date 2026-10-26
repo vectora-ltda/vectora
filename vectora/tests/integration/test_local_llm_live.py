@@ -1,7 +1,7 @@
 """Exercita o contrato OpenAI-compatible de um llama.cpp real.
 
 O teste não inicia servidor, não substitui ``httpx`` e não usa mocks. O
-workflow ``local-llm`` compila o ``llama-server`` e baixa o modelo Qwen fixado e
+    workflow ``local-llm`` compila o ``llama-server`` e baixa um modelo de decisão fixado e
 expõe ``VECTORA_LOCAL_LLM_BASE_URL`` antes de executar este módulo.
 """
 
@@ -102,11 +102,6 @@ async def test_llamacpp_systemone_endpoint_or_clef_adapter() -> None:
             assert "is_file_operation" in decide_res.answers
             assert isinstance(decide_res.answers["is_file_operation"], NoulAnswer)
         else:
-            if res.status_code in {404, 405, 501}:
-                pytest.skip(
-                    "o servidor local não expõe o contrato SystemOne "
-                    f"(HTTP {res.status_code})"
-                )
             pytest.fail(
                 "o servidor local falhou ao expor o contrato SystemOne "
                 f"(HTTP {res.status_code}): {res.text}"

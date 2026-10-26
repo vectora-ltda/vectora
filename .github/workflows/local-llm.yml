@@ -106,15 +106,15 @@ jobs:
             --target llama-server --parallel 2
           test -x "$LLAMA_CPP_DIR/build/bin/llama-server"
           echo "LLAMA_SERVER=$LLAMA_CPP_DIR/build/bin/llama-server" >> "$GITHUB_ENV"
-      - name: Download pinned Qwen model for Jev/llama.cpp
+      - name: Download pinned decision model for Jev/llama.cpp
         env:
-          MODEL_URL: https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/9217f5db79a29953eb74d5343926648285ec7e67/qwen2.5-0.5b-instruct-q2_k.gguf?download=true
-          MODEL_PATH: ${{ runner.temp }}/qwen2.5-0.5b-instruct-q2_k.gguf
-          MODEL_SHA256: 9ee36184e616dfc76df4f5dd66f908dbde6979524ae36e6cefb67f532f798cb8
+          MODEL_URL: https://huggingface.co/ggml-org/Julia-1-GGUF/resolve/1e6b48a6983d7467f8eedc2cb0d21267b5fc052d/Julia-1-Q8_0.gguf?download=true
+          MODEL_PATH: ${{ runner.temp }}/Julia-1-Q8_0.gguf
+          MODEL_SHA256: 1ea6a7e87156eeeda88cb7a36a61265b37ba7b993897b7289b99aea5b5e47069
         run: |
           curl --fail --location --retry 3 --retry-delay 2 --output "$MODEL_PATH" "$MODEL_URL"
           echo "$MODEL_SHA256  $MODEL_PATH" | sha256sum --check --status
-          test "$(stat --format=%s "$MODEL_PATH")" -eq 415182688
+          test "$(stat --format=%s "$MODEL_PATH")" -eq 168166496
           echo "MODEL_PATH=$MODEL_PATH" >> "$GITHUB_ENV"
       - name: Start llama.cpp and wait for readiness
         run: |
