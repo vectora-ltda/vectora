@@ -5,7 +5,11 @@ import pytest
 
 from backend.services.vext import VextManifest
 from backend.services.vext_artifact import build_vext
-from backend.services.vext_host import VextHost
+from backend.services.vext_host import (
+    MAX_QUEUED_RESPONSES,
+    OVERSIZED_RESPONSE,
+    VextHost,
+)
 
 
 def _source(root: Path, permissions: list[str]) -> None:
@@ -120,3 +124,14 @@ def test_host_requires_os_sandbox_when_enabled(monkeypatch: pytest.MonkeyPatch) 
             manifest,
             required=True,
         )
+
+
+def test_host_bounds_noisy_runtime_output() -> None:
+    """A noisy child cannot grow the response queue without bound."""
+    host = VextHost("unused.vext", sandbox_required=False)
+    for index in range(MAX_QUEUED_RESPONSES):
+        host._enqueue_response(f"line-{index}")
+    host._enqueue_response("overflow")
+
+    assert host._response_queue.qsize() == 1
+    assert host._response_queue.get_nowait() == OVERSIZED_RESPONSE

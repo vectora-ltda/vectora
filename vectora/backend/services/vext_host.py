@@ -291,19 +291,6 @@ class VextHost:
         stdout = process.stdout
         stderr = process.stderr
 
-        def enqueue_response(line: str) -> None:
-            try:
-                self._response_queue.put_nowait(line)
-            except queue.Full:
-                # Discard queued output and fail the next request closed.  Do
-                # not block the reader thread: a blocked reader can deadlock
-                # the child process when its stdout pipe fills up.
-                with suppress(queue.Empty):
-                    while True:
-                        self._response_queue.get_nowait()
-                with suppress(queue.Full):
-                    self._response_queue.put_nowait(OVERSIZED_RESPONSE)
-
         def read_stdout() -> None:
             while True:
                 line = stdout.readline(MAX_RPC_LINE + 1)
@@ -314,9 +301,9 @@ class VextHost:
                         line = stdout.readline(MAX_RPC_LINE + 1)
                         if not line:
                             break
-                    enqueue_response(OVERSIZED_RESPONSE)
+                    self._enqueue_response(OVERSIZED_RESPONSE)
                     continue
-                enqueue_response(line)
+                self._enqueue_response(line)
 
         def append_stderr(chunk: str) -> None:
             current = self._stderr_buffer[0] if self._stderr_buffer else ""
@@ -337,6 +324,20 @@ class VextHost:
             thread = threading.Thread(target=target, daemon=True)
             thread.start()
             self._reader_threads.append(thread)
+
+    def _enqueue_response(self, line: str) -> None:
+        """Enqueue output without allowing an extension to exhaust host memory."""
+        try:
+            self._response_queue.put_nowait(line)
+        except queue.Full:
+            # Discard queued output and fail the next request closed.  Do not
+            # block the reader thread: a blocked reader can deadlock the child
+            # process when its stdout pipe fills up.
+            with suppress(queue.Empty):
+                while True:
+                    self._response_queue.get_nowait()
+            with suppress(queue.Full):
+                self._response_queue.put_nowait(OVERSIZED_RESPONSE)
 
     def request(
         self,
