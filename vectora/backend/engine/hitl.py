@@ -60,6 +60,7 @@ def _log_decision(
 #: Tools destrutivas candidatas a pausar o loop para aprovação.
 REQUIRE_APPROVAL: frozenset[str] = frozenset(
     {
+        "bash",
         "terminal",
         "terminal_tool",
         "write_terminal",
@@ -369,7 +370,7 @@ def should_require_approval(  # noqa: PLR0911
 
 
 def _risk_assessment_key(tool_name: str, args: dict[str, Any]) -> str:
-    """Executa a operação risk assessment key."""
+    """Executa a operação  risk assessment key."""
     payload = json.dumps(args, sort_keys=True, default=str)
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return f"{tool_name}:{digest}"

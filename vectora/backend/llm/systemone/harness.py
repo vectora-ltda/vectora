@@ -112,7 +112,7 @@ class WorkspaceBudgetTracker:
         self._window_started_at: dict[str, float] = {}
 
     def _refresh_window_if_expired(self, workspace_id: str) -> None:
-        """Executa a operação refresh window if expired."""
+        """Executa a operação  refresh window if expired."""
         if self._window_seconds is None or self._window_seconds <= 0:
             return
         now = self._clock()
@@ -242,6 +242,7 @@ class SystemOneHarness:
         self._response_cache_max = 512
         self._response_cache_ttl_s = 300.0
         self._inflight: dict[tuple[Any, ...], asyncio.Future[SystemOneResponse]] = {}
+        self.last_rerank_status = "not_called"
 
     @property
     def registry(self) -> DecisionPatternRegistry:
@@ -282,7 +283,7 @@ class SystemOneHarness:
         return spec.operation_spec.default_mode
 
     def _resolve_model_for_provider(self, provider_id: str) -> str:
-        """Executa a operação resolve model for provider."""
+        """Executa a operação  resolve model for provider."""
         if provider_id == "clef-local":
             return self._settings.local_model
         if provider_id == "laya-local":
@@ -294,21 +295,21 @@ class SystemOneHarness:
         return self._settings.local_model
 
     def _is_circuit_open(self, provider_id: str) -> bool:
-        """Executa a operação is circuit open."""
+        """Executa a operação  is circuit open."""
         state = self._circuit_breakers.get(provider_id)
         if state is None:
             return False
         return state.opened_until > self._clock()
 
     def _record_provider_success(self, provider_id: str) -> None:
-        """Executa a operação record provider success."""
+        """Executa a operação  record provider success."""
         state = self._circuit_breakers.get(provider_id)
         if state is not None:
             state.consecutive_failures = 0
             state.opened_until = 0.0
 
     def _record_provider_failure(self, provider_id: str) -> None:
-        """Executa a operação record provider failure."""
+        """Executa a operação  record provider failure."""
         state = self._circuit_breakers.setdefault(provider_id, _CircuitBreakerState())
         state.consecutive_failures += 1
         if state.consecutive_failures >= self._cb_threshold:
@@ -321,7 +322,7 @@ class SystemOneHarness:
         *,
         allow_remote_override: bool = False,
     ) -> bool:
-        """Executa a operação is provider privacy allowed."""
+        """Executa a operação  is provider privacy allowed."""
         if provider_id not in _REMOTE_PROVIDERS:
             return True
         if not (spec.privacy_spec.allow_remote_providers or allow_remote_override):
@@ -337,7 +338,7 @@ class SystemOneHarness:
         questions: dict[str, SystemOneQuestion],
         target_model: str,
     ) -> None:
-        """Executa a operação check provider capabilities."""
+        """Executa a operação  check provider capabilities."""
         caps = await provider.capabilities()
         if caps.evidence == "unverified":
             raise SystemOneCapabilityError(
@@ -384,7 +385,7 @@ class SystemOneHarness:
         provider_id: str | None = None,
         model: str | None = None,
     ) -> HarnessDecisionResult:
-        """Executa a operação build rejected or hitl result."""
+        """Executa a operação  build rejected or hitl result."""
         prov = provider_id or self._primary_provider.provider_id
         mdl = model or self._resolve_model_for_provider(prov)
         return HarnessDecisionResult(
@@ -421,7 +422,7 @@ class SystemOneHarness:
         max_retries: int,
         deadline_at: float,
     ) -> tuple[SystemOneResponse, int]:
-        """Executa a operação invoke provider with retries."""
+        """Executa a operação  invoke provider with retries."""
         attempts = 0
         while True:
             attempts += 1
@@ -464,7 +465,7 @@ class SystemOneHarness:
         primary_model: str,
         allow_remote_override: bool,
     ) -> HarnessDecisionResult | None:
-        """Executa a operação preflight validate."""
+        """Executa a operação  preflight validate."""
         if not self._settings.enabled or mode == "off":
             reason_code = (
                 "systemone_disabled"
@@ -608,7 +609,7 @@ class SystemOneHarness:
         used_fallback: bool = False,
         from_cache: bool = False,
     ) -> HarnessDecisionResult:
-        """Executa a operação build governed result."""
+        """Executa a operação  build governed result."""
         policy_eval = self._policy_engine.evaluate_response(
             resp,
             is_high_impact=spec.policy_spec.is_high_impact,
@@ -954,11 +955,13 @@ class SystemOneHarness:
         correlation_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """Ordena candidatos já autorizados via Score, preservando o ranking original em falha ou modo shadow."""
+        self.last_rerank_status = "not_called"
         if not candidates:
             return []
         limit = top_k if top_k is not None and top_k > 0 else len(candidates)
         mode = self.get_mode("rag_rerank_scoring", workspace_id=workspace_id)
         if not self._settings.enabled or mode == "off":
+            self.last_rerank_status = "fallback"
             return list(candidates[:limit])
 
         score_sem = asyncio.Semaphore(max(1, self._max_queue_size // 2))
@@ -966,7 +969,7 @@ class SystemOneHarness:
         async def _score_one(
             idx: int, item: dict[str, Any]
         ) -> tuple[float, int, str, dict[str, Any]] | None:
-            """Executa a operação score one."""
+            """Executa a operação  score one."""
             cand_id = str(item.get("id", f"cand_{idx}"))
             snippet = str(item.get("snippet") or item.get("text") or "")[:2000]
             async with score_sem:
@@ -998,16 +1001,19 @@ class SystemOneHarness:
         except TimeoutError:
             # A single deadline covers queue admission, provider calls and semaphore
             # waits. Preserve the source order when the aggregate budget expires.
+            self.last_rerank_status = "fallback"
             return list(candidates[:limit])
         scored: list[tuple[float, int, str, dict[str, Any]]] = []
         for entry in results:
             if entry is None:
                 # Em shadow ou em qualquer falha/HITL, preserva integralmente o ranking original
+                self.last_rerank_status = "fallback"
                 return list(candidates[:limit])
             scored.append(entry)
 
         # Desempate determinístico: maior score primeiro, menor índice original, menor candidate_id
         scored.sort(key=lambda entry: (-entry[0], entry[1], entry[2]))
+        self.last_rerank_status = "applied"
         return [entry[3] for entry in scored[:limit]]
 
     async def evaluate_goal_progress(

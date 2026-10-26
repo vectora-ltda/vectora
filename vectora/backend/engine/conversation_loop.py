@@ -65,7 +65,8 @@ from backend.persistence.native.ledger import (
     make_tool_finished_key,
     make_tool_started_key,
 )
-from backend.services.context_compaction import compact_messages
+from backend.services.context_planner import compute_transcript_hash
+from backend.services.memory_store import MemoryRecord
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import ContentBlock, MessageRole, ToolCall, VMessage
 
@@ -79,6 +80,49 @@ _REPEATED_CALL_HARD_LIMIT = 6
 """Limite de segurança antes de encerrar uma chamada de tool presa."""
 
 logger = logging.getLogger(__name__)
+
+
+def _preserve_latest_tool_result(model_id: str) -> bool:
+    """Executa a operação  preserve latest tool result."""
+    normalized = model_id.strip().casefold()
+    return normalized.startswith(("ollama:", "llamacpp:", "dmr:"))
+
+
+async def _load_persistent_context_memories(ctx: ToolContext) -> list[MemoryRecord]:
+    """Executa a operação  load persistent context memories."""
+    if ctx.store is None or not hasattr(ctx.store, "asearch"):
+        return []
+    if ctx.user_id and ctx.user_id != "local":
+        owner = ctx.user_id
+    elif ctx.workspace_id:
+        owner = f"workspace_{ctx.workspace_id}"
+    elif ctx.thread_id:
+        owner = f"session_{ctx.thread_id}"
+    else:
+        owner = "local"
+    try:
+        from backend.tools.memory import _search_unexpired
+
+        items = await _search_unexpired(
+            ctx.store,
+            ("user", owner, "memories"),
+            query="",
+            limit=5,
+            initial_scan_limit=5,
+        )
+        from backend.services.context_planner import memory_records_from_backend_items
+
+        return [
+            record
+            for record in memory_records_from_backend_items(
+                items, default_scope_id=ctx.workspace_id or "global"
+            )
+            if record.active
+        ]
+    except Exception:
+        logger.exception("conversation_loop: falha ao carregar memórias persistentes")
+        return []
+
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -123,7 +167,7 @@ class LoopResult:
 
 
 async def _noop_event(_event: object) -> None:
-    """Executa a operação noop event."""
+    """Executa a operação  noop event."""
     return
 
 
@@ -247,7 +291,16 @@ def _parse_todos_result(texto: str) -> list[TodoItem] | None:
         status = item.get("status")
         if status not in ("pending", "in_progress", "completed"):
             return None
-        itens.append(TodoItem(content=str(item.get("content", "")), status=status))
+        step_id = item.get("step_id")
+        quality_gate = item.get("quality_gate")
+        itens.append(
+            TodoItem(
+                content=str(item.get("content", "")),
+                status=status,
+                step_id=str(step_id) if step_id is not None else None,
+                quality_gate=str(quality_gate) if quality_gate is not None else None,
+            )
+        )
     return itens
 
 
@@ -313,7 +366,7 @@ async def _workspace_changed_paths(ctx: ToolContext) -> set[str]:
         return set()
 
 
-async def run_conversation(
+async def run_conversation(  # noqa: PLR0911
     *,
     session_store: SessionStore,
     chat_client: ChatClient,
@@ -338,6 +391,15 @@ async def run_conversation(
     from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    if hasattr(session_store, "get_session") and not (
+        isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
+    ):
+        session_meta = await session_store.get_session(thread_id)
+        if session_meta and session_meta.get("mode") == "connect":
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
+
     if hasattr(session_store, "list_agent_runs"):
         runs = await session_store.list_agent_runs(thread_id, limit=5)
         if any(
@@ -351,12 +413,16 @@ async def run_conversation(
             if not isinstance(ctx._extra, dict):
                 ctx._extra = {}
             ctx._extra["untrusted_content"] = True
+    refreshed_policy_snapshot = compile_policy_snapshot(ctx)
     if policy_snapshot is None:
-        policy_snapshot = compile_policy_snapshot(ctx)
+        policy_snapshot = refreshed_policy_snapshot
 
     if isinstance(ctx._extra, dict):
         sub_deps = ctx._extra.get("subagent_deps")
         if sub_deps is not None:
+            # The parent context can be reused for several goal turns. Refresh
+            # the dependency snapshot every time so RBAC and trust changes are
+            # visible to the next delegated call.
             sub_deps.policy_snapshot = policy_snapshot
     emit = on_event or _noop_event
     tools = tool_registry.all()
@@ -399,18 +465,148 @@ async def run_conversation(
     usage_records: list[tuple[str | None, dict[str, int]]] = []
     observed_tools: set[str] = set()
     files_touched: list[str] = []
+    executed_step_gates: set[tuple[str, str]] = set()
+    manifest_recorded = False
+    projection_recorded = False
+
+    async def _persist_context_checkpoint(
+        raw_history: list[VMessage],
+        *,
+        phase: str,
+        iteration: int,
+        source_hash: str,
+        pending_tool_call_ids: tuple[str, ...] = (),
+        completed_tool_call_ids: tuple[str, ...] = (),
+    ) -> None:
+        """Executa a operação  persist context checkpoint."""
+        if not config.run_id or not hasattr(session_store, "save_context_checkpoint"):
+            return
+        await session_store.save_context_checkpoint(
+            thread_id,
+            config.run_id,
+            {
+                "checkpoint_id": f"{config.run_id}:seq:{len(raw_history)}:{phase}",
+                "last_sequence": len(raw_history),
+                "source_hash": source_hash,
+                "schema_version": "context.v1",
+                "state": {
+                    "iteration": iteration,
+                    "phase": phase,
+                    "policy_version": getattr(policy_snapshot, "version", ""),
+                    "pending_tool_call_ids": list(pending_tool_call_ids),
+                    "completed_tool_call_ids": list(completed_tool_call_ids),
+                },
+                "artifact_refs": [],
+            },
+        )
+
+    if config.run_id and hasattr(session_store, "get_latest_context_checkpoint"):
+        try:
+            checkpoint = await session_store.get_latest_context_checkpoint(
+                thread_id, run_id=config.run_id
+            )
+            raw_state = checkpoint.get("state", {}) if checkpoint else {}
+            state = raw_state if isinstance(raw_state, dict) else {}
+            current_history = await session_store.get_history(thread_id)
+            checkpoint_sequence = (
+                int(cast("int", checkpoint.get("last_sequence", 0)))
+                if checkpoint is not None
+                else -1
+            )
+            checkpoint_hash_matches = bool(
+                checkpoint
+                and checkpoint_sequence >= 0
+                and checkpoint_sequence <= len(current_history)
+                and checkpoint.get("source_hash")
+                == compute_transcript_hash(current_history[:checkpoint_sequence])
+            )
+            checkpoint_is_current = bool(
+                checkpoint
+                and checkpoint.get("schema_version") == "context.v1"
+                and checkpoint_hash_matches
+            )
+            if (
+                checkpoint_is_current
+                and checkpoint is not None
+                and checkpoint.get("run_id") == config.run_id
+                and state.get("phase") == "tool_running"
+                and state.get("pending_tool_call_ids")
+            ):
+                await _safe_update_agent_run_status(
+                    session_store,
+                    config.run_id,
+                    status="recovery_required",
+                    detail="Execução interrompida durante tools; reconciliação necessária.",
+                    error_code="CHECKPOINT_TOOL_RECONCILIATION_REQUIRED",
+                )
+                return LoopResult(stopped_reason="recovery_required")
+        except Exception:
+            logger.exception(
+                "conversation_loop: falha ao carregar checkpoint de retomada"
+            )
 
     for _iteracao in range(config.max_iterations):
-        historico = compact_messages(
-            await session_store.get_history(thread_id),
-            max_tokens=(
-                config.context_max_tokens
-                if config.context_max_tokens is not None
-                else _default_context_tokens()
-            ),
-            enabled=config.context_compaction_enabled,
-            preserve_latest_tool_result=str(ctx.model).startswith("ollama:"),
+        raw_history = await session_store.get_history(thread_id)
+        effective_max_tokens = (
+            config.context_max_tokens
+            if config.context_max_tokens is not None
+            else _default_context_tokens()
         )
+        from backend.services.context_planner import plan_context
+
+        planned_context = plan_context(
+            raw_history,
+            max_tokens=effective_max_tokens,
+            enabled=config.context_compaction_enabled,
+            preserve_latest_tool_result=_preserve_latest_tool_result(str(ctx.model)),
+            workspace_id=ctx.workspace_id or None,
+            policy_snapshot=policy_snapshot,
+            persistent_memory_records=await _load_persistent_context_memories(ctx),
+        )
+        historico = planned_context.messages
+        if config.run_id and hasattr(session_store, "record_run_evidence"):
+            try:
+                if planned_context.manifest and not manifest_recorded:
+                    await session_store.record_run_evidence(
+                        config.run_id,
+                        evidence={
+                            "run_id": config.run_id,
+                            "thread_id": thread_id,
+                            **planned_context.manifest.to_evidence_entry(),
+                        },
+                    )
+                    manifest_recorded = True
+                if planned_context.projection is not None and not projection_recorded:
+                    projection_entry = planned_context.projection.to_evidence_entry()
+                    await session_store.record_run_evidence(
+                        config.run_id,
+                        evidence={
+                            "run_id": config.run_id,
+                            "thread_id": thread_id,
+                            **projection_entry,
+                        },
+                    )
+                    if hasattr(session_store, "save_context_projection"):
+                        await session_store.save_context_projection(
+                            thread_id, config.run_id, dict(projection_entry)
+                        )
+                    projection_recorded = True
+            except Exception:
+                logger.exception(
+                    "conversation_loop: falha ao persistir contexto planejado"
+                )
+        source_hash = (
+            planned_context.projection.source_transcript_hash
+            if planned_context.projection is not None
+            else compute_transcript_hash(raw_history)
+        )
+        with contextlib.suppress(Exception):
+            await _persist_context_checkpoint(
+                raw_history,
+                phase="provider_dispatch",
+                iteration=_iteracao,
+                source_hash=source_hash,
+            )
 
         partes_texto: list[str] = []
         tool_call_chunks_por_indice: dict[int, dict[str, Any]] = {}
@@ -718,7 +914,6 @@ async def run_conversation(
                                 )
                                 if agent_run is not None:
                                     agent_run.evidence.append(v_res.to_evidence_entry())
-                                    agent_run.status = v_res.status
                                     agent_run.metrics = iter_metrics
                                     agent_run.detail = (
                                         "Verificação concluída com sucesso."
@@ -726,6 +921,17 @@ async def run_conversation(
                                         else f"Falha nos quality gates: {v_res.failure_feedback or ''}"
                                     )
                                     await session_store.upsert_agent_run(agent_run)
+                                    # A persistência da evidência não deve alterar a
+                                    # máquina de estados. O motor de verificação é a
+                                    # única fonte do desfecho terminal e a transição
+                                    # ocorre depois que a evidência está durável.
+                                    await _safe_update_agent_run_status(
+                                        session_store,
+                                        config.run_id,
+                                        status=v_res.status,
+                                        detail=agent_run.detail,
+                                        metrics=iter_metrics,
+                                    )
                             else:
                                 await _safe_update_agent_run_status(
                                     session_store,
@@ -911,12 +1117,11 @@ async def run_conversation(
             _started_at: dict[str, float] = tool_started_at,
             _previews: dict[str, str] = tool_args_previews,
         ) -> None:
-            """Executa a operação record tool started."""
+            """Persist and publish one start event immediately before execution."""
             spec = tool_registry.get(tc.name)
             extras = spec.extras if spec is not None else None
-            tool_started_at[tc.id] = time.monotonic()
-            preview = _args_preview(tc.args)
-            tool_args_previews[tc.id] = preview
+            _started_at.setdefault(tc.id, time.monotonic())
+            preview = _previews.setdefault(tc.id, _args_preview(tc.args))
             if config.run_id:
                 try:
                     if hasattr(session_store, "append_ledger_event"):
@@ -975,6 +1180,19 @@ async def run_conversation(
                     tc.name,
                     thread_id,
                 )
+
+        for tc in tool_calls:
+            tool_started_at[tc.id] = time.monotonic()
+            tool_args_previews[tc.id] = _args_preview(tc.args)
+
+        with contextlib.suppress(Exception):
+            await _persist_context_checkpoint(
+                raw_history,
+                phase="tool_running",
+                iteration=_iteracao,
+                source_hash=source_hash,
+                pending_tool_call_ids=tuple(call.id for call in tool_calls if call.id),
+            )
 
         resultados = await execute_tool_batch(
             tool_calls,
@@ -1075,12 +1293,117 @@ async def run_conversation(
                 todos = _parse_todos_result(resultado.text())
                 if todos is not None:
                     await emit(TodosUpdated(todos=todos))
+                    if (
+                        config.run_id
+                        and hasattr(session_store, "get_agent_run")
+                        and hasattr(session_store, "upsert_agent_run")
+                    ):
+                        try:
+                            active_item = next(
+                                (t for t in todos if t.status == "in_progress"),
+                                None,
+                            )
+                            active_step_id = (
+                                (active_item.step_id or active_item.content)
+                                if active_item
+                                else None
+                            )
+                            agent_run = await session_store.get_agent_run(config.run_id)
+                            if agent_run is not None:
+                                agent_run.plan_step = active_step_id
+                                # Recupera gates já concluídos com sucesso para não reexecutar
+                                for ev in agent_run.evidence:
+                                    if (
+                                        isinstance(ev, dict)
+                                        and ev.get("kind")
+                                        == "quality_gate_verification"
+                                        and ev.get("passed")
+                                    ):
+                                        ev_step = ev.get("step_id")
+                                        ev_gate = ev.get("quality_gate")
+                                        if ev_step and ev_gate:
+                                            executed_step_gates.add(
+                                                (str(ev_step), str(ev_gate))
+                                            )
+
+                                # Executa quality gates específicos para etapas concluídas
+                                for item in todos:
+                                    if item.status == "completed" and item.quality_gate:
+                                        step_key = item.step_id or item.content
+                                        gate_key = item.quality_gate
+                                        pair = (step_key, gate_key)
+                                        if pair in executed_step_gates:
+                                            continue
+
+                                        try:
+                                            from backend.services.verification import (
+                                                run_verification,
+                                            )
+
+                                            ws_id = getattr(ctx, "workspace_id", None)
+                                            ws_dir = getattr(
+                                                ctx, "workspace_dir", None
+                                            ) or getattr(ctx, "cwd", None)
+                                            v_res = await run_verification(
+                                                ws_id,
+                                                ws_dir,
+                                                target_gate_ids=[item.quality_gate],
+                                            )
+                                            v_entry = v_res.to_evidence_entry()
+                                            v_entry["step_id"] = step_key
+                                            v_entry["quality_gate"] = gate_key
+                                            agent_run.evidence.append(v_entry)
+                                            if v_res.passed:
+                                                executed_step_gates.add(pair)
+                                            # The verification result is
+                                            # persisted as evidence; the
+                                            # final verification pass owns the
+                                            # terminal AgentRun status.
+                                        except Exception as gate_exc:
+                                            logger.exception(
+                                                "Falha ao executar quality gate %s para step %s (run_id %s)",
+                                                gate_key,
+                                                step_key,
+                                                config.run_id,
+                                            )
+                                            agent_run.evidence.append(
+                                                {
+                                                    "kind": "quality_gate_verification",
+                                                    "step_id": step_key,
+                                                    "quality_gate": gate_key,
+                                                    "passed": False,
+                                                    "error": str(gate_exc),
+                                                }
+                                            )
+                                try:
+                                    await session_store.upsert_agent_run(agent_run)
+                                except Exception:
+                                    logger.exception(
+                                        "Falha ao persistir AgentRun atualizado com quality gates (run_id %s)",
+                                        config.run_id,
+                                    )
+                        except Exception:
+                            logger.exception(
+                                "Erro inesperado ao processar plano e quality gates para run_id %s",
+                                config.run_id,
+                            )
 
         # Deriva a evidência do workspace após o lote. Isso exclui chamadas
         # rejeitadas e leituras, e também detecta arquivos escritos via terminal.
         for changed_path in await _workspace_changed_paths(ctx):
             if changed_path not in files_touched:
                 files_touched.append(changed_path)
+
+        with contextlib.suppress(Exception):
+            await _persist_context_checkpoint(
+                raw_history,
+                phase="provider_dispatch",
+                iteration=_iteracao,
+                source_hash=source_hash,
+                completed_tool_call_ids=tuple(
+                    result.tool_call_id for result in resultados if result.tool_call_id
+                ),
+            )
 
         if turn_budget.exceeded is not None:
             if config.run_id:
@@ -1298,6 +1621,11 @@ async def resume_conversation(
     from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    is_untrusted_thread = False
+    if hasattr(session_store, "get_session"):
+        session_meta = await session_store.get_session(thread_id)
+        if session_meta and session_meta.get("mode") == "connect":
+            is_untrusted_thread = True
     if hasattr(session_store, "list_agent_runs"):
         runs = await session_store.list_agent_runs(thread_id, limit=5)
         paused_run = next(
@@ -1305,9 +1633,11 @@ async def resume_conversation(
             runs[0] if runs else None,
         )
         if paused_run and paused_run.untrusted_content:
-            if not isinstance(ctx._extra, dict):
-                ctx._extra = {}
-            ctx._extra["untrusted_content"] = True
+            is_untrusted_thread = True
+    if is_untrusted_thread:
+        if not isinstance(ctx._extra, dict):
+            ctx._extra = {}
+        ctx._extra["untrusted_content"] = True
 
     if policy_snapshot is None:
         policy_snapshot = compile_policy_snapshot(ctx)
@@ -1339,7 +1669,7 @@ async def resume_conversation(
         args: dict[str, Any] | None = None,
         policy_snapshot: PolicySnapshot | None = None,
     ) -> VMessage:
-        """Executa a operação execute resume tool."""
+        """Executa a operação  execute resume tool."""
         call = replace(tc, args=args) if args is not None else tc
         call_id = call.id or f"{resume_run_id or thread_id}:tool:{uuid4().hex}"
         call = replace(call, id=call_id)
