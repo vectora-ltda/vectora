@@ -65,6 +65,7 @@ async def test_dag_is_idempotent_and_resumes_after_expired_claim(tmp_path) -> No
         )
     claimed = await store.claim_ready_stage(execution.execution_id, lease_seconds=-1)
     assert claimed is not None
+    expired_token = claimed[1]
     assert await store.recover_expired_claims() == 1
     claimed = await store.claim_ready_stage(execution.execution_id)
     assert claimed is not None
@@ -77,6 +78,21 @@ async def test_dag_is_idempotent_and_resumes_after_expired_claim(tmp_path) -> No
         event = await cursor.fetchone()
     assert event is not None
     assert '"attempt": 2' in event["payload_json"]
+    async with db.execute(
+        "SELECT COUNT(*) FROM vectora_dag_events "
+        "WHERE execution_id=? AND stage_id=? AND event_type='stage_recovered'",
+        (execution.execution_id, claimed[0]),
+    ) as cursor:
+        recovered_events = await cursor.fetchone()
+    assert recovered_events is not None and recovered_events[0] == 1
+    with pytest.raises(DAGValidationError):
+        await store.finish_stage(
+            execution.execution_id,
+            claimed[0],
+            claim_token=expired_token,
+            passed=True,
+            output={"stale": True},
+        )
     await store.finish_stage(
         execution.execution_id,
         claimed[0],

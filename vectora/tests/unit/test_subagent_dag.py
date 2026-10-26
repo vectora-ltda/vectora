@@ -265,9 +265,13 @@ async def test_subagent_liveness_marks_child_cancelled(session_store, ctx, monke
     assert "cancelado por inatividade" in result
     async with session_store._pool.acquire() as conn:
         cur = await conn.execute(
-            "SELECT run_id FROM agent_runs WHERE status = 'cancelled'"
+            "SELECT run_id, status FROM agent_runs WHERE parent_run_id = ? "
+            "AND status = 'cancelled'",
+            (ctx.run_id,),
         )
-        assert await cur.fetchone()
+        rows = await cur.fetchall()
+        assert len(rows) == 1
+        assert rows[0][1] == "cancelled"
 
 
 @pytest.mark.asyncio
@@ -309,10 +313,12 @@ async def test_subagent_hard_interrupt_marks_child_cancelled(
     async with session_store._pool.acquire() as conn:
         cur = await conn.execute(
             "SELECT run_id FROM agent_runs "
-            "WHERE parent_run_id = ? AND status = 'cancelled'",
-            (ctx.run_id,),
+            "WHERE parent_run_id = ? AND correlation_id = ? "
+            "AND status = 'cancelled'",
+            (ctx.run_id, str(correlation)),
         )
-        assert await cur.fetchone()
+        rows = await cur.fetchall()
+        assert len(rows) == 1
 
 
 @pytest.mark.asyncio
@@ -343,6 +349,10 @@ async def test_subagent_exception_marks_child_failed_and_propagates(
         )
     async with session_store._pool.acquire() as conn:
         cur = await conn.execute(
-            "SELECT run_id FROM agent_runs WHERE status = 'failed'"
+            "SELECT run_id, status FROM agent_runs WHERE parent_run_id = ? "
+            "AND status = 'failed'",
+            (ctx.run_id,),
         )
-        assert await cur.fetchone()
+        rows = await cur.fetchall()
+        assert len(rows) == 1
+        assert rows[0][1] == "failed"
