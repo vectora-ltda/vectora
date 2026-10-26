@@ -15,6 +15,7 @@ from backend.scheduling.kanban import (
     get_task_status,
     manual_transition,
     recompute_ready,
+    unblock_task,
 )
 
 
@@ -154,6 +155,26 @@ async def test_manual_transition_cas_write_time_collision(
         match="concorrência detectada: registro foi modificado por outra operação",
     ):
         await kanban.set_status("t_cas", "ready", expected_version=99)
+
+
+@pytest.mark.asyncio
+async def test_unblock_distinguishes_cas_conflict_from_claim_loss(
+    db: aiosqlite.Connection,
+) -> None:
+    """Um claim vigente com versão antiga deve reportar conflito CAS."""
+    await _insere_task(db, "t_unblock", status="blocked", version=4)
+    await db.execute(
+        "UPDATE vectora_background_tasks SET claim_lock = ?, claim_expires_at = ? WHERE id = ?",
+        ("run-1", "2999-01-01T00:00:00+00:00", "t_unblock"),
+    )
+    await db.commit()
+
+    with pytest.raises(ValueError, match="conflito CAS"):
+        await unblock_task(
+            "t_unblock",
+            authorized_run_id="run-1",
+            expected_version=3,
+        )
 
 
 @pytest.mark.asyncio
