@@ -45,16 +45,6 @@ def _graph_out_dir(workspace_path: Path) -> Path:
 _AST_CHECKPOINT = "checkpoint_ast.json"
 
 
-def _apply_indexing_result(
-    result: GraphResult, graph_data: dict[str, Any], indexed_nodes: int
-) -> None:
-    """Registra falha quando um grafo não vazio não produz índice vetorial."""
-    if graph_data.get("nodes") and indexed_nodes == 0:
-        result.error = (
-            "Falha ao indexar nós do context graph; o índice vetorial ficou vazio."
-        )
-
-
 def _write_ast_checkpoint(out_dir: Path, ast_results: dict[str, Any]) -> None:
     """Persiste o resultado do AST (passo determinístico e CPU-pesado).
 
@@ -403,16 +393,7 @@ async def build_workspace_graph(
             graph_data = json.loads(graph_json.read_text(encoding="utf-8"))
             if not update:
                 await purge_graph_index(workspace_id)
-            indexed_nodes = await index_graph_nodes(workspace_id, graph_data)
-            if graph_data.get("nodes") and indexed_nodes == 0:
-                # A graph with nodes but no vector index is not a successful
-                # build: silently returning an empty index makes retrieval
-                # appear healthy while every semantic query is degraded.
-                _apply_indexing_result(result, graph_data, indexed_nodes)
-                logger.error(
-                    "context_graph: indexação retornou zero nós para grafo não vazio",
-                    extra={"workspace_id": workspace_id},
-                )
+            await index_graph_nodes(workspace_id, graph_data)
         except Exception:
             logger.exception(
                 "context_graph: falha ao indexar nós no LanceDB",

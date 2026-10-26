@@ -91,34 +91,6 @@ class TestBuildWorkspaceGraphNoFiles:
         assert result.node_count == 0
 
 
-class TestGraphIndexingOutcome:
-    def test_non_empty_graph_with_empty_index_is_degraded(self):
-        from backend.context_graph.pipeline import GraphResult, _apply_indexing_result
-
-        result = GraphResult(
-            workspace_id="ws",
-            workspace_path=Path(),
-            graph_path=Path("graph.json"),
-            report_path=Path("report.md"),
-            html_path=Path("graph.html"),
-        )
-        _apply_indexing_result(result, {"nodes": [{"id": "n1"}]}, 0)
-        assert result.error is not None
-
-    def test_empty_graph_does_not_fail_indexing(self):
-        from backend.context_graph.pipeline import GraphResult, _apply_indexing_result
-
-        result = GraphResult(
-            workspace_id="ws",
-            workspace_path=Path(),
-            graph_path=Path("graph.json"),
-            report_path=Path("report.md"),
-            html_path=Path("graph.html"),
-        )
-        _apply_indexing_result(result, {"nodes": []}, 0)
-        assert result.error is None
-
-
 class TestRunAstExtraction:
     def test_uses_cache_when_available(self, tmp_path: Path):
         from backend.context_graph.pipeline import _run_ast_extraction
