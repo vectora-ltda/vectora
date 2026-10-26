@@ -17,6 +17,7 @@ from pathlib import Path
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from pydantic import ValidationError
 
 from backend.llm.systemone.api_adapters import (
@@ -643,6 +644,20 @@ async def test_get_decision_models_status_structure() -> None:
     assert isinstance(res, SystemOneStatusResponse)
     assert res.provider in {"clef-local", "laya-local", "clef-api", "jev-api"}
     assert isinstance(res.is_healthy, bool)
+
+
+@pytest.mark.asyncio
+async def test_get_decision_models_status_rejects_invalid_runtime_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Configuração inválida não pode virar erro 500 no endpoint de status."""
+    monkeypatch.setattr(app_settings, "systemone_confidence_threshold_hitl", 1.5)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await get_decision_models_status()
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail == "Configuração do Decision Model inválida"
 
 
 @pytest.mark.parametrize("prov", ["clef-local", "laya-local", "clef-api", "jev-api"])
