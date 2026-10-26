@@ -215,7 +215,7 @@ class DAGStore:
         self, execution_id: str, *, lease_seconds: int = 900
     ) -> tuple[str, str] | None:
         async with self.db.execute(
-            "SELECT stage_id,depends_on_json FROM vectora_dag_stages WHERE execution_id=? AND status='pending' ORDER BY rowid",
+            "SELECT stage_id,depends_on_json,attempt FROM vectora_dag_stages WHERE execution_id=? AND status='pending' ORDER BY rowid",
             (execution_id,),
         ) as cur:
             rows = await cur.fetchall()
@@ -224,7 +224,7 @@ class DAGStore:
             if deps:
                 marks = ",".join("?" for _ in deps)
                 async with self.db.execute(
-                    f"SELECT COUNT(*) FROM vectora_dag_stages WHERE execution_id=? AND stage_id IN ({marks}) AND status='passed'",  # nosec B608
+                    f"SELECT COUNT(*) FROM vectora_dag_stages WHERE execution_id=? AND stage_id IN ({marks}) AND status='passed'",  # noqa: S608  # nosec B608
                     (execution_id, *deps),
                 ) as cur:
                     count_row = await cur.fetchone()
@@ -238,8 +238,12 @@ class DAGStore:
                 (token, expires, execution_id, row["stage_id"]),
             )
             if cur.rowcount == 1:
+                attempt = int(row["attempt"]) + 1
                 await self._event(
-                    execution_id, row["stage_id"], "stage_claimed", {"attempt": 1}
+                    execution_id,
+                    row["stage_id"],
+                    "stage_claimed",
+                    {"attempt": attempt},
                 )
                 await self.db.commit()
                 return row["stage_id"], token

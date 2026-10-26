@@ -58,6 +58,15 @@ async def test_dag_is_idempotent_and_resumes_after_expired_claim(tmp_path) -> No
     assert await store.recover_expired_claims() == 1
     claimed = await store.claim_ready_stage(execution.execution_id)
     assert claimed is not None
+    async with db.execute(
+        "SELECT payload_json FROM vectora_dag_events "
+        "WHERE execution_id=? AND stage_id=? AND event_type='stage_claimed' "
+        "ORDER BY created_at DESC LIMIT 1",
+        (execution.execution_id, claimed[0]),
+    ) as cursor:
+        event = await cursor.fetchone()
+    assert event is not None
+    assert '"attempt": 2' in event["payload_json"]
     await store.finish_stage(
         execution.execution_id,
         claimed[0],
