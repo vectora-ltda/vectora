@@ -280,10 +280,10 @@ describe("MemoryBucketsSection", () => {
     render(<MemoryBucketsSection query="" onCountChange={() => {}} />);
     await waitFor(() =>
       expect(
-        screen.getByText(/Publishing from the app will be available/),
+        screen.getByText("Published buckets are visible to collaborators."),
       ).toBeTruthy(),
     );
-    expect(screen.queryByText("Publish my memory")).toBeNull();
+    expect(screen.queryByText("Publish bucket")).toBeNull();
   });
 
   it("com conta conectada e workspace ativo, publica pelo diálogo (POST /rag-library/publish)", async () => {
@@ -306,14 +306,14 @@ describe("MemoryBucketsSection", () => {
     render(<MemoryBucketsSection query="" onCountChange={() => {}} />);
 
     await waitFor(() =>
-      expect(screen.getByText("Publish my memory")).toBeTruthy(),
+      expect(screen.getByText("Publish bucket")).toBeTruthy(),
     );
-    fireEvent.click(screen.getByText("Publish my memory"));
+    fireEvent.click(screen.getByText("Publish bucket"));
 
     await waitFor(() =>
-      expect(screen.getByText("Publish memory")).toBeTruthy(),
+      expect(screen.getByText("Publish memory bucket")).toBeTruthy(),
     );
-    fireEvent.click(await screen.findByText("Select a bucket"));
+    fireEvent.click(await screen.findByText("Choose a bucket"));
     fireEvent.click(await screen.findByText("Docs internos"));
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "Meus docs" },
@@ -350,12 +350,10 @@ describe("MemoryBucketsSection", () => {
     });
     render(<MemoryBucketsSection query="" onCountChange={() => {}} />);
 
-    fireEvent.click(await screen.findByText("Publish my memory"));
+    fireEvent.click(await screen.findByText("Publish bucket"));
 
     await waitFor(() =>
-      expect(
-        screen.getByText(/No bucket indexed in this workspace yet/),
-      ).toBeTruthy(),
+      expect(screen.getByText("No buckets available.")).toBeTruthy(),
     );
     expect(screen.getByRole("button", { name: "Publish" })).toHaveProperty(
       "disabled",
@@ -382,8 +380,8 @@ describe("MemoryBucketsSection", () => {
     });
     render(<MemoryBucketsSection query="" onCountChange={() => {}} />);
 
-    fireEvent.click(await screen.findByText("Publish my memory"));
-    fireEvent.click(await screen.findByText("Select a bucket"));
+    fireEvent.click(await screen.findByText("Publish bucket"));
+    fireEvent.click(await screen.findByText("Choose a bucket"));
     fireEvent.click(await screen.findByText("Docs internos"));
 
     await waitFor(() => {
@@ -411,13 +409,13 @@ describe("MemoryBucketsSection", () => {
     render(<MemoryBucketsSection query="" onCountChange={() => {}} />);
 
     await waitFor(() =>
-      expect(screen.getByText("Publish my memory")).toBeTruthy(),
+      expect(screen.getByText("Publish bucket")).toBeTruthy(),
     );
-    fireEvent.click(screen.getByText("Publish my memory"));
+    fireEvent.click(screen.getByText("Publish bucket"));
     await waitFor(() =>
-      expect(screen.getByText("Publish memory")).toBeTruthy(),
+      expect(screen.getByText("Publish memory bucket")).toBeTruthy(),
     );
-    fireEvent.click(await screen.findByText("Select a bucket"));
+    fireEvent.click(await screen.findByText("Choose a bucket"));
     fireEvent.click(await screen.findByText("Docs internos"));
     fireEvent.change(screen.getByLabelText("Name"), {
       target: { value: "Meus docs" },
@@ -427,6 +425,6 @@ describe("MemoryBucketsSection", () => {
     await waitFor(() => {
       expect(screen.getByText("falha ao publicar")).toBeTruthy();
     });
-    expect(screen.getByText("Publish memory")).toBeTruthy();
+    expect(screen.getByText("Publish memory bucket")).toBeTruthy();
   });
 });

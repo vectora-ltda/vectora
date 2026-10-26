@@ -11,49 +11,28 @@
  * library-memory-section.test.tsx).
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
-import { useEffect } from "react";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 
 vi.mock("../library-mcp-section", () => ({
-  McpSection: ({
-    onCountChange,
-  }: {
-    query: string;
-    onCountChange: (count: number) => void;
-  }) => {
-    useEffect(() => {
-      onCountChange(0);
-    }, [onCountChange]);
+  McpSection: () => {
     return <p>No MCP servers available yet.</p>;
   },
 }));
 
 vi.mock("../library-skills-section", () => ({
-  SkillsSection: ({
-    onCountChange,
-  }: {
-    query: string;
-    onCountChange: (count: number) => void;
-  }) => {
-    useEffect(() => {
-      onCountChange(0);
-    }, [onCountChange]);
+  SkillsSection: () => {
     return <p>No skills available yet.</p>;
   },
 }));
 
 vi.mock("../library-memory-buckets-section", () => ({
-  MemoryBucketsSection: ({
-    onCountChange,
-  }: {
-    query: string;
-    onCountChange: (count: number) => void;
-  }) => {
-    useEffect(() => {
-      onCountChange(0);
-    }, [onCountChange]);
+  MemoryBucketsSection: () => {
     return <p>No memory buckets available yet.</p>;
   },
+}));
+
+vi.mock("../library-extensions-section", () => ({
+  ExtensionsSection: () => <p>No extensions available yet.</p>,
 }));
 
 import { LibraryTab } from "../library-tab";
@@ -61,48 +40,59 @@ import { LibraryTab } from "../library-tab";
 afterEach(cleanup);
 
 describe("LibraryTab", () => {
-  it("renderiza as 3 seções (MCP, Skills, Memory Buckets)", () => {
+  it("renderiza as categorias da Library", () => {
     render(<LibraryTab threadId="t1" />);
-    expect(screen.getByText(/MCP \(0\)/)).toBeTruthy();
-    expect(screen.getByText(/Skills \(0\)/)).toBeTruthy();
-    expect(screen.getByText(/Memory Buckets \(0\)/)).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "MCP" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Skills" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Memory" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Extensions" })).toBeTruthy();
   });
 
   it("cada seção vazia mostra estado vazio específico, sem quebrar", () => {
     render(<LibraryTab threadId="t1" />);
-    expect(screen.getByText("No MCP servers available yet.")).toBeTruthy();
-    expect(screen.getByText("No skills available yet.")).toBeTruthy();
-    expect(screen.getByText("No memory buckets available yet.")).toBeTruthy();
+    const cases = [
+      ["MCP", "No MCP servers available yet."],
+      ["Skills", "No skills available yet."],
+      ["Memory", "No memory buckets available yet."],
+      ["Extensions", "No extensions available yet."],
+    ] as const;
+    for (const [tab, emptyText] of cases) {
+      fireEvent.click(screen.getByRole("tab", { name: tab }));
+      expect(screen.getByText(emptyText)).toBeTruthy();
+    }
   });
 
-  it("abrir duas seções ao mesmo tempo mantém ambas abertas (type=multiple)", () => {
+  it("seleciona uma seção sem desmontar as demais", () => {
     render(<LibraryTab threadId="t1" />);
-    // defaultValue já abre as 3 — clicar numa não fecha as outras.
-    fireEvent.click(screen.getByText(/MCP \(0\)/));
-    expect(screen.getByText("No skills available yet.")).toBeTruthy();
-    expect(screen.getByText("No memory buckets available yet.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "MCP" }));
+    expect(screen.getByRole("tab", { name: "MCP" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
-  it("desligar um filtro remove a seção correspondente sem afetar as outras", () => {
+  it("selecionar uma categoria atualiza o estado ativo", () => {
     render(<LibraryTab threadId="t1" />);
     fireEvent.click(screen.getByRole("button", { name: "Skills" }));
-    expect(screen.queryByText(/Skills \(0\)/)).toBeNull();
-    expect(screen.getByText(/MCP \(0\)/)).toBeTruthy();
-    expect(screen.getByText(/Memory Buckets \(0\)/)).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Skills" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("tab", { name: "MCP" })).toHaveAttribute(
+      "aria-selected",
+      "false",
+    );
   });
 
-  it("todos os filtros desligados mostra estado vazio específico de 'nenhum filtro ativo'", () => {
+  it("mantém todas as categorias disponíveis após alternar a seleção", () => {
     render(<LibraryTab threadId="t1" />);
-    fireEvent.click(screen.getByRole("button", { name: "MCP" }));
-    fireEvent.click(screen.getByRole("button", { name: "Skills" }));
-    fireEvent.click(screen.getByRole("button", { name: "Memory" }));
-    fireEvent.click(screen.getByRole("button", { name: "Extensions" }));
-    expect(
-      screen.getByText(
-        "No filters active — turn on at least one category to search.",
-      ),
-    ).toBeTruthy();
-    expect(screen.queryByText(/MCP \(0\)/)).toBeNull();
+    for (const name of ["MCP", "Skills", "Memory", "Extensions"]) {
+      fireEvent.click(screen.getByRole("tab", { name }));
+      expect(screen.getByRole("tab", { name })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    }
   });
 
   it("busca filtra o campo de texto sem quebrar com resultado vazio", () => {
@@ -110,6 +100,6 @@ describe("LibraryTab", () => {
     const input = screen.getByPlaceholderText("Search the Library…");
     fireEvent.change(input, { target: { value: "algo que não existe" } });
     // seções continuam montadas (vazias já eram, filtro não quebra nada)
-    expect(screen.getByText(/MCP \(0\)/)).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "MCP" })).toBeTruthy();
   });
 });
