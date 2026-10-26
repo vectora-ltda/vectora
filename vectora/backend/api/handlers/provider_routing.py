@@ -371,12 +371,12 @@ class LlamaCppSidecarRequest(BaseModel):
 
 
 def _llamacpp_runtime_root() -> Path:
-    """Executa a operação llamacpp runtime root."""
+    """Executa a operação  llamacpp runtime root."""
     return (settings.vectora_home / "tools" / "llama.cpp").resolve()
 
 
 def _llamacpp_manifest_path() -> Path:
-    """Executa a operação llamacpp manifest path."""
+    """Executa a operação  llamacpp manifest path."""
     return _llamacpp_runtime_root() / "runtime-manifest.json"
 
 
@@ -511,7 +511,7 @@ async def _get_db() -> Any:
 # (ollama_registered_models / openrouter_registered_models) — f-string é
 # segura aqui, sem risco de SQL injection via request.
 async def _ensure_registry_table(db: Any, table: str) -> None:
-    """Executa a operação ensure registry table."""
+    """Executa a operação  ensure registry table."""
     await db.execute(f"""
         CREATE TABLE IF NOT EXISTS {table} (
             id         TEXT PRIMARY KEY,
@@ -523,7 +523,7 @@ async def _ensure_registry_table(db: Any, table: str) -> None:
 
 
 async def _ensure_llamacpp_confirmation_table(db: Any) -> None:
-    """Executa a operação ensure llamacpp confirmation table."""
+    """Executa a operação  ensure llamacpp confirmation table."""
     await db.execute(
         """
         CREATE TABLE IF NOT EXISTS llamacpp_model_confirmations (
@@ -541,14 +541,14 @@ async def _ensure_llamacpp_confirmation_table(db: Any) -> None:
 
 
 async def _clear_llamacpp_confirmations(db: Any) -> None:
-    """Executa a operação clear llamacpp confirmations."""
+    """Executa a operação  clear llamacpp confirmations."""
     await _ensure_llamacpp_confirmation_table(db)
     await db.execute("DELETE FROM llamacpp_model_confirmations")
     await db.commit()
 
 
 async def _list_registered(table: str) -> list[RegisteredModel]:
-    """Executa a operação list registered."""
+    """Executa a operação  list registered."""
     db = await _get_db()
     await _ensure_registry_table(db, table)
     async with db.execute(
@@ -559,7 +559,7 @@ async def _list_registered(table: str) -> list[RegisteredModel]:
 
 
 async def _register(table: str, tag: str) -> RegisteredModel:
-    """Executa a operação register."""
+    """Executa a operação  register."""
     tag = tag.strip()
     if not tag:
         raise HTTPException(status_code=400, detail="tag vazia")
@@ -582,7 +582,7 @@ async def _register(table: str, tag: str) -> RegisteredModel:
 
 
 async def _unregister(table: str, model_id: str) -> None:
-    """Executa a operação unregister."""
+    """Executa a operação  unregister."""
     db = await _get_db()
     await _ensure_registry_table(db, table)
     await db.execute(f"DELETE FROM {table} WHERE id = ?", (model_id,))  # noqa: S608  # nosec B608
@@ -963,7 +963,7 @@ async def _terminate_ollama_process(process: asyncio.subprocess.Process) -> bool
         process.kill()
 
     async def _safe_wait(wait_timeout: float) -> None:
-        """Executa a operação safe wait."""
+        """Executa a operação  safe wait."""
         wait_fn = getattr(process, "wait", None)
         if not callable(wait_fn):
             return
@@ -1012,7 +1012,7 @@ async def stop_managed_ollama() -> None:
 
 
 async def _ollama_http_status() -> tuple[bool, str | None]:
-    """Executa a operação ollama http status."""
+    """Executa a operação  ollama http status."""
     import httpx
 
     base_url = (settings.ollama_base_url or "http://127.0.0.1:11434").rstrip("/")
@@ -2285,9 +2285,22 @@ async def start_installed_huggingface_model(
     # the sidecar so a previous external/old port cannot make discovery and
     # chat report a false "unreachable" state after restart.
     managed_base_url = f"http://127.0.0.1:{body.port}/v1"
-    object.__setattr__(settings, "llamacpp_base_url", managed_base_url)
-    _set_env_key(_env_file(), "LLAMACPP_BASE_URL", managed_base_url)
-    os.environ["LLAMACPP_BASE_URL"] = managed_base_url
+    env_file = _env_file()
+    env_file_existed = env_file.exists()
+    previous_base_url = settings.llamacpp_base_url
+    previous_base_env = os.environ.get("LLAMACPP_BASE_URL")
+
+    def restore_previous_configuration() -> None:
+        """Restore settings and environment when managed startup aborts."""
+        object.__setattr__(settings, "llamacpp_base_url", previous_base_url)
+        _set_env_key(env_file, "LLAMACPP_BASE_URL", previous_base_env or "")
+        if previous_base_env is None:
+            os.environ.pop("LLAMACPP_BASE_URL", None)
+        else:
+            os.environ["LLAMACPP_BASE_URL"] = previous_base_env
+        if not env_file_existed:
+            env_file.unlink(missing_ok=True)
+
     tag = body.alias or str(manifest.get("alias") or model_entry["filename"])
     parameters: dict[str, str | int | float | bool | None] = {
         "alias": body.alias,
@@ -2299,6 +2312,9 @@ async def start_installed_huggingface_model(
         "jinja": body.jinja,
     }
     try:
+        object.__setattr__(settings, "llamacpp_base_url", managed_base_url)
+        _set_env_key(env_file, "LLAMACPP_BASE_URL", managed_base_url)
+        os.environ["LLAMACPP_BASE_URL"] = managed_base_url
         try:
             await _register("llamacpp_registered_models", tag)
         except HTTPException as exc:
@@ -2316,7 +2332,10 @@ async def start_installed_huggingface_model(
     except Exception as exc:
         from backend.services.llamacpp_sidecar import stop_llamacpp
 
-        await stop_llamacpp()
+        try:
+            await stop_llamacpp()
+        finally:
+            restore_previous_configuration()
         if isinstance(exc, HTTPException):
             raise
         raise HTTPException(
@@ -2329,7 +2348,24 @@ async def start_installed_huggingface_model(
         "evidence_sha256": confirmation.evidence_sha256,
         "confirmed_at": confirmation.confirmed_at,
     }
-    await _write_json_atomic(manifest_path, manifest)
+    try:
+        await _write_json_atomic(manifest_path, manifest)
+        # Persist managed mode only after registration, startup and confirmation
+        # all succeeded; a failed probe must not leave a false managed state.
+        _set_env_key(_env_file(), "LLAMACPP_MODE", "managed")
+        os.environ["LLAMACPP_MODE"] = "managed"
+    except Exception as exc:
+        from backend.services.llamacpp_sidecar import stop_llamacpp
+
+        try:
+            await stop_llamacpp()
+        finally:
+            # Mesmo se o sidecar falhar ao parar, nunca deixe a configuração
+            # persistida apontando para um runtime que não foi confirmado.
+            restore_previous_configuration()
+        raise HTTPException(
+            status_code=502, detail="não foi possível persistir o modelo iniciado"
+        ) from exc
     return {
         "running": True,
         "executable": str(executable),
@@ -2502,7 +2538,7 @@ async def search_huggingface_models(
 
 
 def _validate_hf_path(value: str, *, field: str) -> str:
-    """Executa a operação validate hf path."""
+    """Executa a operação  validate hf path."""
     value = value.strip()
     if (
         not value
@@ -2537,7 +2573,7 @@ def _read_json_file(path: Path) -> object:
 
 
 async def _read_json_file_async(path: Path) -> object:
-    """Executa a operação read json file async."""
+    """Executa a operação  read json file async."""
     return await asyncio.to_thread(_read_json_file, path)
 
 
@@ -2833,7 +2869,7 @@ async def download_huggingface_model(
                                 raise ValueError("tamanho publicado incompatível")
 
                             def _hash_existing() -> None:
-                                """Executa a operação hash existing."""
+                                """Executa a operação  hash existing."""
                                 with partial.open("rb") as existing:
                                     while chunk := existing.read(1024 * 1024):
                                         digest.update(chunk)
@@ -3418,7 +3454,7 @@ async def llamacpp_runtime_status() -> dict[str, object]:
         }
 
     def _list_files() -> list[str]:
-        """Executa a operação list files."""
+        """Executa a operação  list files."""
         return [str(path) for path in root.rglob("*") if path.is_file()]
 
     files = await asyncio.to_thread(_list_files)
@@ -3751,7 +3787,7 @@ class OpenRouterCatalogResponse(BaseModel):
 
 
 def _env_file() -> Path:
-    """Executa a operação env file."""
+    """Executa a operação  env file."""
     p = settings.vectora_home / ".env"
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
@@ -3773,7 +3809,7 @@ def _set_env_key(env_file: Path, key: str, value: str) -> None:
 
 
 def _mask_key(value: str) -> str:
-    """Executa a operação mask key."""
+    """Executa a operação  mask key."""
     if not value:
         return ""
     if len(value) <= 10:
@@ -3782,7 +3818,7 @@ def _mask_key(value: str) -> str:
 
 
 def _remove_env_key(env_file: Path, key: str) -> None:
-    """Executa a operação remove env key."""
+    """Executa a operação  remove env key."""
     if not env_file.exists():
         return
     lines = [
@@ -4143,7 +4179,7 @@ _CATALOG_FAILURE_BACKOFF_S = 30.0
 
 
 def _normalize_modalities(values: list[str]) -> set[str]:
-    """Executa a operação normalize modalities."""
+    """Executa a operação  normalize modalities."""
     return {value.strip().lower().replace("-", "_") for value in values}
 
 

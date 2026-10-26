@@ -151,6 +151,8 @@ class TurnFilesChanged:
 class TodoItem:
     content: str
     status: Literal["pending", "in_progress", "completed"]
+    step_id: str | None = None
+    quality_gate: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,4 +215,6 @@ class EventSink(Protocol):
     chamam pra emitir um `EngineEvent` — o adapter (`sse_adapter.py`) é só
     um dos consumidores possíveis dessa interface."""
 
-    async def __call__(self, event: EngineEvent) -> None: ...
+    async def __call__(self, event: EngineEvent) -> None:
+        """Emite um evento para o consumidor configurado."""
+        ...

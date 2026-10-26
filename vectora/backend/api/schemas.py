@@ -171,7 +171,7 @@ _ATTACHMENT_SUPPORTED_EXTENSIONS = {
 
 
 def _attachment_max_size_bytes(name: str, mime_type: str) -> int:
-    """Executa a operação attachment max size bytes."""
+    """Executa a operação  attachment max size bytes."""
     lowered = name.lower()
     if lowered.endswith(".har"):
         return _ATTACHMENT_MAX_SIZE_HAR_BYTES
@@ -197,7 +197,7 @@ class Attachment(BaseModel):
 
     @model_validator(mode="after")
     def _validate_content(self) -> Attachment:
-        """Executa a operação validate content."""
+        """Executa a operação  validate content."""
         lowered_name = self.name.lower()
         has_valid_mimetype = self.mime_type in _ATTACHMENT_SUPPORTED_MIME_TYPES
         has_valid_extension = any(
@@ -377,7 +377,7 @@ class NodeEvent(BaseModel):
 
     @model_validator(mode="after")
     def _fill_node_label(self) -> NodeEvent:
-        """Executa a operação fill node label."""
+        """Executa a operação  fill node label."""
         if not self.node_label and self.node:
             from backend.api.node_labels import get_node_label
 
@@ -550,6 +550,8 @@ class TodoItem(BaseModel):
 
     content: str
     status: Literal["pending", "in_progress", "completed"]
+    step_id: str | None = None
+    quality_gate: str | None = None
 
 
 class TodosUpdatedEvent(BaseModel):

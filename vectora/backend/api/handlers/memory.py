@@ -25,6 +25,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from backend.persistence.native.store import is_store_value_expired
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/memory", tags=["memory"])
@@ -121,6 +123,7 @@ def _namespace(request: Request) -> tuple[str, ...]:
 
 
 async def _store() -> Any:
+    """Executa a operação  store."""
     from backend.services.agent_factory import get_store
 
     return await get_store()
@@ -186,6 +189,7 @@ async def list_memories(
                 updated_at=item.value.get("updated_at", ""),
             )
             for item in items
+            if not is_store_value_expired(item.value)
         ]
         all_mems.sort(key=lambda m: m.updated_at, reverse=True)
 
@@ -217,6 +221,8 @@ async def get_journey(request: Request) -> JourneyResponse:
         ns = _namespace(request)
         store = await _store()
         for item in await store.asearch(ns, limit=_LIST_ALL_LIMIT):
+            if is_store_value_expired(item.value):
+                continue
             metadata = item.value.get("metadata") or {}
             if metadata.get("tag") != "user_model":
                 continue
@@ -263,6 +269,10 @@ async def get_memory_by_key(request: Request, key: str) -> MemoryItem:
             raise HTTPException(
                 status_code=404, detail=f"Memória '{key}' não encontrada"
             )
+        if is_store_value_expired(item.value):
+            raise HTTPException(
+                status_code=404, detail=f"Memória '{key}' não encontrada"
+            )
         return MemoryItem(
             key=key,
             content=item.value.get("content", ""),
@@ -301,6 +311,11 @@ async def update_memory(
                 "content": body.content,
                 "metadata": body.metadata or existing.value.get("metadata") or {},
                 "updated_at": datetime.now(UTC).isoformat(),
+                **{
+                    field: existing.value[field]
+                    for field in ("valid_until", "ttl_days", "category")
+                    if field in existing.value
+                },
             },
         )
         return UpdateMemoryResponse(status="updated", key=key)
@@ -337,7 +352,10 @@ async def clear_all_memories(request: Request) -> DeleteMemoryResponse:
     try:
         ns = _namespace(request)
         store = await _store()
-        items = await store.asearch(ns, limit=_LIST_ALL_LIMIT)
+        try:
+            items = await store.asearch(ns, limit=_LIST_ALL_LIMIT, include_expired=True)
+        except TypeError:
+            items = await store.asearch(ns, limit=_LIST_ALL_LIMIT)
         count = 0
         for item in items:
             await store.adelete(ns, item.key)

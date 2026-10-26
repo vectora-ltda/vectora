@@ -71,6 +71,7 @@ def _to_openrouter_content(content: list[ContentBlock]) -> str | list[dict]:
 
 
 def _to_openrouter_message(msg: VMessage) -> dict:
+    """Executa a operação  to openrouter message."""
     role = _ROLE_POR_TIPO.get(msg.role)
     if role is None:
         erro = f"Mensagem de role {msg.role!r} não tem equivalente no OpenRouter"
@@ -121,6 +122,7 @@ def _parse_tool_calls(bruto: list) -> list[ToolCall]:
 
 
 def _parse_tool_call_chunks(bruto: list) -> list[ToolCallChunk]:
+    """Executa a operação  parse tool call chunks."""
     pedacos: list[ToolCallChunk] = []
     for item in bruto or []:
         funcao = item.get("function") or {}
@@ -136,6 +138,7 @@ def _parse_tool_call_chunks(bruto: list) -> list[ToolCallChunk]:
 
 
 def _usage_metadata(usage: _UsagePayload | None) -> UsageSnapshot | None:
+    """Executa a operação  usage metadata."""
     if not usage:
         return None
     entrada = int(usage.get("prompt_tokens") or 0)
@@ -158,6 +161,7 @@ class OpenRouterChatClient:
         *,
         compact_system_prompt: bool = False,
     ) -> None:
+        """Inicializa o estado da instância."""
         self.model = model
         self.client = client
         self.compact_system_prompt = compact_system_prompt
@@ -170,6 +174,7 @@ class OpenRouterChatClient:
         temperature: float | None,
         max_tokens: int | None,
     ) -> dict:
+        """Executa a operação  payload."""
         corpo: dict[str, Any] = {
             "model": self.model,
             "messages": [_to_openrouter_message(m) for m in messages],
@@ -189,7 +194,7 @@ class OpenRouterChatClient:
             # Tiny local models often enter a deterministic repetition loop
             # at temperature 0 when the prompt contains identity/tool rules.
             # A small floor keeps coding deterministic enough while avoiding
-            # the known ``meu meu meu`` degeneration in DMR SmolLM2.
+            # known repetition loops in tiny local models.
             corpo["temperature"] = (
                 max(0.2, temperature) if self.compact_system_prompt else temperature
             )
@@ -201,6 +206,7 @@ class OpenRouterChatClient:
 
     @staticmethod
     def _primeira_escolha(corpo: dict) -> dict:
+        """Executa a operação  primeira escolha."""
         escolhas = corpo.get("choices")
         if not isinstance(escolhas, list) or not escolhas:
             msg = (
@@ -218,6 +224,7 @@ class OpenRouterChatClient:
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> VMessage:
+        """Executa a operação agenerate."""
         corpo = self._payload(
             messages, tools=tools, temperature=temperature, max_tokens=max_tokens
         )
@@ -249,6 +256,7 @@ class OpenRouterChatClient:
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> AsyncIterator[VMessageChunk]:
+        """Executa a operação astream."""
         corpo = self._payload(
             messages, tools=tools, temperature=temperature, max_tokens=max_tokens
         )

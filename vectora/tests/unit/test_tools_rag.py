@@ -60,6 +60,8 @@ class TestVectorSearch:
         data = json.loads(result)
         assert "results" in data
         assert len(data["results"]) == 1
+        assert data["results"][0]["provenance"]["source"] == "rag"
+        assert data["retrieval"]["backend"] == "AsyncMock"
 
     @pytest.mark.asyncio
     async def test_vector_search_table_not_found(self):
@@ -96,6 +98,7 @@ class TestVectorSearch:
 
     @pytest.mark.asyncio
     async def test_missing_dependencies_returns_message(self):
+        """Verifica o comportamento de missing dependencies returns message."""
         from backend.tools.rag import vector_search
 
         with patch("backend.tools.rag.settings") as mock_settings:
@@ -107,6 +110,7 @@ class TestVectorSearch:
 
     @pytest.mark.asyncio
     async def test_missing_api_key_returns_error(self):
+        """Verifica o comportamento de missing api key returns error."""
         from backend.tools.rag import vector_search
 
         with patch("backend.tools.rag.settings") as mock_settings:
@@ -121,6 +125,93 @@ class TestVectorSearch:
         data = json.loads(result)
         assert data.get("status") in ("failed", "error")
 
+    @pytest.mark.asyncio
+    async def test_rerank_preserva_id_colecao_e_score_de_retrieval(self):
+        """Verifica o comportamento de rerank preserva id colecao e score de retrieval."""
+        from backend.storage.vectorstore.base import VectorHit
+        from backend.tools.rag import vector_search
+
+        backend = AsyncMock()
+        backend.search = AsyncMock(
+            return_value=[
+                VectorHit("first", 0.1, "one", {}, "articles"),
+                VectorHit("second", 0.2, "two", {}, "docs"),
+            ]
+        )
+
+        class _ReverseReranker:
+            async def acompress_documents(self, documents, query):
+                """Executa a operação acompress documents."""
+                return list(reversed(documents))
+
+        embeddings = MagicMock()
+        embeddings.return_value.embed_query.return_value = [0.1]
+        with patch("backend.tools.rag.settings") as ms:
+            ms.get_cohere_api_key.return_value = "test-key"
+            ms.embedding_model = "embed"
+            ms.rag_hybrid_enabled = False
+            with (
+                patch("backend.tools.rag.lancedb", MagicMock()),
+                patch("backend.storage.factory._build_lc_embeddings", embeddings),
+                patch(
+                    "backend.storage.factory.get_vector_store_backend",
+                    AsyncMock(return_value=backend),
+                ),
+                patch(
+                    "backend.tools.rag._build_reranker", return_value=_ReverseReranker()
+                ),
+            ):
+                data = json.loads(
+                    await vector_search(
+                        ctx=ToolContext(), query="q", collection="articles", limit=2
+                    )
+                )
+
+        assert [item["id"] for item in data["results"]] == ["second", "first"]
+        assert data["results"][0]["collection"] == "docs"
+        assert data["results"][0]["score"] == 0.2
+        assert data["retrieval"]["reranker_status"] == "applied"
+
+    @pytest.mark.asyncio
+    async def test_no_results_emite_telemetria_com_contagem_zero(self):
+        """Verifica o comportamento de no results emite telemetria com contagem zero."""
+        from backend.tools.rag import vector_search
+
+        backend = AsyncMock()
+        backend.search = AsyncMock(return_value=[])
+        embeddings = MagicMock()
+        embeddings.return_value.embed_query.return_value = [0.1]
+        telemetry_mock = AsyncMock()
+        with patch("backend.tools.rag.settings") as ms:
+            ms.get_cohere_api_key.return_value = "test-key"
+            ms.embedding_model = "embed"
+            ms.rag_hybrid_enabled = False
+            with (
+                patch("backend.tools.rag.lancedb", MagicMock()),
+                patch("backend.storage.factory._build_lc_embeddings", embeddings),
+                patch(
+                    "backend.storage.factory.get_vector_store_backend",
+                    AsyncMock(return_value=backend),
+                ),
+                patch("backend.persistence.telemetry.telemetry", telemetry_mock),
+            ):
+                data = json.loads(
+                    await vector_search(
+                        ctx=ToolContext(),
+                        query="missing",
+                        collection="articles",
+                        limit=2,
+                    )
+                )
+
+        assert data["status"] == "no_results"
+        telemetry_mock.record_retrieval.assert_awaited_once_with(
+            query="missing",
+            collections=["articles"],
+            result_count=0,
+            retrieval_method="vector",
+        )
+
 
 class TestReciprocalRankFusion:
     """`_reciprocal_rank_fusion` funde ranking vetorial (distância) com
@@ -128,6 +219,7 @@ class TestReciprocalRankFusion:
     valores absolutos, que têm escalas incompatíveis entre os dois métodos."""
 
     def test_documento_presente_nos_dois_rankings_sobe_de_posicao(self):
+        """Verifica o comportamento de documento presente nos dois rankings sobe de posicao."""
         from backend.tools.rag import _reciprocal_rank_fusion
 
         vector_results = [
@@ -145,6 +237,7 @@ class TestReciprocalRankFusion:
         assert fused[0]["id"] == "b"
 
     def test_documento_presente_so_em_uma_lista_ainda_aparece(self):
+        """Verifica o comportamento de documento presente so em uma lista ainda aparece."""
         from backend.tools.rag import _reciprocal_rank_fusion
 
         vector_results = [
@@ -157,11 +250,13 @@ class TestReciprocalRankFusion:
         assert [r["id"] for r in fused] == ["a"]
 
     def test_ambas_listas_vazias_retorna_lista_vazia(self):
+        """Verifica o comportamento de ambas listas vazias retorna lista vazia."""
         from backend.tools.rag import _reciprocal_rank_fusion
 
         assert _reciprocal_rank_fusion([], [], limit=5) == []
 
     def test_respeita_o_limit(self):
+        """Verifica o comportamento de respeita o limit."""
         from backend.tools.rag import _reciprocal_rank_fusion
 
         vector_results = [
@@ -180,6 +275,55 @@ class TestReciprocalRankFusion:
         assert len(fused) == 3
 
 
+class TestRetrievalProvenance:
+    def test_attach_preserva_resultado_e_registra_rank(self):
+        """Verifica o comportamento de attach preserva resultado e registra rank."""
+        from backend.tools.rag import _attach_retrieval_provenance
+
+        result = _attach_retrieval_provenance(
+            [{"id": "a", "collection": "docs", "score": 0.2}],
+            backend_name="QdrantBackend",
+            retrieval_method="hybrid_rrf",
+        )
+
+        assert result[0]["id"] == "a"
+        assert result[0]["provenance"] == {
+            "source": "rag",
+            "backend": "QdrantBackend",
+            "collection": "docs",
+            "method": "hybrid_rrf",
+            "rank": 1,
+            "score": 0.2,
+        }
+
+    def test_attach_preserva_identidade_depois_de_reordenar(self) -> None:
+        """Verifica o comportamento de attach preserva identidade depois de reordenar."""
+        from backend.tools.rag import _attach_retrieval_provenance
+
+        result = _attach_retrieval_provenance(
+            [
+                {
+                    "id": "b",
+                    "collection": "qdrant_docs",
+                    "score": 0.8,
+                    "content": "b",
+                },
+                {
+                    "id": "a",
+                    "collection": "articles",
+                    "score": 0.2,
+                    "content": "a",
+                },
+            ],
+            backend_name="QdrantBackend",
+            retrieval_method="hybrid_rrf",
+        )
+        assert [(item["id"], item["provenance"]["collection"]) for item in result] == [
+            ("b", "qdrant_docs"),
+            ("a", "articles"),
+        ]
+
+
 class TestVectorSearchHybrid:
     """`vector_search` funde busca vetorial com busca textual quando
     `settings.rag_hybrid_enabled` (default True) — usa `search_text` do
@@ -187,6 +331,7 @@ class TestVectorSearchHybrid:
 
     @pytest.mark.asyncio
     async def test_hybrid_enabled_chama_search_text_e_funde_resultados(self):
+        """Verifica o comportamento de hybrid enabled chama search text e funde resultados."""
         from backend.storage.vectorstore.base import VectorHit
         from backend.tools.rag import vector_search
 
@@ -244,6 +389,7 @@ class TestVectorSearchHybrid:
 
     @pytest.mark.asyncio
     async def test_hybrid_disabled_nao_chama_search_text(self):
+        """Verifica o comportamento de hybrid disabled nao chama search text."""
         from backend.storage.vectorstore.base import VectorHit
         from backend.tools.rag import vector_search
 
@@ -301,6 +447,7 @@ class TestVectorSearchBucketFanout:
         from backend.storage.vectorstore.base import VectorHit
 
         async def _search(collection: str, query_vector, limit: int):
+            """Executa a operação  search."""
             if collection not in tables:
                 return []
             return [
@@ -320,6 +467,7 @@ class TestVectorSearchBucketFanout:
 
     @pytest.mark.asyncio
     async def test_searches_only_active_buckets_of_workspace(self, tmp_path):
+        """Verifica o comportamento de searches only active buckets of workspace."""
         from backend.services import rag_buckets
         from backend.tools.rag import vector_search
         from backend.workspace.runtime_settings import RuntimeSettings
@@ -370,6 +518,7 @@ class TestVectorSearchBucketFanout:
     async def test_no_active_buckets_falls_back_to_legacy_articles_table(
         self, tmp_path
     ):
+        """Verifica o comportamento de no active buckets falls back to legacy articles table."""
         from backend.tools.rag import vector_search
         from backend.workspace.runtime_settings import RuntimeSettings
 
@@ -461,6 +610,7 @@ class TestVectorSearchBucketFanout:
 class TestEmbedding:
     @pytest.mark.asyncio
     async def test_queue_not_enabled_returns_error(self):
+        """Verifica o comportamento de queue not enabled returns error."""
         from backend.tools.rag import embedding
 
         with patch("backend.tools.rag.settings") as mock_settings:
@@ -471,6 +621,7 @@ class TestEmbedding:
 
     @pytest.mark.asyncio
     async def test_enqueue_success_returns_fire_and_forget(self):
+        """Verifica o comportamento de enqueue success returns fire and forget."""
         from backend.tools.rag import embedding
 
         mock_queue = AsyncMock()
@@ -492,6 +643,7 @@ class TestEmbedding:
 
     @pytest.mark.asyncio
     async def test_enqueue_exception_returns_error(self):
+        """Verifica o comportamento de enqueue exception returns error."""
         from backend.tools.rag import embedding
 
         with patch("backend.tools.rag.settings") as mock_settings:
@@ -511,6 +663,7 @@ class TestEmbedding:
 class TestIngestDocs:
     @pytest.mark.asyncio
     async def test_unsafe_path_denied(self):
+        """Verifica o comportamento de unsafe path denied."""
         from backend.tools.rag import ingest_docs
 
         with patch("backend.tools.rag.settings") as mock_settings:
@@ -526,6 +679,7 @@ class TestIngestDocs:
 
     @pytest.mark.asyncio
     async def test_not_a_directory_returns_error(self, tmp_path):
+        """Verifica o comportamento de not a directory returns error."""
         from backend.tools.rag import ingest_docs
 
         not_dir = tmp_path / "file.txt"
@@ -543,6 +697,7 @@ class TestIngestDocs:
 
     @pytest.mark.asyncio
     async def test_no_files_found_returns_no_files(self, tmp_path):
+        """Verifica o comportamento de no files found returns no files."""
         from backend.tools.rag import ingest_docs
 
         with patch("backend.tools.rag.settings") as mock_settings:
@@ -562,6 +717,7 @@ class TestIngestDocs:
 
     @pytest.mark.asyncio
     async def test_chunk_fail_counts_as_failure(self, tmp_path):
+        """Verifica o comportamento de chunk fail counts as failure."""
         from backend.tools.rag import ingest_docs
 
         md_file = tmp_path / "doc.md"
@@ -788,6 +944,7 @@ class TestIngestDocs:
         capturado: list[str] = []
 
         async def _fake_embedding(*, text, collection, metadata):
+            """Executa a operação  fake embedding."""
             capturado.append(text)
             return json.dumps({"status": "fire_and_forget", "queue_id": "q1"})
 
@@ -908,6 +1065,7 @@ class TestManageRetriever:
 
     @pytest.mark.asyncio
     async def test_delete_without_source_errors_early(self):
+        """Verifica o comportamento de delete without source errors early."""
         from backend.tools.rag import manage_retriever
 
         result = await manage_retriever(action="delete", collection="web_cache")
@@ -917,6 +1075,7 @@ class TestManageRetriever:
 
     @pytest.mark.asyncio
     async def test_purge_drops_table(self):
+        """Verifica o comportamento de purge drops table."""
         from backend.tools.rag import manage_retriever
 
         mock_backend = AsyncMock()
@@ -931,6 +1090,7 @@ class TestManageRetriever:
 
     @pytest.mark.asyncio
     async def test_list_missing_collection(self):
+        """Verifica o comportamento de list missing collection."""
         from backend.tools.rag import manage_retriever
 
         mock_backend = AsyncMock()
@@ -1042,6 +1202,7 @@ class TestManageRetriever:
 
 class TestBuildReranker:
     def test_cohere_without_key_returns_none(self):
+        """Verifica o comportamento de cohere without key returns none."""
         from backend.tools.rag import _build_reranker
 
         with patch("backend.tools.rag.settings") as ms:
@@ -1050,6 +1211,7 @@ class TestBuildReranker:
             assert _build_reranker() is None
 
     def test_voyage_without_key_returns_none(self):
+        """Verifica o comportamento de voyage without key returns none."""
         from backend.tools.rag import _build_reranker
 
         with patch("backend.tools.rag.settings") as ms:
@@ -1058,6 +1220,7 @@ class TestBuildReranker:
             assert _build_reranker() is None
 
     def test_unknown_type_returns_none(self):
+        """Verifica o comportamento de unknown type returns none."""
         from backend.tools.rag import _build_reranker
 
         with patch("backend.tools.rag.settings") as ms:
@@ -1079,6 +1242,7 @@ class TestBuildReranker:
             assert _build_reranker() is None
 
     def test_voyage_with_key_returns_voyage_reranker(self):
+        """Verifica o comportamento de voyage with key returns voyage reranker."""
         from backend.llm.voyage.rerank import VectoraVoyageRerank
         from backend.tools.rag import _build_reranker
 
@@ -1095,6 +1259,7 @@ class TestBuildReranker:
 
     def test_reranker_disabled_returns_none(self):
         # reranker_enabled=False nos settings de runtime → sem rerank (None).
+        """Verifica o comportamento de reranker disabled returns none."""
         from backend.tools import rag as rag_mod
         from backend.tools.rag import _build_reranker
 
@@ -1111,6 +1276,7 @@ class TestBuildReranker:
             assert _build_reranker() is None
 
     def test_reranker_provider_pref_forces_voyage(self):
+        """Verifica o comportamento de reranker provider pref forces voyage."""
         from backend.llm.voyage.rerank import VectoraVoyageRerank
         from backend.tools import rag as rag_mod
         from backend.tools.rag import _build_reranker
@@ -1135,6 +1301,7 @@ class TestBuildReranker:
         assert isinstance(out, VectoraVoyageRerank)
 
     def test_both_configured_returns_fallback_reranker(self):
+        """Verifica o comportamento de both configured returns fallback reranker."""
         from backend.llm.fallback_reranker import FallbackReranker
         from backend.tools.rag import _build_reranker
 
@@ -1153,6 +1320,7 @@ class TestBuildReranker:
 
 class TestFallbackRerankerBehavior:
     def _wrap(self, primary, secondary):
+        """Executa a operação  wrap."""
         from backend.llm.fallback_reranker import FallbackReranker
 
         return FallbackReranker(
@@ -1163,6 +1331,7 @@ class TestFallbackRerankerBehavior:
         )
 
     def test_compress_primary_ok_no_switch(self):
+        """Verifica o comportamento de compress primary ok no switch."""
         from backend.llm import provider_fallback as pf
 
         pf.drain_switches()
@@ -1175,6 +1344,7 @@ class TestFallbackRerankerBehavior:
         assert pf.drain_switches() == []
 
     def test_compress_primary_quota_switches(self):
+        """Verifica o comportamento de compress primary quota switches."""
         from backend.llm import provider_fallback as pf
 
         pf.drain_switches()
@@ -1187,6 +1357,7 @@ class TestFallbackRerankerBehavior:
         assert pf.drain_switches() == [{"from": "cohere:r", "to": "voyage:r"}]
 
     def test_compress_non_quota_reraises(self):
+        """Verifica o comportamento de compress non quota reraises."""
         primary = MagicMock()
         primary.compress_documents.side_effect = ValueError("boom")
         secondary = MagicMock()
@@ -1196,6 +1367,7 @@ class TestFallbackRerankerBehavior:
 
     @pytest.mark.asyncio
     async def test_acompress_quota_switches(self):
+        """Verifica o comportamento de acompress quota switches."""
         from backend.llm import provider_fallback as pf
 
         pf.drain_switches()

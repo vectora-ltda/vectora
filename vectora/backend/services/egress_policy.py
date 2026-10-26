@@ -22,6 +22,14 @@ from backend.browser.ssrf_guard import _is_blocked_ip
 
 logger = logging.getLogger(__name__)
 
+_AddrInfo = tuple[
+    socket.AddressFamily,
+    socket.SocketKind,
+    int,
+    str,
+    tuple[str, int] | tuple[str, int, int, int] | tuple[int, bytes],
+]
+
 
 class BackendEgressCapability(StrEnum):
     """Nível de capacidade de enforcement de rede por backend de sandbox."""
@@ -115,20 +123,11 @@ def _matches_pattern(host: str, pattern: str) -> bool:
     return norm_host == norm_pat
 
 
-_AddrInfo = tuple[
-    socket.AddressFamily,
-    socket.SocketKind,
-    int,
-    str,
-    tuple[str, int] | tuple[str, int, int, int] | tuple[int, bytes],
-]
-
-
 def _validate_addr_infos_and_port(
     host: str,
     port: int,
     pol: EgressPolicy,
-    addr_infos: Sequence[_AddrInfo],
+    addr_infos: list[tuple[Any, ...]],
 ) -> tuple[bool, str, str | None]:
     """Executa a operação validate addr infos and port."""
     is_loopback_target = False

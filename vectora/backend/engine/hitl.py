@@ -60,6 +60,7 @@ def _log_decision(
 #: Tools destrutivas candidatas a pausar o loop para aprovação.
 REQUIRE_APPROVAL: frozenset[str] = frozenset(
     {
+        "bash",
         "terminal",
         "terminal_tool",
         "write_terminal",
@@ -93,9 +94,6 @@ REQUIRE_APPROVAL: frozenset[str] = frozenset(
         "generate_video",
     }
 )
-
-#: Métodos HTTP considerados seguros (somente leitura / idempotentes) para allowlist
-SAFE_HTTP_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
 #: Tools auto-aprovadas no modo "accept_edits".
 _ACCEPT_EDITS_AUTO: frozenset[str] = frozenset(
@@ -230,8 +228,8 @@ def call_requires_separate_approval(
     if tool_name == "git_push" and bool(call_args.get("force", False)):
         return True
     if tool_name == "http_request":
-        method = str(call_args.get("method", "GET")).strip().upper()
-        if method not in SAFE_HTTP_METHODS:
+        method = str(call_args.get("method", "GET")).upper()
+        if method in ("POST", "PUT", "PATCH", "DELETE"):
             return True
     return False
 
@@ -315,8 +313,11 @@ def should_require_approval(  # noqa: PLR0911
             )
             return True
     if tool_name == "http_request":
-        method = str(args.get("method", "GET")).strip().upper()
-        if method not in SAFE_HTTP_METHODS and mode not in _NON_INTERRUPTING_MODES:
+        method = str(args.get("method", "GET")).upper()
+        if (
+            method in ("POST", "PUT", "PATCH", "DELETE")
+            and mode not in _NON_INTERRUPTING_MODES
+        ):
             _log_decision(
                 tool_name,
                 ctx,
@@ -369,7 +370,7 @@ def should_require_approval(  # noqa: PLR0911
 
 
 def _risk_assessment_key(tool_name: str, args: dict[str, Any]) -> str:
-    """Executa a operação risk assessment key."""
+    """Executa a operação  risk assessment key."""
     payload = json.dumps(args, sort_keys=True, default=str)
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return f"{tool_name}:{digest}"
