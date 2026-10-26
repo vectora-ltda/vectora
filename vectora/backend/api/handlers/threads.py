@@ -1618,7 +1618,7 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
             workspace_id=thread.workspace_id or None,
         )
         summaries = await (await _get_session_store()).get_thread_summaries(
-            [request.thread_id]
+            [request.thread_id], user_id="local"
         )
         summary = summaries[0] if summaries else None
         return GetHistoryResponse(
