@@ -220,6 +220,95 @@ async def test_history_thread_sem_mensagens_retorna_vazio() -> None:
 
 
 @pytest.mark.asyncio
+async def test_history_cursor_capturado_antes_da_leitura_nao_pula_mensagem(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uma gravação concorrente não pode fazer o cursor exceder a página lida."""
+    from backend.api.schemas import GetHistoryRequest
+    from backend.vtypes.history import ThreadHistoryEntry
+
+    store = SimpleNamespace(
+        get_thread_summaries=AsyncMock(
+            return_value=[SimpleNamespace(status="idle", last_seq=1)]
+        )
+    )
+    pairs = [
+        ThreadHistoryEntry(
+            role="human",
+            text="somente a mensagem do snapshot",
+            checkpoint_id="1",
+            message_id=1,
+        )
+    ]
+
+    with (
+        _patch_get_thread(),
+        patch(
+            "backend.api.handlers.threads._get_session_store",
+            new=AsyncMock(return_value=store),
+        ),
+        patch(
+            "backend.services.agent_factory.aget_thread_messages_with_files",
+            new=AsyncMock(return_value=pairs),
+        ),
+    ):
+        from backend.api.handlers.threads import get_history
+
+        response = await get_history(GetHistoryRequest(thread_id="t1"))
+
+    assert response.last_seq == 1
+    assert [message.message_id for message in response.messages] == [1]
+
+
+@pytest.mark.asyncio
+async def test_historico_paginado_projeta_run_failed_apos_falha_terminal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GetHistory e a página HTTP expõem a falha persistida do AgentRun."""
+    from backend.api.handlers.threads import get_thread_history_paginated
+    from backend.vtypes.history import ThreadHistoryEntry
+
+    store = SimpleNamespace(
+        get_session=AsyncMock(return_value={"user_id": "local"}),
+        get_thread_summaries=AsyncMock(
+            return_value=[SimpleNamespace(status="failed", last_seq=2)]
+        ),
+    )
+    failed = [
+        ThreadHistoryEntry(
+            role="assistant",
+            text="[falha] provider indisponível",
+            checkpoint_id="2",
+            message_id=2,
+            is_error=True,
+        )
+    ]
+
+    with (
+        patch("backend.api.handlers.threads._assert_owns_thread", new=AsyncMock()),
+        patch(
+            "backend.api.handlers.threads.get_thread",
+            new=AsyncMock(return_value=_fake_thread()),
+        ),
+        patch(
+            "backend.api.handlers.threads._get_session_store",
+            new=AsyncMock(return_value=store),
+        ),
+        patch(
+            "backend.services.agent_factory.aget_thread_messages_with_files",
+            new=AsyncMock(return_value=failed),
+        ),
+    ):
+        response = await get_thread_history_paginated(
+            "t1", _request_for_user("local"), offset=1
+        )
+
+    assert response.run_status == "failed"
+    assert response.last_seq == 2
+    assert response.messages == []
+
+
+@pytest.mark.asyncio
 async def test_history_mensagens_na_ordem_cronologica() -> None:
     """Mensagens retornadas na ordem mais-antiga→mais-recente."""
     pairs = [

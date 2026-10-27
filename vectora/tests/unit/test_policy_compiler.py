@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -11,6 +12,8 @@ from backend.services.policy_compiler import (
     PolicySnapshot,
     compile_policy_snapshot,
 )
+from backend.tools import browser as browser_tools
+from backend.tools import browser_devtools
 from backend.tools.context import ToolContext
 from backend.vtypes.message import ToolCall
 
@@ -118,6 +121,37 @@ def test_policy_snapshot_browser_navigation_uses_egress_allowlist(
     ok, reason = snapshot.validate_call(tool_name, {"url": "https://allowed.com/path"})
     assert ok is True
     assert reason == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tool_name", ["browser_navigate", "browser_new_tab"])
+async def test_browser_egress_block_happens_before_handler_effect(
+    monkeypatch: pytest.MonkeyPatch, tool_name: str
+) -> None:
+    """Uma URL bloqueada não pode alcançar o efeito do handler da tool."""
+    snapshot = PolicySnapshot(egress_policy=EgressPolicy(allowed_hosts=["allowed.com"]))
+
+    if tool_name == "browser_navigate":
+        handler_effect = AsyncMock()
+        monkeypatch.setattr(
+            browser_tools, "compile_policy_snapshot", lambda _ctx: snapshot
+        )
+        monkeypatch.setattr(browser_tools, "get_browser_page", handler_effect)
+        result = await browser_tools.browser_navigate(
+            url="https://forbidden.com/private", ctx=ToolContext(workspace_id="ws")
+        )
+    else:
+        handler_effect = AsyncMock(return_value="tab-1")
+        monkeypatch.setattr(
+            browser_devtools, "compile_policy_snapshot", lambda _ctx: snapshot
+        )
+        monkeypatch.setattr(browser_devtools, "new_tab", handler_effect)
+        result = await browser_devtools.browser_new_tab(
+            url="https://forbidden.com/private", ctx=ToolContext(workspace_id="ws")
+        )
+
+    assert "egress" in result.lower()
+    handler_effect.assert_not_awaited()
 
 
 def test_compile_policy_snapshot() -> None:
