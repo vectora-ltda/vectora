@@ -2,8 +2,8 @@
 local do workspace OU qualquer URL http/https navegada livremente) mais
 gestão dos dev servers declarados em `.vectora/launch.json`.
 
-`browser_navigate` é a porta de entrada pra navegação livre — nenhum
-guardrail de host/porta, só esquema (`http`/`https`). As demais tools de
+`browser_navigate` é a porta de entrada pra navegação livre, sujeita ao
+snapshot de egress do workspace além do esquema (`http`/`https`). As demais tools de
 automação (`browser_click`/`browser_fill`/etc.) operam sobre a página já
 carregada na sessão persistente do workspace conectada ao Electron via CDP
 (`backend.browser.session.get_browser_page`); se nada foi navegado ainda,
@@ -13,6 +13,7 @@ caem no dev server ativo do workspace (mesmo fallback de sempre).
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import logging
 from pathlib import Path
@@ -27,6 +28,7 @@ from backend.browser.session import (
     resolve_uid_center,
     set_value_by_uid,
 )
+from backend.services.policy_compiler import compile_policy_snapshot
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
@@ -39,6 +41,14 @@ _NO_PAGE_ERROR = (
 )
 
 _ALLOWED_SCHEMES = ("http", "https")
+
+
+def _validate_browser_url(url: str, ctx: ToolContext) -> tuple[bool, str]:
+    """Aplica a mesma política de egress ao início e ao destino final."""
+    ok, reason = compile_policy_snapshot(ctx).validate_call(
+        "browser_navigate", {"url": url}
+    )
+    return ok, reason
 
 
 async def _resolve_page(ctx: ToolContext) -> tuple[Any, str]:
@@ -96,14 +106,25 @@ async def browser_navigate(url: str, ctx: ToolContext) -> str:
             f"Error: esquema {scheme!r} não permitido — só http:// e "
             "https:// são aceitos pra navegação."
         )
+    allowed, reason = _validate_browser_url(url, ctx)
+    if not allowed:
+        return f"Error: navegação bloqueada pela política de egress: {reason}"
     try:
         page = await get_browser_page(ctx.workspace_id or "default")
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        final_url = str(getattr(page, "url", url) or url)
+        allowed, reason = _validate_browser_url(final_url, ctx)
+        if not allowed:
+            # A navegação pode ter seguido um redirect; não deixe a página
+            # proibida permanecer como alvo ativo da sessão.
+            with contextlib.suppress(Exception):
+                await page.goto("about:blank", wait_until="domcontentloaded")
+            return f"Error: redirect bloqueado pela política de egress: {reason}"
         logger.info(
             "browser_navigate completed",
             extra={
                 "tool": "browser_navigate",
-                "url": page.url,
+                "url": final_url,
                 "workspace_id": ctx.workspace_id,
                 "status": "ok",
             },
@@ -121,7 +142,7 @@ async def browser_navigate(url: str, ctx: ToolContext) -> str:
                     "browser_navigate: não foi possível ler o título", exc_info=True
                 )
         title_suffix = f" (título: {title})" if title else ""
-        return f"[OK] Navegado para {page.url}{title_suffix}"
+        return f"[OK] Navegado para {final_url}{title_suffix}"
     except Exception:
         logger.exception("browser_navigate failed", extra={"url": url})
         return f"Error: falha ao navegar para {url!r}. Veja logs."

@@ -153,6 +153,10 @@ async def _persist_terminal_outcome(
     if not run_id:
         return
     try:
+        from backend.persistence.native.ledger import (
+            LedgerEventType,
+            make_run_failed_key,
+        )
         from backend.services import agent_factory
 
         store = await agent_factory.get_session_store()
@@ -168,6 +172,14 @@ async def _persist_terminal_outcome(
                 run_id,
                 status=status,  # type: ignore
                 detail=detail,
+            )
+        if status == "failed" and hasattr(store, "append_ledger_event"):
+            await store.append_ledger_event(
+                thread_id,
+                event_key=make_run_failed_key(run_id),
+                event_type=LedgerEventType.RUN_FAILED,
+                run_id=run_id,
+                payload={"detail": detail} if detail else {},
             )
         turn_id = f"{run_id}:terminal"
         if await store.get_message_id_by_turn_id(thread_id, turn_id) is not None:

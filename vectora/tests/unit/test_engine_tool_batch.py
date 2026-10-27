@@ -10,13 +10,20 @@ volta que tem tool calls).
 from __future__ import annotations
 
 import pytest
+from pydantic import create_model
 
 from backend.engine.guardrails import LoopCapConfig, TurnBudget
 from backend.engine.tool_batch import _redact_secrets, execute_tool_batch
 from backend.services.egress_policy import EgressPolicy
 from backend.services.policy_compiler import PolicySnapshot
 from backend.tools.context import ToolContext
-from backend.tools.registry import TOOL_REGISTRY, ToolExtras, ToolRegistry, vtool
+from backend.tools.registry import (
+    TOOL_REGISTRY,
+    ToolExtras,
+    ToolRegistry,
+    ToolSpec,
+    vtool,
+)
 from backend.vtypes.message import ToolCall
 
 
@@ -34,6 +41,46 @@ def ctx() -> ToolContext:
 
 
 class TestDespachoParaleloSequencial:
+    async def test_egress_bloqueada_nao_invoca_handler(self, ctx):
+        """A policy deve impedir o handler, não apenas marcar sua resposta."""
+        executada = False
+
+        async def browser_navigate_fake(url: str, ctx: ToolContext) -> str:
+            nonlocal executada
+            executada = True
+            return "nunca deveria executar"
+
+        registry = ToolRegistry()
+        spec = ToolSpec(
+            name="browser_navigate",
+            description="fake browser navigation",
+            args_model=create_model("BrowserNavigateArgs", url=(str, ...)),
+            handler=browser_navigate_fake,
+            extras=ToolExtras(destructive=False, category="browser"),
+            needs_ctx=True,
+        )
+        registry.register(spec)
+        snapshot = PolicySnapshot(
+            egress_policy=EgressPolicy(allowed_hosts=["allowed.com"])
+        )
+
+        result = await execute_tool_batch(
+            [
+                ToolCall(
+                    id="blocked-browser",
+                    name="browser_navigate",
+                    args={"url": "https://forbidden.com"},
+                )
+            ],
+            tool_registry=registry,
+            ctx=ctx,
+            policy_snapshot=snapshot,
+        )
+
+        assert executada is False
+        assert result[0].is_error is True
+        assert "policy_denied" in result[0].text()
+
     async def test_falha_na_notificacao_de_inicio_nao_interrompe_a_tool(self, ctx):
         """Telemetria indisponível não pode transformar uma execução válida em erro."""
 

@@ -38,6 +38,7 @@ class TestErroDeExecucaoFicaLogado:
             def __init__(self) -> None:
                 """Inicializa o estado da instância."""
                 self.messages: list[dict[str, object]] = []
+                self.ledger_events: dict[str, dict[str, object]] = {}
 
             async def get_message_id_by_turn_id(
                 self, thread_id: str, turn_id: str
@@ -180,6 +181,7 @@ class TestErroDeExecucaoFicaLogado:
             def __init__(self) -> None:
                 """Inicializa o estado da instância."""
                 self.messages: list[dict[str, object]] = []
+                self.ledger_events: dict[str, dict[str, object]] = {}
 
             async def get_message_id_by_turn_id(
                 self, thread_id: str, turn_id: str
@@ -210,6 +212,13 @@ class TestErroDeExecucaoFicaLogado:
                     {"type": "agent_run", "run_id": run_id, **kwargs}
                 )
 
+            async def append_ledger_event(
+                self, thread_id: str, **kwargs: object
+            ) -> None:
+                """Simula a chave única de idempotência do ledger."""
+                key = str(kwargs["event_key"])
+                self.ledger_events.setdefault(key, {"thread_id": thread_id, **kwargs})
+
         store = _Store()
         from backend.services import agent_factory
 
@@ -237,6 +246,13 @@ class TestErroDeExecucaoFicaLogado:
             )
         ]
 
+        _ = [
+            _parse(sse)
+            async for sse in stream_engine_events(
+                _run_empty, thread_id="t-empty-fail", run_id="run-empty-fail"
+            )
+        ]
+
         assert any(
             u.get("type") == "agent_run" and u.get("status") == "failed"
             for u in updated_statuses
@@ -249,3 +265,4 @@ class TestErroDeExecucaoFicaLogado:
             u.get("type") == "legacy" and u.get("status") == "completed"
             for u in updated_statuses
         )
+        assert list(store.ledger_events) == ["run_failed:run-empty-fail"]

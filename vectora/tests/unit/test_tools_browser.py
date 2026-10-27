@@ -1,8 +1,8 @@
 """Tools de browser: navegação livre (`browser_navigate`) + automação
 (screenshot/click/scroll/fill/read_dom) + gestão de dev server.
 
-`browser_navigate` aceita qualquer URL http(s) — único guardrail é o
-esquema. As demais tools de automação operam sobre a página já navegada
+`browser_navigate` aceita URLs http(s) permitidas pelo snapshot de egress.
+As demais tools de automação operam sobre a página já navegada
 (sessão persistente); sem nada navegado ainda, caem no dev server ativo do
 workspace (`.vectora/launch.json` + `browser_start`). Playwright é mockado
 nestes testes (não depende de Chromium instalado).
@@ -95,6 +95,25 @@ async def test_browser_navigate_falha_de_rede_devolve_erro_claro(
     )
 
     assert result.startswith("Error:")
+
+
+@pytest.mark.asyncio
+async def test_browser_navigate_bloqueia_redirect_para_destino_privado(
+    monkeypatch, fake_page
+):
+    """Erro/regressão: o destino final também passa pelo perímetro SSRF."""
+
+    async def _goto(url: str, **_kwargs: object) -> None:
+        fake_page.url = (
+            "http://127.0.0.1:8080/private" if url == "https://example.com" else url
+        )
+
+    fake_page.goto = AsyncMock(side_effect=_goto)
+    result = await browser_tools.browser_navigate(url="https://example.com", ctx=_ctx())
+
+    assert "redirect bloqueado" in result
+    assert fake_page.goto.await_count == 2
+    assert fake_page.goto.await_args_list[-1].args[0] == "about:blank"
 
 
 @pytest.mark.asyncio

@@ -1597,6 +1597,16 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
         from backend.services import agent_factory
 
         thread = await get_thread(GetThreadRequest(thread_id=request.thread_id))
+        # Capture the cursor before reading messages.  A write that races the
+        # history read must not make the response claim a sequence newer than
+        # the messages it contains; the next replay will deliver that event.
+        store = await _get_session_store()
+        summaries = (
+            await store.get_thread_summaries([request.thread_id], user_id="local")
+            if hasattr(store, "get_thread_summaries")
+            else []
+        )
+        summary = summaries[0] if summaries else None
         pairs = await agent_factory.aget_thread_messages_with_files(
             request.thread_id,
             workspace_id=thread.workspace_id or None,
@@ -1617,10 +1627,6 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
             request.thread_id,
             workspace_id=thread.workspace_id or None,
         )
-        summaries = await (await _get_session_store()).get_thread_summaries(
-            [request.thread_id], user_id="local"
-        )
-        summary = summaries[0] if summaries else None
         return GetHistoryResponse(
             messages=history,
             todos=[TodoItem.model_validate(todo) for todo in todos],
@@ -2092,6 +2098,7 @@ async def get_thread_history_paginated(
     # the canonical existence check.
     await _assert_owns_thread(thread_id, request)
 
+    summary = None
     try:
         from backend.services import agent_factory
 
@@ -2101,6 +2108,12 @@ async def get_thread_history_paginated(
         thread = await get_thread(
             GetThreadRequest(thread_id=thread_id), http_request=request
         )
+        store = await _get_session_store()
+        if hasattr(store, "get_thread_summaries"):
+            summaries = await store.get_thread_summaries(
+                [thread_id], user_id=_user_id(request)
+            )
+            summary = summaries[0] if summaries else None
         pairs = await agent_factory.aget_thread_messages_with_files(
             thread_id,
             workspace_id=thread.workspace_id or None,
@@ -2161,10 +2174,6 @@ async def get_thread_history_paginated(
                 exc_info=True,
             )
 
-    summaries = await (await _get_session_store()).get_thread_summaries(
-        [thread_id], user_id=_user_id(request)
-    )
-    summary = summaries[0] if summaries else None
     return PagedHistoryResponse(
         messages=messages,
         has_more=has_more,

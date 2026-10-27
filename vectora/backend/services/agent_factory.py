@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     from backend.engine.subagents import SubagentSpec
     from backend.persistence.native.session_store import SessionStore
     from backend.vtypes.history import ThreadHistoryEntry
+    from backend.vtypes.message import VMessage
 from backend.tools.registry import ToolRegistry
 from backend.workspace.skills import list_skill_paths
 
@@ -794,6 +795,21 @@ async def aget_thread_messages(
 
     store = await get_session_store()
     pares = await store.get_history_with_ids(thread_id)
+    return _history_pairs_from_messages(thread_id, pares)
+
+
+def _history_pairs_from_messages(
+    thread_id: str,
+    pares: list[tuple[int, VMessage]],
+) -> list[tuple[str, str, str, list[dict[str, Any]]]]:
+    """Converte um snapshot de mensagens em pares de histórico.
+
+    O chamador fornece o snapshot para que a resposta e suas flags sejam
+    derivadas da mesma leitura; isso evita que uma segunda gravação altere a
+    associação entre ``message_id`` e ``is_error``.
+    """
+    from backend.vtypes.message import MessageRole
+
     out: list[tuple[str, str, str, list[dict[str, Any]]]] = []
     for msg_id, msg in pares:
         if msg.role in (MessageRole.TOOL, MessageRole.SYSTEM):
@@ -844,7 +860,6 @@ async def aget_thread_messages_with_files(
 ) -> list[ThreadHistoryEntry]:
     """Histórico com o payload de arquivos editados persistido por mensagem."""
     from backend.vtypes.history import HistoryEditedFile, ThreadHistoryEntry
-    from backend.vtypes.message import MessageRole
 
     store = await get_session_store()
     files_by_id = await store.get_edited_files_for_thread(thread_id)
@@ -858,14 +873,28 @@ async def aget_thread_messages_with_files(
         except ValueError:
             return []
 
-    error_by_id: dict[str, bool] = {}
+    # Fetch once and derive both text/attachments and flags from that exact
+    # snapshot.  A failed read is propagated instead of converting unknown
+    # flags into ``False``; callers can retry and observe a typed failure.
     try:
-        error_by_id = {
-            str(message_id): bool(message.is_error)
-            for message_id, message in await store.get_history_with_ids(thread_id)
-        }
-    except Exception:
-        logger.debug("history: não foi possível carregar flags is_error", exc_info=True)
+        history_snapshot = await store.get_history_with_ids(thread_id)
+    except Exception as exc:
+        logger.exception("history: falha ao carregar snapshot de %s", thread_id)
+        raise RuntimeError("falha ao carregar o histórico persistido") from exc
+    error_by_id: dict[str, bool | None] = {
+        str(message_id): (
+            message.is_error if isinstance(message.is_error, bool) else None
+        )
+        for message_id, message in history_snapshot
+    }
+
+    pairs = _history_pairs_from_messages(thread_id, history_snapshot)
+    if not pairs:
+        # Compatibility for stores that expose only the legacy history
+        # projection (used by older integrations and test doubles).  A
+        # non-empty native snapshot always takes the single-read path above.
+        legacy_pairs = await aget_thread_messages(thread_id, workspace_id)
+        pairs = legacy_pairs or pairs
 
     return [
         ThreadHistoryEntry(
@@ -873,11 +902,11 @@ async def aget_thread_messages_with_files(
             text=item[1],
             checkpoint_id=item[2],
             message_id=int(item[2]) if item[2].isdigit() else None,
-            is_error=error_by_id.get(item[2], False),
+            is_error=error_by_id.get(item[2]),
             attachments=item[3],
             edited_files=files_for_checkpoint(item[2]),
         )
-        for item in await aget_thread_messages(thread_id, workspace_id)
+        for item in pairs
     ]
 
 

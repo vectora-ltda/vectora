@@ -49,3 +49,13 @@ Este plano reúne as correções técnicas que serão implementadas sobre os con
 - Executar testes unitários, negativos, regressivos, concorrentes, integração e E2E.
 - Executar Ruff, formatação, Bandit, tipagem, verificação de contratos e checks de frontend e services.
 - Classificar explicitamente cada teste live como `passed`, `failed` ou `skipped`.
+- Cada evidência deve registrar o SHA exato avaliado, o `run_id` (quando houver),
+  o comando executado, o resultado (`passed`, `failed` ou `skipped`) e a revisão
+  de código correspondente; resultados de outro SHA não substituem a prova atual.
+- Testes live `skipped` devem informar a categoria e o motivo (`environment_unavailable`,
+  `timeout`, `provider_error`, `policy_blocked`, `cancelled` ou `assertion_failed`)
+  e nunca contam como evidência de provider disponível.
+- Toda mudança de comportamento exige caso feliz, caminho negativo/erro e
+  regressão. Em mudanças persistentes, concorrentes ou orientadas a eventos,
+  incluir também, quando aplicável, reexecução/replay, conflito, cancelamento,
+  recuperação após crash e idempotência.

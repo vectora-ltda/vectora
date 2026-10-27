@@ -9,6 +9,7 @@ Lighthouse.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import uuid
@@ -24,6 +25,7 @@ from backend.browser.session import (
     select_tab,
     set_dialog_policy,
 )
+from backend.services.policy_compiler import compile_policy_snapshot
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 from backend.vtypes.browser import NetworkProfile
@@ -108,7 +110,34 @@ async def browser_new_tab(ctx: ToolContext, url: str | None = None) -> str:
     """
     workspace_id = _workspace_id(ctx)
     try:
+        if url:
+            allowed, reason = compile_policy_snapshot(ctx).validate_call(
+                "browser_new_tab", {"url": url}
+            )
+            if not allowed:
+                return json.dumps(
+                    {"status": "error", "error": f"egress policy: {reason}"}
+                )
         tab_id = await new_tab(workspace_id, url=url)
+        if url:
+            tab = next(
+                (
+                    item
+                    for item in await list_tabs(workspace_id)
+                    if item["tab_id"] == tab_id
+                ),
+                None,
+            )
+            final_url = str(tab.get("url", url)) if tab else url
+            allowed, reason = compile_policy_snapshot(ctx).validate_call(
+                "browser_new_tab", {"url": final_url}
+            )
+            if not allowed:
+                with contextlib.suppress(Exception):
+                    await close_tab(workspace_id, tab_id)
+                return json.dumps(
+                    {"status": "error", "error": f"redirect bloqueado: {reason}"}
+                )
         logger.info(
             "browser_new_tab completed",
             extra={

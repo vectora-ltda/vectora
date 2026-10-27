@@ -115,6 +115,10 @@ def test_policy_snapshot_browser_navigation_uses_egress_allowlist(
     assert ok is False
     assert "Egress policy violada" in reason
 
+    ok, reason = snapshot.validate_call(tool_name, {"url": "https://allowed.com/path"})
+    assert ok is True
+    assert reason == ""
+
 
 def test_compile_policy_snapshot() -> None:
     """Verifica o comportamento de compile policy snapshot."""

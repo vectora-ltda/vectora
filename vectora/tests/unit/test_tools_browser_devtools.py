@@ -55,6 +55,27 @@ async def test_browser_new_tab_cria_aba_e_retorna_id(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_browser_new_tab_bloqueia_redirect_para_destino_privado(monkeypatch):
+    """Erro/regressão: redirects de uma nova aba também são filtrados."""
+    monkeypatch.setattr(bd, "new_tab", AsyncMock(return_value="tab-abc"))
+    monkeypatch.setattr(
+        bd,
+        "list_tabs",
+        AsyncMock(
+            return_value=[{"tab_id": "tab-abc", "url": "http://127.0.0.1:8080/private"}]
+        ),
+    )
+    close_tab = AsyncMock(return_value=True)
+    monkeypatch.setattr(bd, "close_tab", close_tab)
+
+    result = json.loads(await bd.browser_new_tab(url="https://example.com", ctx=_ctx()))
+
+    assert result["status"] == "error"
+    assert "redirect bloqueado" in result["error"]
+    close_tab.assert_awaited_once_with("ws1", "tab-abc")
+
+
+@pytest.mark.asyncio
 async def test_browser_new_tab_falha_devolve_erro_tipado(monkeypatch):
     monkeypatch.setattr(
         bd, "new_tab", AsyncMock(side_effect=RuntimeError("chromium crashed"))
