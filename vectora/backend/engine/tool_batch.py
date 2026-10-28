@@ -42,12 +42,14 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 
-def _is_tool_error(text: str) -> bool:
+def _is_tool_error(text: str, *, structured: bool = False) -> bool:
     """Reconhece prefixos de erro emitidos pelas tools localizadas."""
     if text.lstrip().lower().startswith(("error:", "erro:", "erro ao ")):
         return True
+    if not structured:
+        return False
     try:
-        payload = json.loads(text)
+        payload = json.loads(text, parse_int=str)
     except (TypeError, json.JSONDecodeError, RecursionError):
         return False
     return isinstance(payload, dict) and (
@@ -189,7 +191,11 @@ async def _run_one(
             call_context,
         )
         texto = _apply_post_execute(texto)
-        is_error = _is_tool_error(texto)
+        is_error = _is_tool_error(
+            texto,
+            structured=spec.extras.structured_envelope
+            or spec.extras.category == "browser",
+        )
         from backend.services.tool_usage import record_tool_usage
 
         await record_tool_usage(

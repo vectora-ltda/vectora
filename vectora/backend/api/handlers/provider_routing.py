@@ -4381,11 +4381,26 @@ async def get_decision_models_status(
     for provider_name in ("clef-local", "laya-local", "clef-api", "jev-api"):
         provider_settings = sys_settings.model_copy(update={"provider": provider_name})
         try:
-            provider = get_systemone_provider(
-                provider_settings,
-                clef_api_key=settings.clef_api_key,
-                jev_api_key=settings.jev_api_key,
-            )
+            # Capabilities are declarative and must remain visible even when
+            # a remote provider cannot be constructed (for example, because
+            # its account id is not configured).  Readiness is handled below
+            # and remains false in that situation.
+            if provider_name == "clef-api" and not provider_settings.clef_account_id:
+                from backend.llm.systemone.api_adapters import ClefApiAdapter
+
+                provider = ClefApiAdapter(
+                    api_key=settings.clef_api_key or "",
+                    account_id="capability-probe",
+                    base_url=provider_settings.clef_api_base_url,
+                )
+                discovered = False
+            else:
+                provider = get_systemone_provider(
+                    provider_settings,
+                    clef_api_key=settings.clef_api_key,
+                    jev_api_key=settings.jev_api_key,
+                )
+                discovered = True
             provider_caps = await provider.capabilities()
             is_selected = provider_name == sys_settings.provider
             capability_matrix.append(
@@ -4400,7 +4415,7 @@ async def get_decision_models_status(
                         if provider_name == "clef-api"
                         else sys_settings.jev_api_model
                     ),
-                    discovered=True,
+                    discovered=discovered,
                     ready=is_selected and is_healthy,
                     text_generation=any(
                         (
@@ -4414,7 +4429,9 @@ async def get_decision_models_status(
                     vision=provider_caps.supports_image,
                     checked_at=datetime.now(UTC).isoformat(),
                     diagnostic=(
-                        None
+                        "provider selecionado não está saudável"
+                        if is_selected and not is_healthy
+                        else None
                         if is_selected
                         else "provider não selecionado; readiness não foi sondada"
                     ),

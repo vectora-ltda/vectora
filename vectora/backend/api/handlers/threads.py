@@ -1647,13 +1647,17 @@ async def get_history(
         # snapshot was read successfully.  If summary storage failed, expose
         # the conservative idle/zero state instead of claiming a cursor from a
         # different read snapshot than the one used for this response.
-        safe_last_seq = (
-            await _safe_history_cursor(
-                store, request.thread_id, pairs, summary.last_seq
+        try:
+            safe_last_seq = (
+                await _safe_history_cursor(
+                    store, request.thread_id, pairs, summary.last_seq
+                )
+                if summary is not None
+                else 0
             )
-            if summary is not None
-            else 0
-        )
+        except Exception:
+            logger.exception("api/threads: cursor do histórico indisponível")
+            safe_last_seq = 0
         history = [
             HistoryMessage(
                 role=entry.role,
@@ -2206,11 +2210,15 @@ async def get_thread_history_paginated(
     page = pairs[start:end]
 
     has_more = start > 0
-    safe_last_seq = (
-        await _safe_history_cursor(store, thread_id, page, summary.last_seq)
-        if summary is not None
-        else 0
-    )
+    try:
+        safe_last_seq = (
+            await _safe_history_cursor(store, thread_id, page, summary.last_seq)
+            if summary is not None
+            else 0
+        )
+    except Exception:
+        logger.exception("api/threads: cursor paginado indisponível")
+        safe_last_seq = 0
 
     messages = [
         HistoryMessage(

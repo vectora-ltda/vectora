@@ -330,10 +330,7 @@ async def run_verification(
             commit_sha=commit_sha,
         )
 
-    has_infra_error = any(
-        result.exit_code < 0 or result.output.startswith("Falha ao despachar")
-        for result in gate_results
-    )
+    has_infra_error = any(result.reason == "dispatch_error" for result in gate_results)
     status: Literal["passed", "degraded", "failed"]
     if has_infra_error:
         outcome: VerificationOutcome = "infra_error"

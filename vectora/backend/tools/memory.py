@@ -75,6 +75,18 @@ def _memory_namespace(ctx: ToolContext) -> tuple[str, ...]:
     return tuple(namespace)
 
 
+def _memory_namespace_candidates(ctx: ToolContext) -> list[tuple[str, ...]]:
+    """Return scoped storage first, followed by the legacy user namespace.
+
+    Existing installations predate org/workspace-qualified keys.  Reads and
+    destructive operations must see those records during the migration rather
+    than silently presenting an empty memory store.
+    """
+    scoped = _memory_namespace(ctx)
+    legacy = ("user", _user_id_from_ctx(ctx), "memories")
+    return [scoped] if scoped == legacy else [scoped, legacy]
+
+
 _is_memory_expired = is_store_value_expired
 
 
@@ -93,8 +105,14 @@ async def list_fact_contents(user_id: str) -> list[str]:
     from backend.services.agent_factory import get_store as get_agent_store
 
     store = await get_agent_store()
-    ns = _memory_namespace(ToolContext(user_id=user_id))
-    items = await store.asearch(ns)
+    ctx = ToolContext(user_id=user_id)
+    items: list[Any] = []
+    seen: set[str] = set()
+    for ns in _memory_namespace_candidates(ctx):
+        for item in await store.asearch(ns):
+            if item.key not in seen:
+                seen.add(item.key)
+                items.append(item)
     return [
         item.value.get("content", "")
         for item in items
@@ -274,17 +292,22 @@ async def get_memory(ctx: ToolContext, key: str | None = None) -> str:
     """
     try:
         store = _get_store(ctx)
-        ns = _memory_namespace(ctx)
+        namespaces = _memory_namespace_candidates(ctx)
 
         if key is not None:
-            item = await store.aget(ns, key)
+            item = None
+            for namespace in namespaces:
+                item = await store.aget(namespace, key)
+                if item is not None:
+                    break
             if item is None:
-                logger.warning("memory_not_found key=%s ns=%s", key, ns)
+                logger.warning("memory_not_found key=%s ns=%s", key, namespaces[0])
                 return json.dumps({"status": "not_found", "key": key})
 
             val = item.value
             if _is_memory_expired(val):
-                await store.adelete(ns, key)
+                for ns in namespaces:
+                    await store.adelete(ns, key)
                 return json.dumps({"status": "not_found", "key": key})
             logger.debug("memory_retrieved key=%s", key)
             return json.dumps(
@@ -299,7 +322,13 @@ async def get_memory(ctx: ToolContext, key: str | None = None) -> str:
             )
 
         # Sem key: lista todas as memórias do namespace
-        items = await store.asearch(ns)
+        items = []
+        seen: set[str] = set()
+        for ns in namespaces:
+            for item in await store.asearch(ns):
+                if item.key not in seen:
+                    seen.add(item.key)
+                    items.append(item)
         items = [item for item in items if not _is_memory_expired(item.value)]
         memories = [
             {
@@ -311,7 +340,9 @@ async def get_memory(ctx: ToolContext, key: str | None = None) -> str:
             }
             for item in items
         ]
-        logger.debug("all_memories_retrieved count=%d ns=%s", len(memories), ns)
+        logger.debug(
+            "all_memories_retrieved count=%d ns=%s", len(memories), namespaces[0]
+        )
         return json.dumps(
             {
                 "status": "success",
@@ -349,9 +380,14 @@ async def search_memory(ctx: ToolContext, query: str, limit: int = 5) -> str:
     """
     try:
         store = _get_store(ctx)
-        ns = _memory_namespace(ctx)
-
-        items = await _search_unexpired(store, ns, query=query, limit=limit)
+        items: list[Any] = []
+        seen: set[str] = set()
+        for ns in _memory_namespace_candidates(ctx):
+            for item in await _search_unexpired(store, ns, query=query, limit=limit):
+                if item.key not in seen:
+                    seen.add(item.key)
+                    items.append(item)
+        items = items[:limit]
         has_scores = any(getattr(item, "score", None) is not None for item in items)
 
         memories = [
@@ -403,16 +439,21 @@ async def delete_memory(ctx: ToolContext, key: str) -> str:
     """
     try:
         store = _get_store(ctx)
-        ns = _memory_namespace(ctx)
-
-        # Verifica se existe antes de deletar
-        item = await store.aget(ns, key)
+        namespaces = _memory_namespace_candidates(ctx)
+        found_ns: tuple[str, ...] | None = None
+        item = None
+        for ns in namespaces:
+            item = await store.aget(ns, key)
+            if item is not None:
+                found_ns = ns
+                break
         if item is None:
             logger.warning("memory_not_found_for_deletion key=%s", key)
             return json.dumps({"status": "not_found", "key": key})
 
-        await store.adelete(ns, key)
-        logger.info("memory_deleted key=%s ns=%s", key, ns)
+        for ns in namespaces:
+            await store.adelete(ns, key)
+        logger.info("memory_deleted key=%s ns=%s", key, found_ns)
         return json.dumps({"status": "deleted", "key": key})
 
     except Exception as exc:

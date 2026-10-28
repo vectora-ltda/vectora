@@ -1418,13 +1418,14 @@ class SessionStore:
                     await conn.execute(
                         "UPDATE session_runs SET status = ?, updated_at = ?, "
                         "terminal_at = ?, partial_text = COALESCE(?, partial_text) "
-                        "WHERE run_id = ?",
+                        "WHERE run_id = ? AND (status NOT IN ('completed','failed','cancelled') OR ? IS NULL)",
                         (
                             message_terminal_status,
                             agora,
                             agora,
                             msg.text(),
                             run_id,
+                            terminal_status,
                         ),
                     )
                 await conn.commit()

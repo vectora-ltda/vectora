@@ -279,6 +279,12 @@ class DAGStore:
         if execution is None or execution[0] != "running":
             return None
         async with self.db.execute(
+            "SELECT 1 FROM vectora_dag_stages WHERE execution_id=? AND status='failed' LIMIT 1",
+            (execution_id,),
+        ) as failed_cur:
+            if await failed_cur.fetchone() is not None:
+                return None
+        async with self.db.execute(
             "SELECT stage_id,depends_on_json,attempt FROM vectora_dag_stages WHERE execution_id=? AND status='pending' ORDER BY rowid",
             (execution_id,),
         ) as cur:
@@ -547,6 +553,7 @@ class DAGStore:
                 "stage_recovered",
                 {"attempt": int(row["attempt"])},
             )
+            await self._refresh_execution_status(row["execution_id"])
         async with self.db.execute(
             "SELECT execution_id,stage_id FROM vectora_dag_stages "
             "WHERE status='running' AND claim_expires_at IS NOT NULL AND claim_expires_at < ? "

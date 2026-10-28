@@ -647,8 +647,15 @@ async def test_get_decision_models_status_structure() -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_decision_models_status_exposes_complete_capability_matrix() -> None:
+async def test_get_decision_models_status_exposes_complete_capability_matrix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A matriz distingue capabilities declaradas de readiness do provider ativo."""
+
+    async def healthy(_: object) -> bool:
+        return True
+
+    monkeypatch.setattr(ClefLocalAdapter, "health", healthy)
     res = await get_decision_models_status()
 
     assert {item.provider for item in res.capability_matrix} == {
@@ -660,7 +667,7 @@ async def test_get_decision_models_status_exposes_complete_capability_matrix() -
     selected = next(
         item for item in res.capability_matrix if item.provider == res.provider
     )
-    assert selected.ready is res.is_healthy
+    assert selected.ready is True
     assert selected.discovered is True
     assert selected.text_generation is True
     inactive = [item for item in res.capability_matrix if item.provider != res.provider]

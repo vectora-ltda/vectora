@@ -43,6 +43,7 @@ class ToolExtras:
     destructive: bool = False
     icon: str = "wrench"
     invalidates: list[str] = field(default_factory=list)
+    structured_envelope: bool = False
 
 
 @dataclass(slots=True)
@@ -107,7 +108,15 @@ class ToolSpec:
                 },
             )
             result = await self.handler(**kwargs)
-            result_status = "error" if _result_is_error(result) else "ok"
+            result_status = (
+                "error"
+                if _result_is_error(
+                    result,
+                    structured=self.extras.structured_envelope
+                    or self.extras.category == "browser",
+                )
+                else "ok"
+            )
             logger.info(
                 "tool_invocation_completed",
                 extra={
@@ -127,7 +136,7 @@ class ToolSpec:
             return f"Error: '{self.name}' falhou: {exc}"
 
 
-def _result_is_error(result: str) -> bool:
+def _result_is_error(result: str, *, structured: bool = False) -> bool:
     """Reconhece erros textuais e envelopes JSON estruturados das tools.
 
     Tools de browser precisam preservar um envelope JSON para o frontend;
@@ -136,8 +145,10 @@ def _result_is_error(result: str) -> bool:
     """
     if result.lstrip().lower().startswith(("error:", "erro:", "erro ao ")):
         return True
+    if not structured:
+        return False
     try:
-        payload = json.loads(result)
+        payload = json.loads(result, parse_int=str)
     except (TypeError, json.JSONDecodeError, RecursionError):
         return False
     return isinstance(payload, dict) and (

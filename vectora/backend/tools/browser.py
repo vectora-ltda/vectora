@@ -29,6 +29,7 @@ from backend.browser.session import (
     resolve_uid_center,
     set_value_by_uid,
 )
+from backend.services.egress_policy import async_is_url_allowed
 from backend.services.policy_compiler import PolicySnapshot, compile_policy_snapshot
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
@@ -86,8 +87,8 @@ async def _install_navigation_guard(
         request = getattr(route_obj, "request", None)
         request_url = str(getattr(request, "url", ""))
         current_snapshot = state["snapshot"]
-        allowed, reason = await asyncio.to_thread(
-            current_snapshot.validate_call, "browser_navigate", {"url": request_url}
+        allowed, reason, _ = await async_is_url_allowed(
+            request_url, current_snapshot.egress_policy
         )
         if allowed:
             await route_obj.continue_()
@@ -182,6 +183,9 @@ async def browser_navigate(url: str, ctx: ToolContext) -> str:
     guard = None
     blocked: dict[str, str] = {}
     try:
+        # A previous request may have been denied by a subresource rule.  The
+        # next navigation starts with fresh diagnostics.
+        blocked.clear()
         page = await get_browser_page(ctx.workspace_id or "default")
         guard, blocked = await _install_navigation_guard(page, snapshot)
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)

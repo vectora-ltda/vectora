@@ -42,6 +42,12 @@
         "reason": {
           "anyOf": [
             {
+              "enum": [
+                "passed",
+                "assertion_failed",
+                "timeout",
+                "dispatch_error"
+              ],
               "type": "string"
             },
             {

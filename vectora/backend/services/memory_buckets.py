@@ -36,6 +36,13 @@ class MemoryBucketsUnavailableError(MemoryBucketsError):
     """O catálogo não pôde ser consultado; não significa catálogo vazio."""
 
 
+def _tar_member_filter(member: tarfile.TarInfo) -> tarfile.TarInfo:
+    """Reject links even if the filesystem changes during archive creation."""
+    if member.issym() or member.islnk():
+        raise MemoryBucketsError("Bucket contém link simbólico ou hardlink")
+    return member
+
+
 def _validate_bucket_id(bucket_id: str) -> str:
     """Valida o identificador antes de usá-lo em URL ou caminho local."""
     value = bucket_id.strip()
@@ -224,13 +231,14 @@ async def publish_memory_bucket(
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as tar:
         root = source_dir.resolve()
-        for item in source_dir.iterdir():
-            resolved = item.resolve()
+        for item in source_dir.rglob("*"):
+            resolved = item.resolve(strict=False)
             if item.is_symlink() or not (resolved == root or root in resolved.parents):
                 raise MemoryBucketsError(
                     "Bucket contém link simbólico ou caminho fora da coleção"
                 )
-            tar.add(item, arcname=item.name, recursive=True)
+        for item in source_dir.iterdir():
+            tar.add(item, arcname=item.name, recursive=True, filter=_tar_member_filter)
     buffer.seek(0)
 
     try:

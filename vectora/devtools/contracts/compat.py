@@ -273,17 +273,31 @@ def check_schema_compatibility(
             )
             (report.breaking if breaking else report.non_breaking).append(message)
         matched_target_indexes: set[int] = set()
+        # Reserve every exact pair before compatibility matching.  Otherwise
+        # an earlier broad schema can consume an exact target belonging to a
+        # later alternative and produce a false breaking change.
+        exact_matches: dict[int, int] = {}
         for source_index, old_alt in enumerate(old_combos):
             if not isinstance(old_alt, dict):
                 continue
-            match_index: int | None = None
-            best_report: CompatibilityReport | None = None
+            for target_index, new_alt in enumerate(new_combos):
+                if target_index not in matched_target_indexes and old_alt == new_alt:
+                    exact_matches[source_index] = target_index
+                    matched_target_indexes.add(target_index)
+                    break
+        for source_index, old_alt in enumerate(old_combos):
+            if not isinstance(old_alt, dict):
+                continue
+            match_index: int | None = exact_matches.get(source_index)
+            best_report: CompatibilityReport | None = (
+                CompatibilityReport() if match_index is not None else None
+            )
             # Primeiro consuma uma correspondência estrutural exata. Isso
             # evita que duas restrições independentes de ``allOf`` sejam
             # pareadas cruzadamente apenas porque ambas são individualmente
             # compatíveis quando a lista foi reordenada.
             for target_index, new_alt in enumerate(new_combos):
-                if target_index in matched_target_indexes:
+                if match_index is not None or target_index in matched_target_indexes:
                     continue
                 if isinstance(new_alt, dict) and old_alt == new_alt:
                     match_index = target_index

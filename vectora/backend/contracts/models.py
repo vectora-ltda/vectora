@@ -334,7 +334,9 @@ class QualityGateRunResult(BaseModel):
     duration_ms: int = Field(
         default=0, description="Tempo de execução do gate em milissegundos"
     )
-    reason: str | None = Field(
+    reason: (
+        Literal["passed", "assertion_failed", "timeout", "dispatch_error"] | None
+    ) = Field(
         default=None,
         description=(
             "Classificação explícita do resultado: passed, assertion_failed, "

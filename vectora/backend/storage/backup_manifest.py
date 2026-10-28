@@ -339,6 +339,16 @@ def create_backup(
         with temporary.open("r+b") as handle:
             os.fsync(handle.fileno())
         temporary.replace(destination)
+        # The rename is durable only after the parent directory entry is
+        # flushed.  Without this fsync a power loss can lose the published
+        # backup even though the temporary file was synced.
+        directory_flag = getattr(os, "O_DIRECTORY", 0)
+        if directory_flag:
+            dir_fd = os.open(destination.parent, os.O_RDONLY | directory_flag)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
     except BaseException:
         if temporary is not None:
             temporary.unlink(missing_ok=True)

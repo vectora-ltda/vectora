@@ -25,6 +25,7 @@ from backend.browser.session import (
     select_tab,
     set_dialog_policy,
 )
+from backend.services.egress_policy import async_is_url_allowed, is_url_allowed
 from backend.services.policy_compiler import PolicySnapshot, compile_policy_snapshot
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
@@ -131,9 +132,7 @@ async def browser_new_tab(ctx: ToolContext, url: str | None = None) -> str:
             workspace_id,
             url=url,
             url_validator=(
-                lambda destination: snapshot.validate_call(
-                    "browser_new_tab", {"url": destination}
-                )
+                lambda destination: is_url_allowed(destination, snapshot.egress_policy)
             )
             if url
             else None,
