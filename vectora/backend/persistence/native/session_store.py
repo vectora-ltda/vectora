@@ -150,7 +150,10 @@ def _message_to_row(
         tool_calls_json,
         data["tool_call_id"],
         data["name"],
-        int(bool(data.get("is_error", False))),
+        # ``None`` means that the historical producer did not know whether
+        # the message was an error. Preserve that state across both stores;
+        # coercing it to ``False`` loses information during replay.
+        data.get("is_error"),
     )
 
 

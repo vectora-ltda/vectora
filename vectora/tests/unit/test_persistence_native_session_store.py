@@ -4,6 +4,7 @@ Fixture com pool real sobre `tmp_path`, sem mock."""
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -337,10 +338,10 @@ class TestSessionRuns:
 
 
 class TestAppendMessageEGetHistory:
-    async def test_is_error_none_e_normalizado_para_false_no_sqlite(
+    async def test_is_error_none_preserva_tristate_no_sqlite(
         self, store: SessionStore
     ) -> None:
-        """SQLite mantém a semântica do Postgres para o flag opcional."""
+        """SQLite não pode transformar estado desconhecido em sucesso."""
         await store.create_session("thread-error-null", user_id="alice")
         message = VMessage(
             role=MessageRole.ASSISTANT,
@@ -356,10 +357,65 @@ class TestAppendMessageEGetHistory:
                 ("thread-error-null",),
             )
             row = await cur.fetchone()
-        assert row is not None and row[0] == 0
+        assert row is not None and row[0] is None
 
         history = await store.get_history("thread-error-null")
-        assert history and history[0].is_error is False
+        assert history and history[0].is_error is None
+
+    async def test_setup_migra_schema_legado_para_is_error_nulo(
+        self, tmp_path: Path
+    ) -> None:
+        """Bancos antigos deixam de rejeitar o estado tri-state após setup."""
+        pool = AsyncConnectionPool(str(tmp_path / "legacy.db"), min_size=1, max_size=2)
+        await pool.open()
+        try:
+            async with pool.acquire() as conn:
+                await conn.executescript(
+                    """CREATE TABLE sessions (
+                        thread_id TEXT PRIMARY KEY,
+                        user_id TEXT NOT NULL,
+                        workspace_id TEXT,
+                        parent_thread_id TEXT,
+                        mode TEXT NOT NULL,
+                        permission_mode TEXT NOT NULL DEFAULT 'ask',
+                        created_at TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    );
+                    CREATE TABLE messages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        thread_id TEXT NOT NULL,
+                        parent_message_id INTEGER,
+                        role TEXT NOT NULL,
+                        content_json TEXT NOT NULL,
+                        tool_calls_json TEXT,
+                        tool_call_id TEXT,
+                        name TEXT,
+                        is_error INTEGER NOT NULL DEFAULT 0,
+                        created_at TEXT NOT NULL
+                    );"""
+                )
+                await conn.commit()
+
+            store = SessionStore(pool)
+            await store.setup()
+            async with pool.acquire() as conn:
+                columns = await conn.execute_fetchall("PRAGMA table_info(messages)")
+                is_error = next(row for row in columns if row[1] == "is_error")
+            assert is_error[3] == 0
+
+            await store.create_session("legacy-thread", user_id="alice")
+            await store.append_message_recorded(
+                "legacy-thread",
+                VMessage(
+                    role=MessageRole.ASSISTANT,
+                    content=[ContentBlock(kind="text", text="desconhecido")],
+                    is_error=None,
+                ),
+            )
+            history = await store.get_history("legacy-thread")
+            assert history and history[-1].is_error is None
+        finally:
+            await pool.close()
 
     async def test_append_message_recorded_preserva_run_id_e_edited_files_nulo(
         self, store: SessionStore
