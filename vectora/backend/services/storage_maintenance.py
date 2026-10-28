@@ -87,26 +87,36 @@ async def run_storage_maintenance(
             from backend.services.memory_store import get_memory_store
 
             memory_store = get_memory_store()
-            memory_expired = memory_store.expire()
+            memory_expired = await asyncio.to_thread(memory_store.expire)
             cutoff = (
                 datetime.now(UTC) - timedelta(days=context_retention_days)
             ).isoformat()
-            memory_purged = memory_store.purge_invalidated(before=cutoff)
+            memory_purged = await asyncio.to_thread(
+                memory_store.purge_invalidated, before=cutoff
+            )
         except Exception:
             logger.warning(
                 "storage maintenance: failed to expire context memories",
                 exc_info=True,
             )
         try:
-            from backend.services import agent_factory
+            from backend.persistence.native.session_store import SessionStore
+            from backend.storage.sqlite.pool import AsyncConnectionPool
 
-            session_store = await agent_factory.get_session_store()
-            purge_context = getattr(session_store, "purge_context_records", None)
-            if callable(purge_context):
-                cutoff = (
-                    datetime.now(UTC) - timedelta(days=context_retention_days)
-                ).isoformat()
-                context_records = await purge_context(cutoff)
+            # Maintenance must operate on the database selected by the
+            # caller, never on the process-wide chat singleton.  This keeps
+            # retention scoped when multiple workspaces/databases coexist.
+            async with AsyncConnectionPool.from_path(
+                db, min_size=1, max_size=2
+            ) as pool:
+                session_store = SessionStore(pool)
+                await session_store.setup()
+                purge_context = getattr(session_store, "purge_context_records", None)
+                if callable(purge_context):
+                    cutoff = (
+                        datetime.now(UTC) - timedelta(days=context_retention_days)
+                    ).isoformat()
+                    context_records = await purge_context(cutoff)
         except Exception:
             logger.warning(
                 "storage maintenance: failed to purge context projections",

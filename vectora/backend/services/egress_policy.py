@@ -332,10 +332,17 @@ async def async_is_url_allowed(  # noqa: PLR0911
         return ok, reason, pinned_ip
 
     normalized_host = host.rstrip(".").lower()
+    # Development workspaces may explicitly allow localhost ports.  Do not
+    # apply the public-DNS heuristic to those ports; the resolved address is
+    # still checked below by ``_validate_addr_infos_and_port``.
     if (
-        "." not in normalized_host
-        or normalized_host.endswith((".localhost", ".internal"))
-        or all(part.isdigit() for part in normalized_host.split("."))
+        pol.block_private_ips
+        and port not in pol.allow_localhost_dev_ports
+        and (
+            "." not in normalized_host
+            or normalized_host.endswith((".localhost", ".internal"))
+            or all(part.isdigit() for part in normalized_host.split("."))
+        )
     ):
         return False, f"Host '{host}' não é um destino DNS público permitido", None
 

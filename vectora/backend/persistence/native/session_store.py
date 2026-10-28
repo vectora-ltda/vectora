@@ -1415,19 +1415,28 @@ class SessionStore:
                         if msg.is_error and msg.finish_reason == "cancelled"
                         else "completed"
                     )
-                    await conn.execute(
-                        "UPDATE session_runs SET status = ?, updated_at = ?, "
-                        "terminal_at = ?, partial_text = COALESCE(?, partial_text) "
-                        "WHERE run_id = ? AND (status NOT IN ('completed','failed','cancelled') OR ? IS NULL)",
-                        (
-                            message_terminal_status,
-                            agora,
-                            agora,
-                            msg.text(),
-                            run_id,
-                            terminal_status,
-                        ),
+                    update_params = (
+                        message_terminal_status,
+                        agora,
+                        agora,
+                        msg.text(),
+                        run_id,
                     )
+                    if terminal_status is not None:
+                        await conn.execute(
+                            "UPDATE session_runs SET status = ?, updated_at = ?, "
+                            "terminal_at = ?, partial_text = COALESCE(?, partial_text) "
+                            "WHERE run_id = ? AND status NOT IN "
+                            "('completed','failed','cancelled')",
+                            update_params,
+                        )
+                    else:
+                        await conn.execute(
+                            "UPDATE session_runs SET status = ?, updated_at = ?, "
+                            "terminal_at = ?, partial_text = COALESCE(?, partial_text) "
+                            "WHERE run_id = ?",
+                            update_params,
+                        )
                 await conn.commit()
             except Exception:
                 await conn.rollback()

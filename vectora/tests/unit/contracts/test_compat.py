@@ -259,6 +259,24 @@ def test_schema_compat_response_enum_expansion_inside_anyof_is_breaking() -> Non
     assert not report.is_compatible
 
 
+def test_schema_compat_allof_reserves_exact_matches_before_compatible_pairs() -> None:
+    """A broad alternative must not consume a later exact response pair."""
+    old = {
+        "allOf": [
+            {"type": "object"},
+            {"type": "object", "required": ["id"]},
+        ]
+    }
+    new = {
+        "allOf": [
+            {"type": "object", "required": ["id"]},
+            {"type": "object", "properties": {"b": {"type": "string"}}},
+        ]
+    }
+    report = check_schema_compatibility(old, new, direction="response")
+    assert report.is_compatible
+
+
 def test_schema_compat_request_tightened_bounds_are_breaking() -> None:
     """Requests não podem perder valores aceitos por limites mais estreitos."""
     old = {

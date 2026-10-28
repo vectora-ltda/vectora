@@ -156,7 +156,7 @@ async def test_run_verification_empty_command_fails(test_workspace: Path) -> Non
     res = await run_verification("test_ws", test_workspace, profile=profile)
     assert res.passed is False
     assert res.status == "failed"
-    assert res.outcome == "failed"
+    assert res.outcome == "infra_error"
     assert len(res.gate_results) == 1
     assert res.gate_results[0].passed is False
 

@@ -401,6 +401,13 @@ async def _run_subagent_once(
     # identidade de política diferente para a mesma execução. Quando o pai
     # fornece o snapshot, ele é a fonte de verdade; a compilação local só é
     # usada no caminho legado sem contexto de execução.
+    if parent_policy_snapshot is not None and (
+        parent_policy_snapshot.user_id != (ctx.user_id or "local")
+        or (parent_policy_snapshot.workspace_id or "") != (ctx.workspace_id or "")
+    ):
+        raise ValueError(
+            "snapshot de policy do pai não pertence ao usuário/workspace do contexto"
+        )
     base_policy = parent_policy_snapshot or compile_policy_snapshot(ctx)
 
     child_disabled = set(base_policy.disabled_tools)

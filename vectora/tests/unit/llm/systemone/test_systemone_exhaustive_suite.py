@@ -655,7 +655,12 @@ async def test_get_decision_models_status_exposes_complete_capability_matrix(
     async def healthy(_: object) -> bool:
         return True
 
+    # The matrix is a pure readiness contract; never probe a local service
+    # from a unit test.  Keep every adapter deterministic and assert the
+    # selected entry explicitly.
     monkeypatch.setattr(ClefLocalAdapter, "health", healthy)
+    monkeypatch.setattr(LayaLocalAdapter, "health", healthy)
+    monkeypatch.setattr(BaseSystemOneApiAdapter, "health", healthy)
     res = await get_decision_models_status()
 
     assert {item.provider for item in res.capability_matrix} == {
@@ -673,6 +678,22 @@ async def test_get_decision_models_status_exposes_complete_capability_matrix(
     inactive = [item for item in res.capability_matrix if item.provider != res.provider]
     assert all(item.ready is False for item in inactive)
     assert all(item.diagnostic for item in inactive)
+
+
+@pytest.mark.asyncio
+async def test_get_decision_models_status_reports_selected_health_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def unhealthy(_: object) -> bool:
+        return False
+
+    monkeypatch.setattr(ClefLocalAdapter, "health", unhealthy)
+    res = await get_decision_models_status()
+    selected = next(
+        item for item in res.capability_matrix if item.provider == res.provider
+    )
+    assert selected.ready is False
+    assert selected.diagnostic == "provider selecionado não está saudável"
 
 
 @pytest.mark.asyncio

@@ -234,9 +234,10 @@ def create_snapshot_checkpoint(
          "files_touched": ["rel/path1", ...]}
         {"status": "error", "message": "..."}
     """
-    cwd_path = Path(cwd).resolve()
-    if not cwd_path.is_dir():
+    cwd_input = Path(cwd)
+    if cwd_input.is_symlink() or not cwd_input.is_dir():
         return {"status": "error", "message": f"cwd não é um diretório: {cwd}"}
+    cwd_path = cwd_input.resolve()
 
     if snapshot_dir.exists() and snapshot_dir.is_symlink():
         return {
@@ -285,6 +286,8 @@ def create_snapshot_checkpoint(
                 },
                 ensure_ascii=False,
             ).encode()
+            if total_bytes + len(manifest) > _SNAPSHOT_MAX_TOTAL_BYTES:
+                raise ValueError("snapshot excede o limite total com o manifesto")
             minfo = tarfile.TarInfo(name=".vectora-snapshot-manifest.json")
             minfo.size = len(manifest)
             tar.addfile(minfo, io.BytesIO(manifest))
@@ -316,13 +319,15 @@ def restore_snapshot_checkpoint(snapshot_path: str, cwd: str) -> dict[str, Any]:
             "status": "error",
             "message": f"Snapshot não encontrado: {snapshot_path}",
         }
-    cwd_path = Path(cwd).resolve()
-    if not cwd_path.is_dir() or cwd_path.is_symlink():
+    cwd_input = Path(cwd)
+    if cwd_input.is_symlink() or not cwd_input.is_dir():
         return {"status": "error", "message": f"cwd não é um diretório seguro: {cwd}"}
+    cwd_path = cwd_input.resolve()
     total_bytes = 0
     try:
         with tarfile.open(str(snap), "r:gz") as tar:
             members = tar.getmembers()
+            validated: list[tuple[tarfile.TarInfo, Path]] = []
             for member in members:
                 # Check the archive name before touching the filesystem.  Do
                 # not rely on ``extractall(filter=...)``: older Python
@@ -344,14 +349,39 @@ def restore_snapshot_checkpoint(snapshot_path: str, cwd: str) -> dict[str, Any]:
                     raise ValueError(
                         f"membro fora do workspace: {member.name}"
                     ) from exc
-                destination.parent.mkdir(parents=True, exist_ok=True)
+                # Check every existing path component before any write.  A
+                # symlink nested below the workspace must never redirect a
+                # restore outside the selected root.
+                cursor = cwd_path
+                for component in member_path.parts[:-1]:
+                    cursor = cursor / component
+                    if cursor.is_symlink():
+                        raise ValueError(f"caminho pai é symlink: {member.name}")
                 if destination.exists() and destination.is_symlink():
                     raise ValueError(f"destino é symlink: {member.name}")
-                source = tar.extractfile(member)
-                if source is None:
-                    raise ValueError(f"membro sem conteúdo: {member.name}")
-                with source, destination.open("wb") as output:
-                    shutil.copyfileobj(source, output)
+                validated.append((member, destination))
+
+            # Validate the complete archive before touching the workspace.
+            # Stage files in a private directory, then publish each file only
+            # after all reads have succeeded; a malformed later member cannot
+            # leave an earlier member partially written.
+            staging = Path(tempfile.mkdtemp(prefix=".vectora-restore-", dir=cwd_path))
+            try:
+                staged: list[tuple[Path, Path]] = []
+                for member, destination in validated:
+                    source = tar.extractfile(member)
+                    if source is None:
+                        raise ValueError(f"membro sem conteúdo: {member.name}")
+                    staged_path = staging / member.name
+                    staged_path.parent.mkdir(parents=True, exist_ok=True)
+                    with source, staged_path.open("wb") as output:
+                        shutil.copyfileobj(source, output)
+                    staged.append((staged_path, destination))
+                for staged_path, destination in staged:
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    staged_path.replace(destination)
+            finally:
+                shutil.rmtree(staging, ignore_errors=True)
     except Exception as exc:
         return {"status": "error", "message": str(exc)}
     return {"status": "ok", "snapshot_path": snapshot_path}

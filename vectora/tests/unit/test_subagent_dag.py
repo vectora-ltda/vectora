@@ -214,8 +214,8 @@ async def test_subagent_reuses_parent_policy_snapshot(
         "backend.engine.subagents.run_conversation", fake_run_conversation
     )
     parent_policy = PolicySnapshot(
-        user_id="parent-user",
-        workspace_id="parent-workspace",
+        user_id="user1",
+        workspace_id="",
         disabled_tools=frozenset({"parent_disabled"}),
     )
 
@@ -241,6 +241,31 @@ async def test_subagent_reuses_parent_policy_snapshot(
     assert child_policy.user_id == parent_policy.user_id
     assert child_policy.workspace_id == parent_policy.workspace_id
     assert child_policy.version == parent_policy.version
+
+
+@pytest.mark.asyncio
+async def test_subagent_rejects_parent_policy_from_other_identity(
+    session_store: SessionStore, ctx: ToolContext
+) -> None:
+    """Um snapshot de outro usuário não pode atravessar a fronteira de escopo."""
+    with pytest.raises(ValueError, match="não pertence"):
+        await run_subagent(
+            SubagentSpec(
+                name="worker",
+                description="worker",
+                system_prompt="work",
+                tools=[_make_tool_spec("safe_echo", category="safe")],
+            ),
+            "execute",
+            session_store=session_store,
+            chat_client=_SimpleChatClient([]),
+            ctx=ctx,
+            parent_thread_id="thread-parent",
+            should_require_approval=None,
+            parent_policy_snapshot=PolicySnapshot(
+                user_id="other-user", workspace_id=None
+            ),
+        )
 
 
 @pytest.mark.asyncio

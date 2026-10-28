@@ -119,6 +119,7 @@ async def browser_new_tab(ctx: ToolContext, url: str | None = None) -> str:
     """
     workspace_id = _workspace_id(ctx)
     snapshot = _policy_snapshot(ctx)
+    tab_id: str | None = None
     try:
         if url:
             allowed, reason = await asyncio.to_thread(
@@ -153,6 +154,7 @@ async def browser_new_tab(ctx: ToolContext, url: str | None = None) -> str:
             if not allowed:
                 with contextlib.suppress(Exception):
                     await close_tab(workspace_id, tab_id)
+                tab_id = None
                 return json.dumps(
                     {"status": "error", "error": f"redirect bloqueado: {reason}"}
                 )
@@ -168,6 +170,9 @@ async def browser_new_tab(ctx: ToolContext, url: str | None = None) -> str:
         )
         return json.dumps({"status": "ok", "tab_id": tab_id})
     except Exception as exc:
+        if tab_id is not None:
+            with contextlib.suppress(Exception):
+                await close_tab(workspace_id, tab_id)
         logger.exception("browser_new_tab failed", extra={"url": url})
         return json.dumps({"status": "error", "error": str(exc)})
 

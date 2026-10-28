@@ -190,6 +190,7 @@ async def _is_git_working_tree_clean(root_dir: Path) -> tuple[bool, str]:
     git_dir = root_dir / ".git"
     if not git_dir.exists():
         return True, ""
+    proc: asyncio.subprocess.Process | None = None
     try:
         proc = await asyncio.create_subprocess_exec(
             "git",
@@ -204,12 +205,27 @@ async def _is_git_working_tree_clean(root_dir: Path) -> tuple[bool, str]:
         if proc.returncode == 0 and not status_output:
             return True, ""
         return False, status_output
+    except asyncio.CancelledError:
+        if proc is not None and proc.returncode is None:
+            proc.kill()
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.shield(proc.wait())
+        raise
+    except TimeoutError as exc:
+        if proc is not None and proc.returncode is None:
+            proc.kill()
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                await proc.wait()
+        return False, f"Falha ao checar status do Git: {exc}"
     except Exception as exc:
         return False, f"Falha ao checar status do Git: {exc}"
 
 
 async def _git_commit_sha(root_dir: Path) -> str | None:
     """Retorna o commit avaliado, sem transformar falta de Git em falha do gate."""
+    proc: asyncio.subprocess.Process | None = None
     try:
         proc = await asyncio.create_subprocess_exec(
             "git",
@@ -223,7 +239,21 @@ async def _git_commit_sha(root_dir: Path) -> str | None:
         if proc.returncode != 0:
             return None
         return stdout.decode("ascii", errors="ignore").strip() or None
-    except (OSError, TimeoutError):
+    except asyncio.CancelledError:
+        if proc is not None and proc.returncode is None:
+            proc.kill()
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.shield(proc.wait())
+        raise
+    except TimeoutError:
+        if proc is not None and proc.returncode is None:
+            proc.kill()
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                await proc.wait()
+        return None
+    except OSError:
         return None
 
 

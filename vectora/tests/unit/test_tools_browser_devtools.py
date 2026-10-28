@@ -96,6 +96,26 @@ async def test_browser_new_tab_falha_devolve_erro_tipado(
 
 
 @pytest.mark.asyncio
+async def test_browser_new_tab_fecha_aba_se_pos_criar_ocorrer_falha(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uma falha posterior à criação não pode deixar uma aba órfã aberta."""
+    monkeypatch.setattr(bd, "new_tab", AsyncMock(return_value="tab-abc"))
+    monkeypatch.setattr(
+        bd,
+        "list_tabs",
+        AsyncMock(side_effect=RuntimeError("falha ao inspecionar target")),
+    )
+    close_tab = AsyncMock(return_value=True)
+    monkeypatch.setattr(bd, "close_tab", close_tab)
+
+    result = json.loads(await bd.browser_new_tab(url="https://example.com", ctx=_ctx()))
+
+    assert result["status"] == "error"
+    close_tab.assert_awaited_once_with("ws1", "tab-abc")
+
+
+@pytest.mark.asyncio
 async def test_browser_close_tab_sem_sessao_retorna_erro(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
