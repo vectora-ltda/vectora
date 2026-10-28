@@ -100,6 +100,60 @@ class TestGetNativeAgent:
 
 
 class TestNativeSubagentCatalogAbac:
+    def test_souls_expoem_matrizes_de_tools_sem_excesso_de_permissao(self):
+        """Cada Soul deve receber exatamente a superfície do seu contrato."""
+        from backend.agents.souls import SOUL_CATALOG
+
+        def names(soul_name: str) -> set[str]:
+            return {tool.name for tool in SOUL_CATALOG[soul_name].tools}
+
+        coder = names("coder")
+        assert "browser_navigate" not in coder
+        assert "gh_pr_merge" not in coder
+        assert "git_merge" not in coder
+        assert "git_revert" not in coder
+
+        reviewer = names("reviewer")
+        assert reviewer <= {
+            "git_status",
+            "git_operation",
+            "git_operations",
+            "git_commit_suggestion",
+            "git_log",
+            "git_diff",
+            "file_read",
+            "grep",
+            "list_dir",
+            "vector_search",
+            "ask_parent_agent",
+        }
+
+        writer = names("writer-docs")
+        assert "terminal" not in writer
+        assert "file_delete" not in writer
+        assert "file_move" not in writer
+        assert "git_commit" not in writer
+
+        planner = names("planner")
+        assert "file_write" not in planner
+        assert "terminal" not in planner
+        assert "git_commit" not in planner
+
+        search = names("search")
+        assert "vector_search" in search
+        assert "ingest_docs" not in search
+        assert "embedding" not in search
+        assert "manage_retriever" not in search
+
+        security = names("security-auditor")
+        assert "git_branch" not in security
+        assert "file_write" not in security
+        assert "manage_retriever" not in security
+
+        analyst = names("data-analyst")
+        assert "write_terminal" not in analyst
+        assert "file_write" not in analyst
+
     def test_disabled_tools_filtradas_do_catalogo(self, monkeypatch):
         """ABAC/kill-switch: tools desabilitadas saem das specs nativas de
         subagente (substitui a cobertura do antigo _subagent_specs legado)."""

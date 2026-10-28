@@ -113,6 +113,14 @@ register_tool_group(
 
 register_tool_group(
     ToolGroupSpec(
+        name="search_readonly",
+        description="Pesquisa web e RAG sem alterar o índice.",
+        tool_names=["web_search", "fetch_url", "web_crawl", "web_map", "vector_search"],
+    )
+)
+
+register_tool_group(
+    ToolGroupSpec(
         name="search",
         description="Busca web em tempo real e fetch de URLs, mais RAG.",
         tool_names=["web_search", "fetch_url", "web_crawl", "web_map"],
@@ -125,6 +133,23 @@ register_tool_group(
         name="fs_readonly",
         description="Leitura de filesystem, sem escrita.",
         tool_names=["file_read", "grep", "list_dir"],
+    )
+)
+
+register_tool_group(
+    ToolGroupSpec(
+        name="fs_docs",
+        description="Leitura e edição de documentação, sem remoção ou terminal.",
+        tool_names=[
+            "file_read",
+            "file_edit",
+            "file_write",
+            "file_create_dir",
+            "file_search",
+            "grep",
+            "list_dir",
+            "create_artifact",
+        ],
     )
 )
 
@@ -168,6 +193,21 @@ register_tool_group(
 
 register_tool_group(
     ToolGroupSpec(
+        name="terminal_analysis",
+        description="Execução e leitura de comandos para análise, sem escrever em PTY.",
+        tool_names=[
+            "terminal",
+            "open_terminal",
+            "list_terminals",
+            "attach_terminal",
+            "read_terminal",
+            "close_terminal",
+        ],
+    )
+)
+
+register_tool_group(
+    ToolGroupSpec(
         name="fs",
         description="Filesystem completo: leitura, escrita, terminal e artifacts.",
         includes=["fs_write", "terminal_only"],
@@ -176,8 +216,8 @@ register_tool_group(
 
 register_tool_group(
     ToolGroupSpec(
-        name="git_readonly",
-        description="Inspeção de git, sem mutar histórico/working tree.",
+        name="git_inspect",
+        description="Inspeção de estado e histórico Git sem mutar o repositório.",
         tool_names=[
             "git_status",
             "git_operation",
@@ -185,8 +225,47 @@ register_tool_group(
             "git_commit_suggestion",
             "git_log",
             "git_diff",
-            "git_branch",
         ],
+    )
+)
+
+register_tool_group(
+    ToolGroupSpec(
+        name="git_readonly",
+        description="Inspeção de git, sem mutar histórico/working tree.",
+        includes=["git_inspect"],
+    )
+)
+
+register_tool_group(
+    ToolGroupSpec(
+        name="git_contributor",
+        description="Git para contribuição, sem merge/revert/cherry-pick ou GitHub administrativo.",
+        tool_names=[
+            "git_branch",
+            "git_checkout",
+            "git_commit",
+            "git_push",
+            "git_pull",
+            "git_stash",
+            "git_init",
+            "git_worktree",
+            "git_stage",
+            "git_unstage",
+            "git_discard",
+            "git_fetch",
+            "git_compare",
+            "git_check_hooks",
+        ],
+        includes=["git_inspect"],
+    )
+)
+
+register_tool_group(
+    ToolGroupSpec(
+        name="rag_readonly",
+        description="Busca semântica sem indexar, remover ou alterar documentos.",
+        tool_names=["vector_search"],
     )
 )
 

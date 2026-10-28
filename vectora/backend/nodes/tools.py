@@ -1,7 +1,9 @@
 """Catálogo de tools do agente, agrupadas por categoria.
 
-Todos os agentes recebem ALL_TOOLS — a diferença entre eles é o treinamento
-(system prompt) e o contexto, não as ferramentas disponíveis.
+O agente principal recebe ALL_TOOLS. Subagents recebem apenas os grupos
+declarados em ``backend.agents.souls.Soul.tool_groups``; a diferença de
+permissões é enforcement real no catálogo de function-calling, não apenas
+uma instrução no prompt.
 
 As listas parciais (SEARCH_TOOLS, FS_TOOLS, etc.) são mantidas como referência
 semântica pra montar `SOUL_CATALOG` (backend/agents/souls.py) mas ALL_TOOLS é
