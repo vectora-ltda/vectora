@@ -51,6 +51,30 @@ _COMMAND_SECRET_RE = re.compile(
     r"|(Authorization:\s*Bearer\s+)([^\s'\"]+)"
 )
 
+_shutdown_requested = False
+
+
+def mark_shutdown_requested() -> None:
+    """Marca o início do encerramento coordenado do processo.
+
+    Uvicorn/Starlette pode registrar ``CancelledError`` como erro enquanto
+    interrompe uma resposta streaming ou o lifespan. O marcador permite
+    filtrar somente esse ruído esperado, mantendo cancelamentos reais visíveis
+    durante a operação normal.
+    """
+    global _shutdown_requested
+    _shutdown_requested = True
+
+
+class _ShutdownCancellationFilter(logging.Filter):
+    """Oculta traceback de cancelamento causado por shutdown explícito."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not _shutdown_requested or not record.exc_info:
+            return True
+        exception = record.exc_info[1]
+        return type(exception).__name__ != "CancelledError"
+
 
 def _redact_url(value: str) -> str:
     """Remove credential-like query parameters while preserving the URL target."""
@@ -236,6 +260,7 @@ def setup_logging(
     handler_console = logging.StreamHandler()
     handler_console.setFormatter(formatter_text)
     handler_console.setLevel(getattr(logging, log_level))
+    handler_console.addFilter(_ShutdownCancellationFilter())
 
     # Silencia libs externas verbosas por padrão (QUIET_MODE)
     quiet_mode = os.getenv("QUIET_MODE", "true").lower() == "true"
@@ -286,4 +311,5 @@ def setup_logging(
     handler_file = logging.FileHandler(log_file_path, mode="a", encoding="utf-8")
     handler_file.setFormatter(formatter_json)
     handler_file.setLevel(getattr(logging, log_level))
+    handler_file.addFilter(_ShutdownCancellationFilter())
     root_logger.addHandler(handler_file)

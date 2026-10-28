@@ -139,6 +139,9 @@ def _install_terminal_signals(server: Any, icon_ref: list[Any]) -> None:
         if shutdown_started:
             return
         shutdown_started = True
+        from backend.services.log_setup import mark_shutdown_requested
+
+        mark_shutdown_requested()
         logger.info(
             "Vectora: sinal recebido (signal=%s, pid=%s) — iniciando shutdown",
             _signum,

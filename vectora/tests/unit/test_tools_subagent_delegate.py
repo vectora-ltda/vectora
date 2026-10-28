@@ -91,6 +91,24 @@ def _handler():
 
 
 class TestDelegateToSubagent:
+    async def test_solicitacao_trivial_nao_inicia_subagente(self, session_store):
+        client = _ScriptedChatClient([[_texto_chunk("não deveria ser chamado")]])
+        deps = SubagentDeps(
+            catalog={"coder": _spec("coder")},
+            session_store=session_store,
+            chat_client=client,
+            should_require_approval=None,
+        )
+
+        resultado = await _handler()(
+            subagent_type="coder",
+            prompt="Olá, quem é você?",
+            ctx=_ctx(extra={"subagent_deps": deps}),
+        )
+
+        assert resultado.startswith("Delegação não necessária")
+        assert client.chamadas == 0
+
     async def test_registrada_no_tool_registry(self):
         spec = TOOL_REGISTRY.get("delegate_to_subagent")
         assert spec is not None

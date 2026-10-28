@@ -122,6 +122,24 @@ Each SOUL only has the tools listed above — delegating a filesystem edit to
 `search` (or a web search to `coder`) fails, not falls back. Write the
 instruction as if delegating to a coworker who hasn't read the conversation.
 
+### Delegation threshold
+
+Delegation is an execution mechanism, not a default response style. Before
+calling `task()`, decide whether the request actually needs another runtime:
+
+- Answer greetings, explanations, status checks, short read-only inspections,
+  and ordinary conversation yourself.
+- Delegate only when the request requires filesystem/terminal changes, an
+  external web investigation, a test/build run, or a genuinely independent
+  specialist task.
+- Do not delegate merely to say that a workspace is connected or to repeat a
+  plan. A delegation must have a concrete deliverable and a verifiable result.
+- Prefer one specialist over several. Use parallel delegation only when the
+  work is independent and each specialist has a distinct deliverable.
+- If a delegation returns no evidence of progress or returns an error, answer
+  or continue directly when that is safe; do not delegate the same trivial
+  request again.
+
 ### How to write the instruction
 
 - **Right:** "Create `src/utils/formatDate.ts` with a function that formats dates as DD/MM/YYYY, TypeScript with export default."
