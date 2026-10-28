@@ -169,9 +169,9 @@ _SEARCH_PROMPT = f"""{VECTORA_IDENTITY}
 ## Your Role — Search Agent
 
 You are Vectora's **Search Agent**. Specialized in research and information
-retrieval. Your tools are web search, read-only RAG, and memory — no filesystem/
-terminal (delegate to the Coder Agent when you need to create/edit files or
-run commands).
+retrieval. Your tools are web search, read-only RAG, memory, and read-only Git
+inspection — no filesystem/terminal (delegate to the Coder Agent when you need
+to create/edit files or run commands).
 
 ### Tools — by priority of use
 
@@ -242,7 +242,7 @@ SOUL_CATALOG: dict[str, Soul] = {
         ),
         system_prompt=_SEARCH_PROMPT,
         # Grupo somente leitura: nenhuma mutação do índice é exposta.
-        tool_groups=["search_readonly", "memory", "aitl"],
+        tool_groups=["search_readonly", "git_inspect", "memory", "aitl"],
         needs_worktree_isolation=False,
     ),
     "reviewer": Soul(
@@ -323,7 +323,7 @@ SOUL_CATALOG: dict[str, Soul] = {
             "Writer/Docs Agent",
             "You are Vectora's **Writer/Docs Agent**. Specialized in written "
             "documentation — READMEs, guides, API references, changelogs. Your "
-            "tools are filesystem (read/edit/write, no terminal, no git — the "
+            "tools are filesystem (read/edit/write, no terminal, read-only git — the "
             "orchestrator or Coder Agent handles committing your changes), "
             "`create_artifact`, RAG, and memory.\n\n"
             "Write for the reader who hasn't seen the code: define terms, show "
@@ -336,7 +336,7 @@ SOUL_CATALOG: dict[str, Soul] = {
             "user's confirmation, and a document created without this detail "
             "leaves the user unable to tell it worked.",
         ),
-        tool_groups=["fs_docs", "rag_readonly", "memory", "aitl"],
+        tool_groups=["fs_docs", "git_inspect", "rag_readonly", "memory", "aitl"],
         needs_worktree_isolation=False,
     ),
     "data-analyst": Soul(
@@ -351,7 +351,7 @@ SOUL_CATALOG: dict[str, Soul] = {
             "You are Vectora's **Data Analyst Agent**. Specialized in exploring "
             "and summarizing local data — CSV/JSON/log files, ad-hoc scripts "
             "run via terminal, and RAG-indexed knowledge. Your tools are RAG "
-            "(`vector_search`), "
+            "(`vector_search`), read-only Git, "
             "`terminal` (for running analysis scripts, never for editing "
             "production code), and read-only filesystem (`file_read`, `grep`, "
             "`list_dir`) — no `file_write`/`file_edit` (delegate to the Coder "
@@ -364,6 +364,7 @@ SOUL_CATALOG: dict[str, Soul] = {
             "rag_readonly",
             "terminal_analysis",
             "fs_readonly",
+            "git_inspect",
             "memory",
             "aitl",
         ],
@@ -407,14 +408,14 @@ SOUL_CATALOG: dict[str, Soul] = {
             "reading console/network output, taking screenshots — rather than "
             "reading source and assuming it works. Your tools are the full "
             "Browser toolset plus read-only filesystem (`file_read`, `grep`, "
-            "`list_dir`) to cross-reference what you observe against the "
+            "`list_dir`), and read-only Git to cross-reference what you observe against the "
             "source — no `file_write`/`file_edit`/terminal (delegate fixes to "
             "the Coder Agent).\n\n"
             "Verify the golden path AND at least one edge case before "
             "reporting success. A screenshot or console log is worth more in "
             "your report than a description of what you expect to be true.",
         ),
-        tool_groups=["browser", "fs_readonly", "aitl"],
+        tool_groups=["browser", "fs_readonly", "git_inspect", "aitl"],
         needs_worktree_isolation=False,
     ),
     "planner": Soul(
@@ -429,7 +430,7 @@ SOUL_CATALOG: dict[str, Soul] = {
             "You are Vectora's **Planner Agent**. You research and write plans "
             "— you never execute code, edit files, or run commands. Your tools "
             "are read-only research (`web_search`, `fetch_url`, `vector_search`), "
-            "memory, and `create_artifact` (to save the "
+            "read-only Git, memory, and `create_artifact` (to save the "
             "plan as a document) — nothing else.\n\n"
             "A plan names concrete steps, the files/areas each step touches, "
             "and the order dependencies between them — not a restatement of "
@@ -440,7 +441,7 @@ SOUL_CATALOG: dict[str, Soul] = {
             "user's confirmation, and a plan saved without this detail leaves "
             "the user unable to tell it worked.",
         ),
-        tool_groups=["search_readonly", "memory", "planner", "aitl"],
+        tool_groups=["search_readonly", "git_inspect", "memory", "planner", "aitl"],
         needs_worktree_isolation=False,
     ),
 }

@@ -154,6 +154,17 @@ class TestNativeSubagentCatalogAbac:
         assert "write_terminal" not in analyst
         assert "file_write" not in analyst
 
+        readonly_git = {
+            "git_status",
+            "git_operation",
+            "git_operations",
+            "git_commit_suggestion",
+            "git_log",
+            "git_diff",
+        }
+        for soul_name in SOUL_CATALOG:
+            assert readonly_git <= names(soul_name), soul_name
+
     def test_disabled_tools_filtradas_do_catalogo(self, monkeypatch):
         """ABAC/kill-switch: tools desabilitadas saem das specs nativas de
         subagente (substitui a cobertura do antigo _subagent_specs legado)."""
