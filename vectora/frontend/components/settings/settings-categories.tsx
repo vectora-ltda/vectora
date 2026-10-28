@@ -60,6 +60,13 @@ const ProviderRoutingTab = lazyWithRetry(
     })),
   "settings-provider-routing-tab",
 );
+const AiModelsTab = lazyWithRetry(
+  () =>
+    import("./environment/tabs/ai-models-tab").then((mod) => ({
+      default: mod.AiModelsTab,
+    })),
+  "settings-ai-models-tab",
+);
 const ConnectTab = lazyWithRetry(
   () =>
     import("./environment/tabs/connect-tab").then((mod) => ({
@@ -241,6 +248,12 @@ export function buildSettingsCategoryGroups({
       group: "ambiente",
       label: m.settings_category_integracoes(),
       Component: IntegracoesTab,
+    },
+    {
+      id: "ai_models",
+      group: "ambiente",
+      label: m.settings_category_ai_models(),
+      Component: AiModelsTab,
     },
     {
       id: "provider_routing",

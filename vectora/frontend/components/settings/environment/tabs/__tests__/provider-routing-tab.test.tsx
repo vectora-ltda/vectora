@@ -20,6 +20,7 @@ import {
   within,
 } from "@testing-library/react";
 import { ProviderRoutingTab } from "../provider-routing-tab";
+import { AiModelsTab } from "../ai-models-tab";
 import { overwriteGetLocale, baseLocale } from "@/lib/paraglide/runtime";
 
 afterEach(cleanup);
@@ -935,7 +936,7 @@ describe("MediaModelsSection", () => {
       mediaModelsPatch: { models: { ollama_image_model: "modelo-da-env" } },
     });
 
-    render(<ProviderRoutingTab />);
+    render(<AiModelsTab />);
 
     const campo = (await screen.findByLabelText(
       "Ollama — image",
@@ -952,7 +953,7 @@ describe("MediaModelsSection", () => {
   it("backend fora do ar deixa os campos vazios sem quebrar a aba (edge)", async () => {
     mockFetch({ mediaModelsGet: null });
 
-    render(<ProviderRoutingTab />);
+    render(<AiModelsTab />);
 
     const campo = (await screen.findByLabelText(
       "Ollama — voice",

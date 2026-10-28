@@ -33,6 +33,8 @@ export type PermissionMode =
   "ask" | "accept_edits" | "plan" | "auto" | "bypass";
 /** Nível de esforço de raciocínio do modelo. */
 export type ReasoningEffort = "low" | "medium" | "high" | "max";
+/** Decision model providers exposed by the frontend selector. */
+export type DecisionModelProvider = "clef" | "laya" | "jev";
 /** Modo de interface dentro do Dev (chatMode=false): "assistant" é o layout
  *  padrão de chat+workbench; "ide" é o layout VS Code com editor docked;
  *  "kanban" é o board multi-agente. */
@@ -113,6 +115,10 @@ export interface SettingsState {
   permissionMode: PermissionMode;
   /** Esforço de raciocínio do modelo */
   reasoningEffort: ReasoningEffort;
+  /** Enables a configured decision model for supported execution surfaces. */
+  decisionModelsEnabled: boolean;
+  /** Decision model selected for the next run. */
+  decisionModelProvider: DecisionModelProvider;
   /** Largura da sidebar em px (desktop), arrastável pela borda direita. */
   sidebarWidth: number;
   /** Lado da sidebar de sessões; workbench fica no lado oposto. */
@@ -190,6 +196,8 @@ export interface SettingsState {
   setLanguage: (v: Lang) => void;
   setPermissionMode: (v: PermissionMode) => void;
   setReasoningEffort: (v: ReasoningEffort) => void;
+  setDecisionModelsEnabled: (v: boolean) => void;
+  setDecisionModelProvider: (v: DecisionModelProvider) => void;
   setSidebarWidth: (v: number) => void;
   setSidebarPosition: (v: SidebarPosition) => void;
   setChatMode: (v: boolean) => void;
@@ -382,6 +390,8 @@ const DEFAULTS = {
   language: "en" as Lang, // Sobrescrito pelo detectLanguage() no create()
   permissionMode: "ask" as PermissionMode,
   reasoningEffort: "medium" as ReasoningEffort,
+  decisionModelsEnabled: false,
+  decisionModelProvider: "clef" as DecisionModelProvider,
   sidebarWidth: 280,
   sidebarPosition: "left" as SidebarPosition,
   chatMode: false,
@@ -511,6 +521,14 @@ export const useSettingsStore = create<SettingsState>()(
       setReasoningEffort: (v) => {
         set({ reasoningEffort: v });
         void pushPrefs({ reasoningEffort: v });
+      },
+      setDecisionModelsEnabled: (v) => {
+        set({ decisionModelsEnabled: v });
+        void pushPrefs({ decisionModelsEnabled: v });
+      },
+      setDecisionModelProvider: (v) => {
+        set({ decisionModelProvider: v });
+        void pushPrefs({ decisionModelProvider: v });
       },
       setSidebarWidth: (v) =>
         set({

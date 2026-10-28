@@ -2383,7 +2383,7 @@ function NineRouterSection() {
  * sozinhos pelo catálogo (`PROVIDER_CAPABILITIES`) e não têm o que escolher.
  * Campo vazio devolve o controle pra env var correspondente, se houver —
  * não desliga a capacidade. */
-function MediaModelsSection() {
+export function MediaModelsSection() {
   const [models, setModels] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
 
@@ -2881,7 +2881,6 @@ export function ProviderRoutingTab() {
       <OpenRouterSection />
       <NineRouterSection />
       <LlamaCppSection />
-      <MediaModelsSection />
     </div>
   );
 }

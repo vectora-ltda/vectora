@@ -13,6 +13,8 @@ export interface FrontendPrefs {
   chatMode?: boolean;
   permissionMode?: string;
   reasoningEffort?: string;
+  decisionModelsEnabled?: boolean;
+  decisionModelProvider?: string;
   sidebarPosition?: string;
   autoUpdateEnabled?: boolean;
   weeklyInsightEnabled?: boolean;

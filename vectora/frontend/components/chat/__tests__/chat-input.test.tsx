@@ -483,7 +483,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
       const spacer = container.querySelector(
         '[data-testid="wide-control-spacer"]',
       )!;
-      expect(spacer).not.toHaveClass("hidden");
+      expect(spacer).toHaveClass("hidden");
     } finally {
       bounds.mockRestore();
       vi.unstubAllGlobals();
@@ -580,7 +580,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
           callback([], {} as ResizeObserver);
         }
       });
-      expect(spacer).not.toHaveClass("hidden");
+      expect(spacer).toHaveClass("hidden");
     } finally {
       bounds.mockRestore();
       vi.unstubAllGlobals();
@@ -840,7 +840,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     ).toHaveClass("size-3");
   });
 
-  it("mantém contexto separado dos três seletores compactos", () => {
+  it("mantém contexto separado dos quatro seletores compactos", () => {
     const { container } = render(
       <ChatInput
         {...baseProps({
@@ -858,7 +858,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     const contextControl = container.querySelector(
       '[data-testid="compact-context-control"]',
     );
-    expect(selectorGroup?.children).toHaveLength(3);
+    expect(selectorGroup?.children).toHaveLength(4);
     expect(contextControl).toBeInTheDocument();
     expect(selectorGroup).not.toContainElement(contextControl as HTMLElement);
   });
@@ -919,7 +919,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
         Number.parseFloat((item as HTMLElement).style.width),
       );
 
-      expect(assignedWidths).toHaveLength(3);
+      expect(assignedWidths).toHaveLength(4);
       expect(
         assignedWidths.reduce((sum, width) => sum + width, 0) + 8,
       ).toBeLessThanOrEqual(120);
