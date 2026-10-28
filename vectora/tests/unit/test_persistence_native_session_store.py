@@ -374,8 +374,6 @@ class TestAppendMessageEGetHistory:
                     """CREATE TABLE sessions (
                         thread_id TEXT PRIMARY KEY,
                         user_id TEXT NOT NULL,
-                        workspace_id TEXT,
-                        parent_thread_id TEXT,
                         mode TEXT NOT NULL,
                         permission_mode TEXT NOT NULL DEFAULT 'ask',
                         created_at TEXT NOT NULL,

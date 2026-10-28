@@ -214,6 +214,18 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
     """Cria e migra todas as tabelas e índices necessários no SQLite (sessions.db)."""
     async with pool.acquire() as conn:
         await conn.executescript(SQLITE_SESSIONS_SCHEMA)
+        session_columns = {
+            str(column[1])
+            for column in await conn.execute_fetchall("PRAGMA table_info(sessions)")
+        }
+        for column_name, column_sql in (
+            ("workspace_id", "TEXT"),
+            ("parent_thread_id", "TEXT"),
+        ):
+            if column_name not in session_columns:
+                await conn.execute(
+                    f"ALTER TABLE sessions ADD COLUMN {column_name} {column_sql}"
+                )
         # The run is part of checkpoint identity: two runs may legitimately
         # checkpoint the same transcript sequence under different state.
         await conn.execute(
