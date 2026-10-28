@@ -5641,6 +5641,76 @@
         "title": "ProviderCapabilities",
         "type": "object"
       },
+      "ProviderCapability": {
+        "description": "Resultado negociado de capacidade; readiness não implica capability.",
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "diagnostic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic"
+          },
+          "discovered": {
+            "default": false,
+            "title": "Discovered",
+            "type": "boolean"
+          },
+          "model": {
+            "minLength": 1,
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "minLength": 1,
+            "title": "Provider",
+            "type": "string"
+          },
+          "ready": {
+            "default": false,
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "streaming": {
+            "default": false,
+            "title": "Streaming",
+            "type": "boolean"
+          },
+          "text_generation": {
+            "default": false,
+            "title": "Text Generation",
+            "type": "boolean"
+          },
+          "tool_calling": {
+            "default": false,
+            "title": "Tool Calling",
+            "type": "boolean"
+          },
+          "vision": {
+            "default": false,
+            "title": "Vision",
+            "type": "boolean"
+          }
+        },
+        "required": ["provider", "model"],
+        "title": "ProviderCapability",
+        "type": "object"
+      },
       "ProviderModel": {
         "description": "Modelo descoberto por um endpoint compatível com OpenAI.",
         "properties": {
@@ -5674,6 +5744,17 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
           }
         },
         "required": ["bucket_id", "name", "description", "license"],
@@ -7240,6 +7321,13 @@
                 "type": "null"
               }
             ]
+          },
+          "capability_matrix": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderCapability"
+            },
+            "title": "Capability Matrix",
+            "type": "array"
           },
           "clef_account_id": {
             "title": "Clef Account Id",
@@ -9379,6 +9467,17 @@
           "bucket_id": {
             "title": "Bucket Id",
             "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
           }
         },
         "required": ["bucket_id"],

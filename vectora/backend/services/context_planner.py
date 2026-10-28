@@ -310,11 +310,29 @@ class ContextPlanner:
 
         blocks: list[ContextBlock] = []
 
-        # 1. Recupera regras ou memórias de projeto relevantes
-        project_memories = self._memory_store.retrieve(
-            domain="project",
-            scope_id=workspace_id or "global",
-            limit=5,
+        # 1. Recupera regras e memórias de cada fonte persistente. A seleção
+        # híbrida mantém a proveniência do grafo estrutural e do índice vetorial
+        # sem permitir que uma fonte ultrapasse o orçamento de memória.
+        authorized_scopes = {workspace_id, "global"} if workspace_id else {"global"}
+        retrieved_by_domain = {
+            domain: self._memory_store.retrieve(
+                domain=domain,
+                scope_id=workspace_id or "global",
+                limit=3,
+                authorized_scope_ids=authorized_scopes,
+            ).records
+            for domain in ("project", "vector_rag", "structural_graph")
+        }
+        retrieved_records = [
+            record for records in retrieved_by_domain.values() for record in records
+        ]
+        retrieved_records.sort(
+            key=lambda record: (
+                record.importance,
+                record.confidence,
+                record.accessed_at,
+            ),
+            reverse=True,
         )
 
         injected_system_messages: list[VMessage] = []
@@ -323,10 +341,10 @@ class ContextPlanner:
             r
             for r in [
                 *(persistent_memory_records or ()),
-                *project_memories.records,
+                *retrieved_records,
             ]
             if (
-                r.domain == "project"
+                r.domain in {"project", "vector_rag", "structural_graph"}
                 and r.scope_id in (memory_scope, "global")
                 and r.trust_level != "untrusted"
                 and r.active
@@ -334,9 +352,10 @@ class ContextPlanner:
         ][:5]
         if trusted_records:
             memory_texts = [
-                f"- [{r.provenance or 'project'}]: {r.content}" for r in trusted_records
+                f"- [{r.domain}:{r.provenance or 'store'}]: {r.content}"
+                for r in trusted_records
             ]
-            mem_content = "[Memória de Projeto e Diretrizes]:\n" + "\n".join(
+            mem_content = "[Memória Híbrida de Projeto, RAG e Grafo]:\n" + "\n".join(
                 memory_texts
             )
             injected_system_messages.append(
@@ -348,9 +367,9 @@ class ContextPlanner:
             blocks.append(
                 ContextBlock(
                     domain="project",
-                    title="Diretrizes do Projeto",
+                    title="Memória Híbrida",
                     token_count=_message_tokens(injected_system_messages[0]),
-                    reason="Injeção de memória de projeto persistente",
+                    reason="Combina memória de projeto, RAG vetorial e grafo estrutural com proveniência",
                     provenance=workspace_id,
                 )
             )

@@ -208,6 +208,60 @@ def test_compare_cassettes_unequal_lengths():
     assert report.details[1].get("missing") == "candidate"
 
 
+def test_compare_cassettes_rejects_different_tool_arguments() -> None:
+    """Nomes iguais com argumentos diferentes não são a mesma execução."""
+    baseline = Cassette(
+        cassette_id="base",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="1",
+                messages=[],
+                tool_calls=[{"id": "a", "name": "read_file", "args": {"path": "a"}}],
+            )
+        ],
+    )
+    candidate = Cassette(
+        cassette_id="candidate",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="1",
+                messages=[],
+                tool_calls=[
+                    {"id": "different", "name": "read_file", "args": {"path": "b"}}
+                ],
+            )
+        ],
+    )
+
+    report = compare_cassettes(baseline, candidate)
+
+    assert report.matches == 0
+    assert report.details[0]["tool_presence_match"] is True
+    assert report.details[0]["tool_arguments_match"] is False
+
+
+def test_compare_cassettes_rejects_divergent_response_without_tools() -> None:
+    """A resposta divergente não pode produzir 100% de equivalência."""
+    baseline = Cassette(
+        cassette_id="base",
+        interactions=[
+            CassetteInteraction(interaction_id="1", messages=[], response_text="A")
+        ],
+    )
+    candidate = Cassette(
+        cassette_id="candidate",
+        interactions=[
+            CassetteInteraction(interaction_id="1", messages=[], response_text="B")
+        ],
+    )
+
+    report = compare_cassettes(baseline, candidate)
+
+    assert report.matches == 0
+    assert report.accuracy == 0.0
+    assert report.details[0]["response_match"] is False
+
+
 def test_compare_cassettes_rejects_duplicate_interaction_ids() -> None:
     """Duplicate IDs must not be silently aligned as separate cases."""
     cassette = Cassette(

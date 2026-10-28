@@ -13,6 +13,7 @@ explicitamente na chamada.
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 import re
 from collections.abc import Awaitable, Callable
@@ -106,7 +107,7 @@ class ToolSpec:
                 },
             )
             result = await self.handler(**kwargs)
-            result_status = "error" if result.lstrip().startswith("Error:") else "ok"
+            result_status = "error" if _result_is_error(result) else "ok"
             logger.info(
                 "tool_invocation_completed",
                 extra={
@@ -124,6 +125,24 @@ class ToolSpec:
                 extra={"tool": self.name, "status": "error"},
             )
             return f"Error: '{self.name}' falhou: {exc}"
+
+
+def _result_is_error(result: str) -> bool:
+    """Reconhece erros textuais e envelopes JSON estruturados das tools.
+
+    Tools de browser precisam preservar um envelope JSON para o frontend;
+    exigir o prefixo ``Error:`` faria o lote marcar redirects bloqueados como
+    sucesso e perderia a semântica de ``is_error``.
+    """
+    if result.lstrip().lower().startswith(("error:", "erro:", "erro ao ")):
+        return True
+    try:
+        payload = json.loads(result)
+    except (TypeError, json.JSONDecodeError, RecursionError):
+        return False
+    return isinstance(payload, dict) and (
+        payload.get("is_error") is True or payload.get("status") == "error"
+    )
 
 
 class ToolRegistry:

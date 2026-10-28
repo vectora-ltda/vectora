@@ -58,9 +58,21 @@ def _user_id_from_ctx(ctx: ToolContext) -> str:
 
 
 def _memory_namespace(ctx: ToolContext) -> tuple[str, ...]:
-    """Retorna o namespace do store para as memórias do usuário."""
+    """Retorna o namespace autorizado do store para as memórias.
+
+    A identidade do usuário sozinha não é suficiente em modo multi-tenant:
+    o mesmo usuário pode pertencer a mais de um workspace/organização. Os
+    escopos presentes no contexto passam a fazer parte da chave física, sem
+    alterar o namespace legado do modo local e dos consumidores antigos.
+    """
     user_id = _user_id_from_ctx(ctx)
-    return ("user", user_id, "memories")
+    namespace: list[str] = ["user", user_id]
+    if ctx.org_id:
+        namespace.extend(("org", ctx.org_id))
+    if ctx.workspace_id:
+        namespace.extend(("workspace", ctx.workspace_id))
+    namespace.append("memories")
+    return tuple(namespace)
 
 
 _is_memory_expired = is_store_value_expired

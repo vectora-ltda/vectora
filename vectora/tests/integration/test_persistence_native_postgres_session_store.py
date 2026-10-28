@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from uuid import uuid4
 
+import asyncpg
 import pytest
 
 from backend.persistence.native.postgres_session_store import PostgresSessionStore
@@ -154,6 +155,33 @@ class TestAppendMessageEGetHistory:
                 "SELECT turn_id FROM vectora_native_messages WHERE id = $1", first
             )
         assert row["turn_id"] == "turn-persistido"
+
+    @pytest.mark.asyncio
+    @pytest.mark.storage
+    @pytest.mark.parametrize(
+        ("is_error", "expected"),
+        [(True, True), (False, False), (None, None)],
+    )
+    async def test_round_trip_preserva_is_error(
+        self, pg_pool: asyncpg.Pool, is_error: bool | None, expected: bool | None
+    ) -> None:
+        """O Postgres preserva os três estados do contrato de erro."""
+        store = PostgresSessionStore(pg_pool)
+        thread_id = _thread_id()
+        await store.create_session(thread_id, user_id="alice")
+
+        await store.append_message(
+            thread_id,
+            VMessage(
+                role=MessageRole.ASSISTANT,
+                content=[ContentBlock(kind="text", text="falhou")],
+                is_error=is_error,
+                finish_reason="failed",
+            ),
+        )
+
+        history = await store.get_history(thread_id)
+        assert history[-1].is_error is expected
 
     async def test_thread_sem_mensagem_devolve_lista_vazia(self, pg_pool):
         """Verifica o comportamento de thread sem mensagem devolve lista vazia."""

@@ -341,6 +341,70 @@ def test_context_planner_injects_project_memory_and_manifest() -> None:
     assert any(b.domain == "project" for b in planned.manifest.blocks)
 
 
+def test_context_planner_does_not_cross_workspace_memory_boundary() -> None:
+    """Memória de outro workspace não pode entrar no contexto planejado."""
+    mem_store = MemoryStore()
+    mem_store.store("allowed", "project", "ws-a", "regra pública de ws-a")
+    mem_store.store("forbidden", "project", "ws-b", "segredo de ws-b")
+
+    planned = ContextPlanner(memory_store=mem_store).plan_context(
+        [_msg(MessageRole.USER, "continue")],
+        max_tokens=4000,
+        workspace_id="ws-a",
+    )
+
+    rendered = "\n".join(message.text() for message in planned.messages)
+    assert "regra pública de ws-a" in rendered
+    assert "segredo de ws-b" not in rendered
+
+
+def test_context_planner_merges_vector_and_graph_memory_with_provenance() -> None:
+    """RAG vetorial e grafo entram juntos sem perder o domínio de origem."""
+    mem_store = MemoryStore()
+    mem_store.store(
+        "vector-rule",
+        "vector_rag",
+        "ws-a",
+        "documentação recuperada do índice vetorial",
+        importance=0.9,
+        provenance="docs-index",
+    )
+    mem_store.store(
+        "graph-rule",
+        "structural_graph",
+        "ws-a",
+        "relação estrutural recuperada do grafo",
+        importance=0.8,
+        provenance="symbols-graph",
+    )
+
+    planned = ContextPlanner(memory_store=mem_store).plan_context(
+        [_msg(MessageRole.USER, "continue")],
+        max_tokens=4000,
+        workspace_id="ws-a",
+    )
+    rendered = "\n".join(message.text() for message in planned.messages)
+    assert "índice vetorial" in rendered
+    assert "grafo" in rendered
+    assert "vector_rag:docs-index" in rendered
+    assert "structural_graph:symbols-graph" in rendered
+
+
+def test_context_planner_hybrid_memory_does_not_cross_workspace() -> None:
+    """A seleção híbrida mantém isolamento também nos domínios novos."""
+    mem_store = MemoryStore()
+    mem_store.store("graph-a", "structural_graph", "ws-a", "grafo permitido")
+    mem_store.store("vector-b", "vector_rag", "ws-b", "vetor secreto")
+    planned = ContextPlanner(memory_store=mem_store).plan_context(
+        [_msg(MessageRole.USER, "continue")],
+        max_tokens=4000,
+        workspace_id="ws-a",
+    )
+    rendered = "\n".join(message.text() for message in planned.messages)
+    assert "grafo permitido" in rendered
+    assert "vetor secreto" not in rendered
+
+
 def test_backend_memories_are_converted_with_scope_and_trust() -> None:
     """Verifica o comportamento de backend memories are converted with scope and trust."""
     records = memory_records_from_backend_items(

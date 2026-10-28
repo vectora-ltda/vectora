@@ -56,6 +56,14 @@ async def test_maintenance_runs_incremental_vacuum_when_enabled(tmp_path: Path) 
     result = await run_storage_maintenance(database)
 
     assert result.incremental_vacuum is True
+    assert result.context_records == {"projections": 0, "checkpoints": 0}
+    assert result.memory_expired == 0
+    assert result.memory_purged == 0
+
+
+async def test_maintenance_rejeita_retencao_invalida(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="context_retention_days"):
+        await run_storage_maintenance(tmp_path / "vectora.db", context_retention_days=0)
 
 
 async def test_maintenance_cancellation_stops_artifact_worker(

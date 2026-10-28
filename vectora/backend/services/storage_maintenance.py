@@ -6,6 +6,7 @@ import asyncio
 import logging
 import threading
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import aiosqlite
@@ -24,6 +25,9 @@ class StorageMaintenanceResult:
     optimized: bool
     incremental_vacuum: bool
     artifact_gc: ArtifactGcResult
+    context_records: dict[str, int]
+    memory_expired: int
+    memory_purged: int
 
 
 async def run_storage_maintenance(
@@ -32,6 +36,7 @@ async def run_storage_maintenance(
     artifact_root: str | Path | None = None,
     referenced_artifacts: tuple[str | Path, ...] = (),
     artifact_dry_run: bool = True,
+    context_retention_days: int = 30,
     stop_event: threading.Event | None = None,
 ) -> StorageMaintenanceResult:
     """Run one bounded maintenance batch.
@@ -41,9 +46,14 @@ async def run_storage_maintenance(
     default and therefore cannot delete user data unless explicitly enabled.
     """
     db = Path(db_path)
+    if context_retention_days <= 0:
+        raise ValueError("context_retention_days deve ser positivo")
     wal_checkpoint = ""
     optimized = False
     incremental_vacuum = False
+    context_records = {"projections": 0, "checkpoints": 0}
+    memory_expired = 0
+    memory_purged = 0
     async with storage_operation():
         async with aiosqlite.connect(db) as connection:
             cursor = await connection.execute("PRAGMA wal_checkpoint(PASSIVE)")
@@ -76,10 +86,30 @@ async def run_storage_maintenance(
         try:
             from backend.services.memory_store import get_memory_store
 
-            get_memory_store().expire()
+            memory_store = get_memory_store()
+            memory_expired = memory_store.expire()
+            cutoff = (
+                datetime.now(UTC) - timedelta(days=context_retention_days)
+            ).isoformat()
+            memory_purged = memory_store.purge_invalidated(before=cutoff)
         except Exception:
             logger.warning(
                 "storage maintenance: failed to expire context memories",
+                exc_info=True,
+            )
+        try:
+            from backend.services import agent_factory
+
+            session_store = await agent_factory.get_session_store()
+            purge_context = getattr(session_store, "purge_context_records", None)
+            if callable(purge_context):
+                cutoff = (
+                    datetime.now(UTC) - timedelta(days=context_retention_days)
+                ).isoformat()
+                context_records = await purge_context(cutoff)
+        except Exception:
+            logger.warning(
+                "storage maintenance: failed to purge context projections",
                 exc_info=True,
             )
 
@@ -114,6 +144,9 @@ async def run_storage_maintenance(
         optimized=optimized,
         incremental_vacuum=incremental_vacuum,
         artifact_gc=artifact_gc,
+        context_records=context_records,
+        memory_expired=memory_expired,
+        memory_purged=memory_purged,
     )
 
 

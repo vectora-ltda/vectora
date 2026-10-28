@@ -12,6 +12,7 @@ uma das chamadas é a arriscada.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 from collections.abc import Awaitable, Callable
@@ -43,7 +44,15 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 def _is_tool_error(text: str) -> bool:
     """Reconhece prefixos de erro emitidos pelas tools localizadas."""
-    return text.lstrip().lower().startswith(("error:", "erro:", "erro ao "))
+    if text.lstrip().lower().startswith(("error:", "erro:", "erro ao ")):
+        return True
+    try:
+        payload = json.loads(text)
+    except (TypeError, json.JSONDecodeError, RecursionError):
+        return False
+    return isinstance(payload, dict) and (
+        payload.get("is_error") is True or payload.get("status") == "error"
+    )
 
 
 def _redact_secrets(texto: str) -> str:

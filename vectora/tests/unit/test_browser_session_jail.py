@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from types import SimpleNamespace
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -82,6 +83,189 @@ async def test_get_browser_page_conecta_ao_electron_sem_lancar_chromium(
     )
     fake_playwright.chromium.launch.assert_not_awaited()
     fake_playwright.chromium.launch_persistent_context.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_new_tab_fecha_pagina_se_goto_falha(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Falha após ``new_page`` não pode deixar uma aba órfã no Chromium."""
+    page = SimpleNamespace(
+        goto=AsyncMock(side_effect=RuntimeError("net::ERR_FAILED")),
+        close=AsyncMock(),
+    )
+    context = SimpleNamespace(new_page=AsyncMock(return_value=page))
+    monkeypatch.setitem(
+        browser_session._sessions,
+        "ws-failure",
+        {"context": context, "tabs": {}, "active_tab_id": None},
+    )
+
+    with pytest.raises(RuntimeError, match="ERR_FAILED"):
+        await browser_session.new_tab("ws-failure", url="https://example.com")
+
+    page.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_new_tab_preserva_motivo_de_bloqueio_e_remove_guard(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rota bloqueada deve produzir erro de policy sem exceção no callback."""
+    registered: dict[str, object] = {}
+    unroutes: list[tuple[str, object]] = []
+    abort = AsyncMock()
+    continue_ = AsyncMock()
+
+    class _Page:
+        async def route(self, pattern: str, handler: object) -> None:
+            registered[pattern] = handler
+
+        async def unroute(self, pattern: str, handler: object) -> None:
+            assert registered[pattern] is handler
+            unroutes.append((pattern, handler))
+
+        async def goto(self, _url: str, **_kwargs: object) -> None:
+            handler = cast("Callable[[object], Awaitable[object]]", registered["**/*"])
+            route = SimpleNamespace(
+                request=SimpleNamespace(url="http://127.0.0.1/private"),
+                abort=abort,
+                continue_=continue_,
+            )
+            await handler(route)
+            raise RuntimeError("navigation aborted")
+
+        close = AsyncMock()
+
+    page = _Page()
+    context = SimpleNamespace(new_page=AsyncMock(return_value=page))
+    monkeypatch.setitem(
+        browser_session._sessions,
+        "ws-policy",
+        {"context": context, "tabs": {}, "active_tab_id": None},
+    )
+
+    with pytest.raises(RuntimeError, match="private network"):
+        await browser_session.new_tab(
+            "ws-policy",
+            url="https://example.com",
+            url_validator=lambda _url: (False, "private network"),
+        )
+
+    abort.assert_awaited_once()
+    continue_.assert_not_awaited()
+    assert len(unroutes) == 1
+    page.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_new_tab_mantem_guard_apos_navegacao_e_libera_ao_fechar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Redirects tardios continuam protegidos até o fechamento da aba."""
+    registered: dict[str, object] = {}
+    unroutes: list[tuple[str, object]] = []
+
+    class _Page:
+        url = "https://example.com"
+        _target_id = ""
+
+        async def route(self, pattern: str, handler: object) -> None:
+            registered[pattern] = handler
+
+        async def unroute(self, pattern: str, handler: object) -> None:
+            unroutes.append((pattern, handler))
+
+        async def goto(self, _url: str, **_kwargs: object) -> None:
+            handler = cast("Callable[[object], Awaitable[object]]", registered["**/*"])
+            route = SimpleNamespace(
+                request=SimpleNamespace(url="https://example.com"),
+                abort=AsyncMock(),
+                continue_=AsyncMock(),
+            )
+            await handler(route)
+
+        close = AsyncMock()
+
+    page = _Page()
+    page._target_id = "target-persistent-guard"
+    context = SimpleNamespace(new_page=AsyncMock(return_value=page))
+    monkeypatch.setattr(
+        browser_session,
+        "_create_tab_state",
+        AsyncMock(return_value=SimpleNamespace(page=page)),
+    )
+    monkeypatch.setitem(
+        browser_session._sessions,
+        "ws-persistent-guard",
+        {"context": context, "tabs": {}, "active_tab_id": None},
+    )
+
+    tab_id = await browser_session.new_tab(
+        "ws-persistent-guard",
+        url="https://example.com",
+        url_validator=lambda _url: (True, ""),
+    )
+
+    assert tab_id
+    assert cast("Any", page)._vectora_route_handler is registered["**/*"]
+    await browser_session._release_route_guard(page)
+    assert unroutes == [("**/*", registered["**/*"])]
+
+
+@pytest.mark.asyncio
+async def test_new_tab_instala_guard_no_contexto_antes_do_primeiro_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A primeira requisição do popup também passa pelo mesmo egress guard."""
+    registered: dict[str, object] = {}
+    unroutes: list[tuple[str, object]] = []
+    abort = AsyncMock()
+    continue_ = AsyncMock()
+
+    class _Context:
+        async def route(self, pattern: str, handler: object) -> None:
+            registered[pattern] = handler
+
+        async def unroute(self, pattern: str, handler: object) -> None:
+            assert registered[pattern] is handler
+            unroutes.append((pattern, handler))
+
+        async def new_page(self) -> object:
+            return page
+
+    class _Page:
+        async def goto(self, _url: str, **_kwargs: object) -> None:
+            handler = cast("Callable[[object], Awaitable[object]]", registered["**/*"])
+            route = SimpleNamespace(
+                request=SimpleNamespace(url="http://127.0.0.1/private"),
+                abort=abort,
+                continue_=continue_,
+            )
+            await handler(route)
+            raise RuntimeError("navigation aborted")
+
+        close = AsyncMock()
+
+    page = _Page()
+    context = _Context()
+    monkeypatch.setitem(
+        browser_session._sessions,
+        "ws-context-policy",
+        {"context": context, "tabs": {}, "active_tab_id": None},
+    )
+
+    with pytest.raises(RuntimeError, match="private network"):
+        await browser_session.new_tab(
+            "ws-context-policy",
+            url="https://example.com",
+            url_validator=lambda _url: (False, "private network"),
+        )
+
+    abort.assert_awaited_once()
+    continue_.assert_not_awaited()
+    assert len(unroutes) == 1
+    page.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio

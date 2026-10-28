@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import json
 import logging
 import time
@@ -160,30 +161,29 @@ async def _persist_terminal_outcome(
         from backend.services import agent_factory
 
         store = await agent_factory.get_session_store()
-        if hasattr(store, "update_run"):
+        terminal_writer = getattr(store, "append_terminal_outcome", None)
+        # ``hasattr`` alone is unsafe with duck-typed stores and test doubles:
+        # a plain ``MagicMock`` advertises every attribute but cannot be
+        # awaited.  Only treat the atomic path as available when the exposed
+        # writer is genuinely asynchronous, as the native stores require.
+        atomic_terminal = status == "failed" and inspect.iscoroutinefunction(
+            terminal_writer
+        )
+        if not atomic_terminal and hasattr(store, "update_run"):
             await store.update_run(
                 run_id,
                 status=status,
                 detail=detail,
                 partial_text="",
             )
-        if hasattr(store, "update_agent_run_status"):
+        if not atomic_terminal and hasattr(store, "update_agent_run_status"):
             await store.update_agent_run_status(
                 run_id,
                 status=status,  # type: ignore
                 detail=detail,
             )
-        if status == "failed" and hasattr(store, "append_ledger_event"):
-            await store.append_ledger_event(
-                thread_id,
-                event_key=make_run_failed_key(run_id),
-                event_type=LedgerEventType.RUN_FAILED,
-                run_id=run_id,
-                payload={"detail": detail} if detail else {},
-            )
         turn_id = f"{run_id}:terminal"
-        if await store.get_message_id_by_turn_id(thread_id, turn_id) is not None:
-            return
+        terminal_message_id = await store.get_message_id_by_turn_id(thread_id, turn_id)
         parent_id = await store.get_branch_head_id(thread_id)
         label = "falha" if status == "failed" else "cancelado"
         message = VMessage(
@@ -197,13 +197,75 @@ async def _persist_terminal_outcome(
             finish_reason=status,
             is_error=True,
         )
-        await store.append_message(
-            thread_id,
-            message,
-            parent_message_id=parent_id,
-            turn_id=turn_id,
-            run_id=run_id,
-        )
+        # Stores modernos gravam a falha e a mensagem terminal na mesma
+        # transação. Isso evita um histórico em que RUN_FAILED existe, mas a
+        # mensagem visível desaparece (ou o inverso) após uma falha parcial.
+        if atomic_terminal:
+            await terminal_writer(
+                thread_id,
+                message,
+                parent_message_id=parent_id,
+                turn_id=turn_id,
+                run_id=run_id,
+                status=status,
+                detail=detail,
+            )
+        elif (
+            status == "failed"
+            and terminal_message_id is None
+            and hasattr(store, "append_message_recorded")
+        ):
+            from backend.persistence.native.ledger import ThreadLedgerEvent
+
+            await store.append_message_recorded(
+                thread_id,
+                message,
+                parent_message_id=parent_id,
+                turn_id=turn_id,
+                run_id=run_id,
+                extra_events=[
+                    ThreadLedgerEvent(
+                        thread_id=thread_id,
+                        event_key=make_run_failed_key(run_id),
+                        type="run_failed",
+                        run_id=run_id,
+                        turn_id=turn_id,
+                        payload={"detail": detail} if detail else {},
+                    )
+                ],
+            )
+        else:
+            # Legacy stores do not expose the atomic append operation.  Read
+            # both sides of the terminal pair before writing so a retry can
+            # repair a partial failure (message-only or event-only) without
+            # duplicating either record.
+            event_exists = False
+            if status == "failed" and hasattr(store, "list_events"):
+                events = await store.list_events(thread_id, limit=500)
+                event_exists = any(
+                    str(getattr(event, "event_key", "")) == make_run_failed_key(run_id)
+                    for event in events
+                )
+            if terminal_message_id is None:
+                await store.append_message(
+                    thread_id,
+                    message,
+                    parent_message_id=parent_id,
+                    turn_id=turn_id,
+                    run_id=run_id,
+                )
+            if (
+                status == "failed"
+                and not event_exists
+                and hasattr(store, "append_ledger_event")
+            ):
+                await store.append_ledger_event(
+                    thread_id,
+                    event_key=make_run_failed_key(run_id),
+                    event_type=LedgerEventType.RUN_FAILED,
+                    run_id=run_id,
+                    payload={"detail": detail} if detail else {},
+                )
     except Exception:
         # The original provider error must remain the primary failure.  A
         # persistence outage is logged and surfaced to reconciliation instead

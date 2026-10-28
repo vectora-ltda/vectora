@@ -227,3 +227,25 @@ async def test_async_is_url_allowed_returns_pinned_ip(
     assert ok is True
     assert reason == ""
     assert pinned_ip == "93.184.216.34"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("url", ["http://127.0.0.1:8080", "http://10.0.0.1"])
+async def test_async_is_url_allowed_blocks_literal_private_ip_without_dns(
+    url: str,
+) -> None:
+    """IPs literais não podem escapar da proteção por uma resolução externa."""
+    ok, reason, pinned_ip = await async_is_url_allowed(url, EgressPolicy())
+    assert ok is False
+    assert "privado/restrito" in reason
+    assert pinned_ip is None
+
+
+@pytest.mark.asyncio
+async def test_async_is_url_allowed_accepts_literal_public_ip_without_dns() -> None:
+    ok, reason, pinned_ip = await async_is_url_allowed(
+        "https://93.184.216.34", EgressPolicy()
+    )
+    assert ok is True
+    assert reason == ""
+    assert pinned_ip == "93.184.216.34"

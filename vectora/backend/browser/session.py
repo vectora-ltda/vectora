@@ -26,6 +26,7 @@ import logging
 import os
 import uuid
 from collections import deque
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, cast
@@ -51,6 +52,20 @@ _sessions: dict[str, dict[str, Any]] = {}
 #: Referências às tasks de accept/dismiss de dialog em voo — sem isso o
 #: garbage collector pode coletar a task antes dela rodar (RUF006).
 _pending_dialog_tasks: set[asyncio.Task[Any]] = set()
+
+
+async def _release_route_guard(page: Any) -> None:
+    """Remove a temporary new-tab guard when its page is explicitly closed."""
+    owner = getattr(page, "_vectora_route_owner", None)
+    handler = getattr(page, "_vectora_route_handler", None)
+    if owner is not None and handler is not None:
+        unroute = getattr(owner, "unroute", None)
+        if callable(unroute):
+            with suppress(Exception):
+                await unroute("**/*", handler)
+    for attr in ("_vectora_route_owner", "_vectora_route_handler"):
+        with suppress(AttributeError):
+            delattr(page, attr)
 
 
 @dataclass
@@ -330,7 +345,12 @@ async def list_tabs(workspace_id: str) -> list[BrowserTab]:
     return tabs
 
 
-async def new_tab(workspace_id: str, url: str | None = None) -> str:
+async def new_tab(
+    workspace_id: str,
+    url: str | None = None,
+    *,
+    url_validator: Callable[[str], tuple[bool, str]] | None = None,
+) -> str:
     """Cria uma aba nova na sessão do workspace (lança o browser se ainda
     não existir sessão) e a torna a aba ativa. Retorna o `tab_id`."""
     if not has_browser_session(workspace_id):
@@ -350,8 +370,63 @@ async def new_tab(workspace_id: str, url: str | None = None) -> str:
             "O Browser Workbench não suporta criar uma nova aba via CDP; "
             "selecione uma aba existente ou abra uma nova aba no Electron."
         ) from exc
-    if url:
-        await page.goto(url, wait_until="domcontentloaded")
+    route_handler: Callable[[Any], Awaitable[None]] | None = None
+    route_owner: Any | None = None
+    blocked_reason: dict[str, str] = {}
+    # A page-level route can miss the first request of a newly-created popup.
+    # Prefer the context while the target is being initialized so redirects
+    # and the initial navigation are both checked before they leave the
+    # Browser Workbench.  Keep the page fallback for lightweight test doubles
+    # and adapters that do not expose context routing.
+    # Prefer page-level routing so the policy belongs to this workspace/tab
+    # and can remain active after the initial navigation.  Context routing is
+    # only a compatibility fallback for adapters that cannot route pages.
+    route_owner = page
+    route = getattr(route_owner, "route", None)
+    if not callable(route):
+        route_owner = session["context"]
+        route = getattr(route_owner, "route", None)
+    if url and url_validator is not None and callable(route):
+
+        async def _guard(route_obj: Any) -> None:
+            """Abort navigation requests rejected by the workspace policy."""
+            request = getattr(route_obj, "request", None)
+            request_url = str(getattr(request, "url", ""))
+            allowed, reason = await asyncio.to_thread(url_validator, request_url)
+            if allowed:
+                await route_obj.continue_()
+            else:
+                # Route callbacks must not raise after abort: Playwright may
+                # surface that exception as an unrelated navigation failure.
+                # Keep the reason for the caller to attach to goto's error.
+                blocked_reason["reason"] = reason
+                await route_obj.abort()
+
+        route_handler = _guard
+        await route("**/*", route_handler)
+    navigation_succeeded = False
+    try:
+        if url:
+            await page.goto(url, wait_until="domcontentloaded")
+        navigation_succeeded = True
+        if route_handler is not None:
+            page._vectora_route_owner = route_owner
+            page._vectora_route_handler = route_handler
+    except Exception as exc:
+        await _release_route_guard(page)
+        with suppress(Exception):
+            await page.close()
+        if blocked_reason.get("reason"):
+            raise RuntimeError(f"egress policy: {blocked_reason['reason']}") from exc
+        raise
+    finally:
+        if (
+            not navigation_succeeded
+            and route_handler is not None
+            and callable(getattr(route_owner, "unroute", None))
+        ):
+            with suppress(Exception):
+                await route_owner.unroute("**/*", route_handler)
     tab = await _create_tab_state(page)
     _claim_page(page, workspace_id)
     tab_id = uuid.uuid4().hex[:12]
@@ -393,6 +468,10 @@ async def close_tab(workspace_id: str, tab_id: str) -> bool:
     session["tabs"].pop(tab_id, None)
     _page_owners.pop(_page_target_id(tab.page), None)
     try:
+        await _release_route_guard(tab.page)
+        from backend.tools.browser import release_navigation_guard
+
+        await release_navigation_guard(tab.page)
         await tab.page.close()
     except Exception:
         logger.debug("browser_session: falha ao fechar aba %s", tab_id)
@@ -507,6 +586,13 @@ async def close_browser_session(workspace_id: str) -> None:
         return
     for tab in session.get("tabs", {}).values():
         _page_owners.pop(_page_target_id(tab.page), None)
+        try:
+            await _release_route_guard(tab.page)
+            from backend.tools.browser import release_navigation_guard
+
+            await release_navigation_guard(tab.page)
+        except Exception:
+            logger.debug("browser_session: falha ao remover guard da aba")
     try:
         if session.get("owns_browser", False):
             await session["browser"].close()

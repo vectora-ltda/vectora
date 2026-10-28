@@ -27,7 +27,7 @@ import os
 import sqlite3
 import stat
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
@@ -931,7 +931,14 @@ async def get_thread(
             mode=_normalize_mode(native["mode"]),
         )
     else:
-        await _assert_owns_thread(request.thread_id, http_request)
+        # An authenticated HTTP read must be backed by the native session
+        # record.  Accepting a legacy ``vectora_sessions`` row without that
+        # ownership record would turn stale UI metadata into a history bypass.
+        await _assert_owns_thread(
+            request.thread_id,
+            http_request,
+            require_existing=has_authenticated_user,
+        )
         thread = _row_to_thread(row)
 
     # Derivações a partir do ledger de eventos
@@ -957,24 +964,31 @@ async def get_thread(
                     "threads: falha ao garantir backfill de ledger para thread %s",
                     thread.id,
                 )
-        summaries = await session_store.get_thread_summaries(
-            [thread.id], user_id=user_id
-        )
-        if summaries and summaries[0].last_seq > 0:
-            s = summaries[0]
-            thread.unread_count = s.unread_count
-            thread.status = s.status
-            thread.last_seq = s.last_seq
-            thread.read_seq = s.read_seq
-            if s.last_message:
-                thread.last_message = ThreadLastMessagePreview(
-                    role=s.last_message.role,
-                    preview=s.last_message.preview,
-                    message_id=s.last_message.message_id,
-                    created_at=s.last_message.created_at,
-                )
-        else:
-            thread.unread_count = await _unread_count(thread.id, user_id)
+        try:
+            summaries = await session_store.get_thread_summaries(
+                [thread.id], user_id=user_id
+            )
+            if summaries and summaries[0].last_seq > 0:
+                s = summaries[0]
+                thread.unread_count = s.unread_count
+                thread.status = s.status
+                thread.last_seq = s.last_seq
+                thread.read_seq = s.read_seq
+                if s.last_message:
+                    thread.last_message = ThreadLastMessagePreview(
+                        role=s.last_message.role,
+                        preview=s.last_message.preview,
+                        message_id=s.last_message.message_id,
+                        created_at=s.last_message.created_at,
+                    )
+            else:
+                thread.unread_count = await _unread_count(thread.id, user_id)
+        except Exception:
+            # Summary telemetry is ancillary.  Keep the thread and its
+            # messages readable when the summary store is degraded.
+            logger.exception(
+                "threads: resumo indisponível ao resolver thread %s", thread.id
+            )
     else:
         thread.unread_count = await _unread_count(thread.id, user_id)
     return thread
@@ -1587,7 +1601,10 @@ async def update_thread(
 
 
 @router.post("/vectora.chat.v1.ThreadService/GetHistory")
-async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
+async def get_history(
+    request: GetHistoryRequest,
+    http_request: Request = None,  # ty: ignore[invalid-parameter-default]
+) -> GetHistoryResponse:
     """Retorna o histórico de mensagens de uma thread via ``SessionStore`` nativo.
 
     Reusa o singleton do agente (mesmo que o handler de chat) — evita rebuild
@@ -1596,20 +1613,46 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
     try:
         from backend.services import agent_factory
 
-        thread = await get_thread(GetThreadRequest(thread_id=request.thread_id))
+        thread = await get_thread(
+            GetThreadRequest(thread_id=request.thread_id),
+            http_request=http_request,
+        )
         # Capture the cursor before reading messages.  A write that races the
         # history read must not make the response claim a sequence newer than
         # the messages it contains; the next replay will deliver that event.
-        store = await _get_session_store()
-        summaries = (
-            await store.get_thread_summaries([request.thread_id], user_id="local")
-            if hasattr(store, "get_thread_summaries")
-            else []
-        )
-        summary = summaries[0] if summaries else None
+        summary = None
+        store: object | None = None
+        try:
+            store = await _get_session_store()
+            summary_user_id = (
+                _user_id(http_request) if http_request is not None else "local"
+            )
+            summaries = (
+                await store.get_thread_summaries(
+                    [request.thread_id], user_id=summary_user_id
+                )
+                if hasattr(store, "get_thread_summaries")
+                else []
+            )
+            summary = summaries[0] if summaries else None
+        except Exception:
+            # Summary telemetry is optional; never discard messages when its
+            # store is temporarily unavailable.
+            logger.exception("api/threads: resumo indisponível no histórico")
         pairs = await agent_factory.aget_thread_messages_with_files(
             request.thread_id,
             workspace_id=thread.workspace_id or None,
+        )
+        # A cursor derived from the ledger is only meaningful when the summary
+        # snapshot was read successfully.  If summary storage failed, expose
+        # the conservative idle/zero state instead of claiming a cursor from a
+        # different read snapshot than the one used for this response.
+        safe_last_seq = (
+            await _safe_history_cursor(
+                store, request.thread_id, pairs, summary.last_seq
+            )
+            if summary is not None
+            else 0
         )
         history = [
             HistoryMessage(
@@ -1631,9 +1674,11 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
             messages=history,
             todos=[TodoItem.model_validate(todo) for todo in todos],
             run_status=summary.status if summary else "idle",
-            last_seq=summary.last_seq if summary else 0,
+            last_seq=safe_last_seq,
         )
 
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("api/threads: erro ao carregar histórico")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -2080,6 +2125,27 @@ async def rewind_thread(
 MESSAGES_CAP = 200
 
 
+async def _safe_history_cursor(
+    store: object | None,
+    thread_id: str,
+    entries: Sequence[object],
+    fallback: int,
+) -> int:
+    """Limit the returned cursor to events represented by response messages."""
+    get_seq = getattr(store, "get_event_seq_by_message_id", None)
+    if not callable(get_seq):
+        return fallback
+    seqs: list[int] = []
+    for entry in entries:
+        message_id = getattr(entry, "message_id", None)
+        if message_id is None:
+            continue
+        seq = await get_seq(thread_id, message_id)
+        if seq is not None:
+            seqs.append(int(seq))
+    return max(seqs, default=0)
+
+
 @router.get("/threads/{thread_id}/history", response_model=PagedHistoryResponse)
 async def get_thread_history_paginated(
     thread_id: str,
@@ -2099,6 +2165,7 @@ async def get_thread_history_paginated(
     await _assert_owns_thread(thread_id, request)
 
     summary = None
+    store: object | None = None
     try:
         from backend.services import agent_factory
 
@@ -2108,12 +2175,17 @@ async def get_thread_history_paginated(
         thread = await get_thread(
             GetThreadRequest(thread_id=thread_id), http_request=request
         )
-        store = await _get_session_store()
-        if hasattr(store, "get_thread_summaries"):
-            summaries = await store.get_thread_summaries(
-                [thread_id], user_id=_user_id(request)
-            )
-            summary = summaries[0] if summaries else None
+        try:
+            store = await _get_session_store()
+            if hasattr(store, "get_thread_summaries"):
+                summaries = await store.get_thread_summaries(
+                    [thread_id], user_id=_user_id(request)
+                )
+                summary = summaries[0] if summaries else None
+        except Exception:
+            # Status is ancillary to the message page. Preserve the loaded
+            # messages/count when summary storage is unavailable.
+            logger.exception("api/threads: resumo indisponível no histórico paginado")
         pairs = await agent_factory.aget_thread_messages_with_files(
             thread_id,
             workspace_id=thread.workspace_id or None,
@@ -2134,6 +2206,11 @@ async def get_thread_history_paginated(
     page = pairs[start:end]
 
     has_more = start > 0
+    safe_last_seq = (
+        await _safe_history_cursor(store, thread_id, page, summary.last_seq)
+        if summary is not None
+        else 0
+    )
 
     messages = [
         HistoryMessage(
@@ -2179,7 +2256,7 @@ async def get_thread_history_paginated(
         has_more=has_more,
         total_count=total,
         run_status=summary.status if summary else "idle",
-        last_seq=summary.last_seq if summary else 0,
+        last_seq=safe_last_seq,
     )
 
 

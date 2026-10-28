@@ -306,6 +306,11 @@ def create_backup(
             for archive_name, data in entries
         ]
     destination = Path(output)
+    # Never overwrite a symlink (which could redirect a backup outside the
+    # selected storage directory) and publish the archive atomically.  The
+    # previous implementation opened the destination directly, leaving a
+    # partially-written ZIP visible after interruption.
+    _assert_safe_destination(destination, destination.parent)
     destination.parent.mkdir(parents=True, exist_ok=True)
     total_bytes = sum(len(data) for entries in sources.values() for _, data in entries)
     if any(
@@ -316,17 +321,35 @@ def create_backup(
         raise ValueError("entrada de backup excede o limite")
     if total_bytes > MAX_ARCHIVE_BYTES:
         raise ValueError("backup excede o limite de tamanho")
-    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(MANIFEST, json.dumps(manifest, ensure_ascii=False, indent=2))
-        for entries in sources.values():
-            for archive_name, data in entries:
-                archive.writestr(archive_name, data)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=destination.parent, suffix=".vbackup.tmp", delete=False
+        ) as handle:
+            temporary = Path(handle.name)
+        with zipfile.ZipFile(
+            temporary, "w", compression=zipfile.ZIP_DEFLATED
+        ) as archive:
+            archive.writestr(
+                MANIFEST, json.dumps(manifest, ensure_ascii=False, indent=2)
+            )
+            for entries in sources.values():
+                for archive_name, data in entries:
+                    archive.writestr(archive_name, data)
+        with temporary.open("r+b") as handle:
+            os.fsync(handle.fileno())
+        temporary.replace(destination)
+    except BaseException:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        raise
     return inspect_backup(destination)
 
 
 def inspect_backup(archive_path: str | Path) -> BackupPreview:
     """Valida manifesto, caminhos, tipos, limites, hashes e entradas extras."""
     archive_file = Path(archive_path)
+    _assert_safe_destination(archive_file, archive_file.parent)
     if archive_file.stat().st_size > MAX_ARCHIVE_BYTES:
         raise ValueError("backup excede o limite de tamanho")
     with zipfile.ZipFile(archive_file) as archive:

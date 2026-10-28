@@ -42,6 +42,7 @@ from backend.persistence.native.ledger import (
     make_approval_requested_key,
     make_approval_resolved_key,
     make_message_created_key,
+    make_run_failed_key,
 )
 from backend.persistence.native.schema import setup_sqlite_session_schema
 from backend.services.context_manifest import (
@@ -127,7 +128,7 @@ def _map_legacy_session_run_status(status: str) -> str:
 
 def _message_to_row(
     msg: VMessage,
-) -> tuple[str, str, str | None, str | None, str | None, int]:
+) -> tuple[str, str, str | None, str | None, str | None, int | None]:
     """Executa a operação  message to row."""
     data = msg.to_dict()
     for block in data["content"]:
@@ -149,7 +150,7 @@ def _message_to_row(
         tool_calls_json,
         data["tool_call_id"],
         data["name"],
-        int(data["is_error"]),
+        int(bool(data.get("is_error", False))),
     )
 
 
@@ -165,7 +166,7 @@ def _row_to_message(row: Any) -> VMessage:
         "tool_call_id": tool_call_id,
         "name": name,
         "finish_reason": None,
-        "is_error": bool(is_error),
+        "is_error": None if is_error is None else bool(is_error),
     }
     return VMessage.from_dict(data)
 
@@ -861,6 +862,63 @@ class SessionStore:
             "created_at": row[7],
         }
 
+    async def purge_context_records(
+        self, older_than: str, *, limit: int = 500
+    ) -> dict[str, int]:
+        """Remove projections/checkpoints older than a retention cutoff.
+
+        The bounded batch is intentional: maintenance must not hold the
+        SQLite write lock while trying to delete an unbounded history.  IDs
+        are selected before deletion so the two tables are counted and
+        removed atomically, while newer context remains untouched.
+        """
+        if not older_than.strip():
+            raise ValueError("older_than não pode ser vazio")
+        if limit < 1:
+            raise ValueError("limit deve ser positivo")
+        safe_limit = min(int(limit), 5000)
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            try:
+                projection_cur = await conn.execute(
+                    "SELECT thread_id, projection_id FROM context_projections "
+                    "WHERE created_at < ? ORDER BY created_at ASC LIMIT ?",
+                    (older_than, safe_limit),
+                )
+                projection_keys = [
+                    (str(row[0]), str(row[1]))
+                    for row in await projection_cur.fetchall()
+                ]
+                checkpoint_cur = await conn.execute(
+                    "SELECT thread_id, checkpoint_id FROM context_checkpoints "
+                    "WHERE created_at < ? ORDER BY created_at ASC LIMIT ?",
+                    (older_than, safe_limit),
+                )
+                checkpoint_keys = [
+                    (str(row[0]), str(row[1]))
+                    for row in await checkpoint_cur.fetchall()
+                ]
+                for thread_id, projection_id in projection_keys:
+                    await conn.execute(
+                        "DELETE FROM context_projections "
+                        "WHERE thread_id = ? AND projection_id = ?",
+                        (thread_id, projection_id),
+                    )
+                for thread_id, checkpoint_id in checkpoint_keys:
+                    await conn.execute(
+                        "DELETE FROM context_checkpoints "
+                        "WHERE thread_id = ? AND checkpoint_id = ?",
+                        (thread_id, checkpoint_id),
+                    )
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
+        return {
+            "projections": len(projection_keys),
+            "checkpoints": len(checkpoint_keys),
+        }
+
     async def _get_agent_run_on_conn(
         self, conn: aiosqlite.Connection, run_id: str
     ) -> AgentRun | None:
@@ -1171,6 +1229,8 @@ class SessionStore:
         turn_id: str | None = None,
         run_id: str | None = None,
         extra_events: list[ThreadLedgerEvent] | None = None,
+        terminal_status: str | None = None,
+        terminal_detail: str | None = None,
     ) -> tuple[int, int]:
         """Persiste `msg` e o evento `message_created` atomicamente no ledger,
         devolvendo `(message_id, seq)`. Aceita eventos extras na mesma transação."""
@@ -1201,6 +1261,43 @@ class SessionStore:
                         await conn.rollback()
                         return existing_id, seq
 
+                if terminal_status is not None:
+                    if terminal_status not in {"completed", "failed", "cancelled"}:
+                        raise ValueError(
+                            f"status terminal inválido: {terminal_status!r}"
+                        )
+                    terminal_at = agora
+                    redacted_detail = redact_sensitive_data(terminal_detail or "")
+                    await conn.execute(
+                        "UPDATE session_runs SET status = ?, detail = COALESCE(?, detail), "
+                        "updated_at = ?, terminal_at = COALESCE(terminal_at, ?) "
+                        "WHERE run_id = ? AND status NOT IN "
+                        "('completed', 'failed', 'cancelled')",
+                        (
+                            terminal_status,
+                            redacted_detail or None,
+                            agora,
+                            terminal_at,
+                            run_id,
+                        ),
+                    )
+                    canonical_status = (
+                        "passed" if terminal_status == "completed" else terminal_status
+                    )
+                    await conn.execute(
+                        "UPDATE agent_runs SET status = ?, detail = COALESCE(?, detail), "
+                        "updated_at = ?, terminal_at = COALESCE(terminal_at, ?) "
+                        "WHERE run_id = ? AND status NOT IN "
+                        "('passed', 'degraded', 'failed', 'cancelled')",
+                        (
+                            canonical_status,
+                            redacted_detail or None,
+                            agora,
+                            terminal_at,
+                            run_id,
+                        ),
+                    )
+
                 cur = await conn.execute(
                     "INSERT INTO messages (thread_id, parent_message_id, role, "
                     "content_json, tool_calls_json, tool_call_id, name, is_error, "
@@ -1216,8 +1313,8 @@ class SessionStore:
                         name,
                         is_error,
                         turn_id,
-                        None,
                         run_id,
+                        None,
                         agora,
                     ),
                 )
@@ -1274,7 +1371,11 @@ class SessionStore:
                 msg_payload = {
                     "role": role,
                     "content": msg.text(),
-                    "is_error": bool(is_error),
+                    # Preserve the tri-state value in the event ledger. The
+                    # messages table may normalize legacy NULL values for
+                    # reads, but replay/audit must not turn "unknown" into
+                    # an asserted non-error.
+                    "is_error": msg.is_error,
                 }
                 await conn.execute(
                     "INSERT INTO thread_events (thread_id, seq, event_key, type, "
@@ -1304,7 +1405,7 @@ class SessionStore:
                     )
 
                 if run_id is not None and role == "assistant" and not msg.tool_calls:
-                    terminal_status = (
+                    message_terminal_status = terminal_status or (
                         "failed"
                         if msg.is_error and msg.finish_reason == "failed"
                         else "cancelled"
@@ -1316,7 +1417,7 @@ class SessionStore:
                         "terminal_at = ?, partial_text = COALESCE(?, partial_text) "
                         "WHERE run_id = ?",
                         (
-                            terminal_status,
+                            message_terminal_status,
                             agora,
                             agora,
                             msg.text(),
@@ -1328,6 +1429,44 @@ class SessionStore:
                 await conn.rollback()
                 raise
         return int(new_id), current_seq
+
+    async def append_terminal_outcome(
+        self,
+        thread_id: str,
+        msg: VMessage,
+        *,
+        parent_message_id: int | None,
+        turn_id: str,
+        run_id: str,
+        status: str,
+        detail: str,
+    ) -> tuple[int, int]:
+        """Commit terminal run state, visible message and ledger event together."""
+        event_key = make_run_failed_key(run_id) if status == "failed" else None
+        extra_events = (
+            [
+                ThreadLedgerEvent(
+                    thread_id=thread_id,
+                    event_key=event_key,
+                    type="run_failed",
+                    run_id=run_id,
+                    turn_id=turn_id,
+                    payload={"detail": detail} if detail else {},
+                )
+            ]
+            if event_key is not None
+            else None
+        )
+        return await self.append_message_recorded(
+            thread_id,
+            msg,
+            parent_message_id=parent_message_id,
+            turn_id=turn_id,
+            run_id=run_id,
+            extra_events=extra_events,
+            terminal_status=status,
+            terminal_detail=detail,
+        )
 
     async def attach_edited_files(
         self, thread_id: str, run_id: str, files: list[dict[str, object]]

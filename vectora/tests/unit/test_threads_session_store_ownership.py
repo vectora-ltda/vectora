@@ -23,6 +23,7 @@ import pytest
 from backend.api.handlers import threads as th
 from backend.api.schemas import (
     DeleteThreadRequest,
+    GetHistoryRequest,
     GetThreadRequest,
     ListThreadsRequest,
     UpdateThreadRequest,
@@ -107,6 +108,32 @@ class TestListThreadsReflectsSessionStore:
 
         assert [t.id for t in result.threads] == ["thread-alice"]
         assert result.threads[0].title == "Conversa da Alice"
+
+    async def test_get_history_rejeita_usuario_de_outra_thread_antes_de_ler(
+        self,
+        session_store: SessionStore,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """GetHistory aplica posse nativa antes de buscar mensagens ou anexos."""
+        await session_store.create_session("thread-alice", user_id="alice", mode="code")
+        await th._upsert_session("thread-alice", title="Privada")
+
+        from fastapi import HTTPException
+
+        from backend.services import agent_factory
+
+        monkeypatch.setattr(
+            agent_factory,
+            "aget_thread_messages_with_files",
+            MagicMock(side_effect=AssertionError("mensagens não deveriam ser lidas")),
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await th.get_history(
+                GetHistoryRequest(thread_id="thread-alice"),
+                _http_request("bob"),
+            )
+
+        assert exc_info.value.status_code == 404
 
     async def test_list_threads_serializa_atividade_remota(
         self, session_store: SessionStore, monkeypatch: pytest.MonkeyPatch
@@ -278,6 +305,23 @@ class TestOwnershipEnforcement:
         thread = await th.get_thread(GetThreadRequest(thread_id="thread-bob"))
 
         assert thread.id == "thread-bob"
+
+    async def test_get_thread_rejeita_metadado_legado_sem_posse_nativa(
+        self, session_store: SessionStore
+    ) -> None:
+        """Metadado antigo não pode autorizar leitura HTTP autenticada."""
+        from fastapi import HTTPException
+
+        await th._upsert_session("thread-legacy-only", title="stale metadata")
+        assert await session_store.get_session("thread-legacy-only") is None
+
+        with pytest.raises(HTTPException) as exc_info:
+            await th.get_thread(
+                GetThreadRequest(thread_id="thread-legacy-only"),
+                _http_request("alice"),
+            )
+
+        assert exc_info.value.status_code == 404
 
     async def test_get_thread_reidrata_metadados_ausentes_do_store_nativo(
         self, session_store: SessionStore

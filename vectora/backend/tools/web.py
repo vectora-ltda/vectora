@@ -21,6 +21,8 @@ from urllib.parse import urljoin, urlparse
 
 import httpx
 
+from backend.services.egress_policy import EgressPolicy, async_is_url_allowed
+from backend.services.policy_compiler import PolicySnapshot
 from backend.settings import settings
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
@@ -66,13 +68,28 @@ async def _check_egress_url(url: str, ctx: ToolContext | None = None) -> str | N
     the tool layer as a defence-in-depth boundary; the policy compiler is only
     a preflight and cannot replace the asynchronous DNS resolution here.
     """
-    from backend.services.egress_policy import EgressPolicy, async_is_url_allowed
-
-    policy = EgressPolicy.for_workspace(ctx.workspace_id if ctx else None)
+    policy = _egress_policy(ctx)
     allowed, reason, _ = await async_is_url_allowed(url, policy)
     if not allowed:
         return reason or "destino recusado pela política de egress"
     return None
+
+
+def _egress_policy(ctx: ToolContext | None = None) -> EgressPolicy:
+    """Retorna o snapshot de egress da execução, quando disponível.
+
+    A mesma política precisa governar o preflight e cada conexão HTTP. Sem
+    isso uma execução poderia validar a URL com um snapshot e conectar com a
+    configuração persistida mais recente, deixando uma janela de revogação.
+    """
+    snapshot = (
+        ctx._extra.get("policy_snapshot")
+        if ctx is not None and isinstance(ctx._extra, dict)
+        else None
+    )
+    if isinstance(snapshot, PolicySnapshot):
+        return snapshot.egress_policy
+    return EgressPolicy.for_workspace(ctx.workspace_id if ctx else None)
 
 
 async def _invoke_backend(tool: Any, payload: dict[str, Any]) -> Any:
@@ -200,13 +217,39 @@ async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
             chunks.append(chunk)
         return b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
 
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=False) as client:
-        async with client.stream("GET", url, headers=headers) as response:
-            if 300 <= response.status_code < 400:
+    current_url = url
+    current_headers = headers
+    response_status = 0
+    for redirect_count in range(6):
+        allowed, reason, pinned_ip = await async_is_url_allowed(
+            current_url, _egress_policy(ctx)
+        )
+        if not allowed or pinned_ip is None:
+            raise ValueError(
+                "destino recusado pela política de egress: "
+                f"{reason or 'IP validado ausente'}"
+            )
+        # A conexão usa o IP obtido no mesmo preflight. Isso evita que uma
+        # segunda resolução feita pelo cliente HTTP atravesse a política após
+        # DNS rebinding; cada redirect passa pelo mesmo ciclo novamente.
+        from backend.tools.native.http_request import PinIPTransport
+
+        async with httpx.AsyncClient(
+            transport=PinIPTransport(pinned_ip), timeout=30.0, follow_redirects=False
+        ) as client:
+            async with client.stream(
+                "GET", current_url, headers=current_headers
+            ) as response:
+                response_status = response.status_code
+                if not 300 <= response.status_code < 400:
+                    content = await _read_limited(response)
+                    break
                 location = response.headers.get("location")
                 if not location:
                     response.raise_for_status()
-                redirected = urljoin(url, location)
+                if redirect_count >= 5:
+                    raise ValueError("limite de redirects excedido")
+                redirected = urljoin(current_url, location)
                 if not is_url_ssrf_safe(redirected):
                     raise ValueError("redirect recusado pelo SSRF guard")
                 redirect_egress_error = await _check_egress_url(redirected, ctx)
@@ -217,18 +260,15 @@ async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
                     )
                 redirected_url = urlparse(redirected)
                 redirected_host = (redirected_url.hostname or "").lower()
-                redirected_headers = dict(headers)
+                current_headers = dict(current_headers)
                 if (
                     redirected_url.scheme != "https"
                     or redirected_host not in github_hosts
                 ):
-                    redirected_headers.pop("Authorization", None)
-                async with client.stream(
-                    "GET", redirected, headers=redirected_headers
-                ) as redirected_response:
-                    content = await _read_limited(redirected_response)
-            else:
-                content = await _read_limited(response)
+                    current_headers.pop("Authorization", None)
+                current_url = redirected
+    else:  # pragma: no cover - the loop raises at the sixth redirect
+        raise ValueError("limite de redirects excedido")
     original_length = len(content)
     if len(content) > _MAX_TOOL_CONTENT:
         content = (
@@ -250,7 +290,7 @@ async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
         extra={
             "url": url,
             "content_length": len(content),
-            "status": response.status_code,
+            "status": response_status,
         },
     )
     return envelope_untrusted(content, source=url)

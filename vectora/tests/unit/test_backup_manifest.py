@@ -146,6 +146,39 @@ def test_artifacts_root_symlink_is_rejected_before_reading(tmp_path: Path) -> No
         backup_module._artifact_entries(database)
 
 
+def test_create_backup_rejeita_destino_symlinkado(tmp_path: Path) -> None:
+    """Um destino de backup apontando para fora não pode ser sobrescrito."""
+    database = tmp_path / "vectora.db"
+    database.write_bytes(b"sqlite-placeholder")
+    outside = tmp_path / "outside.zip"
+    outside.write_bytes(b"preserve")
+    destination = tmp_path / "backup.zip"
+    try:
+        destination.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink não disponível neste ambiente")
+
+    with pytest.raises(ValueError, match="symlink"):
+        create_backup(database, destination)
+    assert outside.read_bytes() == b"preserve"
+
+
+def test_inspect_backup_rejeita_arquivo_de_arquivo_symlinkado(tmp_path: Path) -> None:
+    """A inspeção não deve seguir um link para um ZIP fora do storage."""
+    database = tmp_path / "vectora.db"
+    database.write_bytes(b"sqlite-placeholder")
+    real_archive = tmp_path / "real.zip"
+    create_backup(database, real_archive)
+    linked_archive = tmp_path / "linked.zip"
+    try:
+        linked_archive.symlink_to(real_archive)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink não disponível neste ambiente")
+
+    with pytest.raises(ValueError, match="symlink"):
+        inspect_backup(linked_archive)
+
+
 def test_artifact_oversize_is_rejected_before_payload_read(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

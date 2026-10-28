@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from backend.tools.web import fetch_url, web_search
+from backend.tools.web import _fetch_via_http, fetch_url, web_search
 
 
 @pytest.mark.asyncio
@@ -196,6 +196,59 @@ class TestFetchUrlSsrfGuard:
         assert "política de egress" in result
         get.assert_not_called()
         fallback.assert_not_awaited()
+
+    async def test_http_direto_conecta_no_ip_validado_em_cada_redirect(self) -> None:
+        """Regressão: o cliente não pode resolver novamente após o preflight."""
+
+        class _Response:
+            status_code = 200
+            headers: dict[str, str] = {}
+            encoding = "utf-8"
+
+            def raise_for_status(self) -> None:
+                return None
+
+            async def aiter_bytes(self):
+                yield b"conteudo"
+
+        class _Stream:
+            async def __aenter__(self) -> _Response:
+                return _Response()
+
+            async def __aexit__(self, *args: object) -> None:
+                return None
+
+        transports: list[object] = []
+
+        class _Client:
+            def __init__(self, *, transport: object, **_: object) -> None:
+                transports.append(transport)
+
+            async def __aenter__(self) -> _Client:
+                return self
+
+            async def __aexit__(self, *args: object) -> None:
+                return None
+
+            def stream(self, *_args: object, **_kwargs: object) -> _Stream:
+                return _Stream()
+
+        with (
+            patch("backend.tools.web.httpx.AsyncClient", _Client),
+            patch(
+                "backend.tools.native.http_request.PinIPTransport",
+                side_effect=lambda ip: ("pinned", ip),
+            ),
+            patch(
+                "backend.tools.web.async_is_url_allowed",
+                new=AsyncMock(return_value=(True, "", "93.184.216.34")),
+            ) as allowed,
+        ):
+            result = await _fetch_via_http("https://example.com")
+
+        assert "conteudo" in result
+        assert transports == [("pinned", "93.184.216.34")]
+        allowed.assert_awaited_once()
 
 
 @pytest.mark.asyncio

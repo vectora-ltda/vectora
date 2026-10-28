@@ -249,6 +249,99 @@ def test_schema_compat_combinator_removal_from_middle() -> None:
     assert response_report.is_compatible
 
 
+def test_schema_compat_response_enum_expansion_inside_anyof_is_breaking() -> None:
+    """A response alternative cannot add values hidden inside anyOf."""
+    old = {"anyOf": [{"type": "string", "enum": ["a"]}]}
+    new = {"anyOf": [{"type": "string", "enum": ["a", "b"]}]}
+
+    report = check_schema_compatibility(old, new, direction="response")
+
+    assert not report.is_compatible
+
+
+def test_schema_compat_request_tightened_bounds_are_breaking() -> None:
+    """Requests não podem perder valores aceitos por limites mais estreitos."""
+    old = {
+        "type": "object",
+        "properties": {"name": {"type": "string", "minLength": 1}},
+    }
+    new = {
+        "type": "object",
+        "properties": {"name": {"type": "string", "minLength": 3}},
+    }
+    report = check_schema_compatibility(old, new, direction="request")
+    assert not report.is_compatible
+    assert any("minLength" in item for item in report.breaking)
+
+
+def test_schema_compat_response_loosened_bounds_are_breaking() -> None:
+    """Responses não podem começar a emitir valores fora do domínio anterior."""
+    old = {"type": "array", "maxItems": 5}
+    new = {"type": "array", "maxItems": 10}
+    report = check_schema_compatibility(old, new, direction="response")
+    assert not report.is_compatible
+    assert any("maxItems" in item for item in report.breaking)
+
+
+def test_schema_compat_additional_properties_respects_direction() -> None:
+    """Fechar objetos quebra requests; abrir responses quebra consumidores estritos."""
+    old = {"type": "object", "additionalProperties": True}
+    new = {"type": "object", "additionalProperties": False}
+    assert not check_schema_compatibility(old, new, direction="request").is_compatible
+
+    old_response = {"type": "object", "additionalProperties": False}
+    new_response = {"type": "object", "additionalProperties": True}
+    assert not check_schema_compatibility(
+        old_response, new_response, direction="response"
+    ).is_compatible
+
+
+def test_schema_compat_oneof_rejects_overlapping_new_alternative() -> None:
+    """A new overlapping oneOf branch can make an old value ambiguous."""
+    old = {"oneOf": [{"type": "integer"}]}
+    new = {"oneOf": [{"type": "integer"}, {"type": "number"}]}
+
+    report = check_schema_compatibility(old, new, direction="request")
+
+    assert not report.is_compatible
+
+
+def test_schema_compat_allof_reordering_is_not_breaking() -> None:
+    """A ordem das restrições de allOf não altera o contrato."""
+    old = {
+        "allOf": [
+            {"type": "object", "required": ["id"]},
+            {"properties": {"id": {"type": "string"}}},
+        ]
+    }
+    reordered = {"allOf": list(reversed(old["allOf"]))}
+
+    report = check_schema_compatibility(old, reordered)
+
+    assert report.is_compatible
+    assert report.breaking == []
+
+
+def test_schema_compat_allof_changed_constraint_is_breaking() -> None:
+    """Reordenar é seguro, mas trocar uma restrição não é."""
+    old = {
+        "allOf": [
+            {"type": "object", "required": ["id"]},
+            {"properties": {"id": {"type": "string"}}},
+        ]
+    }
+    changed = {
+        "allOf": [
+            {"type": "object", "required": ["id"]},
+            {"properties": {"id": {"type": "integer"}}},
+        ]
+    }
+
+    report = check_schema_compatibility(old, changed)
+
+    assert not report.is_compatible
+
+
 def test_schema_compat_removed_shared_definition_is_breaking() -> None:
     """Uma definição removida pode quebrar referências existentes."""
     old = {"$defs": {"Payload": {"type": "object"}}}

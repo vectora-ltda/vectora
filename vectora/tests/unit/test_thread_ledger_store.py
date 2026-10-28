@@ -34,7 +34,7 @@ from backend.persistence.native.ledger import (
 )
 from backend.persistence.native.session_store import SessionStore
 from backend.storage.sqlite.pool import AsyncConnectionPool
-from backend.vtypes.message import MessageRole, text_message
+from backend.vtypes.message import ContentBlock, MessageRole, VMessage, text_message
 
 
 @pytest.fixture
@@ -131,6 +131,24 @@ class TestThreadLedgerStore:
         assert events2[0].type == "message_created"
         assert events2[0].message_id == msg2_id
         assert events2[0].seq == 2
+
+    async def test_message_event_preserva_is_error_nulo_para_replay(
+        self, store: SessionStore
+    ) -> None:
+        """O ledger conserva NULL sem inventar uma decisão de erro."""
+        await store.create_session("thread-error-unknown", user_id="alice")
+        message = VMessage(
+            role=MessageRole.ASSISTANT,
+            content=[ContentBlock(kind="text", text="resposta sem classificação")],
+            is_error=None,
+        )
+
+        await store.append_message_recorded("thread-error-unknown", message)
+
+        events = await store.list_events("thread-error-unknown", after_seq=0)
+        assert len(events) == 1
+        assert events[0].type == "message_created"
+        assert events[0].payload["is_error"] is None
 
     async def test_append_event_backfills_legacy_messages_before_allocating_seq(
         self, store: SessionStore

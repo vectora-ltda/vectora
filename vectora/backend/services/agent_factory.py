@@ -889,13 +889,6 @@ async def aget_thread_messages_with_files(
     }
 
     pairs = _history_pairs_from_messages(thread_id, history_snapshot)
-    if not pairs:
-        # Compatibility for stores that expose only the legacy history
-        # projection (used by older integrations and test doubles).  A
-        # non-empty native snapshot always takes the single-read path above.
-        legacy_pairs = await aget_thread_messages(thread_id, workspace_id)
-        pairs = legacy_pairs or pairs
-
     return [
         ThreadHistoryEntry(
             role=cast("Literal['human', 'assistant']", item[0]),

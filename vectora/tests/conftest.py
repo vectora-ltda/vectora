@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
+import pytest_asyncio
 
 if TYPE_CHECKING:
     import git as gitpython
@@ -288,7 +289,7 @@ def _reset_async_singleton_locks() -> None:
     _threads_mod._db_conn_lock = asyncio.Lock()
 
 
-@pytest.fixture(autouse=True)
+@pytest_asyncio.fixture(autouse=True)
 async def _close_stale_db_conn() -> None:
     """Fecha e descarta ``threads._db_conn`` antes de cada teste.
 
@@ -329,7 +330,7 @@ async def _close_stale_db_conn() -> None:
             await asyncio.wait_for(conn.close(), timeout=5.0)
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def spawned_backend(tmp_path: Path):
     """Backend real (``python -m backend.main start``) rodando num
     ``VECTORA_HOME`` isolado. Não exige ``frontend/dist`` (diferente de

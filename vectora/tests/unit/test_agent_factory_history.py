@@ -12,15 +12,18 @@ from backend.vtypes.message import ContentBlock, MessageRole
 
 class _SnapshotMessage:
     def __init__(self, text: str, *, is_error: bool | None) -> None:
+        """Create a minimal message double for history normalization tests."""
         self.role = MessageRole.ASSISTANT
         self.content = [ContentBlock(kind="text", text=text)]
         self.is_error = is_error
 
     def text(self) -> str:
+        """Expose the message text through the provider-shaped interface."""
         return "".join(block.text or "" for block in self.content)
 
 
 def _message(text: str, *, is_error: bool | None) -> _SnapshotMessage:
+    """Build a message object accepted by the factory under test."""
     return _SnapshotMessage(text, is_error=is_error)
 
 
@@ -87,3 +90,28 @@ async def test_history_with_files_preserva_none_e_permite_retentativa_apos_falha
     assert entries[0].message_id == 10
     assert entries[0].is_error is None
     assert get_snapshot.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_history_with_files_preserva_snapshot_vazio_sem_leitura_adicional(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Um snapshot vazio não dispara uma segunda leitura concorrente."""
+
+    store = type(
+        "Store",
+        (),
+        {
+            "get_edited_files_for_thread": AsyncMock(return_value={}),
+            "get_history_with_ids": AsyncMock(return_value=[]),
+        },
+    )()
+    monkeypatch.setattr(
+        agent_factory, "get_session_store", AsyncMock(return_value=store)
+    )
+    legacy_read = AsyncMock(side_effect=AssertionError("leitura legada duplicada"))
+    monkeypatch.setattr(agent_factory, "aget_thread_messages", legacy_read)
+
+    assert await agent_factory.aget_thread_messages_with_files("thread-empty") == []
+    store.get_history_with_ids.assert_awaited_once_with("thread-empty")
+    legacy_read.assert_not_awaited()

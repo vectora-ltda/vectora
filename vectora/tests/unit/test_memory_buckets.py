@@ -7,6 +7,8 @@ empacota a coleção local e publica via multipart.
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import io
 import tarfile
 
@@ -16,11 +18,20 @@ import pytest
 from backend.services.memory_buckets import (
     DEFAULT_MEMORY_BUCKETS_URL,
     MemoryBucketsError,
+    MemoryBucketsUnavailableError,
     _memory_buckets_url,
     download_memory_bucket,
     list_catalog,
     publish_memory_bucket,
 )
+
+
+@pytest.mark.parametrize("bucket_id", ["../escape", "nested/id", r"nested\\id", ""])
+def test_bucket_id_rejects_path_traversal(bucket_id):
+    """IDs externos nunca podem escapar da coleção isolada local."""
+    with pytest.raises(MemoryBucketsError, match="Identificador"):
+        # A validação ocorre antes de qualquer chamada de rede ou filesystem.
+        asyncio.run(download_memory_bucket(bucket_id))
 
 
 def test_memory_buckets_url_ignores_whitespace_only_override(monkeypatch):
@@ -82,6 +93,21 @@ async def test_download_bucket_not_found_raises_clear_error(monkeypatch, tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_download_distingue_catalogo_indisponivel_de_catalogo_vazio(
+    monkeypatch, tmp_path
+):
+    async def _fake_get(self, url, **kwargs):
+        raise httpx.ConnectError("offline")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    with pytest.raises(MemoryBucketsUnavailableError, match="indisponível"):
+        await download_memory_bucket("b1", lancedb_dir=tmp_path)
+
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.asyncio
 async def test_download_compatible_bucket_extracts_into_isolated_collection(
     tmp_path, monkeypatch
 ):
@@ -112,6 +138,111 @@ async def test_download_compatible_bucket_extracts_into_isolated_collection(
     assert (tmp_path / "shared_b1.lance" / "data.lance").is_file()
     assert (tmp_path / "meu_workspace_local").is_dir()
     assert list((tmp_path / "meu_workspace_local").iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_download_workspace_scope_avoids_cross_workspace_collision(
+    tmp_path, monkeypatch
+):
+    """O mesmo bucket público recebe coleções distintas por workspace."""
+    archive = _make_tar_gz({"data.lance": b"workspace scoped"})
+
+    async def _fake_get(self, url, **kwargs):
+        if url.rstrip("/").endswith("/memory-buckets"):
+            return _catalog_response(
+                [{"id": "b1", "embed_model": "embed-multilingual-v3.0"}]
+            )
+        return httpx.Response(200, content=archive, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+    monkeypatch.setattr(
+        "backend.settings.settings.embedding_model", "embed-multilingual-v3.0"
+    )
+    first = await download_memory_bucket(
+        "b1", lancedb_dir=tmp_path, workspace_id="workspace-a"
+    )
+    second = await download_memory_bucket(
+        "b1", lancedb_dir=tmp_path, workspace_id="workspace-b"
+    )
+
+    suffix_a = hashlib.sha256(b"workspace-a").hexdigest()[:16]
+    suffix_b = hashlib.sha256(b"workspace-b").hexdigest()[:16]
+    assert first == f"shared_{suffix_a}_b1"
+    assert second == f"shared_{suffix_b}_b1"
+    assert first != second
+    assert (tmp_path / f"{first}.lance" / "data.lance").is_file()
+    assert (tmp_path / f"{second}.lance" / "data.lance").is_file()
+
+
+@pytest.mark.asyncio
+async def test_download_rejects_symlink_archive_entry(tmp_path, monkeypatch):
+    """Reject an archive containing a symlink before extraction."""
+    archive_buf = io.BytesIO()
+    with tarfile.open(fileobj=archive_buf, mode="w:gz") as tar:
+        link = tarfile.TarInfo("link")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "../../outside"
+        tar.addfile(link)
+    archive = archive_buf.getvalue()
+
+    async def _fake_get(self, url, **kwargs):
+        """Return the prepared archive or catalog response for this test."""
+        if url.rstrip("/").endswith("/memory-buckets"):
+            return _catalog_response(
+                [{"id": "b1", "embed_model": "embed-multilingual-v3.0"}]
+            )
+        return httpx.Response(200, content=archive, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+    monkeypatch.setattr(
+        "backend.settings.settings.embedding_model", "embed-multilingual-v3.0"
+    )
+    with pytest.raises(MemoryBucketsError, match="não suportada"):
+        await download_memory_bucket("b1", lancedb_dir=tmp_path)
+    assert not (tmp_path / "shared_b1.lance").exists()
+
+
+@pytest.mark.asyncio
+async def test_download_does_not_overwrite_existing_collection(tmp_path, monkeypatch):
+    """Keep an existing collection intact when a download collides with it."""
+    archive = _make_tar_gz({"new": b"new"})
+
+    async def _fake_get(self, url, **kwargs):
+        """Return the prepared archive or catalog response for this test."""
+        if url.rstrip("/").endswith("/memory-buckets"):
+            return _catalog_response(
+                [{"id": "b1", "embed_model": "embed-multilingual-v3.0"}]
+            )
+        return httpx.Response(200, content=archive, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+    monkeypatch.setattr(
+        "backend.settings.settings.embedding_model", "embed-multilingual-v3.0"
+    )
+    existing = tmp_path / "shared_b1.lance"
+    existing.mkdir()
+    (existing / "keep").write_text("do not overwrite", encoding="utf-8")
+    with pytest.raises(MemoryBucketsError, match="já existe"):
+        await download_memory_bucket("b1", lancedb_dir=tmp_path)
+    assert (existing / "keep").read_text(encoding="utf-8") == "do not overwrite"
+
+
+@pytest.mark.asyncio
+async def test_publish_rejects_symlink_inside_collection(tmp_path):
+    """Reject publishing a collection that contains a symlink."""
+    bucket_dir = tmp_path / "bucket_b1.lance"
+    bucket_dir.mkdir()
+    outside = tmp_path / "outside"
+    outside.write_text("secret", encoding="utf-8")
+    link = bucket_dir / "link"
+    try:
+        link.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks não disponíveis neste ambiente")
+    with pytest.raises(MemoryBucketsError, match="link simbólico"):
+        await publish_memory_bucket(
+            "b1", "n", "d", "MIT", session_token="tok", lancedb_dir=tmp_path
+        )
 
 
 @pytest.mark.asyncio
@@ -183,17 +314,14 @@ async def test_publish_network_failure_raises_memory_buckets_error(
 
 
 @pytest.mark.asyncio
-async def test_list_catalog_falha_de_rede_devolve_lista_vazia_sem_propagar(
-    monkeypatch,
-):
+async def test_list_catalog_falha_de_rede_preserva_indisponibilidade(monkeypatch):
     async def _fake_get(self, url, **kwargs):
         raise httpx.ConnectError("offline")
 
     monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
 
-    result = await list_catalog()
-
-    assert result == []
+    with pytest.raises(MemoryBucketsUnavailableError, match="indisponível"):
+        await list_catalog()
 
 
 @pytest.mark.asyncio
@@ -560,9 +688,7 @@ async def test_download_network_error_during_fetch_raises_memory_buckets_error(
 
 
 @pytest.mark.asyncio
-async def test_list_catalog_network_error_returns_empty_list_not_exception(
-    monkeypatch,
-):
+async def test_list_catalog_network_error_returns_unavailable_error(monkeypatch):
     async def _fake_get(self, url, **kwargs):
         raise httpx.ConnectError("offline")
 
@@ -570,9 +696,8 @@ async def test_list_catalog_network_error_returns_empty_list_not_exception(
 
     from backend.services.memory_buckets import list_catalog
 
-    entries = await list_catalog()
-
-    assert entries == []
+    with pytest.raises(MemoryBucketsUnavailableError, match="indisponível"):
+        await list_catalog()
 
 
 @pytest.mark.asyncio

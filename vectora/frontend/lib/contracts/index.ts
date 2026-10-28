@@ -138,6 +138,7 @@ export interface QualityGateRunResult {
   exit_code: number;
   output?: string;
   duration_ms?: number;
+  reason?: string | null;
   artifacts_collected?: string[];
 }
 

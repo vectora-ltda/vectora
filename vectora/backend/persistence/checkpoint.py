@@ -15,6 +15,7 @@ Expõe duas estratégias:
 
 import logging
 import os
+import shutil
 import tarfile
 import tempfile
 import uuid
@@ -237,7 +238,14 @@ def create_snapshot_checkpoint(
     if not cwd_path.is_dir():
         return {"status": "error", "message": f"cwd não é um diretório: {cwd}"}
 
+    if snapshot_dir.exists() and snapshot_dir.is_symlink():
+        return {
+            "status": "error",
+            "message": "diretório de snapshots não pode ser symlink",
+        }
     snapshot_dir.mkdir(parents=True, exist_ok=True)
+    if not snapshot_dir.is_dir():
+        return {"status": "error", "message": "diretório de snapshots inválido"}
 
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
     uid = str(uuid.uuid4())[:8]
@@ -303,19 +311,47 @@ def restore_snapshot_checkpoint(snapshot_path: str, cwd: str) -> dict[str, Any]:
     Retorna ``{"status": "ok"}`` ou ``{"status": "error", "message": ...}``.
     """
     snap = Path(snapshot_path)
-    if not snap.is_file():
+    if snap.is_symlink() or not snap.is_file():
         return {
             "status": "error",
             "message": f"Snapshot não encontrado: {snapshot_path}",
         }
     cwd_path = Path(cwd).resolve()
+    if not cwd_path.is_dir() or cwd_path.is_symlink():
+        return {"status": "error", "message": f"cwd não é um diretório seguro: {cwd}"}
+    total_bytes = 0
     try:
         with tarfile.open(str(snap), "r:gz") as tar:
-            tar.extractall(path=str(cwd_path), filter="data")  # type: ignore[call-arg]
-    except TypeError:
-        # Python < 3.12: filter= não suportado; extrai sem filtro
-        with tarfile.open(str(snap), "r:gz") as tar:
-            tar.extractall(path=str(cwd_path))  # noqa: S202  # nosec B202
+            members = tar.getmembers()
+            for member in members:
+                # Check the archive name before touching the filesystem.  Do
+                # not rely on ``extractall(filter=...)``: older Python
+                # versions silently accept traversal and link entries.
+                member_path = Path(member.name)
+                if member_path.is_absolute() or ".." in member_path.parts:
+                    raise ValueError(f"membro fora do workspace: {member.name}")
+                if not member.isfile():
+                    raise ValueError(f"tipo de membro não permitido: {member.name}")
+                if member.size > _SNAPSHOT_MAX_FILE_BYTES:
+                    raise ValueError(f"membro excede o limite: {member.name}")
+                total_bytes += member.size
+                if total_bytes > _SNAPSHOT_MAX_TOTAL_BYTES:
+                    raise ValueError("snapshot excede o limite total")
+                destination = (cwd_path / member_path).resolve()
+                try:
+                    destination.relative_to(cwd_path)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"membro fora do workspace: {member.name}"
+                    ) from exc
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                if destination.exists() and destination.is_symlink():
+                    raise ValueError(f"destino é symlink: {member.name}")
+                source = tar.extractfile(member)
+                if source is None:
+                    raise ValueError(f"membro sem conteúdo: {member.name}")
+                with source, destination.open("wb") as output:
+                    shutil.copyfileobj(source, output)
     except Exception as exc:
         return {"status": "error", "message": str(exc)}
     return {"status": "ok", "snapshot_path": snapshot_path}
@@ -335,7 +371,7 @@ def gc_snapshots(
         return 0
 
     archives = sorted(
-        snapshot_dir.glob("*.tar.gz"),
+        (path for path in snapshot_dir.glob("*.tar.gz") if not path.is_symlink()),
         key=lambda p: p.stat().st_mtime,
     )
 

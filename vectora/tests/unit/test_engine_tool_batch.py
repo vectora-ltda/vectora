@@ -9,6 +9,8 @@ volta que tem tool calls).
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 from pydantic import create_model
 
@@ -22,6 +24,7 @@ from backend.tools.registry import (
     ToolExtras,
     ToolRegistry,
     ToolSpec,
+    _result_is_error,
     vtool,
 )
 from backend.vtypes.message import ToolCall
@@ -41,7 +44,79 @@ def ctx() -> ToolContext:
 
 
 class TestDespachoParaleloSequencial:
-    async def test_egress_bloqueada_nao_invoca_handler(self, ctx):
+    def test_json_recursivo_nao_classifica_resultado_como_erro(self) -> None:
+        """JSON profundamente aninhado não pode quebrar a classificação da tool."""
+        raw = "[" * 5000 + "0" + "]" * 5000
+        assert _result_is_error(raw) is False
+
+    async def test_json_recursivo_preserva_texto_e_is_error_falso(
+        self, ctx: ToolContext
+    ) -> None:
+        """O lote preserva o texto original quando a classificação recursiva falha."""
+        raw = "[" * 5000 + "0" + "]" * 5000
+
+        async def deeply_nested(ctx: ToolContext) -> str:
+            """Return a deeply nested raw value for envelope preservation."""
+            return raw
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolSpec(
+                name="deeply_nested",
+                description="deeply nested result",
+                args_model=create_model("DeeplyNestedArgs"),
+                handler=deeply_nested,
+                extras=ToolExtras(),
+                needs_ctx=True,
+            )
+        )
+        result = await execute_tool_batch(
+            [ToolCall(id="deep", name="deeply_nested", args={})],
+            tool_registry=registry,
+            ctx=ctx,
+        )
+
+        assert result[0].text() == raw
+        assert result[0].is_error is False
+
+    async def test_browser_redirect_blocked_is_error_in_batch(
+        self, ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Envelopes JSON de browser bloqueado preservam ``is_error``."""
+        from backend.tools import browser_devtools
+
+        monkeypatch.setattr(
+            browser_devtools, "new_tab", AsyncMock(return_value="tab-1")
+        )
+        monkeypatch.setattr(
+            browser_devtools,
+            "list_tabs",
+            AsyncMock(
+                return_value=[{"tab_id": "tab-1", "url": "http://127.0.0.1/private"}]
+            ),
+        )
+        monkeypatch.setattr(browser_devtools, "close_tab", AsyncMock(return_value=True))
+        registry = ToolRegistry()
+        spec = TOOL_REGISTRY.get("browser_new_tab")
+        assert spec is not None
+        registry.register(spec)
+
+        results = await execute_tool_batch(
+            [
+                ToolCall(
+                    id="redirect-blocked",
+                    name="browser_new_tab",
+                    args={"url": "https://example.com"},
+                )
+            ],
+            tool_registry=registry,
+            ctx=ctx,
+        )
+
+        assert results[0].is_error is True
+        assert "redirect bloqueado" in results[0].text()
+
+    async def test_egress_bloqueada_nao_invoca_handler(self, ctx: ToolContext) -> None:
         """A policy deve impedir o handler, não apenas marcar sua resposta."""
         executada = False
 
@@ -81,7 +156,9 @@ class TestDespachoParaleloSequencial:
         assert result[0].is_error is True
         assert "policy_denied" in result[0].text()
 
-    async def test_falha_na_notificacao_de_inicio_nao_interrompe_a_tool(self, ctx):
+    async def test_falha_na_notificacao_de_inicio_nao_interrompe_a_tool(
+        self, ctx: ToolContext
+    ) -> None:
         """Telemetria indisponível não pode transformar uma execução válida em erro."""
 
         executada = False
@@ -111,7 +188,7 @@ class TestDespachoParaleloSequencial:
         assert resultados[0].is_error is False
         assert resultados[0].text() == "resultado"
 
-    async def test_lote_sem_destrutiva_roda_em_paralelo(self, ctx):
+    async def test_lote_sem_destrutiva_roda_em_paralelo(self, ctx: ToolContext) -> None:
         """Verifica o comportamento de lote sem destrutiva roda em paralelo."""
         ordem: list[str] = []
 
@@ -140,7 +217,9 @@ class TestDespachoParaleloSequencial:
         assert [r.text() for r in resultados] == ["resultado a", "resultado b"]
         assert set(ordem) == {"a", "b"}
 
-    async def test_lote_com_destrutiva_roda_sequencial_mas_executa_todas(self, ctx):
+    async def test_lote_com_destrutiva_roda_sequencial_mas_executa_todas(
+        self, ctx: ToolContext
+    ) -> None:
         """Erro/borda: uma única tool destrutiva no lote força o lote
         inteiro a rodar sequencial — mas nenhuma chamada é pulada."""
 

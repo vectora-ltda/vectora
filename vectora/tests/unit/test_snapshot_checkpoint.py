@@ -8,8 +8,11 @@ Cobre:
 
 from __future__ import annotations
 
+import io
 import tarfile
 from pathlib import Path
+
+import pytest
 
 from backend.persistence.checkpoint import (
     create_snapshot_checkpoint,
@@ -118,6 +121,22 @@ def test_create_snapshot_error_on_bad_cwd(tmp_path: Path) -> None:
     assert result["status"] == "error"
 
 
+def test_create_snapshot_rejects_symlink_destination(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    target = tmp_path / "real-snaps"
+    target.mkdir()
+    link = tmp_path / "snaps-link"
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks indisponíveis neste executor")
+
+    result = create_snapshot_checkpoint(str(workspace), link, "t1", "msg")
+
+    assert result["status"] == "error"
+
+
 # ---------------------------------------------------------------------------
 # restore_snapshot_checkpoint
 # ---------------------------------------------------------------------------
@@ -148,6 +167,38 @@ def test_restore_snapshot_error_on_missing_file(tmp_path: Path) -> None:
         str(tmp_path / "nonexistent.tar.gz"), str(tmp_path)
     )
     assert result["status"] == "error"
+
+
+def test_restore_snapshot_rejects_path_traversal(tmp_path: Path) -> None:
+    archive = tmp_path / "malicious.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        payload = b"owned"
+        info = tarfile.TarInfo("../outside.txt")
+        info.size = len(payload)
+        tar.addfile(info, io.BytesIO(payload))
+
+    restore = tmp_path / "restore"
+    restore.mkdir()
+    result = restore_snapshot_checkpoint(str(archive), str(restore))
+
+    assert result["status"] == "error"
+    assert not (tmp_path / "outside.txt").exists()
+
+
+def test_restore_snapshot_rejects_symlink_members(tmp_path: Path) -> None:
+    archive = tmp_path / "symlink.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        info = tarfile.TarInfo("redirect")
+        info.type = tarfile.SYMTYPE
+        info.linkname = "/etc/passwd"
+        tar.addfile(info)
+
+    restore = tmp_path / "restore"
+    restore.mkdir()
+    result = restore_snapshot_checkpoint(str(archive), str(restore))
+
+    assert result["status"] == "error"
+    assert not (restore / "redirect").exists()
 
 
 # ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from backend.rbac import tool_policy
 from backend.services.egress_policy import EgressPolicy
 from backend.services.policy_compiler import (
     PolicySnapshot,
@@ -48,6 +49,19 @@ def test_policy_snapshot_basic_allow() -> None:
     ok, _ = snapshot.is_tool_allowed("file_read")
     assert ok is True
 
+
+def test_manual_policy_snapshot_does_not_inherit_stale_global_versions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Snapshots construídos por adapters não devem nascer revogados."""
+    monkeypatch.setitem(tool_policy._versions, "alice", 7)
+    monkeypatch.setitem(tool_policy._versions, tool_policy.GLOBAL_SCOPE, 11)
+
+    snapshot = PolicySnapshot(user_id="alice")
+
+    assert snapshot.is_revoked() is False
+    assert snapshot.validate_call("file_read", {"path": "README.md"}) == (True, "")
+
     ok, _ = snapshot.validate_call("file_read", {"path": "README.md"})
     assert ok is True
 
@@ -60,6 +74,43 @@ def test_policy_snapshot_disabled_tool() -> None:
     ok, reason = snapshot.is_tool_allowed("terminal")
     assert ok is False
     assert "desabilitada" in reason
+
+
+def test_compiled_snapshot_is_revoked_after_user_policy_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uma mudança de ABAC revoga chamadas pendentes do mesmo run."""
+    ctx = ToolContext(user_id="alice")
+    snapshot = compile_policy_snapshot(ctx)
+    assert snapshot.is_revoked() is False
+    assert snapshot.user_policy_version is not None
+
+    monkeypatch.setitem(
+        tool_policy._versions, "alice", snapshot.user_policy_version + 1
+    )
+    ok, reason = snapshot.validate_call("file_read", {"path": "README.md"})
+
+    assert ok is False
+    assert "revogada" in reason
+
+
+def test_compiled_snapshot_is_revoked_after_global_kill_switch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """O kill-switch global também interrompe a próxima chamada do run."""
+    ctx = ToolContext(user_id="alice")
+    snapshot = compile_policy_snapshot(ctx)
+    assert snapshot.global_policy_version is not None
+    monkeypatch.setitem(
+        tool_policy._versions,
+        tool_policy.GLOBAL_SCOPE,
+        snapshot.global_policy_version + 1,
+    )
+
+    ok, reason = snapshot.validate_call("file_read", {"path": "README.md"})
+
+    assert ok is False
+    assert "revogada" in reason
 
 
 def test_policy_snapshot_untrusted_content_blocks_destructive_tools() -> None:
@@ -211,3 +262,28 @@ def test_policy_snapshot_call_mcp_tool_resolution(
 
     ok, _ = snapshot.validate_call("call_mcp_tool", {"tool_name": "known_tool"})
     assert ok is True
+
+
+def test_policy_snapshot_version_identifies_effective_egress_policy() -> None:
+    """Snapshots with equal counters but different policy remain distinguishable."""
+    first = PolicySnapshot(
+        workspace_id="ws-a",
+        user_policy_version=1,
+        global_policy_version=2,
+        egress_policy=EgressPolicy(allowed_hosts=["one.example"]),
+    )
+    second = PolicySnapshot(
+        workspace_id="ws-a",
+        user_policy_version=1,
+        global_policy_version=2,
+        egress_policy=EgressPolicy(allowed_hosts=["two.example"]),
+    )
+    equal = PolicySnapshot(
+        workspace_id="ws-a",
+        user_policy_version=1,
+        global_policy_version=2,
+        egress_policy=EgressPolicy(allowed_hosts=["one.example"]),
+    )
+
+    assert first.version != second.version
+    assert first.version == equal.version

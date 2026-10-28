@@ -12,8 +12,9 @@ Todos os endpoints exigem autenticação (injetada via middleware).
 O user_id é extraído de ``request.state.user.id``.
 
 Lê e escreve o mesmo store nativo usado pelas memory tools do agente
-(``backend/tools/memory.py``), no namespace ``("user", <user_id>, "memories")``
-— painel de configurações e agente compartilham as mesmas memórias.
+(``backend/tools/memory.py``), incluindo os escopos autenticados de
+organização e workspace quando o middleware os disponibiliza — painel de
+configurações e agente compartilham as mesmas memórias sem cruzar tenants.
 """
 
 from __future__ import annotations
@@ -119,7 +120,15 @@ def _user_id(request: Request) -> str:
 
 def _namespace(request: Request) -> tuple[str, ...]:
     """Namespace do store — idêntico ao usado pelas memory tools do agente."""
-    return ("user", _user_id(request), "memories")
+    namespace: list[str] = ["user", _user_id(request)]
+    org_id = str(getattr(request.state, "org_id", "") or "")
+    workspace_id = str(getattr(request.state, "workspace_id", "") or "")
+    if org_id:
+        namespace.extend(("org", org_id))
+    if workspace_id:
+        namespace.extend(("workspace", workspace_id))
+    namespace.append("memories")
+    return tuple(namespace)
 
 
 async def _store() -> Any:

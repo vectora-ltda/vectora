@@ -40,6 +40,7 @@ from backend.persistence.native.ledger import (
     make_approval_requested_key,
     make_approval_resolved_key,
     make_message_created_key,
+    make_run_failed_key,
 )
 from backend.persistence.native.schema import setup_postgres_session_schema
 from backend.services.context_manifest import (
@@ -107,7 +108,7 @@ def _now() -> str:
 
 def _message_to_row(
     msg: VMessage,
-) -> tuple[str, str, str | None, str | None, str | None]:
+) -> tuple[str, str, str | None, str | None, str | None, bool | None]:
     """Executa a operação  message to row."""
     data = msg.to_dict()
     for block in data["content"]:
@@ -129,10 +130,11 @@ def _message_to_row(
         tool_calls_json,
         data["tool_call_id"],
         data["name"],
+        data.get("is_error", False),
     )
 
 
-def _row_to_message(row: Any) -> VMessage:
+def _row_to_message(row: Mapping[str, Any]) -> VMessage:
     """Executa a operação  row to message."""
     data = {
         "role": row["role"],
@@ -143,7 +145,9 @@ def _row_to_message(row: Any) -> VMessage:
         "tool_call_id": row["tool_call_id"],
         "name": row["name"],
         "finish_reason": None,
-        "is_error": False,
+        # Preserve the tri-state contract; missing legacy values remain false,
+        # while an explicit NULL remains unknown.
+        "is_error": row.get("is_error", False),
     }
     return VMessage.from_dict(data)
 
@@ -261,12 +265,16 @@ class PostgresSessionStore:
         turn_id: str | None = None,
         run_id: str | None = None,
         extra_events: list[ThreadLedgerEvent] | None = None,
+        terminal_status: str | None = None,
+        terminal_detail: str | None = None,
     ) -> tuple[int, int]:
         """Persiste `msg` e o evento `message_created` atomicamente no ledger Postgres,
         devolvendo `(message_id, seq)`."""
         await self.setup()
         agora = _now()
-        role, content_json, tool_calls_json, tool_call_id, name = _message_to_row(msg)
+        role, content_json, tool_calls_json, tool_call_id, name, is_error = (
+            _message_to_row(msg)
+        )
         async with self._pool.acquire() as conn, conn.transaction():
             await conn.execute(
                 "SELECT 1 FROM vectora_native_sessions WHERE thread_id = $1 FOR UPDATE",
@@ -288,11 +296,27 @@ class PostgresSessionStore:
                     seq = int(row_seq) if row_seq is not None else 0
                     return int(existing_id), seq
 
+            if terminal_status is not None:
+                if terminal_status not in {"completed", "failed", "cancelled"}:
+                    raise ValueError(f"status terminal inválido: {terminal_status!r}")
+                redacted_detail = redact_sensitive_data(terminal_detail or "")
+                await conn.execute(
+                    "UPDATE vectora_native_agent_runs SET status = $1, "
+                    "detail = COALESCE($2, detail), updated_at = $3, "
+                    "terminal_at = COALESCE(terminal_at, $3) "
+                    "WHERE run_id = $4 AND status NOT IN "
+                    "('passed', 'degraded', 'failed', 'cancelled')",
+                    "passed" if terminal_status == "completed" else terminal_status,
+                    redacted_detail or None,
+                    agora,
+                    run_id,
+                )
+
             new_id = await conn.fetchval(
                 "INSERT INTO vectora_native_messages (thread_id, parent_message_id, role, "
-                "content_json, tool_calls_json, tool_call_id, name, turn_id, run_id, "
+                "content_json, tool_calls_json, tool_call_id, name, is_error, turn_id, run_id, "
                 "edited_files_json, is_branch_head, created_at) "
-                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11) "
+                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, TRUE, $12) "
                 "RETURNING id",
                 thread_id,
                 parent_message_id,
@@ -301,9 +325,10 @@ class PostgresSessionStore:
                 tool_calls_json,
                 tool_call_id,
                 name,
+                is_error,
                 turn_id,
-                None,
                 run_id,
+                None,
                 agora,
             )
             await conn.execute(
@@ -351,7 +376,7 @@ class PostgresSessionStore:
             msg_payload = {
                 "role": role,
                 "content": msg.text(),
-                "is_error": bool(msg.is_error),
+                "is_error": msg.is_error,
             }
             await conn.execute(
                 "INSERT INTO vectora_native_thread_events (thread_id, seq, event_key, type, "
@@ -379,7 +404,55 @@ class PostgresSessionStore:
                     run_id,
                 )
 
+            if terminal_status is not None:
+                await conn.execute(
+                    "UPDATE vectora_native_agent_runs SET status = $1, "
+                    "updated_at = $2, terminal_at = COALESCE(terminal_at, $2) "
+                    "WHERE run_id = $3 AND status NOT IN "
+                    "('passed', 'degraded', 'failed', 'cancelled')",
+                    "passed" if terminal_status == "completed" else terminal_status,
+                    agora,
+                    run_id,
+                )
+
         return int(new_id), current_seq
+
+    async def append_terminal_outcome(
+        self,
+        thread_id: str,
+        msg: VMessage,
+        *,
+        parent_message_id: int | None,
+        turn_id: str,
+        run_id: str,
+        status: str,
+        detail: str,
+    ) -> tuple[int, int]:
+        """Commit terminal state, visible message and ledger event together."""
+        extra_events = (
+            [
+                ThreadLedgerEvent(
+                    thread_id=thread_id,
+                    event_key=make_run_failed_key(run_id),
+                    type="run_failed",
+                    run_id=run_id,
+                    turn_id=turn_id,
+                    payload={"detail": detail} if detail else {},
+                )
+            ]
+            if status == "failed"
+            else None
+        )
+        return await self.append_message_recorded(
+            thread_id,
+            msg,
+            parent_message_id=parent_message_id,
+            turn_id=turn_id,
+            run_id=run_id,
+            extra_events=extra_events,
+            terminal_status=status,
+            terminal_detail=detail,
+        )
 
     async def attach_edited_files(
         self, thread_id: str, run_id: str, files: list[dict[str, object]]
@@ -473,20 +546,20 @@ class PostgresSessionStore:
 
             rows = await conn.fetch(
                 "WITH RECURSIVE chain(id, parent_message_id, role, "
-                "content_json, tool_calls_json, tool_call_id, name, depth) AS ("
+                "content_json, tool_calls_json, tool_call_id, name, is_error, depth) AS ("
                 "  SELECT id, parent_message_id, role, content_json, "
-                "    tool_calls_json, tool_call_id, name, 0"
+                "    tool_calls_json, tool_call_id, name, is_error, 0"
                 "  FROM vectora_native_messages WHERE thread_id = $1 AND id = $2"
                 "  UNION ALL"
                 "  SELECT m.id, m.parent_message_id, m.role, "
                 "    m.content_json, m.tool_calls_json, m.tool_call_id, "
-                "    m.name, chain.depth + 1"
+                "    m.name, m.is_error, chain.depth + 1"
                 "  FROM vectora_native_messages m "
                 "    JOIN chain ON m.id = chain.parent_message_id"
                 "  WHERE m.thread_id = $1 AND chain.depth < $3"
                 ")"
                 "SELECT id, parent_message_id, role, content_json, "
-                "tool_calls_json, tool_call_id, name "
+                "tool_calls_json, tool_call_id, name, is_error "
                 "FROM chain ORDER BY depth DESC",
                 thread_id,
                 start_id,
@@ -522,16 +595,16 @@ class PostgresSessionStore:
                 return []
             rows = await conn.fetch(
                 "WITH RECURSIVE chain(id, parent_message_id, role, content_json, "
-                "tool_calls_json, tool_call_id, name, depth) AS ("
+                "tool_calls_json, tool_call_id, name, is_error, depth) AS ("
                 "SELECT id, parent_message_id, role, content_json, tool_calls_json, "
-                "tool_call_id, name, 0 FROM vectora_native_messages "
+                "tool_call_id, name, is_error, 0 FROM vectora_native_messages "
                 "WHERE thread_id = $1 AND id = $2 UNION ALL "
                 "SELECT m.id, m.parent_message_id, m.role, m.content_json, "
-                "m.tool_calls_json, m.tool_call_id, m.name, chain.depth + 1 "
+                "m.tool_calls_json, m.tool_call_id, m.name, m.is_error, chain.depth + 1 "
                 "FROM vectora_native_messages m JOIN chain ON m.id = chain.parent_message_id "
                 "WHERE m.thread_id = $1 AND chain.depth < $3) "
                 "SELECT id, parent_message_id, role, content_json, tool_calls_json, "
-                "tool_call_id, name FROM chain ORDER BY depth DESC",
+                "tool_call_id, name, is_error FROM chain ORDER BY depth DESC",
                 thread_id,
                 start_id,
                 _CHAIN_DEPTH_CAP - 1,
@@ -1968,6 +2041,36 @@ class PostgresSessionStore:
             "state": json.loads(value("state_json") or "{}"),
             "artifact_refs": json.loads(value("artifact_refs_json") or "[]"),
             "created_at": value("created_at"),
+        }
+
+    async def purge_context_records(
+        self, older_than: str, *, limit: int = 500
+    ) -> dict[str, int]:
+        """Remove projections/checkpoints older than a bounded cutoff."""
+        if not older_than.strip():
+            raise ValueError("older_than não pode ser vazio")
+        if limit < 1:
+            raise ValueError("limit deve ser positivo")
+        safe_limit = min(int(limit), 5000)
+        await self.setup()
+        async with self._pool.acquire() as conn, conn.transaction():
+            projection_result = await conn.execute(
+                "DELETE FROM vectora_native_context_projections "
+                "WHERE ctid IN (SELECT ctid FROM vectora_native_context_projections "
+                "WHERE created_at < $1 ORDER BY created_at ASC LIMIT $2)",
+                older_than,
+                safe_limit,
+            )
+            checkpoint_result = await conn.execute(
+                "DELETE FROM vectora_native_context_checkpoints "
+                "WHERE ctid IN (SELECT ctid FROM vectora_native_context_checkpoints "
+                "WHERE created_at < $1 ORDER BY created_at ASC LIMIT $2)",
+                older_than,
+                safe_limit,
+            )
+        return {
+            "projections": int(str(projection_result).split()[-1]),
+            "checkpoints": int(str(checkpoint_result).split()[-1]),
         }
 
     async def get_agent_run(self, run_id: str) -> AgentRun | None:

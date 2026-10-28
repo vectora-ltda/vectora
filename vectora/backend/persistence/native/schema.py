@@ -389,6 +389,7 @@ CREATE TABLE IF NOT EXISTS vectora_native_messages (
     tool_calls_json TEXT,
     tool_call_id TEXT,
     name TEXT,
+    is_error BOOLEAN DEFAULT FALSE,
     turn_id TEXT,
     run_id TEXT,
     edited_files_json TEXT,
@@ -582,6 +583,15 @@ async def setup_postgres_session_schema(pool: asyncpg.Pool) -> None:
             await conn.execute(statement)
         await conn.execute(
             "ALTER TABLE vectora_native_messages ADD COLUMN IF NOT EXISTS turn_id TEXT"
+        )
+        await conn.execute(
+            "ALTER TABLE vectora_native_messages "
+            "ADD COLUMN IF NOT EXISTS is_error BOOLEAN DEFAULT FALSE"
+        )
+        # ``None`` is a meaningful unknown value when rehydrating legacy
+        # messages. Keep PostgreSQL aligned with the native message contract.
+        await conn.execute(
+            "ALTER TABLE vectora_native_messages ALTER COLUMN is_error DROP NOT NULL"
         )
         await conn.execute(
             "ALTER TABLE vectora_native_messages ADD COLUMN IF NOT EXISTS run_id TEXT"

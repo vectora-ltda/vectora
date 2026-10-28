@@ -132,8 +132,134 @@ class TestContextReplayIdempotency:
         state = cast("dict[str, object]", checkpoint["state"])
         assert state["pending_tool_call_ids"] == ["t1"]
 
+    async def test_purge_context_records_remove_apenas_lote_antigo(
+        self, store: SessionStore
+    ) -> None:
+        """Retention removes old rows without touching current context."""
+        await store.create_session("thread-retention", user_id="alice")
+        await store.save_context_projection(
+            "thread-retention",
+            "run-old",
+            {"projection_id": "projection-old", "content": {"text": "old"}},
+        )
+        await store.save_context_projection(
+            "thread-retention",
+            "run-new",
+            {"projection_id": "projection-new", "content": {"text": "new"}},
+        )
+        await store.save_context_checkpoint(
+            "thread-retention",
+            "run-old",
+            {"checkpoint_id": "checkpoint-old", "state": {"phase": "old"}},
+        )
+        await store.save_context_checkpoint(
+            "thread-retention",
+            "run-new",
+            {"checkpoint_id": "checkpoint-new", "state": {"phase": "new"}},
+        )
+        async with store._pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE context_projections SET created_at = ? WHERE projection_id = ?",
+                ("2020-01-01T00:00:00+00:00", "projection-old"),
+            )
+            await conn.execute(
+                "UPDATE context_checkpoints SET created_at = ? WHERE checkpoint_id = ?",
+                ("2020-01-01T00:00:00+00:00", "checkpoint-old"),
+            )
+            await conn.commit()
+
+        purged = await store.purge_context_records("2021-01-01T00:00:00+00:00")
+        assert purged == {"projections": 1, "checkpoints": 1}
+        assert (
+            await store.get_latest_context_projection("thread-retention")
+        ) is not None
+        assert (
+            await store.get_latest_context_checkpoint("thread-retention")
+        ) is not None
+
+    async def test_purge_context_records_rejeita_limite_invalido(
+        self, store: SessionStore
+    ) -> None:
+        with pytest.raises(ValueError, match="limit deve ser positivo"):
+            await store.purge_context_records("2021-01-01T00:00:00+00:00", limit=0)
+        with pytest.raises(ValueError, match="older_than não pode ser vazio"):
+            await store.purge_context_records("   ")
+
+    async def test_purge_context_records_nao_apaga_id_repetido_de_outro_thread(
+        self, store: SessionStore
+    ) -> None:
+        """A retenção deve excluir pela chave composta thread + id."""
+        await store.create_session("thread-old", user_id="alice")
+        await store.create_session("thread-new", user_id="alice")
+        projection = {"projection_id": "same-id", "content": {"text": "x"}}
+        await store.save_context_projection("thread-old", "run-old", projection)
+        await store.save_context_projection("thread-new", "run-new", projection)
+        async with store._pool.acquire() as conn:
+            await conn.execute(
+                "UPDATE context_projections SET created_at = ? "
+                "WHERE thread_id = ? AND projection_id = ?",
+                ("2020-01-01T00:00:00+00:00", "thread-old", "same-id"),
+            )
+            await conn.commit()
+
+        assert await store.purge_context_records("2021-01-01T00:00:00+00:00") == {
+            "projections": 1,
+            "checkpoints": 0,
+        }
+        assert await store.get_latest_context_projection("thread-old") is None
+        assert await store.get_latest_context_projection("thread-new") is not None
+
 
 class TestSessionRuns:
+    async def test_terminal_outcome_grava_run_mensagem_e_ledger_atomicamente(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session("thread-terminal-atomic", user_id="alice")
+        await store.start_run(
+            "thread-terminal-atomic",
+            "run-terminal-atomic",
+            turn_id="turn-terminal-atomic",
+        )
+        message = text_message(MessageRole.ASSISTANT, "falha do provider")
+        await store.append_terminal_outcome(
+            "thread-terminal-atomic",
+            message,
+            parent_message_id=None,
+            turn_id="run-terminal-atomic:terminal",
+            run_id="run-terminal-atomic",
+            status="failed",
+            detail="provider indisponível",
+        )
+
+        run = await store.get_agent_run("run-terminal-atomic")
+        assert run is not None
+        assert run.status == "failed"
+        assert (
+            await store.get_message_id_by_turn_id(
+                "thread-terminal-atomic", "run-terminal-atomic:terminal"
+            )
+            is not None
+        )
+        events = await store.list_events("thread-terminal-atomic", limit=50)
+        assert any(
+            event.event_key == "run_failed:run-terminal-atomic" for event in events
+        )
+
+    async def test_terminal_outcome_rejeita_status_nao_terminal(
+        self, store: SessionStore
+    ) -> None:
+        await store.create_session("thread-terminal-invalid", user_id="alice")
+        with pytest.raises(ValueError, match="status terminal inválido"):
+            await store.append_terminal_outcome(
+                "thread-terminal-invalid",
+                text_message(MessageRole.ASSISTANT, "falha"),
+                parent_message_id=None,
+                turn_id="run-terminal-invalid:terminal",
+                run_id="run-terminal-invalid",
+                status="running",
+                detail="não deveria aceitar",
+            )
+
     async def test_run_terminal_e_reconciliacao_sao_idempotentes(
         self, store: SessionStore
     ) -> None:
@@ -211,6 +337,54 @@ class TestSessionRuns:
 
 
 class TestAppendMessageEGetHistory:
+    async def test_is_error_none_e_normalizado_para_false_no_sqlite(
+        self, store: SessionStore
+    ) -> None:
+        """SQLite mantém a semântica do Postgres para o flag opcional."""
+        await store.create_session("thread-error-null", user_id="alice")
+        message = VMessage(
+            role=MessageRole.ASSISTANT,
+            content=[ContentBlock(kind="text", text="resposta")],
+            is_error=None,
+        )
+
+        await store.append_message_recorded("thread-error-null", message)
+
+        async with store._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT is_error FROM messages WHERE thread_id = ?",
+                ("thread-error-null",),
+            )
+            row = await cur.fetchone()
+        assert row is not None and row[0] == 0
+
+        history = await store.get_history("thread-error-null")
+        assert history and history[0].is_error is False
+
+    async def test_append_message_recorded_preserva_run_id_e_edited_files_nulo(
+        self, store: SessionStore
+    ) -> None:
+        """O vínculo da mensagem com o AgentRun não pode ser deslocado de coluna."""
+        await store.create_session("thread-run-link", user_id="alice")
+
+        await store.append_message_recorded(
+            "thread-run-link",
+            text_message(MessageRole.ASSISTANT, "falha persistida"),
+            turn_id="run-link:terminal",
+            run_id="run-link",
+        )
+
+        async with store._pool.acquire() as conn:
+            cur = await conn.execute(
+                "SELECT run_id, edited_files_json FROM messages "
+                "WHERE thread_id = ? AND turn_id = ?",
+                ("thread-run-link", "run-link:terminal"),
+            )
+            row = await cur.fetchone()
+
+        assert row is not None
+        assert tuple(row) == ("run-link", None)
+
     def test_persistencia_de_imagem_nao_grava_base64(self) -> None:
         raw = "data:image/png;base64,c2Vuc2l0aXZl"
         _, content_json, *_ = _message_to_row(

@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 from pydantic import BaseModel
@@ -190,6 +192,55 @@ async def test_subagent_permission_intersection_blocks_disabled_tool(
         in res
     )
     assert "custom_delete" in res
+
+
+@pytest.mark.asyncio
+async def test_subagent_reuses_parent_policy_snapshot(
+    session_store: SessionStore,
+    ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A tarefa filha não pode recompilar um snapshot diferente do pai."""
+    seen: list[PolicySnapshot | None] = []
+
+    async def fake_run_conversation(*_args: object, **kwargs: object) -> object:
+        seen.append(cast("PolicySnapshot | None", kwargs.get("policy_snapshot")))
+        return SimpleNamespace(
+            final_message=SimpleNamespace(text=lambda: "ok"),
+            stopped_reason="stop",
+        )
+
+    monkeypatch.setattr(
+        "backend.engine.subagents.run_conversation", fake_run_conversation
+    )
+    parent_policy = PolicySnapshot(
+        user_id="parent-user",
+        workspace_id="parent-workspace",
+        disabled_tools=frozenset({"parent_disabled"}),
+    )
+
+    await run_subagent(
+        SubagentSpec(
+            name="worker",
+            description="worker",
+            system_prompt="work",
+            tools=[_make_tool_spec("safe_echo", category="safe")],
+        ),
+        "execute",
+        session_store=session_store,
+        chat_client=_SimpleChatClient([]),
+        ctx=ctx,
+        parent_thread_id="thread-parent",
+        should_require_approval=None,
+        parent_policy_snapshot=parent_policy,
+    )
+
+    assert len(seen) == 1
+    child_policy = seen[0]
+    assert child_policy is not None
+    assert child_policy.user_id == parent_policy.user_id
+    assert child_policy.workspace_id == parent_policy.workspace_id
+    assert child_policy.version == parent_policy.version
 
 
 @pytest.mark.asyncio

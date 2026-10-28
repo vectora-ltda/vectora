@@ -395,7 +395,13 @@ async def _run_subagent_once(
         else (ctx.correlation_id or None)
     )
 
-    base_policy = compile_policy_snapshot(ctx)
+    # Um subagente precisa executar sob o mesmo snapshot imutável do pai.
+    # Recompilar a política aqui pode observar uma alteração de RBAC/egress
+    # entre o despacho do pai e o início da tarefa filha, criando uma
+    # identidade de política diferente para a mesma execução. Quando o pai
+    # fornece o snapshot, ele é a fonte de verdade; a compilação local só é
+    # usada no caminho legado sem contexto de execução.
+    base_policy = parent_policy_snapshot or compile_policy_snapshot(ctx)
 
     child_disabled = set(base_policy.disabled_tools)
     is_untrusted = base_policy.untrusted_content

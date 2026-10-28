@@ -309,6 +309,36 @@ async def async_is_url_allowed(  # noqa: PLR0911
                 None,
             )
 
+    # Literal IPs must be checked directly.  Sending them through the DNS
+    # resolver would both add latency and make the decision depend on a
+    # resolver's interpretation of non-canonical IPv4 forms.
+    try:
+        literal_ip = ipaddress.ip_address(host)
+    except ValueError:
+        literal_ip = None
+    if literal_ip is not None:
+        fake_info: list[_AddrInfo] = [
+            (
+                socket.AF_INET if literal_ip.version == 4 else socket.AF_INET6,
+                socket.SOCK_STREAM,
+                socket.IPPROTO_TCP,
+                "",
+                (host, port),
+            )
+        ]
+        ok, reason, pinned_ip = _validate_addr_infos_and_port(
+            host, port, pol, fake_info
+        )
+        return ok, reason, pinned_ip
+
+    normalized_host = host.rstrip(".").lower()
+    if (
+        "." not in normalized_host
+        or normalized_host.endswith((".localhost", ".internal"))
+        or all(part.isdigit() for part in normalized_host.split("."))
+    ):
+        return False, f"Host '{host}' não é um destino DNS público permitido", None
+
     loop = asyncio.get_running_loop()
     try:
         addr_infos = await loop.getaddrinfo(host, port)
