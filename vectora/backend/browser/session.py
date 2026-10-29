@@ -450,8 +450,13 @@ async def close_tab(workspace_id: str, tab_id: str) -> bool:
         # Keep the BrowserView target alive: closing the only Electron target
         # cannot be repaired through CDP because Target.createTarget is not
         # implemented. Reset it to a blank document and assign a fresh logical
-        # id instead.
+        # id instead. The page is reused, so its route and navigation guards
+        # are released first to keep them from applying to the next tab.
         try:
+            await _release_route_guard(tab.page)
+            from backend.tools.browser import release_navigation_guard
+
+            await release_navigation_guard(tab.page)
             await tab.page.goto("about:blank", wait_until="domcontentloaded")
         except Exception:
             logger.debug("browser_session: falha ao resetar última aba %s", tab_id)
