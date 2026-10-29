@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from backend.engine.stream_events import EventSink
     from backend.services.policy_compiler import PolicySnapshot
     from backend.tools.context import ToolContext
-    from backend.tools.registry import ToolRegistry
+    from backend.tools.registry import ToolRegistry, ToolSpec
     from backend.vtypes.message import ToolCall
 
 #: Padrões de segredo comuns que podem vazar no stdout de `terminal` ou no
@@ -55,6 +55,11 @@ def _is_tool_error(text: str, *, structured: bool = False) -> bool:
     return isinstance(payload, dict) and (
         payload.get("is_error") is True or payload.get("status") == "error"
     )
+
+
+def _has_structured_result(spec: ToolSpec) -> bool:
+    """Use structured error classification for envelopes and browser tools."""
+    return spec.extras.structured_envelope or spec.extras.category == "browser"
 
 
 def _redact_secrets(texto: str) -> str:
@@ -193,8 +198,7 @@ async def _run_one(
         texto = _apply_post_execute(texto)
         is_error = _is_tool_error(
             texto,
-            structured=spec.extras.structured_envelope
-            or spec.extras.category == "browser",
+            structured=_has_structured_result(spec),
         )
         from backend.services.tool_usage import record_tool_usage
 

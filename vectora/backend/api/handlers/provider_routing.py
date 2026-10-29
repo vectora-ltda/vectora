@@ -4380,6 +4380,12 @@ async def get_decision_models_status(
     capability_matrix: list[ProviderCapability] = []
     for provider_name in ("clef-local", "laya-local", "clef-api", "jev-api"):
         provider_settings = sys_settings.model_copy(update={"provider": provider_name})
+        model_name = {
+            "clef-local": sys_settings.local_model,
+            "laya-local": sys_settings.laya_model,
+            "clef-api": sys_settings.clef_api_model,
+            "jev-api": sys_settings.jev_api_model,
+        }[provider_name].strip() or "unconfigured"
         try:
             # Capabilities are declarative and must remain visible even when
             # a remote provider cannot be constructed (for example, because
@@ -4406,15 +4412,7 @@ async def get_decision_models_status(
             capability_matrix.append(
                 ProviderCapability(
                     provider=provider_name,
-                    model=(
-                        sys_settings.local_model
-                        if provider_name == "clef-local"
-                        else sys_settings.laya_model
-                        if provider_name == "laya-local"
-                        else sys_settings.clef_api_model
-                        if provider_name == "clef-api"
-                        else sys_settings.jev_api_model
-                    ),
+                    model=model_name,
                     discovered=discovered,
                     ready=is_selected and is_healthy,
                     text_generation=any(
@@ -4446,15 +4444,7 @@ async def get_decision_models_status(
             capability_matrix.append(
                 ProviderCapability(
                     provider=provider_name,
-                    model=(
-                        sys_settings.local_model
-                        if provider_name == "clef-local"
-                        else sys_settings.laya_model
-                        if provider_name == "laya-local"
-                        else sys_settings.clef_api_model
-                        if provider_name == "clef-api"
-                        else sys_settings.jev_api_model
-                    ),
+                    model=model_name,
                     discovered=False,
                     ready=False,
                     checked_at=datetime.now(UTC).isoformat(),

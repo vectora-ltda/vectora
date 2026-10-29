@@ -3,7 +3,7 @@
 Cobre: `_upsert_session()` grava/atualiza a tabela; `stream_chat()` chama
 `_upsert_session()` com o thread_id correto; o endpoint UpdateThread
 persiste o title no campo extra JSON; threads registradas via
-`_upsert_session()` aparecem em ListThreads.
+`SessionStore` e `_upsert_session()` aparecem em ListThreads.
 """
 
 from __future__ import annotations
@@ -725,7 +725,28 @@ class TestUpdateThreadEndpoint:
 
 
 class TestListThreadsIncludesUpserted:
-    """Threads criadas via _upsert_session devem aparecer em ListThreads."""
+    """Threads com posse nativa e metadados de UI aparecem em ListThreads."""
+
+    @pytest.fixture
+    async def session_store(self, monkeypatch, tmp_path):
+        """Provide isolated native ownership for the HTTP listing tests."""
+        from backend.persistence.native.session_store import SessionStore
+        from backend.storage.sqlite.pool import AsyncConnectionPool
+
+        pool = AsyncConnectionPool(
+            str(tmp_path / "sessions.db"), min_size=1, max_size=2
+        )
+        await pool.open()
+        store = SessionStore(pool)
+        await store.setup()
+        monkeypatch.setattr(
+            "backend.api.handlers.threads._get_session_store",
+            AsyncMock(return_value=store),
+        )
+        try:
+            yield store
+        finally:
+            await pool.close()
 
     def test_list_threads_empty_initially(self):
         """Sem threads criadas, ListThreads retorna lista vazia."""
@@ -746,7 +767,7 @@ class TestListThreadsIncludesUpserted:
             _restore_app(t_mod, orig_get_db, orig_conn)
 
     @pytest.mark.asyncio
-    async def test_upserted_thread_appears_in_list(self):
+    async def test_upserted_thread_appears_in_list(self, session_store):
         """Thread com uma troca de mensagem real (`_upsert_session` seguido
         de `_increment_message_count`) aparece em ListThreads. Usa aiosqlite
         real (não FakeDB): FakeDB não aplica o filtro
@@ -765,6 +786,7 @@ class TestListThreadsIncludesUpserted:
         await _ensure_schema(db)
         app, orig_get_db, orig_conn, t_mod = _make_app_with_db(db)
         try:
+            await session_store.create_session("streamed-thread-001", user_id="local")
             await _upsert_session("streamed-thread-001")
             await _increment_message_count("streamed-thread-001")
 
@@ -811,7 +833,7 @@ class TestListThreadsIncludesUpserted:
             await db.close()
 
     @pytest.mark.asyncio
-    async def test_upserted_thread_with_title_in_list(self):
+    async def test_upserted_thread_with_title_in_list(self, session_store):
         """Thread com title upsertada e uma mensagem real aparece com o
         title correto em ListThreads."""
         import aiosqlite
@@ -827,6 +849,7 @@ class TestListThreadsIncludesUpserted:
         await _ensure_schema(db)
         app, orig_get_db, orig_conn, t_mod = _make_app_with_db(db)
         try:
+            await session_store.create_session("streamed-thread-002", user_id="local")
             await _upsert_session("streamed-thread-002", title="Conversa Persistida")
             await _increment_message_count("streamed-thread-002")
 

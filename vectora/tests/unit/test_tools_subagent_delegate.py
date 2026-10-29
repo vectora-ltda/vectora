@@ -204,3 +204,39 @@ class TestShouldRequireApprovalObrigatorio:
                 session_store=session_store,
                 chat_client=_HangingChatClient(),
             )
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    ["Documente a API de buckets", "implementar o endpoint", "corrigir os testes"],
+)
+async def test_actionable_requests_do_not_require_execution_markers(
+    prompt, session_store
+) -> None:
+    """Valid task descriptions must reach the selected subagent."""
+    client = _ScriptedChatClient([[_texto_chunk("feito")]])
+    deps = SubagentDeps(
+        catalog={"coder": _spec()},
+        session_store=session_store,
+        chat_client=client,
+        should_require_approval=None,
+    )
+    assert (
+        await _handler()(
+            subagent_type="coder",
+            prompt=prompt,
+            ctx=_ctx(extra={"subagent_deps": deps}),
+        )
+        == "feito"
+    )
+    assert client.chamadas == 1
+
+
+@pytest.mark.parametrize(
+    "prompt", ["", "  ", "Olá!", "bom dia", "Obrigado", "Olá, quem é você?"]
+)
+def test_trivial_requests_remain_direct_only(prompt) -> None:
+    """Empty prompts, greetings and identity questions do not need delegation."""
+    from backend.tools.subagent_delegate import _delegation_is_actionable
+
+    assert _delegation_is_actionable(prompt) is False

@@ -1007,9 +1007,11 @@ async def list_threads(
     """Lista threads visíveis ao usuário, excluindo sessões internas."""
     limit = max(1, min(request.limit or 50, 200))
     session_store = await _get_session_store()
+    native_sessions = await session_store.list_all_sessions()
+    native_thread_ids = {session["thread_id"] for session in native_sessions}
     subagent_thread_ids = {
         session["thread_id"]
-        for session in await session_store.list_all_sessions()
+        for session in native_sessions
         if session["mode"] == "subagent"
     }
     db = await _get_db()
@@ -1048,7 +1050,10 @@ async def list_threads(
         foreign_ids = await session_store.foreign_thread_ids(
             [r[0] for r in rows], user_id
         )
-        rows = [r for r in rows if r[0] not in foreign_ids]
+        # Legacy UI metadata cannot establish ownership during a read.
+        rows = [
+            r for r in rows if r[0] in native_thread_ids and r[0] not in foreign_ids
+        ]
 
     user_id = _user_id(http_request) if http_request is not None else "local"
     current_device_id = (
@@ -2139,15 +2144,13 @@ async def _safe_history_cursor(
     get_seq = getattr(store, "get_event_seq_by_message_id", None)
     if not callable(get_seq):
         return fallback
-    seqs: list[int] = []
-    for entry in entries:
+    for entry in reversed(entries):
         message_id = getattr(entry, "message_id", None)
         if message_id is None:
             continue
         seq = await get_seq(thread_id, message_id)
-        if seq is not None:
-            seqs.append(int(seq))
-    return max(seqs, default=0)
+        return int(seq) if seq is not None else 0
+    return 0
 
 
 @router.get("/threads/{thread_id}/history", response_model=PagedHistoryResponse)

@@ -289,6 +289,9 @@ async def get_memory(ctx: ToolContext, key: str | None = None) -> str:
 
     Returns:
         JSON com conteúdo da memória ou lista de memórias
+
+    A expiração remove apenas a cópia expirada; uma cópia legada válida
+    continua disponível para os demais workspaces do mesmo usuário.
     """
     try:
         store = _get_store(ctx)
@@ -306,8 +309,7 @@ async def get_memory(ctx: ToolContext, key: str | None = None) -> str:
 
             val = item.value
             if _is_memory_expired(val):
-                for ns in namespaces:
-                    await store.adelete(ns, key)
+                await store.adelete(namespace, key)
                 return json.dumps({"status": "not_found", "key": key})
             logger.debug("memory_retrieved key=%s", key)
             return json.dumps(
@@ -430,6 +432,10 @@ async def search_memory(ctx: ToolContext, query: str, limit: int = 5) -> str:
 )
 async def delete_memory(ctx: ToolContext, key: str) -> str:
     """Deleta uma memória persistente do namespace do usuário.
+
+    A exclusão explícita remove também a cópia legada compartilhada pelo
+    usuário, evitando que o fallback faça a chave reaparecer. Cópias escopadas
+    de outros workspaces permanecem intactas.
 
     Args:
         key: Chave da memória a deletar

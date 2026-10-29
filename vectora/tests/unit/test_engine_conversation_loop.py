@@ -1384,6 +1384,72 @@ class TestLoopCapGuardrail:
 
 
 class TestResumeConversation:
+    @pytest.mark.parametrize(
+        "extras",
+        [
+            ToolExtras(category="browser"),
+            ToolExtras(structured_envelope=True),
+        ],
+    )
+    async def test_hitl_resume_records_structured_error(
+        self,
+        session_store,
+        ctx,
+        monkeypatch,
+        extras,
+    ) -> None:
+        """Approval resume preserves error classification in history and usage."""
+        from unittest.mock import AsyncMock
+
+        usage = AsyncMock()
+        monkeypatch.setattr("backend.services.tool_usage.record_tool_usage", usage)
+
+        @vtool(extras=extras)
+        async def browser_resume_failure(ctx: ToolContext) -> str:
+            """Return a structured browser error after user approval."""
+            return '{"status":"error","error":"navigation failed"}'
+
+        registry = ToolRegistry()
+        _register(registry, "browser_resume_failure")
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0,
+                        id="call_browser",
+                        name="browser_resume_failure",
+                        args="{}",
+                    ),
+                ]
+            ]
+        )
+        gate = ApprovalGate(session_store)
+        result = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            should_require_approval=lambda *_a: True,
+            approval_gate=gate,
+        )
+        assert result.stopped_reason == "interrupted"
+        usage.assert_not_awaited()
+        assert await resume_conversation(
+            session_store=session_store,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            decision="approve",
+            approval_gate=gate,
+        )
+        history = await session_store.get_history("thread-1")
+        assert history[-1].role == MessageRole.TOOL
+        assert history[-1].is_error is True
+        assert "navigation failed" in history[-1].text()
+        usage.assert_awaited_once_with(ctx.user_id, "browser_resume_failure", "error")
+
     async def test_aprovar_executa_a_tool_sinalizada_e_libera_a_pendencia(
         self, session_store, ctx
     ):

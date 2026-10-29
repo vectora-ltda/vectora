@@ -66,18 +66,24 @@ def check_schema_compatibility(
     for constraint in _bounded_constraints:
         old_value = old_schema.get(constraint)
         new_value = new_schema.get(constraint)
-        if not isinstance(old_value, (int, float)) or not isinstance(
-            new_value, (int, float)
-        ):
-            continue
-        if constraint.startswith("min") or constraint in {
-            "minimum",
-            "exclusiveMinimum",
-        }:
-            tightened = new_value > old_value
+        old_numeric = isinstance(old_value, (int, float)) and not isinstance(
+            old_value, bool
+        )
+        new_numeric = isinstance(new_value, (int, float)) and not isinstance(
+            new_value, bool
+        )
+        if old_value is None and new_numeric:
+            tightened, loosened = True, False
+        elif old_numeric and new_value is None:
+            tightened, loosened = False, True
+        elif old_numeric and new_numeric:
+            if constraint.startswith("min") or constraint == "exclusiveMinimum":
+                tightened = new_value > old_value
+            else:
+                tightened = new_value < old_value
+            loosened = new_value != old_value and not tightened
         else:
-            tightened = new_value < old_value
-        loosened = new_value != old_value and not tightened
+            continue
         is_breaking = tightened if direction == "request" else loosened
         message = (
             f"{path}: restrição {constraint} alterada de {old_value!r} para "

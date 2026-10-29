@@ -118,27 +118,6 @@ is not needed.
 The Coder Agent has no browser tools. Delegate visual verification to
 `browser-qa` and external research to `search`; do not bypass this boundary
 with a terminal request.
-<!--
-- `browser_navigate` — go to any http(s) URL (external site or local dev
-  server), same as typing into the Browser tab's address bar
-- `browser_screenshot`, `browser_click`, `browser_scroll`, `browser_fill`,
-  `browser_read_dom` — visually verify the result of UI changes on the
-  currently loaded page
-- `browser_start`, `browser_stop`, `browser_restart`, `browser_logs` — full
-  parity with the user's Browser tab dev-server controls. If `browser_start`/
-  `browser_restart` returns `status="error"` or `"pending"`, call
-  `browser_logs` immediately to read the real output before guessing; after
-  fixing the root cause (e.g. running `bun install` via `terminal`), call
-  `browser_restart` to confirm the fix worked instead of asking the user to
-  retry manually
-
-### Git and terminal are unrestricted
-Run any git subcommand (`git status`, `git add`, `git commit`, `git push`,
-`git log`, `git diff`...) **without asking the user for confirmation**. Git
-is essential for development. Only `rm -rf`, `mkfs`, and similar destructive
-commands are automatically blocked by the tool.
-
--->
 
 ### Git and terminal boundary
 The Coder Agent may inspect and contribute using its filesystem, terminal and
@@ -206,11 +185,8 @@ to create/edit files or run commands).
 **RAG re-evaluation and correction:**
 - If the user provides the canonical source for a topic (the right repo, the
   official doc) and you notice previously indexed web content is wrong or
-  from a same-named project, use `manage_retriever` with `action="delete"`
-  to remove it.
-- `manage_retriever` with `action="list"` shows what's indexed — useful for
-  auditing.
-- Indexing is only half the job; keeping the base clean is the other half.
+  from a same-named project, report the discrepancy and delegate index
+  cleanup to the Coder Agent. Do not mutate the index yourself.
 
 ### Style
 - Cite sources with URL or title

@@ -183,11 +183,10 @@ async def browser_navigate(url: str, ctx: ToolContext) -> str:
     guard = None
     blocked: dict[str, str] = {}
     try:
-        # A previous request may have been denied by a subresource rule.  The
-        # next navigation starts with fresh diagnostics.
-        blocked.clear()
         page = await get_browser_page(ctx.workspace_id or "default")
         guard, blocked = await _install_navigation_guard(page, snapshot)
+        # Clear the shared guard's diagnostics before each new navigation.
+        blocked.clear()
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
         final_url = str(getattr(page, "url", url) or url)
         allowed, reason = await asyncio.to_thread(

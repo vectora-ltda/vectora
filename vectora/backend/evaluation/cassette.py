@@ -82,6 +82,8 @@ class Cassette(BaseModel):
         """Carrega e valida uma cassete gravada a partir do caminho indicado."""
         path = Path(source_path)
         raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("A cassete deve ser um objeto JSON")
         version = raw.get("redaction_version", 1)
         if version != 1:
             raise ValueError(f"redaction_version não suportada: {version}")
