@@ -468,3 +468,95 @@ async def test_scoped_dashboard_reads_and_deletes_legacy_memories(
     assert await store.aget(other, "shared") is not None
     assert await raw_get(scoped_ns, "hidden-copy") is None
     assert await raw_get(legacy, "hidden-copy") is None
+
+
+async def test_scoped_dashboard_can_edit_legacy_memory_without_changing_other_scopes(
+    monkeypatch,
+    store,
+) -> None:
+    """Editing a visible legacy fallback promotes it without mutating global data."""
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI, Request
+
+    from backend.api.handlers import memory
+
+    app = FastAPI()
+    app.include_router(memory.router)
+
+    @app.middleware("http")
+    async def scope_request(request: Request, call_next):
+        request.state.user = SimpleNamespace(id="alice")
+        request.state.workspace_id = "ws-1"
+        return await call_next(request)
+
+    async def get_store():
+        return store
+
+    monkeypatch.setattr(memory, "_store", get_store)
+    legacy = ("user", "alice", "memories")
+    scoped = ("user", "alice", "workspace", "ws-1", "memories")
+    await store.aput(
+        legacy,
+        "legacy-note",
+        {
+            "content": "original",
+            "metadata": {"source": "legacy"},
+            "category": "preference",
+        },
+    )
+
+    with TestClient(app) as client:
+        assert client.get("/memory/legacy-note").json()["content"] == "original"
+        response = client.put(
+            "/memory/legacy-note",
+            json={"content": "edited in ws-1"},
+        )
+
+    assert response.status_code == 200
+    scoped_item = await store.aget(scoped, "legacy-note")
+    assert scoped_item is not None
+    assert scoped_item.value["content"] == "edited in ws-1"
+    assert scoped_item.value["metadata"] == {"source": "legacy"}
+    assert scoped_item.value["category"] == "preference"
+    assert scoped_item.value["updated_at"]
+    legacy_item = await store.aget(legacy, "legacy-note")
+    assert legacy_item is not None
+    assert legacy_item.value["content"] == "original"
+
+
+async def test_scoped_dashboard_update_keeps_scoped_copy_ahead_of_legacy(
+    monkeypatch,
+    store,
+) -> None:
+    """An existing scoped value wins over its legacy duplicate during updates."""
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI, Request
+
+    from backend.api.handlers import memory
+
+    app = FastAPI()
+    app.include_router(memory.router)
+
+    @app.middleware("http")
+    async def scope_request(request: Request, call_next):
+        request.state.user = SimpleNamespace(id="alice")
+        request.state.workspace_id = "ws-1"
+        return await call_next(request)
+
+    async def get_store():
+        return store
+
+    monkeypatch.setattr(memory, "_store", get_store)
+    legacy = ("user", "alice", "memories")
+    scoped = ("user", "alice", "workspace", "ws-1", "memories")
+    await store.aput(legacy, "duplicate", {"content": "global"})
+    await store.aput(scoped, "duplicate", {"content": "workspace"})
+
+    with TestClient(app) as client:
+        response = client.put("/memory/duplicate", json={"content": "updated"})
+
+    assert response.status_code == 200
+    assert (await store.aget(scoped, "duplicate")).value["content"] == "updated"
+    assert (await store.aget(legacy, "duplicate")).value["content"] == "global"
