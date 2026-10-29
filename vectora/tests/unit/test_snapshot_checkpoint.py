@@ -201,6 +201,41 @@ def test_restore_snapshot_rejects_symlink_members(tmp_path: Path) -> None:
     assert not (restore / "redirect").exists()
 
 
+def test_restore_snapshot_rejects_symlink_cwd_and_destination(tmp_path: Path) -> None:
+    """Restore writes into a real directory but never follows a symlinked cwd
+    or a destination file that is a symlink to another workspace file."""
+    archive = tmp_path / "snap.tar.gz"
+    payload = b"restored\n"
+    with tarfile.open(archive, "w:gz") as tar:
+        info = tarfile.TarInfo("a.txt")
+        info.size = len(payload)
+        tar.addfile(info, io.BytesIO(payload))
+
+    real = tmp_path / "real"
+    real.mkdir()
+    assert restore_snapshot_checkpoint(str(archive), str(real))["status"] == "ok"
+    assert (real / "a.txt").read_bytes() == payload
+
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    protected = workspace / "protected.txt"
+    protected.write_bytes(b"keep\n")
+    cwd_link = tmp_path / "ws-link"
+    try:
+        cwd_link.symlink_to(workspace, target_is_directory=True)
+        (workspace / "a.txt").symlink_to(protected)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks indisponíveis neste executor")
+
+    via_link = restore_snapshot_checkpoint(str(archive), str(cwd_link))
+    assert via_link["status"] == "error"
+    via_destination = restore_snapshot_checkpoint(str(archive), str(workspace))
+    assert via_destination["status"] == "error"
+    assert "symlink" in via_destination["message"]
+    assert protected.read_bytes() == b"keep\n"
+    assert (workspace / "a.txt").is_symlink()
+
+
 # ---------------------------------------------------------------------------
 # gc_snapshots
 # ---------------------------------------------------------------------------
