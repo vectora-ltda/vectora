@@ -12,6 +12,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { transcribeAudio } from "@/lib/api/vectora-client";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 
 // ============================================================================
 // Types
@@ -97,6 +98,9 @@ export function useVoiceInput({
   /** Idioma do reconhecimento em BCP-47 (ex: "pt-BR"). */
   lang?: string;
 }): UseVoiceInputReturn {
+  const transcriptionMode = useSettingsStore(
+    (state) => state.transcriptionMode,
+  );
   const [isListening, setIsListening] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSupported, setIsSupported] = useState(false);
@@ -157,6 +161,8 @@ export function useVoiceInput({
             const { text } = await transcribeAudio(
               base64,
               blob.type || "audio/webm",
+              "recording.webm",
+              transcriptionMode,
             );
             if (text) onTranscriptRef.current(text);
           } catch {
@@ -178,7 +184,7 @@ export function useVoiceInput({
       );
       setTimeout(() => setError(null), 5000);
     }
-  }, []);
+  }, [transcriptionMode]);
 
   const stopBackendRecording = useCallback(() => {
     mediaRecorderRef.current?.stop();
@@ -198,7 +204,7 @@ export function useVoiceInput({
     const backendSupported = hasBackendRecordingSupport();
     setIsSupported(Boolean(SpeechRecognitionAPI) || backendSupported);
 
-    if (!SpeechRecognitionAPI) {
+    if (!SpeechRecognitionAPI || transcriptionMode === "local") {
       // Firefox/Zen — a API nem existe. Vai direto pro fallback via backend.
       useBackendRef.current = true;
       return () => {
@@ -308,7 +314,7 @@ export function useVoiceInput({
       mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Only run once on mount - callbacks are handled via refs
+  }, [transcriptionMode]); // Callbacks are handled via refs
 
   // ── API pública — despacha pro motor certo a cada chamada ────────────────
 

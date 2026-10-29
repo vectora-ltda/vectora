@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import tempfile
 from pathlib import PurePath
 
 import httpx
@@ -98,6 +99,46 @@ async def transcribe_audio(
     raise TranscriptionError(
         f"provider de transcrição indisponível: {provider} (verifique openai_api_key, google_api_key ou openrouter_api_key)"
     )
+
+
+async def transcribe_audio_local(
+    data: bytes, filename: str, mime_type: str, *, language: str
+) -> str:
+    """Transcreve bytes localmente com faster-whisper sem reter o áudio.
+
+    O arquivo temporário fica fora do workspace, recebe permissões restritas
+    do sistema operacional e é removido mesmo se o modelo falhar.
+    """
+    import os
+    from pathlib import Path
+
+    from backend.tools.media_native import _transcribe_local_sync
+
+    _validate_audio(data, filename, mime_type)
+    suffix = PurePath(filename).suffix.lower()
+    descriptor, temp_path = tempfile.mkstemp(prefix="vectora-stt-", suffix=suffix)
+    try:
+        with os.fdopen(descriptor, "wb") as audio_file:
+            audio_file.write(data)
+        result = await asyncio.to_thread(
+            _transcribe_local_sync, temp_path, language or None
+        )
+        text = str(result.get("text", "")).strip()
+        if not text:
+            raise TranscriptionError("o modelo local não retornou texto")
+        return text
+    except TranscriptionError:
+        raise
+    except Exception as exc:
+        logger.exception("transcribe_audio: falha na transcrição local")
+        raise TranscriptionError(f"transcrição local indisponível: {exc}") from exc
+    finally:
+        try:
+            Path(temp_path).unlink(missing_ok=True)
+        except OSError:
+            logger.warning(
+                "transcribe_audio: não foi possível remover áudio temporário"
+            )
 
 
 def _validate_audio(data: bytes, filename: str, mime_type: str) -> None:

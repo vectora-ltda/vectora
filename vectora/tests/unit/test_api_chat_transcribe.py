@@ -42,6 +42,34 @@ def test_transcreve_audio_com_sucesso():
     assert result.text == "olá, isso é um teste"
 
 
+def test_modo_local_nao_chama_provider_remoto():
+    audio_b64 = base64.b64encode(b"fake-audio-bytes").decode()
+    request = TranscribeAudioRequest(
+        audio_base64=audio_b64,
+        mime_type="audio/webm",
+        filename="ditado.webm",
+        transcription_mode="local",
+    )
+
+    async def _fake_local(
+        data: bytes, filename: str, mime_type: str, *, language: str
+    ) -> str:
+        assert data == b"fake-audio-bytes"
+        assert filename == "ditado.webm"
+        assert mime_type == "audio/webm"
+        assert language == ""
+        return "transcrição local"
+
+    with (
+        patch("backend.llm.transcription.transcribe_audio_local", _fake_local),
+        patch("backend.llm.transcription.transcribe_audio") as remote,
+    ):
+        result = asyncio.run(transcribe_audio_endpoint(request))
+
+    assert result.text == "transcrição local"
+    remote.assert_not_called()
+
+
 def test_audio_base64_invalido_retorna_422():
     request = TranscribeAudioRequest(
         audio_base64="!!! não é base64 válido !!!",

@@ -21,6 +21,7 @@ import zipfile
 from collections.abc import Callable, Generator, Iterator
 from contextlib import contextmanager, suppress
 from pathlib import Path
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -33,9 +34,121 @@ from backend.api.handlers.provider_routing import (
     LlamaCppRollbackRequest,
     _confirmation_evidence_sha256,
     _extract_llamacpp_archive,
+    get_decision_model_readiness,
     llamacpp_runtime_status,
     remove_llamacpp_runtime,
 )
+
+
+@pytest.mark.asyncio
+async def test_decision_model_readiness_reports_missing_remote_credential(monkeypatch):
+    from backend.api.handlers import provider_routing
+
+    monkeypatch.setattr(
+        "backend.settings.settings",
+        SimpleNamespace(
+            systemone_enabled=True, jev_api_key="", systemone_jev_api_model="jev-fast"
+        ),
+    )
+    probe = AsyncMock()
+    monkeypatch.setattr(provider_routing, "get_systemone_provider", probe)
+
+    result = await get_decision_model_readiness("jev-api")
+
+    assert result.provider == "jev-api"
+    assert result.model == "jev-fast"
+    assert result.configured is True
+    assert result.credential_valid is False
+    assert result.healthy is False
+    assert result.ready is False
+    probe.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_decision_model_readiness_uses_remote_credentials_from_environment(
+    monkeypatch,
+):
+    from backend.api.handlers import provider_routing
+
+    config = SimpleNamespace(
+        systemone_enabled=True,
+        systemone_clef_account_id="",
+        systemone_local_base_url="http://127.0.0.1:8080",
+        systemone_local_model="clef",
+        systemone_laya_base_url="http://127.0.0.1:8000",
+        systemone_laya_model="laya",
+        systemone_laya_api_key=None,
+        systemone_clef_api_base_url="https://api.cloudflare.com/client/v4/accounts",
+        systemone_clef_api_model="@cf/clef",
+        systemone_jev_api_base_url="https://api.jev.ai",
+        systemone_jev_api_model="jev-fast",
+        systemone_confidence_threshold_hitl=0.7,
+        clef_api_key="",
+        jev_api_key="",
+    )
+    monkeypatch.setattr("backend.settings.settings", config)
+    monkeypatch.setenv("CLOUDFLARE_ACCOUNT_ID", "account-from-env")
+    monkeypatch.setenv("CLEF_API_KEY", "key-from-env")
+
+    class HealthyAdapter:
+        async def capabilities(self):
+            return object()
+
+        async def health(self):
+            return True
+
+    factory = MagicMock(return_value=HealthyAdapter())
+    monkeypatch.setattr(provider_routing, "get_systemone_provider", factory)
+
+    result = await get_decision_model_readiness("clef-api")
+
+    assert result.ready is True
+    assert result.credential_valid is True
+    assert factory.call_args.kwargs["clef_api_key"] == "key-from-env"
+    assert factory.call_args.args[0].clef_account_id == "account-from-env"
+
+
+@pytest.mark.asyncio
+async def test_decision_model_readiness_probes_user_selected_provider(monkeypatch):
+    from backend.api.handlers import provider_routing
+
+    config = SimpleNamespace(
+        systemone_enabled=True,
+        systemone_clef_account_id="account-1",
+        systemone_local_base_url="http://127.0.0.1:8080",
+        systemone_local_model="clef",
+        systemone_laya_base_url="http://127.0.0.1:8000",
+        systemone_laya_model="laya",
+        systemone_laya_api_key=None,
+        systemone_clef_api_base_url="https://api.cloudflare.com/client/v4/accounts",
+        systemone_clef_api_model="@cf/clef",
+        systemone_jev_api_base_url="https://api.jev.ai",
+        systemone_jev_api_model="jev-fast",
+        systemone_allow_remote_fallback=False,
+        systemone_confidence_threshold_hitl=0.7,
+        clef_api_key="valid-secret",
+        jev_api_key="",
+    )
+    monkeypatch.setattr("backend.settings.settings", config)
+
+    class HealthyAdapter:
+        async def capabilities(self):
+            return object()
+
+        async def health(self):
+            return True
+
+    factory = MagicMock(return_value=HealthyAdapter())
+    monkeypatch.setattr(provider_routing, "get_systemone_provider", factory)
+
+    result = await get_decision_model_readiness("clef-api")
+
+    assert result.ready is True
+    assert result.healthy is True
+    assert result.credential_valid is True
+    assert result.diagnostic is None
+    factory.assert_called_once()
+    assert factory.call_args.args[0].provider == "clef-api"
 
 
 @pytest.fixture(scope="module")

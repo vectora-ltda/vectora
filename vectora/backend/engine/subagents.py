@@ -455,6 +455,7 @@ async def _run_subagent_once(
         thread_id=thread_id,
         run_id=child_run_id,
         correlation_id=corr_id or "",
+        _extra={**ctx._extra, "subagent_execution": True},
     )
     sub_config = replace(config or LoopConfig(), run_id=child_run_id)
 

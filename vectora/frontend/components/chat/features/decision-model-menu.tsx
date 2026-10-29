@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, ChevronDown, ShieldCheck } from "lucide-react";
 
 import {
@@ -9,15 +9,18 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
+  hydrateDecisionModelPreferences,
   useSettingsStore,
   type DecisionModelProvider,
 } from "@/lib/stores/settings-store";
+import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { m } from "@/lib/paraglide/messages";
 
 const PROVIDERS: Array<{ value: DecisionModelProvider; label: string }> = [
-  { value: "clef", label: "Clef" },
-  { value: "laya", label: "Laya" },
-  { value: "jev", label: "JEV" },
+  { value: "clef-local", label: "Clef local" },
+  { value: "laya-local", label: "Laya local" },
+  { value: "clef-api", label: "Clef Cloudflare" },
+  { value: "jev-api", label: "JEV" },
 ];
 
 /**
@@ -26,8 +29,10 @@ const PROVIDERS: Array<{ value: DecisionModelProvider; label: string }> = [
  * readiness, authorization and the actual decision made for a run.
  */
 export function DecisionModelMenu({ compact = false }: { compact?: boolean }) {
+  const workspaceId = useWorkspacesStore((state) => state.active_id);
   const enabled = useSettingsStore((state) => state.decisionModelsEnabled);
   const provider = useSettingsStore((state) => state.decisionModelProvider);
+  const permissionMode = useSettingsStore((state) => state.permissionMode);
   const setEnabled = useSettingsStore(
     (state) => state.setDecisionModelsEnabled,
   );
@@ -35,10 +40,61 @@ export function DecisionModelMenu({ compact = false }: { compact?: boolean }) {
     (state) => state.setDecisionModelProvider,
   );
   const [open, setOpen] = useState(false);
+  const [readinessResult, setReadinessResult] = useState<{
+    provider: DecisionModelProvider;
+    ready: boolean;
+    configured: boolean;
+    credentialValid: boolean;
+    healthy: boolean;
+  } | null>(null);
+  const [readinessErrorProvider, setReadinessErrorProvider] =
+    useState<DecisionModelProvider | null>(null);
+  const readinessState =
+    readinessResult?.provider === provider ? readinessResult : null;
+  const readiness = readinessState?.ready ?? null;
+  const readinessError = readinessErrorProvider === provider;
   const selected = PROVIDERS.find((item) => item.value === provider);
   const title = enabled
     ? `Decision model: ${selected?.label ?? provider}`
     : m.decision_models_disabled();
+
+  useEffect(() => {
+    void hydrateDecisionModelPreferences(workspaceId);
+  }, [workspaceId]);
+
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    void fetch(
+      `/provider-routing/decision-models/readiness?provider=${encodeURIComponent(provider)}`,
+    )
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return (await response.json()) as {
+          ready?: boolean;
+          configured?: boolean;
+          credential_valid?: boolean;
+          healthy?: boolean;
+        };
+      })
+      .then((value) => {
+        if (active) {
+          setReadinessResult({
+            provider,
+            ready: value.ready === true,
+            configured: value.configured === true,
+            credentialValid: value.credential_valid === true,
+            healthy: value.healthy === true,
+          });
+        }
+      })
+      .catch(() => {
+        if (active) setReadinessErrorProvider(provider);
+      });
+    return () => {
+      active = false;
+    };
+  }, [open, provider]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -74,6 +130,28 @@ export function DecisionModelMenu({ compact = false }: { compact?: boolean }) {
           <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
             {m.decision_models_backend_note()}
           </p>
+          {permissionMode === "auto" && (
+            <p
+              role="status"
+              className="mt-2 text-[11px] leading-4 text-muted-foreground"
+            >
+              {!enabled
+                ? m.decision_models_readiness_no_guardrail()
+                : readinessError
+                  ? m.decision_models_readiness_unavailable()
+                  : readiness === null
+                    ? m.decision_models_readiness_checking()
+                    : readiness
+                      ? m.decision_models_readiness_ready()
+                      : readinessState?.configured === false
+                        ? m.decision_models_readiness_unconfigured()
+                        : readinessState?.credentialValid === false
+                          ? m.decision_models_readiness_no_credential()
+                          : readinessState?.healthy === false
+                            ? m.decision_models_readiness_unhealthy()
+                            : m.decision_models_readiness_no_guardrail()}
+            </p>
+          )}
         </div>
         <button
           type="button"

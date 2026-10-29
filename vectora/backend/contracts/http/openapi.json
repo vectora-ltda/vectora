@@ -2051,6 +2051,56 @@
         "title": "CreateWorktreeRequest",
         "type": "object"
       },
+      "DecisionModelReadinessResponse": {
+        "description": "Non-sensitive readiness result for the provider selected by one user.",
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "credential_valid": {
+            "title": "Credential Valid",
+            "type": "boolean"
+          },
+          "diagnostic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "configured",
+          "credential_valid",
+          "healthy",
+          "ready"
+        ],
+        "title": "DecisionModelReadinessResponse",
+        "type": "object"
+      },
       "DeleteMemoryResponse": {
         "properties": {
           "deleted": {
@@ -8053,6 +8103,12 @@
           },
           "mime_type": {
             "title": "Mime Type",
+            "type": "string"
+          },
+          "transcription_mode": {
+            "default": "remote",
+            "enum": ["local", "remote"],
+            "title": "Transcription Mode",
             "type": "string"
           }
         },
@@ -14114,6 +14170,48 @@
           }
         },
         "summary": "Update Decision Models Config",
+        "tags": ["provider-routing"]
+      }
+    },
+    "/provider-routing/decision-models/readiness": {
+      "get": {
+        "description": "Probe only the selected provider and return no secret or admin settings.",
+        "operationId": "get_decision_model_readiness_provider_routing_decision_models_readiness_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": ["clef-local", "laya-local", "clef-api", "jev-api"],
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionModelReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Decision Model Readiness",
         "tags": ["provider-routing"]
       }
     },

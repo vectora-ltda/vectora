@@ -982,6 +982,69 @@ async def run_conversation(  # noqa: PLR0911
                 tool_names=tuple(sorted(observed_tools)),
             )
 
+        # In autonomous mode, an explicitly enabled and configured Decision
+        # Model evaluates approval-sensitive calls before the synchronous HITL
+        # predicate. Missing/unhealthy models are recorded as unavailable and
+        # do not pretend to provide a safety layer over the user's auto policy.
+        from backend.llm.systemone.preferences import (
+            decision_model_enabled_for,
+            decision_model_surface_for_tool,
+            selected_decision_model_provider,
+        )
+
+        if ctx.permission_mode == "auto":
+            from backend.engine.hitl import (
+                call_requires_separate_approval,
+                precompute_tool_risk_assessment,
+            )
+
+            decision_candidates = [
+                (candidate, decision_model_surface_for_tool(ctx, candidate.name))
+                for candidate in tool_calls
+                if call_requires_separate_approval(candidate.name, candidate.args)
+            ]
+            decision_candidates = [
+                (candidate, surface)
+                for candidate, surface in decision_candidates
+                if decision_model_enabled_for(ctx, surface)
+            ]
+            if decision_candidates:
+                from backend.tools.systemone_tools import _build_default_harness
+
+                decision_harness = _build_default_harness(
+                    selected_decision_model_provider(ctx)
+                )
+                for candidate, decision_surface in decision_candidates:
+                    await precompute_tool_risk_assessment(
+                        decision_harness,
+                        tool_name=candidate.name,
+                        ctx=ctx,
+                        args=candidate.args,
+                        surface=decision_surface,
+                    )
+                    try:
+                        from backend.engine.hitl import _risk_assessment_key
+
+                        record = ctx._extra.get("systemone_decisions", {}).get(
+                            _risk_assessment_key(candidate.name, candidate.args)
+                        )
+                        if isinstance(record, dict):
+                            await _safe_record_run_evidence(
+                                session_store,
+                                config.run_id,
+                                tool_used=candidate.name,
+                                evidence={
+                                    "type": "decision_model_decision",
+                                    "tool_call_id": candidate.id,
+                                    **record,
+                                },
+                            )
+                    except Exception:
+                        logger.exception(
+                            "Falha ao anexar decisão SystemOne ao AgentRun %s",
+                            config.run_id,
+                        )
+
         if should_require_approval is not None:
             pendente = next(
                 (
@@ -1136,6 +1199,24 @@ async def run_conversation(  # noqa: PLR0911
             extras = spec.extras if spec is not None else None
             _started_at.setdefault(tc.id, time.monotonic())
             preview = _previews.setdefault(tc.id, _args_preview(tc.args))
+            decision_data: dict[str, Any] = {}
+            try:
+                from backend.engine.hitl import _risk_assessment_key
+
+                decisions = ctx._extra.get("systemone_decisions", {})
+                candidate = decisions.get(_risk_assessment_key(tc.name, tc.args))
+                if isinstance(candidate, dict):
+                    decision_data = {
+                        "decision": candidate.get("decision"),
+                        "decision_reason": candidate.get("reason"),
+                        "decision_provider": candidate.get("provider"),
+                        "decision_model": candidate.get("model"),
+                        "decision_confidence": candidate.get("confidence"),
+                    }
+            except Exception:
+                logger.debug(
+                    "Não foi possível anexar decisão ao início da tool", exc_info=True
+                )
             if config.run_id:
                 try:
                     if hasattr(session_store, "append_ledger_event"):
@@ -1148,6 +1229,7 @@ async def run_conversation(  # noqa: PLR0911
                             payload={
                                 "tool_name": tc.name,
                                 "args": _sanitize_tool_call(tc, ctx).args,
+                                **decision_data,
                             },
                         )
                     elif hasattr(session_store, "append_event"):
@@ -1162,6 +1244,7 @@ async def run_conversation(  # noqa: PLR0911
                                 payload={
                                     "tool_name": tc.name,
                                     "args": _sanitize_tool_call(tc, ctx).args,
+                                    **decision_data,
                                 },
                             ),
                         )
@@ -1181,6 +1264,7 @@ async def run_conversation(  # noqa: PLR0911
                         category=extras.category if extras else "general",
                         destructive=extras.destructive if extras else False,
                         icon=extras.icon if extras else "tool",
+                        **decision_data,
                     )
                 )
                 await emit(

@@ -81,6 +81,10 @@ _ALLOWED_FRONTEND_PREF_KEYS = frozenset(
         "chatMode",
         "permissionMode",
         "reasoningEffort",
+        "decisionModelsEnabled",
+        "decisionModelProvider",
+        "decisionModelSurfaces",
+        "transcriptionMode",
         "sidebarPosition",
         "autoUpdateEnabled",
         "weeklyInsightEnabled",
@@ -502,7 +506,9 @@ class RuntimeSettings:
             self._data["last_session_by_dir"] = mapping
             self._persist("last_session_by_dir", mapping)
 
-    def get_frontend_prefs(self, user_id: str) -> dict[str, object]:
+    def get_frontend_prefs(
+        self, user_id: str, workspace_id: str | None = None
+    ) -> dict[str, object]:
         """Preferências do frontend web persistidas para ``user_id``.
 
         Chave por usuário — numa instância multi-usuário (VPS), as
@@ -514,10 +520,25 @@ class RuntimeSettings:
         user_prefs = all_prefs.get(user_id)
         if not isinstance(user_prefs, dict):
             return {}
-        return {str(k): v for k, v in user_prefs.items()}
+        result = {
+            str(k): v
+            for k, v in user_prefs.items()
+            if k != "decision_model_workspace_prefs"
+        }
+        if workspace_id:
+            workspace_prefs = user_prefs.get("decision_model_workspace_prefs")
+            if isinstance(workspace_prefs, dict):
+                selected = workspace_prefs.get(workspace_id)
+                if isinstance(selected, dict):
+                    result.update({str(k): v for k, v in selected.items()})
+        return result
 
     def set_frontend_prefs(
-        self, user_id: str, changes: dict[str, object]
+        self,
+        user_id: str,
+        changes: dict[str, object],
+        *,
+        workspace_id: str | None = None,
     ) -> dict[str, object]:
         """Mescla ``changes`` nas preferências do frontend de ``user_id`` e persiste.
 
@@ -527,6 +548,37 @@ class RuntimeSettings:
         mesclado do usuário.
         """
         allowed = {k: v for k, v in changes.items() if k in _ALLOWED_FRONTEND_PREF_KEYS}
+        if "decisionModelsEnabled" in allowed and not isinstance(
+            allowed["decisionModelsEnabled"], bool
+        ):
+            allowed.pop("decisionModelsEnabled")
+        if "decisionModelProvider" in allowed and allowed[
+            "decisionModelProvider"
+        ] not in {
+            "clef-local",
+            "laya-local",
+            "clef-api",
+            "jev-api",
+        }:
+            allowed.pop("decisionModelProvider")
+        if "decisionModelSurfaces" in allowed:
+            surfaces = allowed["decisionModelSurfaces"]
+            valid_surfaces = {
+                "hitl",
+                "subagents",
+                "plan_mode",
+                "kanban",
+                "browser",
+                "mcp",
+                "terminal",
+                "network",
+                "background",
+            }
+            if not isinstance(surfaces, dict) or any(
+                key not in valid_surfaces or not isinstance(value, bool)
+                for key, value in surfaces.items()
+            ):
+                allowed.pop("decisionModelSurfaces")
         if "weeklyInsightEnabled" in allowed and not isinstance(
             allowed["weeklyInsightEnabled"], bool
         ):
@@ -540,6 +592,18 @@ class RuntimeSettings:
             allowed["weeklyInsightDismissedWindow"], str
         ):
             allowed.pop("weeklyInsightDismissedWindow")
+        if allowed.get("transcriptionMode") not in {"local", "remote"}:
+            allowed.pop("transcriptionMode", None)
+        decision_keys = {
+            "decisionModelsEnabled",
+            "decisionModelProvider",
+            "decisionModelSurfaces",
+        }
+        workspace_decision_changes = (
+            {key: allowed.pop(key) for key in tuple(allowed) if key in decision_keys}
+            if workspace_id
+            else {}
+        )
         with self._lock:
             all_prefs_raw = self._data.get("frontend_prefs", {})
             all_prefs: dict[str, object] = (
@@ -554,10 +618,26 @@ class RuntimeSettings:
                 else {}
             )
             user_prefs.update(allowed)
+            if workspace_id and workspace_decision_changes:
+                raw_workspace_prefs = user_prefs.get("decision_model_workspace_prefs")
+                workspace_prefs = (
+                    {str(key): value for key, value in raw_workspace_prefs.items()}
+                    if isinstance(raw_workspace_prefs, dict)
+                    else {}
+                )
+                existing_workspace = workspace_prefs.get(workspace_id)
+                scoped = (
+                    {str(key): value for key, value in existing_workspace.items()}
+                    if isinstance(existing_workspace, dict)
+                    else {}
+                )
+                scoped.update(workspace_decision_changes)
+                workspace_prefs[workspace_id] = scoped
+                user_prefs["decision_model_workspace_prefs"] = workspace_prefs
             all_prefs[user_id] = user_prefs
             self._data["frontend_prefs"] = all_prefs
             self._persist("frontend_prefs", all_prefs)
-        return user_prefs
+        return self.get_frontend_prefs(user_id, workspace_id)
 
 
 # Singleton — único por processo

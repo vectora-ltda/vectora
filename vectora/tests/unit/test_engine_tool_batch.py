@@ -60,6 +60,44 @@ def ctx() -> ToolContext:
 
 
 class TestDespachoParaleloSequencial:
+    async def test_veto_do_decision_model_impede_handler(
+        self, ctx: ToolContext
+    ) -> None:
+        """An explicit deny blocks the tool before its handler can cause effects."""
+        invoked = False
+
+        async def mutating_tool(ctx: ToolContext) -> str:
+            nonlocal invoked
+            invoked = True
+            return "mutated"
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolSpec(
+                name="mutating_tool",
+                description="mutating",
+                args_model=create_model("MutatingArgs", value=(str, ...)),
+                handler=mutating_tool,
+                extras=ToolExtras(destructive=True),
+                needs_ctx=True,
+            )
+        )
+        from backend.engine.hitl import _risk_assessment_key
+
+        call = ToolCall(id="deny-1", name="mutating_tool", args={"value": "x"})
+        ctx._extra["systemone_decisions"] = {
+            _risk_assessment_key(call.name, call.args): {
+                "decision": "deny",
+                "reason": "high_risk",
+            }
+        }
+
+        result = await execute_tool_batch([call], tool_registry=registry, ctx=ctx)
+
+        assert invoked is False
+        assert result[0].is_error is True
+        assert "decision_model_denied" in result[0].text()
+
     def test_json_recursivo_nao_classifica_resultado_como_erro(self) -> None:
         """JSON profundamente aninhado não pode quebrar a classificação da tool."""
         raw = "[" * 5000 + "0" + "]" * 5000

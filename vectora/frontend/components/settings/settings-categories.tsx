@@ -25,13 +25,6 @@ const GeralTab = lazyWithRetry(
     })),
   "settings-geral-tab",
 );
-const FallbacksTab = lazyWithRetry(
-  () =>
-    import("./preferencias/tabs/fallbacks-tab").then((mod) => ({
-      default: mod.FallbacksTab,
-    })),
-  "settings-fallbacks-tab",
-);
 const MemoriaTab = lazyWithRetry(
   () =>
     import("./preferencias/tabs/memoria-tab").then((mod) => ({
@@ -221,12 +214,6 @@ export function buildSettingsCategoryGroups({
       group: "preferencias",
       label: m.settings_category_geral(),
       Component: GeralTab,
-    },
-    {
-      id: "fallbacks",
-      group: "preferencias",
-      label: m.settings_category_fallbacks(),
-      Component: FallbacksTab,
     },
     {
       id: "memoria",

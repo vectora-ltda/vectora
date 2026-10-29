@@ -1565,7 +1565,11 @@ async def transcribe_audio_endpoint(
     proprietária do Google que o Chrome tem.
     """
     from backend.api.schemas import _ATTACHMENT_MAX_SIZE_AUDIO_BYTES, _max_base64_length
-    from backend.llm.transcription import TranscriptionError, transcribe_audio
+    from backend.llm.transcription import (
+        TranscriptionError,
+        transcribe_audio,
+        transcribe_audio_local,
+    )
 
     if len(request.audio_base64) > _max_base64_length(_ATTACHMENT_MAX_SIZE_AUDIO_BYTES):
         raise HTTPException(status_code=413, detail="áudio excede o limite de 25MB")
@@ -1578,14 +1582,22 @@ async def transcribe_audio_endpoint(
     try:
         from backend.workspace.runtime_settings import runtime_settings
 
-        text = await transcribe_audio(
-            audio_bytes,
-            request.filename,
-            request.mime_type,
-            provider=runtime_settings.active_provider,
-            model=runtime_settings.active_model,
-            language="",
-        )
+        if request.transcription_mode == "local":
+            text = await transcribe_audio_local(
+                audio_bytes,
+                request.filename,
+                request.mime_type,
+                language="",
+            )
+        else:
+            text = await transcribe_audio(
+                audio_bytes,
+                request.filename,
+                request.mime_type,
+                provider=runtime_settings.active_provider,
+                model=runtime_settings.active_model,
+                language="",
+            )
     except TranscriptionError as exc:
         logger.exception("chat: falha ao transcrever ditado de voz")
         raise HTTPException(status_code=502, detail=str(exc)) from exc

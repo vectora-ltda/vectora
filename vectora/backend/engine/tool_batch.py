@@ -80,6 +80,22 @@ def _check_policy_snapshot_pre_execute(
 
         policy_snapshot = compile_policy_snapshot(ctx)
 
+    # A high-confidence explicit denial from the configured autonomous
+    # Decision Model is a terminal pre-execution veto. It cannot be converted
+    # into approval by a later adapter or tool implementation.
+    try:
+        from backend.engine.hitl import _risk_assessment_key
+
+        decisions = getattr(ctx, "_extra", {}).get("systemone_decisions", {})
+        decision = decisions.get(
+            _risk_assessment_key(tool_call.name, tool_call.args), {}
+        )
+        if isinstance(decision, dict) and decision.get("decision") == "deny":
+            return False, "decision_model_denied: ação bloqueada antes da execução"
+    except Exception:
+        logger.exception("Não foi possível validar o veto do Decision Model")
+        return False, "decision_model_policy_unavailable"
+
     return policy_snapshot.validate_call(tool_call.name, tool_call.args)
 
 

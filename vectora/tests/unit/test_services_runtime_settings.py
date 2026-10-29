@@ -78,6 +78,74 @@ class TestDefaults:
 
 
 class TestPersistence:
+    def test_decision_model_preferences_are_validated_isolated_and_durable(
+        self, rs: RuntimeSettings, tmp_settings_path: Path
+    ) -> None:
+        saved = rs.set_frontend_prefs(
+            "alice",
+            {
+                "decisionModelsEnabled": True,
+                "decisionModelProvider": "laya-local",
+                "decisionModelSurfaces": {"hitl": True, "browser": False},
+            },
+        )
+        assert saved["decisionModelsEnabled"] is True
+        assert saved["decisionModelProvider"] == "laya-local"
+        assert saved["decisionModelSurfaces"] == {"hitl": True, "browser": False}
+        assert rs.get_frontend_prefs("bob") == {}
+        assert (
+            RuntimeSettings(path=tmp_settings_path).get_frontend_prefs("alice") == saved
+        )
+
+    def test_decision_model_preferences_are_isolated_by_workspace(
+        self, rs: RuntimeSettings
+    ) -> None:
+        rs.set_frontend_prefs(
+            "alice",
+            {"theme": "dark", "decisionModelsEnabled": True},
+        )
+        rs.set_frontend_prefs(
+            "alice",
+            {
+                "decisionModelsEnabled": False,
+                "decisionModelProvider": "laya-local",
+                "decisionModelSurfaces": {"hitl": True},
+            },
+            workspace_id="workspace-a",
+        )
+
+        assert (
+            rs.get_frontend_prefs("alice", "workspace-a")["decisionModelsEnabled"]
+            is False
+        )
+        assert (
+            rs.get_frontend_prefs("alice", "workspace-a")["decisionModelProvider"]
+            == "laya-local"
+        )
+        assert (
+            rs.get_frontend_prefs("alice", "workspace-b")["decisionModelsEnabled"]
+            is True
+        )
+        assert "decisionModelProvider" not in rs.get_frontend_prefs(
+            "alice", "workspace-b"
+        )
+        assert rs.get_frontend_prefs("alice", "workspace-a")["theme"] == "dark"
+
+    def test_decision_model_preferences_reject_invalid_values(
+        self, rs: RuntimeSettings
+    ) -> None:
+        saved = rs.set_frontend_prefs(
+            "alice",
+            {
+                "decisionModelsEnabled": "yes",
+                "decisionModelProvider": "unknown-provider",
+                "decisionModelSurfaces": {"hitl": True, "admin": True},
+            },
+        )
+        assert "decisionModelsEnabled" not in saved
+        assert "decisionModelProvider" not in saved
+        assert "decisionModelSurfaces" not in saved
+
     def test_set_creates_file(
         self, rs: RuntimeSettings, tmp_settings_path: Path
     ) -> None:

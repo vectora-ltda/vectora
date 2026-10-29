@@ -19,6 +19,7 @@ import logging
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
+from backend.llm.systemone.preferences import decision_model_enabled_for
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import MessageRole
 
@@ -376,12 +377,13 @@ def _risk_assessment_key(tool_name: str, args: dict[str, Any]) -> str:
     return f"{tool_name}:{digest}"
 
 
-async def precompute_tool_risk_assessment(
+async def precompute_tool_risk_assessment(  # noqa: PLR0911
     harness: SystemOneHarness,
     *,
     tool_name: str,
     ctx: ToolContext,
     args: dict[str, Any],
+    surface: str = "hitl",
     risk_score_threshold: float = 0.70,
 ) -> bool:
     """Calcula a avaliação de risco no fluxo assíncrono anterior ao predicado síncrono `should_require_approval`.
@@ -393,42 +395,118 @@ async def precompute_tool_risk_assessment(
     if not isinstance(extra, dict):
         return False
 
-    workspace_id = getattr(ctx, "workspace_id", None) or "default"
     mode = getattr(ctx, "permission_mode", None) or "ask"
+    if mode != "auto" or not decision_model_enabled_for(ctx, surface):
+        return False
+
+    workspace_id = getattr(ctx, "workspace_id", None) or "default"
     safe_keys = sorted(str(k) for k in args)
     args_summary = f"keys={safe_keys}"
 
     try:
+        if not await harness.is_ready():
+            extra.setdefault("systemone_decisions", {})[
+                _risk_assessment_key(tool_name, args)
+            ] = {"decision": "unavailable", "reason": "decision_model_unavailable"}
+            return False
+    except Exception:
+        logger.warning("hitl: readiness probe failed", exc_info=True)
+        extra.setdefault("systemone_decisions", {})[
+            _risk_assessment_key(tool_name, args)
+        ] = {"decision": "unavailable", "reason": "decision_model_unavailable"}
+        return False
+
+    try:
+        harness.set_mode(
+            "tool_risk_assessment_score", "enforced", workspace_id=workspace_id
+        )
         res = await harness.assess_tool_risk(
             workspace_id=workspace_id,
             tool_name=tool_name,
             args_summary=args_summary,
             permission_mode=mode,
+            allow_remote_override=True,
         )
     except Exception:
         logger.warning("hitl: falha ao pré-calcular risco via SystemOne", exc_info=True)
+        extra.setdefault("systemone_decisions", {})[
+            _risk_assessment_key(tool_name, args)
+        ] = {"decision": "unavailable", "reason": "decision_model_unavailable"}
         return False
 
     if res.mode in ("off", "shadow"):
         return False
-
-    elevate = False
-    if res.policy_result.requires_hitl:
-        elevate = True
-    elif res.response is not None:
-        ans = res.response.answers.get("risk_score")
-        score = getattr(ans, "score", 0.0)
-        if isinstance(score, int | float) and score >= risk_score_threshold:
-            elevate = True
-
-    elevated = extra.setdefault("systemone_risk_elevated_calls", set())
     key = _risk_assessment_key(tool_name, args)
+    if res.response is None or res.policy_result.outcome == "rejected":
+        extra.setdefault("systemone_decisions", {})[key] = {
+            "decision": "unavailable",
+            "reason": "decision_model_unavailable",
+            "provider": res.provider,
+            "model": res.model,
+            "run_id": ctx.run_id,
+            "thread_id": ctx.thread_id,
+        }
+        return False
+
+    answer = res.response.answers.get("risk_score") if res.response else None
+    score = getattr(answer, "score", None)
+    confidence = getattr(answer, "confidence", None)
+    # An incomplete or malformed model answer is not evidence that a call is
+    # safe. Only an explicit, policy-accepted, confident low-risk score may
+    # produce an autonomous allow.
+    decision = "requires_human"
+    reason = "decision_model_missing_or_invalid_risk_score"
+    if res.policy_result.requires_hitl:
+        decision, reason = "requires_human", res.policy_result.reason
+    elif (
+        isinstance(score, int | float)
+        and not isinstance(score, bool)
+        and 0 <= score <= 1
+        and isinstance(confidence, int | float)
+        and not isinstance(confidence, bool)
+        and 0 <= confidence <= 1
+        and confidence >= harness._settings.confidence_threshold_hitl
+    ):
+        if score >= 0.95:
+            decision, reason = "deny", "decision_model_high_risk"
+        elif score >= risk_score_threshold:
+            decision, reason = "requires_human", "decision_model_risk_threshold"
+        else:
+            decision, reason = "allow", "risk_below_threshold"
+    elevate = decision == "requires_human"
+    elevated = extra.setdefault("systemone_risk_elevated_calls", set())
     if elevate:
         elevated.add(key)
-        extra["systemone_risk_requires_approval"] = True
     else:
         elevated.discard(key)
-        extra["systemone_risk_requires_approval"] = bool(elevated)
+    extra["systemone_risk_requires_approval"] = bool(elevated)
+    extra.setdefault("systemone_decisions", {})[key] = {
+        "decision": decision,
+        "reason": reason,
+        "provider": res.provider,
+        "model": res.model,
+        "confidence": confidence,
+        "policy_version": res.policy_version,
+        "decision_id": res.decision_id,
+        "run_id": ctx.run_id,
+        "thread_id": ctx.thread_id,
+    }
+    logger.info(
+        "systemone.execution_decision tool=%s decision=%s reason=%s provider=%s model=%s",
+        tool_name,
+        decision,
+        reason,
+        res.provider,
+        res.model,
+        extra={
+            "tool_name": tool_name,
+            "decision": decision,
+            "reason": reason,
+            "provider": res.provider,
+            "model": res.model,
+            "run_id": ctx.run_id,
+        },
+    )
     return elevate
 
 

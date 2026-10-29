@@ -516,6 +516,11 @@
   },
   {
     "methods": ["GET"],
+    "name": "get_decision_model_readiness_provider_routing_decision_models_readiness_get",
+    "path": "/provider-routing/decision-models/readiness"
+  },
+  {
+    "methods": ["GET"],
     "name": "get_decision_models_status_provider_routing_decision_models_status_get",
     "path": "/provider-routing/decision-models/status"
   },

@@ -497,11 +497,13 @@ export const transcribeAudio = (
   audioBase64: string,
   mimeType: string,
   filename = "recording.webm",
+  transcriptionMode: "local" | "remote" = "remote",
 ): Promise<{ text: string }> =>
   postRpc("/vectora.chat.v1.ChatService/TranscribeAudio", {
     audio_base64: audioBase64,
     mime_type: mimeType,
     filename,
+    transcription_mode: transcriptionMode,
   });
 
 export const getThread = (thread_id: string): Promise<Thread> =>
