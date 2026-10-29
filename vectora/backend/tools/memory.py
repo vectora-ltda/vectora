@@ -110,14 +110,11 @@ async def list_fact_contents(user_id: str) -> list[str]:
     seen: set[str] = set()
     for ns in _memory_namespace_candidates(ctx):
         for item in await store.asearch(ns):
-            if item.key not in seen:
-                seen.add(item.key)
-                items.append(item)
-    return [
-        item.value.get("content", "")
-        for item in items
-        if not _is_memory_expired(item.value)
-    ]
+            if _is_memory_expired(item.value) or item.key in seen:
+                continue
+            seen.add(item.key)
+            items.append(item)
+    return [item.value.get("content", "") for item in items]
 
 
 async def _search_unexpired(
@@ -328,12 +325,14 @@ async def get_memory(ctx: ToolContext, key: str | None = None) -> str:
         # Sem key: lista todas as memórias do namespace
         items = []
         seen: set[str] = set()
+        # Expired copies are skipped before deduplication so an expired scoped
+        # record never shadows a valid legacy record with the same key.
         for ns in namespaces:
             for item in await store.asearch(ns):
-                if item.key not in seen:
-                    seen.add(item.key)
-                    items.append(item)
-        items = [item for item in items if not _is_memory_expired(item.value)]
+                if _is_memory_expired(item.value) or item.key in seen:
+                    continue
+                seen.add(item.key)
+                items.append(item)
         memories = [
             {
                 "key": item.key,
