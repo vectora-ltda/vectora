@@ -3,8 +3,9 @@ name: Vectora (app)
 # Pipeline do app Vectora (backend Python + frontend Vite + casca Electron).
 #
 # Fluxo PR-based: lint/security/frontend/build/testes rodam sempre — em
-# todo PR contra master e em todo push em master (merge de PR) — sem gate
-# manual. A matriz nativa de release só roda no commit de uma PR de release
+# todo PR, qualquer que seja a base (master, release/*, ou branch de feature
+# em PRs empilhados), e em todo push em master/release/* (merge de PR) — sem
+# gate manual. A matriz nativa de release só roda no commit de uma PR de release
 # já mergeada em master (ou por workflow_dispatch manual). A própria matriz
 # publica os artefatos; a tag só é criada após a distribuição concluir.
 # `paths` restringe esse pipeline (caro: lint+security+frontend+build+testes)
@@ -19,7 +20,7 @@ on:
       - ".github/workflows/vectora.yml"
       - ".github/actions/**"
   pull_request:
-    branches: [master, "release/**"]
+    branches: ["**"]
     paths:
       - "vectora/**"
       - "utils/**"
