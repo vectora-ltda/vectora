@@ -130,16 +130,20 @@ export function ChatInterface({
   // Cached por threadId via Zustand — switching back não causa flash vazio.
   const [messages, setMessages] = useThreadMessages(threadId);
   const lastReadCursorRef = useRef(0);
+  const lastReadThreadIdRef = useRef<string | null>(null);
   const inFlightReadCursorRef = useRef<number | null>(null);
   const retriedReadCursorRef = useRef<number | null>(null);
   const readGenerationRef = useRef(0);
   const [readRetry, forceReadRetry] = useState(0);
+  const latestReadRetryRef = useRef(0);
   const readRetryTimerRef = useRef<number | null>(null);
 
   // These refs belong to one thread only. Reset them before a route switch so
   // a cursor acknowledged for the previous conversation cannot suppress the
   // first unread assistant message of the next one.
   useEffect(() => {
+    if (lastReadThreadIdRef.current === threadId) return;
+    lastReadThreadIdRef.current = threadId;
     readGenerationRef.current += 1;
     lastReadCursorRef.current = 0;
     inFlightReadCursorRef.current = null;
@@ -168,6 +172,7 @@ export function ChatInterface({
   // unread until the next render, avoiding the server-side latest-message
   // race that previously inflated/cleared sidebar badges.
   useEffect(() => {
+    latestReadRetryRef.current = readRetry;
     if (isNewThread || !threadId) return;
     const currentGen = readGenerationRef.current;
     const cursor = messages.reduce((max, message) => {
@@ -201,7 +206,11 @@ export function ChatInterface({
         );
       })
       .catch(() => {
-        if (currentGen !== readGenerationRef.current) return;
+        if (
+          currentGen !== readGenerationRef.current ||
+          readRetry !== latestReadRetryRef.current
+        )
+          return;
         inFlightReadCursorRef.current = null;
         if (retriedReadCursorRef.current === cursor) return;
         retriedReadCursorRef.current = cursor;
@@ -211,7 +220,7 @@ export function ChatInterface({
           forceReadRetry((value) => value + 1);
         }, 1000);
       });
-  }, [forceReadRetry, isNewThread, messages, readRetry, threadId]);
+  }, [isNewThread, messages, readRetry, threadId]);
   const [branchHistoryError, setBranchHistoryError] = useState(false);
 
   // Barra de uso de contexto: estima tokens e deriva pct de uso.
@@ -591,7 +600,7 @@ export function ChatInterface({
         // Consume o prefetch do route loader como otimização — MAS só quando
         // ele já trouxe mensagens. Um prefetch vazio (ex.: corrida com o boot
         // do backend logo após reiniciar) não é autoritativo: o backend é a
-        // fonte de verdade no reload (CLAUDE.md #8), então refazemos o fetch.
+        // fonte de verdade no reload, então refazemos o fetch.
         // Sem isso, reabrir a sessão após reiniciar mostrava o chat vazio.
         const prefetched = queryClient.getQueryData<{
           messages: HistoryMessage[];
@@ -616,7 +625,7 @@ export function ChatInterface({
 
         // Repopula a checklist ao vivo do Plan tab (write_todos) — o SSE já
         // entrega isso em tempo real, mas não sobrevive a um reload de
-        // página; o backend é a fonte de verdade (CLAUDE.md #8).
+        // página; o backend é a fonte de verdade.
         useWorkbenchStore
           .getState()
           .setTodos(currentThreadId, historyTodos ?? []);
@@ -964,7 +973,7 @@ export function ChatInterface({
     if (!isCurrentlyLoading && messageQueueRef.current.length > 0) {
       processQueueRef.current();
     }
-  }, [uiState.isLoading, uiState.isRegenerating, processQueue]);
+  }, [uiState.isLoading, uiState.isRegenerating]);
 
   // Auto-send initial message (for ?q= URL param)
   useEffect(() => {

@@ -10,6 +10,20 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+// O store é a unidade sob teste: a API de preferências, o workspace e a
+// configuração de deployment não precisam carregar suas árvores de módulos.
+vi.mock("@/lib/api/settings-prefs", () => ({
+  fetchPrefs: vi.fn().mockResolvedValue({}),
+  fetchPrefsOrNull: vi.fn().mockResolvedValue(null),
+  pushPrefs: vi.fn().mockResolvedValue({}),
+}));
+vi.mock("@/lib/stores/workspaces-store", () => ({
+  useWorkspacesStore: { getState: () => ({ active_id: null }) },
+}));
+vi.mock("@/lib/config/deployment-config", () => ({
+  getDefaultModel: () => "",
+}));
+
 // Mock localStorage antes de importar o store
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
