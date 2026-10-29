@@ -1042,18 +1042,34 @@ async def list_threads(
             + " ORDER BY pinned DESC, last_activity DESC LIMIT ?"
         )
         params = (*legacy_params, limit)
-    async with db.execute(query, params) as cur:
-        rows = await cur.fetchall()
 
-    if http_request is not None:
+    if http_request is None:
+        async with db.execute(query, params) as cur:
+            rows = await cur.fetchall()
+    else:
+        # Legacy UI metadata cannot establish ownership during a read, so
+        # ineligible rows are dropped before the limit is applied: pages are
+        # read in order until ``limit`` eligible threads are collected, so
+        # stale metadata at the top never hides older valid threads.
         user_id = _user_id(http_request)
-        foreign_ids = await session_store.foreign_thread_ids(
-            [r[0] for r in rows], user_id
-        )
-        # Legacy UI metadata cannot establish ownership during a read.
-        rows = [
-            r for r in rows if r[0] in native_thread_ids and r[0] not in foreign_ids
-        ]
+        paged_query = query + " OFFSET ?"
+        rows = []
+        offset = 0
+        while len(rows) < limit:
+            async with db.execute(paged_query, (*params, offset)) as cur:
+                page = await cur.fetchall()
+            if not page:
+                break
+            offset += len(page)
+            foreign_ids = await session_store.foreign_thread_ids(
+                [r[0] for r in page], user_id
+            )
+            rows.extend(
+                r for r in page if r[0] in native_thread_ids and r[0] not in foreign_ids
+            )
+            if len(page) < limit:
+                break
+        rows = rows[:limit]
 
     user_id = _user_id(http_request) if http_request is not None else "local"
     current_device_id = (
@@ -2140,7 +2156,12 @@ async def _safe_history_cursor(
     entries: Sequence[object],
     fallback: int,
 ) -> int:
-    """Limit the returned cursor to events represented by response messages."""
+    """Limit the returned cursor to events represented by response messages.
+
+    ``fallback`` is the summary cursor read together with ``run_status``; the
+    result never exceeds it, so SSE replay from this cursor still delivers
+    any run state change that happened after the summary was captured.
+    """
     get_seq = getattr(store, "get_event_seq_by_message_id", None)
     if not callable(get_seq):
         return fallback
@@ -2150,7 +2171,7 @@ async def _safe_history_cursor(
             continue
         seq = await get_seq(thread_id, message_id)
         if seq is not None:
-            return int(seq)
+            return min(int(seq), fallback)
     return 0
 
 

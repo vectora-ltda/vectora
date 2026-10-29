@@ -806,9 +806,13 @@ class TestListThreadsIncludesUpserted:
             await db.close()
 
     @pytest.mark.asyncio
-    async def test_upserted_thread_without_message_omitted_from_list(self):
+    async def test_upserted_thread_without_message_omitted_from_list(
+        self, session_store
+    ):
         """Par de erro do teste acima — _upsert_session sozinho (sem
-        _increment_message_count) não faz a thread aparecer em ListThreads."""
+        _increment_message_count) não faz a thread aparecer em ListThreads.
+        A sessão nativa existe para que a ausência dependa só de
+        `message_count`, não do filtro de posse."""
         import aiosqlite
         from fastapi.testclient import TestClient
 
@@ -818,6 +822,7 @@ class TestListThreadsIncludesUpserted:
         await _ensure_schema(db)
         app, orig_get_db, orig_conn, t_mod = _make_app_with_db(db)
         try:
+            await session_store.create_session("streamed-thread-empty", user_id="local")
             await _upsert_session("streamed-thread-empty")
 
             client = TestClient(app, raise_server_exceptions=False)
