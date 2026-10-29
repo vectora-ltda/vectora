@@ -405,3 +405,41 @@ def test_cli_reports_invalid_cassette_without_traceback(
     assert (
         "objeto JSON" if raw == "[]" else "redaction_version não suportada"
     ) in output.err
+
+
+def test_cli_compare_reports_incomparable_cassettes_without_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Loadable cassettes that cannot be compared fail with a clear message."""
+    interaction = CassetteInteraction(
+        interaction_id="1", messages=[], response_text="A", tool_calls=[]
+    )
+    valid = tmp_path / "valid.json"
+    duplicated = tmp_path / "duplicated.json"
+    valid.write_text(
+        Cassette(cassette_id="valid", interactions=[interaction]).model_dump_json(),
+        encoding="utf-8",
+    )
+    duplicated.write_text(
+        Cassette(
+            cassette_id="duplicated", interactions=[interaction, interaction]
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+
+    def _compare(candidate: Path) -> int:
+        return handle_eval(
+            argparse.Namespace(
+                action="compare", baseline=str(valid), candidate=str(candidate)
+            )
+        )
+
+    assert _compare(valid) == 0
+    capsys.readouterr()
+
+    assert _compare(duplicated) == 1
+    output = capsys.readouterr()
+    assert "Erro ao comparar cassetes" in output.err
+    assert "interaction_id duplicado" in output.err
+    assert "Traceback" not in output.err
+    assert output.out == ""
