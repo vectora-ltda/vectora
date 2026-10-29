@@ -301,16 +301,18 @@ async def get_memory(ctx: ToolContext, key: str | None = None) -> str:
             item = None
             for namespace in namespaces:
                 item = await store.aget(namespace, key)
-                if item is not None:
-                    break
+                if item is None:
+                    continue
+                if _is_memory_expired(item.value):
+                    await store.adelete(namespace, key)
+                    item = None
+                    continue
+                break
             if item is None:
                 logger.warning("memory_not_found key=%s ns=%s", key, namespaces[0])
                 return json.dumps({"status": "not_found", "key": key})
 
             val = item.value
-            if _is_memory_expired(val):
-                await store.adelete(namespace, key)
-                return json.dumps({"status": "not_found", "key": key})
             logger.debug("memory_retrieved key=%s", key)
             return json.dumps(
                 {
