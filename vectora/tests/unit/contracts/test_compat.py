@@ -315,6 +315,28 @@ def test_schema_compat_additional_properties_respects_direction() -> None:
         old_response, new_response, direction="response"
     ).is_compatible
 
+    # An absent key means ``true`` in JSON Schema, so adding ``false`` to a
+    # request or dropping it from a response is the same breaking change.
+    implicit_open = {"type": "object"}
+    closed = {"type": "object", "additionalProperties": False}
+    assert not check_schema_compatibility(
+        implicit_open, closed, direction="request"
+    ).is_compatible
+    assert not check_schema_compatibility(
+        closed, implicit_open, direction="response"
+    ).is_compatible
+    assert check_schema_compatibility(
+        closed, implicit_open, direction="request"
+    ).is_compatible
+    assert check_schema_compatibility(
+        implicit_open, closed, direction="response"
+    ).is_compatible
+    assert check_schema_compatibility(
+        implicit_open,
+        {"type": "object", "additionalProperties": True},
+        direction="request",
+    ).is_compatible
+
 
 def test_schema_compat_oneof_rejects_overlapping_new_alternative() -> None:
     """A new overlapping oneOf branch can make an old value ambiguous."""
