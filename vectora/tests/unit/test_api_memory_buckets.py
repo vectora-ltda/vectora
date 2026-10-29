@@ -311,3 +311,52 @@ async def test_publish_bucket_de_outro_workspace_rejeita_upload(monkeypatch) -> 
 
     assert exc_info.value.status_code == 404
     publish.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_install_e_publish_sem_usuario_seguem_a_politica_de_auth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With auth disabled, a request without ``state.user`` reaches the service
+    (local mode); with auth enabled, the same request is rejected with 401."""
+    from backend.api.handlers import memory_buckets
+    from backend.services import license
+
+    monkeypatch.setattr(license, "_get_token", lambda: "tok-123")
+    monkeypatch.setattr(
+        "backend.api.handlers.workspaces.require_workspace_access",
+        lambda workspace_id, request: object(),
+    )
+    monkeypatch.setattr(
+        memory_buckets, "_authorize_bucket_workspace", lambda *args: None
+    )
+    download = AsyncMock(return_value="shared_b1")
+    publish = AsyncMock(return_value="b-new")
+    monkeypatch.setattr(memory_buckets, "download_memory_bucket", download)
+    monkeypatch.setattr(memory_buckets, "publish_memory_bucket", publish)
+
+    def _anonymous() -> Request:
+        request = Request({"type": "http", "method": "POST", "path": "/memory-buckets"})
+        request.state.user = None
+        return request
+
+    monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "false")
+    installed = await post_install(InstallRequest(bucket_id="b1"), _anonymous())
+    assert installed == {"status": "installed", "collection": "shared_b1"}
+    published = await post_publish(_publish_req(), _anonymous())
+    assert published == {"status": "published", "bucket_id": "b-new"}
+    assert publish.await_args is not None
+    assert publish.await_args.kwargs["workspace_id"] == "ws1"
+
+    download.reset_mock()
+    publish.reset_mock()
+    monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "true")
+    for call in (
+        post_install(InstallRequest(bucket_id="b1"), _anonymous()),
+        post_publish(_publish_req(), _anonymous()),
+    ):
+        with pytest.raises(HTTPException) as exc_info:
+            await call
+        assert exc_info.value.status_code == 401
+    download.assert_not_awaited()
+    publish.assert_not_awaited()

@@ -60,9 +60,16 @@ def _authorize_workspace(
     Catalog metadata remains public, but an install or publication carrying a
     workspace identifier must prove ownership before any download, local
     extraction, or remote upload occurs.  This keeps a client from using the
-    bucket endpoints as a cross-workspace storage primitive.
+    bucket endpoints as a cross-workspace storage primitive.  A missing user
+    is rejected only while authentication is enabled; with
+    ``VECTORA_AUTH_REQUIRED=false`` the auth middleware lets local requests
+    through without ``request.state.user``.
     """
-    if request is None or getattr(request.state, "user", None) is None:
+    from backend.api.middleware.auth import _auth_enabled
+
+    if request is None or (
+        _auth_enabled() and getattr(request.state, "user", None) is None
+    ):
         raise HTTPException(status_code=401, detail="Autenticação obrigatória.")
     if not workspace_id:
         if require_scope:
@@ -134,6 +141,7 @@ async def post_publish(req: PublishRequest, request: Request) -> dict:
             req.name,
             req.description,
             req.license,
+            workspace_id=workspace_id,
             session_token=token,
         )
     except MemoryBucketsError as exc:
