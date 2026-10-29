@@ -246,6 +246,71 @@ class TestSessionRuns:
             event.event_key == "run_failed:run-terminal-atomic" for event in events
         )
 
+    async def test_terminal_outcome_reverte_tudo_quando_o_ledger_falha(
+        self, store: SessionStore
+    ) -> None:
+        """Uma falha no meio do commit terminal não deixa run, mensagem ou
+        ledger parcialmente gravados, e a repetição grava cada um uma vez."""
+        thread_id = "thread-terminal-rollback"
+        run_id = "run-terminal-rollback"
+        turn_id = f"{run_id}:terminal"
+        await store.create_session(thread_id, user_id="alice")
+        await store.start_run(thread_id, run_id, turn_id="turn-terminal-rollback")
+
+        async def _commit_terminal() -> tuple[int, int]:
+            return await store.append_terminal_outcome(
+                thread_id,
+                text_message(MessageRole.ASSISTANT, "falha do provider"),
+                parent_message_id=None,
+                turn_id=turn_id,
+                run_id=run_id,
+                status="failed",
+                detail="provider indisponível",
+            )
+
+        async def _counts() -> tuple[int, int, int]:
+            async with store._pool.acquire() as conn:
+                cur = await conn.execute(
+                    "SELECT "
+                    "(SELECT COUNT(*) FROM messages WHERE thread_id = ?), "
+                    "(SELECT COUNT(*) FROM thread_events "
+                    " WHERE thread_id = ? AND type = 'run_failed'), "
+                    "(SELECT COUNT(*) FROM thread_events "
+                    " WHERE thread_id = ? AND type = 'message_created')",
+                    (thread_id, thread_id, thread_id),
+                )
+                row = await cur.fetchone()
+            assert row is not None
+            return int(row[0]), int(row[1]), int(row[2])
+
+        async with store._pool.acquire() as conn:
+            await conn.execute(
+                "CREATE TRIGGER fail_run_failed BEFORE INSERT ON thread_events "
+                "WHEN NEW.type = 'run_failed' "
+                "BEGIN SELECT RAISE(ABORT, 'ledger indisponível'); END"
+            )
+            await conn.commit()
+
+        with pytest.raises(Exception, match="ledger indisponível"):
+            await _commit_terminal()
+
+        run = await store.get_agent_run(run_id)
+        assert run is not None
+        assert run.status not in {"failed", "passed", "cancelled"}
+        assert await store.get_message_id_by_turn_id(thread_id, turn_id) is None
+        assert await _counts() == (0, 0, 0)
+
+        async with store._pool.acquire() as conn:
+            await conn.execute("DROP TRIGGER fail_run_failed")
+            await conn.commit()
+
+        first = await _commit_terminal()
+        second = await _commit_terminal()
+        assert first == second
+        run = await store.get_agent_run(run_id)
+        assert run is not None and run.status == "failed"
+        assert await _counts() == (1, 1, 1)
+
     async def test_terminal_outcome_rejeita_status_nao_terminal(
         self, store: SessionStore
     ) -> None:
@@ -392,14 +457,81 @@ class TestAppendMessageEGetHistory:
                         created_at TEXT NOT NULL
                     );"""
                 )
+                await conn.execute(
+                    "INSERT INTO sessions VALUES "
+                    "('legacy-thread', 'alice', 'code', 'ask', '2026-01-01', '2026-01-01')"
+                )
+                await conn.executemany(
+                    "INSERT INTO messages (id, thread_id, parent_message_id, role, "
+                    "content_json, tool_calls_json, tool_call_id, name, is_error, "
+                    "created_at) VALUES (?, 'legacy-thread', ?, ?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        (
+                            7,
+                            None,
+                            "user",
+                            '[{"kind": "text", "text": "pergunta"}]',
+                            None,
+                            None,
+                            None,
+                            0,
+                            "2026-01-01T00:00:01",
+                        ),
+                        (
+                            9,
+                            7,
+                            "assistant",
+                            '[{"kind": "text", "text": "falhou"}]',
+                            '[{"id": "c1", "name": "file_read", "args": {}}]',
+                            None,
+                            None,
+                            1,
+                            "2026-01-01T00:00:02",
+                        ),
+                    ],
+                )
+                # A deleted message with a high id leaves the AUTOINCREMENT
+                # counter ahead of every surviving row.
+                await conn.execute(
+                    "INSERT INTO messages (id, thread_id, role, content_json, "
+                    "created_at) VALUES (50, 'legacy-thread', 'user', '[]', "
+                    "'2026-01-01T00:00:03')"
+                )
+                await conn.execute("DELETE FROM messages WHERE id = 50")
                 await conn.commit()
 
+            legacy_columns = (
+                "id, parent_message_id, role, content_json, tool_calls_json, "
+                "is_error, created_at"
+            )
+
+            async def _legacy_rows() -> list[tuple[object, ...]]:
+                async with pool.acquire() as conn:
+                    return [
+                        tuple(row)
+                        for row in await conn.execute_fetchall(
+                            f"SELECT {legacy_columns} FROM messages "  # noqa: S608
+                            "WHERE thread_id = 'legacy-thread' ORDER BY id"
+                        )
+                    ]
+
+            before = await _legacy_rows()
             store = SessionStore(pool)
             await store.setup()
             async with pool.acquire() as conn:
                 columns = await conn.execute_fetchall("PRAGMA table_info(messages)")
                 is_error = next(row for row in columns if row[1] == "is_error")
             assert is_error[3] == 0
+            assert await _legacy_rows() == before
+
+            await SessionStore(pool).setup()
+            assert await _legacy_rows() == before
+            async with pool.acquire() as conn:
+                lineage = await conn.execute_fetchall(
+                    "SELECT turn_id, run_id, edited_files_json FROM messages "
+                    "WHERE thread_id = 'legacy-thread' ORDER BY id"
+                )
+            assert [tuple(row) for row in lineage] == [(None, None, None)] * 2
 
             await store.create_session("legacy-thread", user_id="alice")
             await store.append_message_recorded(
@@ -412,6 +544,11 @@ class TestAppendMessageEGetHistory:
             )
             history = await store.get_history("legacy-thread")
             assert history and history[-1].is_error is None
+            async with pool.acquire() as conn:
+                newest = list(
+                    await conn.execute_fetchall("SELECT MAX(id) FROM messages")
+                )
+            assert int(newest[0][0]) > 50
         finally:
             await pool.close()
 
