@@ -402,6 +402,26 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
                         run_id, edited_files_json, is_branch_head, created_at
                         FROM messages_legacy"""
                 )
+                # RENAME moves the AUTOINCREMENT counter to messages_legacy and
+                # DROP deletes it. Carry it over so ids of deleted messages are
+                # never reissued to new rows.
+                legacy_sequence = list(
+                    await conn.execute_fetchall(
+                        "SELECT seq FROM sqlite_sequence WHERE name = 'messages_legacy'"
+                    )
+                )
+                if legacy_sequence:
+                    await conn.execute(
+                        "UPDATE sqlite_sequence SET seq = MAX(seq, ?) "
+                        "WHERE name = 'messages'",
+                        (int(legacy_sequence[0][0]),),
+                    )
+                    await conn.execute(
+                        "INSERT INTO sqlite_sequence (name, seq) SELECT 'messages', ? "
+                        "WHERE NOT EXISTS "
+                        "(SELECT 1 FROM sqlite_sequence WHERE name = 'messages')",
+                        (int(legacy_sequence[0][0]),),
+                    )
                 await conn.execute("DROP TABLE messages_legacy")
                 await conn.execute(
                     "CREATE INDEX ix_messages_thread ON messages(thread_id, id)"

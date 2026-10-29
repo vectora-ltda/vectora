@@ -934,6 +934,10 @@ async def test_branches_rejeita_ponta_inexistente_com_404() -> None:
         (["0"], 0, [2]),
         ([None, "5"], 5, [2, 1]),
         ([None, None], 0, [2, 1]),
+        # A message from a run that started after the summary snapshot can
+        # carry a newer seq; the cursor never moves past the summary.
+        (["120"], 99, [2]),
+        ([None, "100"], 99, [2, 1]),
     ],
 )
 async def test_safe_history_cursor_uses_latest_available_sequence(

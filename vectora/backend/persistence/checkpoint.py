@@ -342,6 +342,11 @@ def restore_snapshot_checkpoint(snapshot_path: str, cwd: str) -> dict[str, Any]:
                 total_bytes += member.size
                 if total_bytes > _SNAPSHOT_MAX_TOTAL_BYTES:
                     raise ValueError("snapshot excede o limite total")
+                # The unresolved path is checked first: ``resolve()`` follows a
+                # symlinked destination to its target, which would then pass
+                # every check below and be overwritten in place.
+                if (cwd_path / member_path).is_symlink():
+                    raise ValueError(f"destino é symlink: {member.name}")
                 destination = (cwd_path / member_path).resolve()
                 try:
                     destination.relative_to(cwd_path)
@@ -357,8 +362,6 @@ def restore_snapshot_checkpoint(snapshot_path: str, cwd: str) -> dict[str, Any]:
                     cursor = cursor / component
                     if cursor.is_symlink():
                         raise ValueError(f"caminho pai é symlink: {member.name}")
-                if destination.exists() and destination.is_symlink():
-                    raise ValueError(f"destino é symlink: {member.name}")
                 validated.append((member, destination))
 
             # Validate the complete archive before touching the workspace.

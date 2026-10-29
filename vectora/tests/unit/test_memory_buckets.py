@@ -26,6 +26,17 @@ from backend.services.memory_buckets import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _bucket_owned_by_ws1(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Local buckets belong to ``ws1`` unless a test overrides the owner."""
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(
+        "backend.services.rag_buckets.get_bucket",
+        lambda runtime_settings, bucket_id: SimpleNamespace(workspace_id="ws1"),
+    )
+
+
 @pytest.mark.parametrize("bucket_id", ["../escape", "nested/id", r"nested\\id", ""])
 def test_bucket_id_rejects_path_traversal(bucket_id):
     """IDs externos nunca podem escapar da coleção isolada local."""
@@ -241,7 +252,13 @@ async def test_publish_rejects_symlink_inside_collection(tmp_path):
         pytest.skip("symlinks não disponíveis neste ambiente")
     with pytest.raises(MemoryBucketsError, match="link simbólico"):
         await publish_memory_bucket(
-            "b1", "n", "d", "MIT", session_token="tok", lancedb_dir=tmp_path
+            "b1",
+            "n",
+            "d",
+            "MIT",
+            workspace_id="ws1",
+            session_token="tok",
+            lancedb_dir=tmp_path,
         )
 
 
@@ -253,6 +270,7 @@ async def test_publish_missing_local_workspace_raises_clear_error(tmp_path):
             "Nome",
             "Descrição",
             "MIT",
+            workspace_id="ws1",
             session_token="tok",
             lancedb_dir=tmp_path,
         )
@@ -285,6 +303,7 @@ async def test_publish_success_returns_bucket_id(tmp_path, monkeypatch):
         "Meu bucket",
         "descrição",
         "MIT",
+        workspace_id="ws1",
         session_token="tok123",
         lancedb_dir=tmp_path,
     )
@@ -309,7 +328,13 @@ async def test_publish_network_failure_raises_memory_buckets_error(
 
     with pytest.raises(MemoryBucketsError, match="Falha ao publicar"):
         await publish_memory_bucket(
-            "b1", "n", "d", "MIT", session_token="tok", lancedb_dir=tmp_path
+            "b1",
+            "n",
+            "d",
+            "MIT",
+            workspace_id="ws1",
+            session_token="tok",
+            lancedb_dir=tmp_path,
         )
 
 
@@ -520,7 +545,13 @@ async def test_publish_resposta_sem_id_levanta_erro_claro(tmp_path, monkeypatch)
 
     with pytest.raises(MemoryBucketsError, match="sem id"):
         await publish_memory_bucket(
-            "b1", "n", "d", "MIT", session_token="tok", lancedb_dir=tmp_path
+            "b1",
+            "n",
+            "d",
+            "MIT",
+            workspace_id="ws1",
+            session_token="tok",
+            lancedb_dir=tmp_path,
         )
 
 
@@ -544,7 +575,13 @@ async def test_publish_workspace_com_pasta_vazia_ainda_empacota_sem_erro(
     )
 
     remote_bucket_id = await publish_memory_bucket(
-        "b-vazio", "n", "d", "MIT", session_token="tok", lancedb_dir=tmp_path
+        "b-vazio",
+        "n",
+        "d",
+        "MIT",
+        workspace_id="ws1",
+        session_token="tok",
+        lancedb_dir=tmp_path,
     )
 
     assert remote_bucket_id == "bucket-vazio"
@@ -570,7 +607,13 @@ async def test_publish_http_401_por_session_token_invalido_levanta_erro_claro(
 
     with pytest.raises(MemoryBucketsError, match="401"):
         await publish_memory_bucket(
-            "b1", "n", "d", "MIT", session_token="tok-invalido", lancedb_dir=tmp_path
+            "b1",
+            "n",
+            "d",
+            "MIT",
+            workspace_id="ws1",
+            session_token="tok-invalido",
+            lancedb_dir=tmp_path,
         )
 
 
@@ -720,7 +763,13 @@ async def test_publish_http_error_status_includes_status_code_in_message(
 
     with pytest.raises(MemoryBucketsError, match="403"):
         await publish_memory_bucket(
-            "b1", "n", "d", "MIT", session_token="tok", lancedb_dir=tmp_path
+            "b1",
+            "n",
+            "d",
+            "MIT",
+            workspace_id="ws1",
+            session_token="tok",
+            lancedb_dir=tmp_path,
         )
 
 
@@ -744,7 +793,13 @@ async def test_publish_response_without_id_raises_clear_error(tmp_path, monkeypa
 
     with pytest.raises(MemoryBucketsError, match="sem id"):
         await publish_memory_bucket(
-            "b1", "n", "d", "MIT", session_token="tok", lancedb_dir=tmp_path
+            "b1",
+            "n",
+            "d",
+            "MIT",
+            workspace_id="ws1",
+            session_token="tok",
+            lancedb_dir=tmp_path,
         )
 
 
@@ -770,7 +825,79 @@ async def test_publish_empty_workspace_dir_still_packages_empty_archive(
     )
 
     remote_bucket_id = await publish_memory_bucket(
-        "b-empty", "n", "d", "MIT", session_token="tok", lancedb_dir=tmp_path
+        "b-empty",
+        "n",
+        "d",
+        "MIT",
+        workspace_id="ws1",
+        session_token="tok",
+        lancedb_dir=tmp_path,
     )
 
     assert remote_bucket_id == "empty-bucket-id"
+
+
+@pytest.mark.asyncio
+async def test_publish_exige_bucket_do_workspace_antes_de_empacotar(
+    tmp_path, monkeypatch
+) -> None:
+    """The service itself enforces ownership: a bucket from another workspace,
+    an unknown bucket or a missing workspace never reaches the upload."""
+    from types import SimpleNamespace
+
+    bucket_dir = tmp_path / "bucket_b1.lance"
+    bucket_dir.mkdir()
+    (bucket_dir / "table.lance").write_bytes(b"data")
+    posts: list[str] = []
+
+    async def _fake_post(self, url, **kwargs):
+        posts.append(url)
+        return httpx.Response(
+            200, json={"ok": True, "id": "remote"}, request=httpx.Request("POST", url)
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+    owners = {"b1": SimpleNamespace(workspace_id="other")}
+    monkeypatch.setattr(
+        "backend.services.rag_buckets.get_bucket",
+        lambda runtime_settings, bucket_id: owners.get(bucket_id),
+    )
+
+    for workspace_id in ("ws1", ""):
+        with pytest.raises(MemoryBucketsError, match="workspace"):
+            await publish_memory_bucket(
+                "b1",
+                "n",
+                "d",
+                "MIT",
+                workspace_id=workspace_id,
+                session_token="tok",
+                lancedb_dir=tmp_path,
+            )
+    owners.clear()
+    with pytest.raises(MemoryBucketsError, match="workspace"):
+        await publish_memory_bucket(
+            "b1",
+            "n",
+            "d",
+            "MIT",
+            workspace_id="ws1",
+            session_token="tok",
+            lancedb_dir=tmp_path,
+        )
+    assert posts == []
+
+    owners["b1"] = SimpleNamespace(workspace_id="ws1")
+    assert (
+        await publish_memory_bucket(
+            "b1",
+            "n",
+            "d",
+            "MIT",
+            workspace_id="ws1",
+            session_token="tok",
+            lancedb_dir=tmp_path,
+        )
+        == "remote"
+    )
+    assert len(posts) == 1

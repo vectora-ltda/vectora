@@ -91,8 +91,9 @@ def check_schema_compatibility(
         )
         (report.breaking if is_breaking else report.non_breaking).append(message)
 
-    old_additional = old_schema.get("additionalProperties")
-    new_additional = new_schema.get("additionalProperties")
+    # JSON Schema treats an absent ``additionalProperties`` as ``true``.
+    old_additional = old_schema.get("additionalProperties", True)
+    new_additional = new_schema.get("additionalProperties", True)
     if isinstance(old_additional, bool) and isinstance(new_additional, bool):
         if old_additional != new_additional:
             # Requests are sets of values accepted by the server; responses are

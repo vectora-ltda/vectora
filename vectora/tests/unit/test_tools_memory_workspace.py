@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from backend.tools.context import ToolContext
 from backend.tools.memory import _user_id_from_ctx
 
@@ -86,3 +88,34 @@ async def test_explicit_delete_removes_legacy_but_preserves_other_workspace() ->
     assert (
         json.loads(await get_memory(second, "only-fallback"))["status"] == "not_found"
     )
+
+
+async def test_listing_skips_expired_scoped_copy_before_deduplicating(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An expired scoped copy cannot hide the valid legacy copy of the same key."""
+    import json
+
+    from backend.services import agent_factory
+    from backend.testing.mocks import NativeInMemoryStore
+    from backend.tools.memory import _memory_namespace, get_memory, list_fact_contents
+
+    store = NativeInMemoryStore()
+    ctx = ToolContext(user_id="alice", workspace_id="first", store=store)
+    legacy = ("user", "alice", "memories")
+    expired = {"content": "expired", "valid_until": "2000-01-01T00:00:00Z"}
+    await store.aput(legacy, "key", {"content": "shared"})
+    await store.aput(_memory_namespace(ctx), "key", expired)
+
+    listed = json.loads(await get_memory(ctx))["memories"]
+    assert [(m["key"], m["content"]) for m in listed] == [("key", "shared")]
+
+    async def _store() -> NativeInMemoryStore:
+        return store
+
+    monkeypatch.setattr(agent_factory, "get_store", _store)
+    assert await list_fact_contents("alice") == ["shared"]
+
+    await store.aput(legacy, "key", expired)
+    assert json.loads(await get_memory(ctx))["memories"] == []
+    assert await list_fact_contents("alice") == []

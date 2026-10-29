@@ -329,3 +329,52 @@ def test_find_agent_page_rejeita_vectora_app_e_ui() -> None:
 
     context_with_real_tab = SimpleNamespace(pages=[app_shell_page, workbench_tab_page])
     assert browser_session._find_agent_page(context_with_real_tab) is workbench_tab_page
+
+
+@pytest.mark.asyncio
+async def test_close_tab_da_ultima_aba_libera_guards_antes_de_reusar_a_pagina(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A última aba é reaproveitada, então seus guards não podem sobreviver."""
+    from backend.tools import browser as browser_tools
+
+    unroutes: list[tuple[str, object]] = []
+    released: list[object] = []
+    handler = object()
+
+    class _Owner:
+        async def unroute(self, pattern: str, route_handler: object) -> None:
+            unroutes.append((pattern, route_handler))
+
+    page = SimpleNamespace(
+        goto=AsyncMock(),
+        _vectora_route_owner=_Owner(),
+        _vectora_route_handler=handler,
+    )
+    tab = SimpleNamespace(
+        page=page,
+        console_log=[],
+        network_log=[],
+        _request_entries=[],
+        dialog_policy=None,
+    )
+
+    async def _release(target: object) -> None:
+        released.append(target)
+
+    monkeypatch.setattr(browser_tools, "release_navigation_guard", _release)
+    monkeypatch.setitem(
+        browser_session._sessions,
+        "ws-last-tab-guard",
+        {"tabs": {"only": tab}, "active_tab_id": "only"},
+    )
+
+    assert await browser_session.close_tab("ws-last-tab-guard", "missing") is False
+    assert unroutes == []
+    assert released == []
+
+    assert await browser_session.close_tab("ws-last-tab-guard", "only") is True
+    assert unroutes == [("**/*", handler)]
+    assert released == [page]
+    assert not hasattr(page, "_vectora_route_handler")
+    page.goto.assert_awaited_once_with("about:blank", wait_until="domcontentloaded")

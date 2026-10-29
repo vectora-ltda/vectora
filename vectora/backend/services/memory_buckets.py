@@ -204,6 +204,7 @@ async def publish_memory_bucket(
     description: str,
     license: str,  # noqa: A002 — nome de campo do domínio (licença), não a builtin
     *,
+    workspace_id: str,
     session_token: str,
     lancedb_dir: Path | None = None,
 ) -> str:
@@ -212,9 +213,23 @@ async def publish_memory_bucket(
     `POST /memory-buckets/publish`. Retorna o `id` do bucket recém-publicado
     na Memory Buckets (sempre `verified=false` até curadoria manual) —
     distinto do `bucket_id` local que originou a publicação.
+
+    O bucket precisa pertencer a `workspace_id`; a posse é verificada aqui,
+    antes de ler ou empacotar qualquer arquivo, para que nenhum chamador
+    (handler HTTP ou tool do agente) publique o bucket de outro workspace.
     """
     bucket_id = _validate_bucket_id(bucket_id)
+    from backend.services import rag_buckets
     from backend.settings import settings
+    from backend.workspace.runtime_settings import runtime_settings
+
+    if not workspace_id:
+        raise MemoryBucketsError("workspace_id é obrigatório para publicar um bucket.")
+    bucket = rag_buckets.get_bucket(runtime_settings, bucket_id)
+    if bucket is None or bucket.workspace_id != workspace_id:
+        raise MemoryBucketsError(
+            f"Bucket '{bucket_id}' não pertence ao workspace informado."
+        )
 
     collection = f"bucket_{bucket_id}"
     # LanceDB grava cada tabela num diretório `{collection}.lance`.

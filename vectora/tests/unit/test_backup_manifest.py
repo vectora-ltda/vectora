@@ -390,3 +390,32 @@ def test_backup_restore_preserva_artifacts_e_sidecars(tmp_path: Path) -> None:
     restored = target_root / "artifacts" / "thread" / "plan.md"
     assert restored.read_text(encoding="utf-8") == "conteudo"
     assert restored.with_suffix(".artifact.json").exists()
+
+
+def test_create_backup_rejeita_temporario_substituido(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Se o temporário trocar de inode antes da publicação, o backup falha,
+    nada é publicado e o temporário é removido; sem troca, o backup publica."""
+    import os
+
+    database = tmp_path / "vectora.db"
+    sqlite3.connect(database).close()
+    published = tmp_path / "ok.zip"
+    create_backup(database, published)
+    assert published.is_file()
+
+    destination = tmp_path / "backup.zip"
+    real_fstat = os.fstat
+
+    def _fstat_de_outro_arquivo(fd: int) -> os.stat_result:
+        stat = real_fstat(fd)
+        fields = list(stat)
+        fields[1] = stat.st_ino + 1
+        return os.stat_result(fields)
+
+    monkeypatch.setattr(backup_module.os, "fstat", _fstat_de_outro_arquivo)
+    with pytest.raises(ValueError, match="substituído"):
+        create_backup(database, destination)
+    assert not destination.exists()
+    assert not list(tmp_path.glob("*.vbackup.tmp"))

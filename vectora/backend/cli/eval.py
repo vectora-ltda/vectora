@@ -70,7 +70,11 @@ def _handle_compare(args: argparse.Namespace) -> int:
         )
         return 1
 
-    report = compare_cassettes(b_cassette, c_cassette)
+    try:
+        report = compare_cassettes(b_cassette, c_cassette)
+    except ValueError as exc:
+        print(f"Erro ao comparar cassetes: {exc}", file=sys.stderr)
+        return 1
 
     if getattr(args, "output", "human") == "json":
         print(json.dumps(report.model_dump(), indent=2, ensure_ascii=False))
