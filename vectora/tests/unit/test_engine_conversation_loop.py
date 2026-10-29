@@ -1403,6 +1403,7 @@ class TestResumeConversation:
 
         usage = AsyncMock()
         monkeypatch.setattr("backend.services.tool_usage.record_tool_usage", usage)
+        monkeypatch.setattr(TOOL_REGISTRY, "_tools", {})
 
         @vtool(extras=extras)
         async def browser_resume_failure(ctx: ToolContext) -> str:

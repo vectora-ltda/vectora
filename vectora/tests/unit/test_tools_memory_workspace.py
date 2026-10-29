@@ -55,7 +55,7 @@ async def test_expiring_scoped_memory_preserves_legacy_in_other_workspace() -> N
             "valid_until": "2000-01-01T00:00:00Z",
         },
     )
-    assert json.loads(await get_memory(first, "key"))["status"] == "not_found"
+    assert json.loads(await get_memory(first, "key"))["content"] == "shared"
     assert await store.aget(_memory_namespace(first), "key") is None
     assert await store.aget(legacy, "key") is not None
     assert json.loads(await get_memory(second, "key"))["content"] == "shared"

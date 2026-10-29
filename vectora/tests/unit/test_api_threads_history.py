@@ -8,7 +8,7 @@ from __future__ import annotations
 import os
 from types import SimpleNamespace
 from typing import Any, Literal, cast
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, call, patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -927,19 +927,35 @@ async def test_branches_rejeita_ponta_inexistente_com_404() -> None:
     assert selected.status_code == 404
 
 
-@pytest.mark.parametrize("seq", ["7", None])
-async def test_safe_history_cursor_queries_only_latest_message(seq) -> None:
-    """Skip entries without IDs and issue just one lookup for the latest ID."""
+@pytest.mark.parametrize(
+    ("sequences", "expected_cursor", "expected_message_ids"),
+    [
+        (["7"], 7, [2]),
+        (["0"], 0, [2]),
+        ([None, "5"], 5, [2, 1]),
+        ([None, None], 0, [2, 1]),
+    ],
+)
+async def test_safe_history_cursor_uses_latest_available_sequence(
+    sequences: list[str | None],
+    expected_cursor: int,
+    expected_message_ids: list[int],
+) -> None:
+    """Skip missing IDs and sequences, stopping at the first represented event."""
     from backend.api.handlers.threads import _safe_history_cursor
 
-    store = SimpleNamespace(get_event_seq_by_message_id=AsyncMock(return_value=seq))
+    store = SimpleNamespace(
+        get_event_seq_by_message_id=AsyncMock(side_effect=sequences)
+    )
     entries = [
         SimpleNamespace(message_id=1),
         SimpleNamespace(message_id=2),
         SimpleNamespace(message_id=None),
     ]
-    assert await _safe_history_cursor(store, "t1", entries, 99) == (7 if seq else 0)
-    store.get_event_seq_by_message_id.assert_awaited_once_with("t1", 2)
+    assert await _safe_history_cursor(store, "t1", entries, 99) == expected_cursor
+    assert store.get_event_seq_by_message_id.await_args_list == [
+        call("t1", message_id) for message_id in expected_message_ids
+    ]
 
 
 async def test_safe_history_cursor_without_message_ids_or_lookup() -> None:
