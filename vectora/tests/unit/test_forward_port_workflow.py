@@ -364,11 +364,42 @@ def test_milestone_workflow_uses_trusted_workflow_revision() -> None:
     assert "ref: ${{ github.event.pull_request.base.ref }}" not in content
 
 
-def test_app_and_edge_workflows_cobrem_todas_as_linhas_de_manutencao() -> None:
-    """Evita que uma nova linha release/* fique sem validação de CI."""
+def _trigger_block(content: str, event: str) -> str:
+    """Devolve o bloco de um evento dentro de ``on:`` (até o próximo evento)."""
+    on_block = "\n" + content.split("\non:\n", 1)[1].split("\nconcurrency:", 1)[0]
+    after = on_block.split(f"\n  {event}:\n", 1)[1]
+    return after.split("\n  workflow_dispatch:", 1)[0].split("\n  pull_request:", 1)[0]
+
+
+def test_app_and_edge_workflows_validam_todo_pr_e_publicam_so_de_master() -> None:
+    """Todo PR, qualquer que seja a base (inclusive PRs empilhados em feat/*),
+    passa pelo pipeline completo; push e jobs de publicação seguem restritos às
+    linhas de release."""
     for name in ("edge.yml", "vectora.yml"):
         content = (WORKFLOW.parent / name).read_text(encoding="utf-8")
-        assert 'branches: [master, "release/**"]' in content
+        pull_request = _trigger_block(content, "pull_request")
+        push = _trigger_block(content, "push")
+
+        assert 'branches: ["**"]' in pull_request, name
+        assert "master" not in pull_request, name
+        assert 'branches: [master, "release/**"]' in push, name
+        assert '"**"' not in push, name
+
+    app = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+    edge = (WORKFLOW.parent / "edge.yml").read_text(encoding="utf-8")
+    for job in (
+        "release-channel:",
+        "release-native:",
+        "publish-update-channel:",
+        "publish-gha-bot-cli:",
+        "tag-release:",
+    ):
+        guard = app.split(f"\n  {job}\n", 1)[1].split("\n    steps:", 1)[0]
+        assert "github.ref == 'refs/heads/master'" in guard, job
+        assert "pull_request" not in guard, job
+    deploy = edge.split("\n  deploy:\n", 1)[1].split("\n    steps:", 1)[0]
+    assert "github.ref == 'refs/heads/master'" in deploy
+    assert "pull_request" not in deploy
 
 
 def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline() -> (
