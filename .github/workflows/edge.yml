@@ -4,7 +4,8 @@ name: Edge (company + services + docs)
 # só dispara em mudanças de vectora/**) — cobre a borda web/edge do monorepo:
 # company (site + dashboard, Vercel), docs (Hugo, Vercel) e services (Worker
 # Cloudflare único: gateway + updates). Ciclo de vida próprio, não roda junto
-# do app. O job `deploy` publica em produção automaticamente em todo push em
+# do app. A validação (company/services/docs) roda em todo PR, qualquer que
+# seja a base. O job `deploy` publica em produção automaticamente em todo push em
 # master que toque um desses caminhos — espelha exatamente o que
 # `scons prod` faz localmente (SConstruct::_action_prod), sem gate manual:
 # aprovar/mesclar o PR já publica.
@@ -18,7 +19,7 @@ on:
       - "docs/**"
       - ".github/workflows/edge.yml"
   pull_request:
-    branches: [master, "release/**"]
+    branches: ["**"]
     paths:
       - "company/**"
       - "services/**"
