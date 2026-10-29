@@ -320,13 +320,19 @@ async def update_memory(
     try:
         ns = _namespace(request)
         store = await _store()
-
-        existing = await store.aget(ns, key)
+        existing = None
+        for candidate_ns in _namespace_candidates(request):
+            candidate = await store.aget(candidate_ns, key)
+            if candidate is not None and not is_store_value_expired(candidate.value):
+                existing = candidate
+                break
         if existing is None:
             raise HTTPException(
                 status_code=404, detail=f"Memória '{key}' não encontrada"
             )
 
+        # Promote a legacy fallback into this scope. Keep the legacy record so
+        # other workspaces that still rely on it retain their existing value.
         await store.aput(
             ns,
             key,
