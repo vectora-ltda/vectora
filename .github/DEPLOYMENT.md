@@ -8,9 +8,11 @@ monorepo (`company/`, `docs/`, `services/`) tem ciclo próprio em
 
 ## Visão geral do pipeline (`vectora.yml`)
 
-Disparado por `push` em `master` ou tag `v*`, por `pull_request` contra
-`master` (ambos filtrados por path: `vectora/**`, este workflow e
-`.github/actions/**`), ou manualmente via `workflow_dispatch`. Os jobs 1-5
+Disparado por `push` em `master`/`release/**`, por `pull_request` contra
+qualquer branch — inclusive PRs empilhados em branches de feature — (ambos
+filtrados por path: `vectora/**`, `utils/**`, este workflow e
+`.github/actions/**`), ou manualmente via `workflow_dispatch`. Os jobs de
+publicação seguem restritos a `refs/heads/master`. Os jobs 1-5
 rodam em qualquer disparo dentro do path filtrado; 6 (integration/e2e) só em
 `master`/tags; 7-9 (release nativo + publicação) só em tag `v*` ou
 `workflow_dispatch`. Em ordem:
