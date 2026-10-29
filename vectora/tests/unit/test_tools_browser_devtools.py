@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -15,6 +16,21 @@ import pytest
 
 from backend.tools import browser_devtools as bd
 from backend.tools.context import ToolContext
+
+
+@pytest.fixture(autouse=True)
+def public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep browser-policy unit tests independent of external DNS."""
+    original = socket.getaddrinfo
+
+    def resolve(host, port, *args, **kwargs):
+        if host == "example.com":
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))
+            ]
+        return original(host, port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
 
 
 def _ctx(workspace_id: str = "ws1") -> ToolContext:

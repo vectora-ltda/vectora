@@ -54,40 +54,6 @@ _DIRECT_ONLY_PHRASES = frozenset(
         "obrigada",
     }
 )
-_EXECUTION_MARKERS = frozenset(
-    {
-        "arquivo",
-        "código",
-        "codigo",
-        "commit",
-        "branch",
-        "build",
-        "compile",
-        "crie",
-        "criar",
-        "edite",
-        "implemente",
-        "implement",
-        "faça",
-        "faca",
-        "trabalhe",
-        "corrija",
-        "fix",
-        "teste",
-        "test",
-        "pesquise",
-        "search",
-        "url",
-        "github",
-        "terminal",
-        "rodar",
-        "execute",
-        "deploy",
-        "review",
-        "revisar",
-        "audite",
-    }
-)
 
 
 def _delegation_is_actionable(prompt: str) -> bool:
@@ -97,11 +63,16 @@ def _delegation_is_actionable(prompt: str) -> bool:
     bloqueia chamadas obviamente triviais, inclusive quando o modelo escolhe
     ``delegate_to_subagent`` por engano.
     """
-    normalized = re.sub(r"\s+", " ", prompt.strip().casefold()).strip("?.! ")
+    normalized = re.sub(r"[^\w\s-]", " ", prompt.casefold())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
     if not normalized or normalized in _DIRECT_ONLY_PHRASES:
         return False
-    words = set(re.findall(r"[\wÀ-ÿ-]+", normalized))
-    return len(normalized) >= 8 and bool(words & _EXECUTION_MARKERS)
+    if any(
+        normalized.removeprefix(f"{phrase} ") in _DIRECT_ONLY_PHRASES
+        for phrase in _DIRECT_ONLY_PHRASES
+    ):
+        return False
+    return len(normalized) >= 8
 
 
 class SubagentDeps:

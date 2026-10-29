@@ -180,12 +180,11 @@ class TestListThreadsReflectsSessionStore:
 
         assert result.threads == []
 
-    async def test_thread_legada_sem_registro_no_session_store_ainda_aparece(
+    async def test_thread_legada_sem_registro_no_session_store_nao_aparece(
         self,
+        session_store: SessionStore,
     ) -> None:
-        """Compatibilidade: threads criadas antes da posse ser rastreada em
-        `SessionStore` (nenhum registro lá) continuam visíveis — ausência de
-        registro não é o mesmo que pertencer a outra pessoa."""
+        """Metadados legados não autorizam listagem nem reivindicam posse."""
         await th._upsert_session("thread-legada", title="Conversa antiga")
         await th._increment_message_count("thread-legada")
 
@@ -193,7 +192,8 @@ class TestListThreadsReflectsSessionStore:
             ListThreadsRequest(limit=50), _http_request("alice")
         )
 
-        assert [t.id for t in result.threads] == ["thread-legada"]
+        assert result.threads == []
+        assert await session_store.get_session("thread-legada") is None
 
     async def test_subagent_interno_nao_aparece_na_listagem(
         self, session_store: SessionStore

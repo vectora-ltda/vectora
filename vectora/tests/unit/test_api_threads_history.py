@@ -925,3 +925,28 @@ async def test_branches_rejeita_ponta_inexistente_com_404() -> None:
 
     assert compared.status_code == 404
     assert selected.status_code == 404
+
+
+@pytest.mark.parametrize("seq", ["7", None])
+async def test_safe_history_cursor_queries_only_latest_message(seq) -> None:
+    """Skip entries without IDs and issue just one lookup for the latest ID."""
+    from backend.api.handlers.threads import _safe_history_cursor
+
+    store = SimpleNamespace(get_event_seq_by_message_id=AsyncMock(return_value=seq))
+    entries = [
+        SimpleNamespace(message_id=1),
+        SimpleNamespace(message_id=2),
+        SimpleNamespace(message_id=None),
+    ]
+    assert await _safe_history_cursor(store, "t1", entries, 99) == (7 if seq else 0)
+    store.get_event_seq_by_message_id.assert_awaited_once_with("t1", 2)
+
+
+async def test_safe_history_cursor_without_message_ids_or_lookup() -> None:
+    """An empty page returns zero; old stores retain the provided fallback."""
+    from backend.api.handlers.threads import _safe_history_cursor
+
+    store = SimpleNamespace(get_event_seq_by_message_id=AsyncMock())
+    assert await _safe_history_cursor(store, "t1", [SimpleNamespace()], 99) == 0
+    store.get_event_seq_by_message_id.assert_not_awaited()
+    assert await _safe_history_cursor(None, "t1", [], 99) == 99

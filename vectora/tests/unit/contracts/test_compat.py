@@ -1,5 +1,7 @@
 """Testes unitários para verificação de compatibilidade semântica de schemas."""
 
+import pytest
+
 from devtools.contracts.compat import check_schema_compatibility
 
 
@@ -413,3 +415,44 @@ def test_baseline_contract_tree_missing_is_not_treated_as_drift(
     assert not contracts_cli._baseline_contains_contracts(
         tmp_path, "origin/release/0.3"
     )
+
+
+@pytest.mark.parametrize(
+    "constraint",
+    [
+        "minLength",
+        "minItems",
+        "minimum",
+        "exclusiveMinimum",
+        "maxLength",
+        "maxItems",
+        "maximum",
+        "exclusiveMaximum",
+    ],
+)
+@pytest.mark.parametrize("direction", ["request", "response"])
+def test_numeric_bound_addition_and_removal(constraint, direction) -> None:
+    """Adding a bound narrows a domain and removing it widens the domain."""
+    unbounded = {"type": "number"}
+    bounded = {"type": "number", constraint: 3}
+    added = check_schema_compatibility(unbounded, bounded, direction=direction)
+    removed = check_schema_compatibility(bounded, unbounded, direction=direction)
+    assert added.is_compatible is (direction == "response")
+    assert removed.is_compatible is (direction == "request")
+    assert len(added.breaking) + len(added.non_breaking) == 1
+    assert len(removed.breaking) + len(removed.non_breaking) == 1
+
+
+@pytest.mark.parametrize(
+    ("old", "new"), [(True, False), (True, 3), (3, False), (None, True), (False, None)]
+)
+@pytest.mark.parametrize("direction", ["request", "response"])
+def test_boolean_exclusive_minimum_is_not_a_numeric_bound(old, new, direction) -> None:
+    """Draft boolean exclusive bounds must never be compared as integers."""
+    report = check_schema_compatibility(
+        {"exclusiveMinimum": old},
+        {"exclusiveMinimum": new},
+        direction=direction,
+    )
+    assert report.breaking == []
+    assert report.non_breaking == []

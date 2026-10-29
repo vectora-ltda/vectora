@@ -33,3 +33,56 @@ def test_workspace_takes_priority_over_thread_id():
     result = _user_id_from_ctx(ctx)
     assert result == "workspace_ws001"
     assert "t999" not in result
+
+
+async def test_expiring_scoped_memory_preserves_legacy_in_other_workspace() -> None:
+    """Expiry only cleans the expired record, preserving shared legacy context."""
+    import json
+
+    from backend.testing.mocks import NativeInMemoryStore
+    from backend.tools.memory import _memory_namespace, get_memory
+
+    store = NativeInMemoryStore()
+    first = ToolContext(user_id="alice", workspace_id="first", store=store)
+    second = ToolContext(user_id="alice", workspace_id="second", store=store)
+    legacy = ("user", "alice", "memories")
+    await store.aput(legacy, "key", {"content": "shared"})
+    await store.aput(
+        _memory_namespace(first),
+        "key",
+        {
+            "content": "expired",
+            "valid_until": "2000-01-01T00:00:00Z",
+        },
+    )
+    assert json.loads(await get_memory(first, "key"))["status"] == "not_found"
+    assert await store.aget(_memory_namespace(first), "key") is None
+    assert await store.aget(legacy, "key") is not None
+    assert json.loads(await get_memory(second, "key"))["content"] == "shared"
+
+
+async def test_explicit_delete_removes_legacy_but_preserves_other_workspace() -> None:
+    """Deletion removes shared fallback without touching another scoped record."""
+    import json
+
+    from backend.testing.mocks import NativeInMemoryStore
+    from backend.tools.memory import _memory_namespace, delete_memory, get_memory
+
+    store = NativeInMemoryStore()
+    first = ToolContext(user_id="alice", workspace_id="first", store=store)
+    second = ToolContext(user_id="alice", workspace_id="second", store=store)
+    legacy = ("user", "alice", "memories")
+    await store.aput(legacy, "key", {"content": "shared"})
+    await store.aput(legacy, "only-fallback", {"content": "shared fallback"})
+    await store.aput(_memory_namespace(first), "key", {"content": "first"})
+    await store.aput(_memory_namespace(second), "key", {"content": "second"})
+    assert json.loads(await delete_memory(first, "key"))["status"] == "deleted"
+    assert (
+        json.loads(await delete_memory(first, "only-fallback"))["status"] == "deleted"
+    )
+    assert await store.aget(legacy, "key") is None
+    assert await store.aget(_memory_namespace(first), "key") is None
+    assert json.loads(await get_memory(second, "key"))["content"] == "second"
+    assert (
+        json.loads(await get_memory(second, "only-fallback"))["status"] == "not_found"
+    )

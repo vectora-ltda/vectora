@@ -52,6 +52,7 @@ from backend.engine.stream_events import (
 from backend.engine.tool_batch import (
     _apply_post_execute,
     _apply_pre_execute,
+    _has_structured_result,
     _is_tool_error,
     execute_tool_batch,
 )
@@ -1602,7 +1603,7 @@ async def _execute_single_call(
             call_context,
         )
         texto = _apply_post_execute(texto)
-        is_error = _is_tool_error(texto)
+        is_error = _is_tool_error(texto, structured=_has_structured_result(spec))
         from backend.services.tool_usage import record_tool_usage
 
         await record_tool_usage(

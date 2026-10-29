@@ -947,3 +947,36 @@ class TestBrowserFillForm:
         )
 
         assert result["status"] == "error"
+
+
+async def test_navigation_failure_does_not_reuse_previous_block_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    fake_page: _FakePage,
+) -> None:
+    """A second navigation failure must not be attributed to an older block."""
+    # A numeric public URL keeps this regression independent of DNS.
+    url = "https://93.184.216.34"
+
+    async def blocked_navigation(*args: object, **kwargs: object) -> None:
+        call = fake_page.route.await_args
+        assert call is not None
+        handler = call.args[1]
+        await handler(
+            SimpleNamespace(
+                request=SimpleNamespace(url="http://127.0.0.1/private"),
+                abort=AsyncMock(),
+                continue_=AsyncMock(),
+            )
+        )
+        raise RuntimeError("blocked by route")
+
+    fake_page.goto.side_effect = blocked_navigation
+    first = await browser_tools.browser_navigate(url=url, ctx=_ctx())
+    assert first.startswith("Error: navegação bloqueada")
+    fake_page.goto.side_effect = RuntimeError("network disconnected")
+    try:
+        second = await browser_tools.browser_navigate(url=url, ctx=_ctx())
+        assert second == f"Error: falha ao navegar para {url!r}. Veja logs."
+        fake_page.route.assert_awaited_once()
+    finally:
+        await browser_tools.release_navigation_guard(fake_page)

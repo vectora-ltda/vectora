@@ -9,6 +9,7 @@ volta que tem tool calls).
 
 from __future__ import annotations
 
+import socket
 from unittest.mock import AsyncMock
 
 import pytest
@@ -28,6 +29,21 @@ from backend.tools.registry import (
     vtool,
 )
 from backend.vtypes.message import ToolCall
+
+
+@pytest.fixture(autouse=True)
+def public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep browser-policy unit tests independent of external DNS."""
+    original = socket.getaddrinfo
+
+    def resolve(host, port, *args, **kwargs):
+        if host == "example.com":
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))
+            ]
+        return original(host, port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
 
 
 def _register(registry: ToolRegistry, nome: str) -> None:

@@ -547,3 +547,20 @@ class TestAgetThreadTodosNativo:
             todos = await af.aget_thread_todos("thread-todos-erro")
 
         assert todos == [{"content": "válido", "status": "pending"}]
+
+
+def test_soul_prompts_preserve_tool_boundaries() -> None:
+    """Prompts must agree with each SOUL's allowed tools."""
+    from backend.agents.souls import SOUL_CATALOG
+
+    coder = SOUL_CATALOG["coder"].system_prompt
+    assert "unrestricted" not in coder
+    assert "browser_navigate" not in coder
+    assert "The Coder Agent has no browser tools" in coder
+    assert "### Git and terminal boundary" in coder
+    assert "`file_read`, `file_edit`, `file_write`" in coder
+    assert "`save_memory`, `get_memory`, `delete_memory`" in coder
+    search = SOUL_CATALOG["search"].system_prompt
+    assert "manage_retriever" not in search
+    assert "cleanup to the Coder Agent" in search
+    assert "### Read-only RAG-first strategy" in search

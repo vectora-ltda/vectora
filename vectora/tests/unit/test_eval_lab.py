@@ -369,3 +369,39 @@ def test_cli_eval_corrupted_file(tmp_path: Path, capsys):
     assert code == 1
     captured = capsys.readouterr()
     assert "Erro ao carregar cassete" in captured.err
+
+
+@pytest.mark.parametrize(
+    "raw", ["[]", "null", "42", '{"cassette_id":"x","redaction_version":2}']
+)
+def test_cassette_load_rejects_invalid_shape_and_redaction_version(
+    tmp_path, raw
+) -> None:
+    """Loading untrusted JSON must fail with a validation error, never AttributeError."""
+    source = tmp_path / "invalid.json"
+    source.write_text(raw, encoding="utf-8")
+    with pytest.raises(ValueError):
+        Cassette.load(source)
+
+
+@pytest.mark.parametrize("action", ["run", "compare"])
+@pytest.mark.parametrize("raw", ["[]", '{"cassette_id":"x","redaction_version":2}'])
+def test_cli_reports_invalid_cassette_without_traceback(
+    tmp_path, capsys, action, raw
+) -> None:
+    """Both CLI entry points explain invalid cassettes and return failure."""
+    source = tmp_path / "invalid.json"
+    source.write_text(raw, encoding="utf-8")
+    args = argparse.Namespace(
+        action=action,
+        suite=str(source),
+        baseline=str(source),
+        candidate=str(source),
+    )
+    assert handle_eval(args) == 1
+    output = capsys.readouterr()
+    assert "Erro ao carregar" in output.err
+    assert "Traceback" not in output.err
+    assert (
+        "objeto JSON" if raw == "[]" else "redaction_version não suportada"
+    ) in output.err
