@@ -2149,7 +2149,8 @@ async def _safe_history_cursor(
         if message_id is None:
             continue
         seq = await get_seq(thread_id, message_id)
-        return int(seq) if seq is not None else 0
+        if seq is not None:
+            return int(seq)
     return 0
 
 
