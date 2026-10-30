@@ -131,6 +131,7 @@ export type StreamEvent =
       tool_name: string;
       args_json: string;
       interrupt_id: string;
+      run_id?: string;
       /** Razão pela qual o modelo pediu aprovação (opcional). */
       reasoning?: string;
       /** Preview do diff antes/depois, formato unified (opcional). */

@@ -28,68 +28,105 @@ def _runtime_settings_isolado(tmp_path, monkeypatch):
 
 
 class TestAssinatura:
-    def test_terminal_usa_o_comando_exato(self):
-        # Happy: mesmo comando → mesma assinatura.
+    def test_hash_cobre_todos_os_argumentos(self):
+        # Happy: JSON canônico produz o mesmo hash.
         a = sa._signature("terminal", {"command": "git status"})
         b = sa._signature("terminal", {"command": "git status"})
         assert a == b
 
-        # Erro/borda: comando diferente não pode colidir — allowlist por
-        # comando exato, não por tool inteira (senão "git status" liberaria
-        # "git push --force" também).
-        c = sa._signature("terminal", {"command": "git push --force"})
+        # Erro/borda: qualquer argumento alterado produz outro hash.
+        c = sa._signature("terminal", {"command": "git status", "cwd": "other"})
         assert a != c
-
-    def test_outras_tools_usam_so_o_nome(self):
-        assert sa._signature("delete_skill", {"skill_id": "x"}) == sa._signature(
-            "delete_skill", {"skill_id": "y"}
-        )
 
 
 class TestAllowlist:
-    def test_add_get_remove_roundtrip(self):
+    def test_grant_e_de_uso_unico_e_limitado_a_workspace_run_tool_args(self):
         assert sa.get_allowlist("ws1") == []
 
-        sinais = sa.add_to_allowlist("ws1", "terminal", {"command": "git status"})
-        assert sinais == sa.get_allowlist("ws1")
-        assert sa.is_allowlisted("ws1", "terminal", {"command": "git status"}) is True
-
-        restante = sa.remove_from_allowlist("ws1", sinais[0])
-        assert restante == []
-        assert sa.is_allowlisted("ws1", "terminal", {"command": "git status"}) is False
+        args = {"command": "git status"}
+        grants = sa.add_to_allowlist("ws1", "terminal", args, run_id="run-1")
+        assert len(grants) == 1
+        assert sa.consume_run_grant("ws2", "run-1", "terminal", args) is None
+        assert sa.consume_run_grant("ws1", "run-2", "terminal", args) is None
+        assert sa.consume_run_grant("ws1", "run-1", "terminal_tool", args) is None
+        assert (
+            sa.consume_run_grant("ws1", "run-1", "terminal", {"command": "git push"})
+            is None
+        )
+        assert sa.consume_run_grant("ws1", "run-1", "terminal", args) == grants[0]
+        assert sa.consume_run_grant("ws1", "run-1", "terminal", args) is None
+        assert sa.get_allowlist("ws1") == []
 
     def test_workspace_vazio_e_recusado_na_escrita(self):
         """Erro/borda: allowlist é por workspace — sem id não há onde
         persistir, e gravar sob chave vazia vazaria entre workspaces."""
         with pytest.raises(ValueError, match="workspace_id"):
-            sa.add_to_allowlist("", "terminal", {"command": "git status"})
+            sa.add_to_allowlist("", "terminal", {"command": "git status"}, run_id="run")
+
+    def test_run_vazio_e_ferramenta_irreversivel_sao_recusados(self):
+        with pytest.raises(ValueError, match="run_id"):
+            sa.add_to_allowlist("ws", "terminal", {}, run_id=" ")
+        with pytest.raises(ValueError, match="não aceita"):
+            sa.add_to_allowlist("ws", "git_push", {}, run_id="run")
 
     def test_workspace_desconhecido_na_leitura_devolve_vazio_sem_lancar(self):
         assert sa.get_allowlist("ws-nunca-existiu") == []
         assert sa.is_allowlisted("ws-nunca-existiu", "terminal", {}) is False
 
     def test_allowlists_de_workspaces_diferentes_nao_se_misturam(self):
-        sa.add_to_allowlist("ws-a", "terminal", {"command": "git status"})
+        args = {"command": "git status"}
+        sa.add_to_allowlist("ws-a", "terminal", args, run_id="run-a")
 
-        assert sa.is_allowlisted("ws-a", "terminal", {"command": "git status"}) is True
-        assert sa.is_allowlisted("ws-b", "terminal", {"command": "git status"}) is False
+        assert sa.consume_run_grant("ws-a", "run-a", "terminal", args) is not None
+        assert sa.consume_run_grant("ws-b", "run-a", "terminal", args) is None
 
     def test_adicionar_duplicata_nao_duplica(self):
-        sa.add_to_allowlist("ws1", "terminal", {"command": "git status"})
-        sinais = sa.add_to_allowlist("ws1", "terminal", {"command": "git status"})
+        sa.add_to_allowlist("ws1", "terminal", {"command": "git status"}, run_id="run")
+        sinais = sa.add_to_allowlist(
+            "ws1", "terminal", {"command": "git status"}, run_id="run"
+        )
         assert len(sinais) == 1
+
+    def test_concessao_expirada_nao_e_consumida(self):
+        sa.add_to_allowlist("ws", "terminal", {"command": "ls"}, run_id="run")
+        sa._runtime_settings().update_list(
+            sa._allowlist_key("ws"),
+            lambda items: [
+                {**item, "expires_at": "2000-01-01T00:00:00+00:00"}
+                for item in items
+                if isinstance(item, dict)
+            ],
+        )
+        assert sa.consume_run_grant("ws", "run", "terminal", {"command": "ls"}) is None
+
+    def test_concessao_com_expiracao_sem_fuso_ou_invalida_e_descartada(self):
+        sa.add_to_allowlist("ws", "terminal", {"command": "ls"}, run_id="run")
+        sa._runtime_settings().update_list(
+            sa._allowlist_key("ws"),
+            lambda items: [
+                {**item, "expires_at": "2099-01-01T00:00:00"}
+                for item in items
+                if isinstance(item, dict)
+            ],
+        )
+
+        # Datas sem fuso são inválidas para comparar com UTC e devem falhar fechadas.
+        assert sa.get_allowlist("ws") == []
+        assert sa.consume_run_grant("ws", "run", "terminal", {"command": "ls"}) is None
 
 
 class TestEvaluateCommand:
     @pytest.mark.asyncio
-    async def test_allowlisted_pre_aprova_sem_chamar_llm(self):
+    async def test_concessao_nao_vira_anotacao_visual_de_avaliador(self):
         chamou = {"llm": False}
 
         async def _nunca(*_a, **_k):
             chamou["llm"] = True
             return True
 
-        sa.add_to_allowlist("ws1", "terminal", {"command": "git status"})
+        sa.add_to_allowlist(
+            "ws1", "terminal", {"command": "git status"}, run_id="run-1"
+        )
 
         resultado = await sa.evaluate_command(
             "terminal",
@@ -99,7 +136,7 @@ class TestEvaluateCommand:
         )
 
         assert resultado is True
-        assert chamou["llm"] is False
+        assert chamou["llm"] is True
 
     @pytest.mark.asyncio
     async def test_nao_allowlisted_consulta_o_avaliador_auxiliar(self):
@@ -145,11 +182,8 @@ class TestEvaluateCommand:
         assert resultado is False
 
     @pytest.mark.asyncio
-    async def test_pre_aprovacao_nunca_e_usada_pra_pular_o_hitl(self):
-        """`evaluate_command` é uma função pura que devolve bool — nenhuma
-        tool nem tool call é executada aqui. Quem decide pausar é
-        `REQUIRE_APPROVAL`/`should_require_approval`, que não importa este
-        módulo."""
+    async def test_anotacao_do_avaliador_nao_decide_o_gate(self):
+        """O sinal do avaliador nunca é importado pelo predicado do HITL."""
         import inspect
 
         from backend.engine import hitl

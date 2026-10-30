@@ -116,6 +116,7 @@ class HitlRequested:
     tool_name: str
     args_json: str
     interrupt_id: str
+    run_id: str | None = None
     permission_mode: PermissionMode = "ask"
     workspace_id: str = ""
     reasoning: str = ""

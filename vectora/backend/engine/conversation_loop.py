@@ -263,6 +263,105 @@ async def _persist_decision_model_record(
     )
 
 
+async def _preapproval_run_is_scoped(
+    session_store: SessionStore, *, workspace_id: str, thread_id: str, run_id: str
+) -> bool:
+    """Require a durable run bound to this exact thread and workspace."""
+    if not hasattr(session_store, "get_agent_run"):
+        return False
+    try:
+        run = await session_store.get_agent_run(run_id)
+    except Exception:
+        logger.exception("Falha ao validar AgentRun da concessão pré-aprovada")
+        return False
+    return bool(
+        run
+        and run.run_id == run_id
+        and run.thread_id == thread_id
+        and run.workspace_id == workspace_id
+    )
+
+
+async def _consume_preapproval_grant(
+    session_store: SessionStore,
+    *,
+    ctx: ToolContext,
+    run_id: str | None,
+    tool_call: ToolCall,
+) -> bool:
+    """Consume an exact one-use grant and durably audit it before execution."""
+    workspace_id = ctx.workspace_id
+    extra = ctx._extra if isinstance(ctx._extra, dict) else {}
+    if (
+        not workspace_id
+        or not run_id
+        or extra.get("decision_model_revoked") is True
+        or not hasattr(session_store, "record_run_evidence")
+        or not hasattr(session_store, "append_ledger_event")
+        or not await _preapproval_run_is_scoped(
+            session_store,
+            workspace_id=workspace_id,
+            thread_id=ctx.thread_id,
+            run_id=run_id,
+        )
+    ):
+        return False
+
+    from backend.engine.hitl import _risk_assessment_key
+    from backend.services.smart_approval import consume_run_grant
+
+    risk_key = _risk_assessment_key(tool_call.name, tool_call.args)
+    decisions = extra.get("systemone_decisions")
+    decision = decisions.get(risk_key) if isinstance(decisions, dict) else None
+    if isinstance(decision, dict) and decision.get("decision") in {
+        "deny",
+        "requires_human",
+    }:
+        return False
+
+    grant_id = consume_run_grant(workspace_id, run_id, tool_call.name, tool_call.args)
+    if grant_id is None:
+        return False
+    args_digest = hashlib.sha256(
+        json.dumps(tool_call.args, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    call_id = tool_call.id or f"{tool_call.name}:{args_digest}"
+    event_key = hashlib.sha256(f"preapproval:{run_id}:{grant_id}".encode()).hexdigest()
+    evidence = {
+        "type": "hitl_preapproval_consumed",
+        "evidence_id": event_key,
+        "run_id": run_id,
+        "thread_id": ctx.thread_id,
+        "workspace_id": workspace_id,
+        "tool_name": tool_call.name,
+        "tool_call_id": call_id,
+        "args_digest": args_digest,
+        "grant_id": grant_id,
+        "decision": "preapproved",
+    }
+    try:
+        await session_store.record_run_evidence(
+            run_id, tool_used=tool_call.name, evidence=evidence
+        )
+        await session_store.append_ledger_event(
+            ctx.thread_id,
+            event_key=event_key,
+            event_type=LedgerEventType.APPROVAL_RESOLVED,
+            run_id=run_id,
+            tool_call_id=call_id,
+            payload={
+                "decision": "preapproved_grant_consumed",
+                "grant_id": grant_id,
+                "workspace_id": workspace_id,
+                "args_digest": args_digest,
+            },
+        )
+    except Exception:
+        logger.exception("Falha ao auditar concessão pré-aprovada; exigindo HITL")
+        return False
+    return True
+
+
 def _preserve_latest_tool_result(model_id: str) -> bool:
     """Executa a operação  preserve latest tool result."""
     normalized = model_id.strip().casefold()
@@ -1256,14 +1355,21 @@ async def run_conversation(  # noqa: PLR0911
                             )
 
         if should_require_approval is not None:
-            pendente = next(
-                (
-                    tc
-                    for tc in tool_calls
-                    if should_require_approval(tc.name, ctx, tc.args, historico)
-                ),
-                None,
-            )
+            pendente = None
+            for candidate in tool_calls:
+                if not should_require_approval(
+                    candidate.name, ctx, candidate.args, historico
+                ):
+                    continue
+                if await _consume_preapproval_grant(
+                    session_store,
+                    ctx=ctx,
+                    run_id=config.run_id,
+                    tool_call=candidate,
+                ):
+                    continue
+                pendente = candidate
+                break
             if pendente is not None:
                 interrupt_id = str(uuid4())
                 stable_call_id = (pendente.id or "").strip() or interrupt_id
@@ -1379,6 +1485,7 @@ async def run_conversation(  # noqa: PLR0911
                         tool_name=pendente.name,
                         args_json=args_json,
                         interrupt_id=interrupt_id,
+                        run_id=config.run_id,
                         permission_mode=ctx.permission_mode or "ask",
                         workspace_id=ctx.workspace_id,
                         options=options,

@@ -21,7 +21,7 @@ from backend.vtypes.workspace import Workspace
 
 class _FakeRequestImpl:
     class _State:
-        user = None
+        user: object | None = None
 
     def __init__(self) -> None:
         self.state = self._State()
@@ -37,6 +37,48 @@ def _authenticated_request(user_id: str = "user-1") -> Request:
     return cast("Request", request)
 
 
+def _grant_request(
+    *, workspace_id: str = "ws1", args: dict[str, object] | None = None
+) -> SmartApprovalAllowlistRequest:
+    return SmartApprovalAllowlistRequest(
+        workspace_id=workspace_id,
+        thread_id="thread-1",
+        interrupt_id="interrupt-1",
+        run_id="run-1",
+        tool_name="terminal",
+        args=args or {"command": "git status"},
+    )
+
+
+def _install_pending(monkeypatch, body: SmartApprovalAllowlistRequest) -> None:
+    from backend.api.handlers import threads
+
+    class Store:
+        async def get_pending_approval(self, _thread_id: str) -> dict[str, object]:
+            return {
+                "interrupt_id": body.interrupt_id,
+                "run_id": body.run_id,
+                "tool_name": body.tool_name,
+                "args": body.args,
+            }
+
+        async def get_agent_run(self, _run_id: str) -> SimpleNamespace:
+            return SimpleNamespace(
+                run_id=body.run_id,
+                thread_id=body.thread_id,
+                workspace_id=body.workspace_id,
+            )
+
+    async def get_store():
+        return Store()
+
+    async def ownership(_thread_id: str, _request: Request) -> None:
+        return None
+
+    monkeypatch.setattr(threads, "_get_session_store", get_store)
+    monkeypatch.setattr(threads, "_assert_existing_thread_ownership", ownership)
+
+
 @pytest.fixture(autouse=True)
 def _runtime_settings_isolado(tmp_path, monkeypatch):
     from backend.workspace.runtime_settings import RuntimeSettings
@@ -49,11 +91,11 @@ def _runtime_settings_isolado(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_add_e_remove_via_endpoint():
+async def test_add_e_remove_via_endpoint(monkeypatch):
+    body = _grant_request()
+    _install_pending(monkeypatch, body)
     resposta = await add_smart_approval_allowlist(
-        SmartApprovalAllowlistRequest(
-            workspace_id="ws1", tool_name="terminal", args={"command": "git status"}
-        ),
+        body,
         _fake_request(),
     )
     assert len(resposta.allowlist) == 1
@@ -76,9 +118,11 @@ async def test_get_workspace_desconhecido_no_modo_local_usa_store() -> None:
     conseguir listar regras persistidas como os endpoints POST/DELETE."""
     from backend.services.smart_approval import add_to_allowlist
 
-    add_to_allowlist("ws-local", "terminal", {"command": "git status"})
+    add_to_allowlist(
+        "ws-local", "terminal", {"command": "git status"}, run_id="run-local"
+    )
     resposta = await get_smart_approval_allowlist("ws-local", _fake_request())
-    assert resposta.allowlist[0].label == "Regra 1"
+    assert resposta.allowlist[0].label == "Concessão 1"
     assert resposta.allowlist[0].id
 
 
@@ -87,7 +131,7 @@ async def test_regra_longa_usa_id_opaco_e_pode_ser_revogada():
     from backend.services.smart_approval import add_to_allowlist
 
     comando = "x" * 200
-    add_to_allowlist("ws-long", "terminal", {"command": comando})
+    add_to_allowlist("ws-long", "terminal", {"command": comando}, run_id="run-long")
     resposta = await get_smart_approval_allowlist("ws-long", _fake_request())
     item = resposta.allowlist[0]
     assert len(item.id) == 64
@@ -101,16 +145,16 @@ async def test_regra_longa_usa_id_opaco_e_pode_ser_revogada():
 
 
 @pytest.mark.asyncio
-async def test_workspace_vazio_vira_400_nao_500():
+async def test_workspace_vazio_vira_400_nao_500(monkeypatch):
     """Erro/borda: `ValueError` do módulo vira HTTP 400 com mensagem clara,
     não um 500 cru que não diz o que corrigir."""
     from fastapi import HTTPException
 
+    body = _grant_request(workspace_id="")
+    _install_pending(monkeypatch, body)
     with pytest.raises(HTTPException) as exc_info:
         await add_smart_approval_allowlist(
-            SmartApprovalAllowlistRequest(
-                workspace_id="", tool_name="terminal", args={}
-            ),
+            body,
             _fake_request(),
         )
     assert exc_info.value.status_code == 400
@@ -128,11 +172,11 @@ async def test_adicao_retorna_503_quando_persistencia_falha(
         "_persist",
         lambda *_args: (_ for _ in ()).throw(OSError("disco")),
     )
+    body = _grant_request(workspace_id="ws-falha")
+    _install_pending(monkeypatch, body)
     with pytest.raises(HTTPException) as exc_info:
         await add_smart_approval_allowlist(
-            SmartApprovalAllowlistRequest(
-                workspace_id="ws-falha", tool_name="terminal", args={}
-            ),
+            body,
             _fake_request(),
         )
     assert exc_info.value.status_code == 503
@@ -146,11 +190,9 @@ async def test_revogacao_retorna_503_quando_persistencia_falha(
     """Não confirma a revogação quando o banco rejeita a gravação."""
     from backend.services.smart_approval import add_to_allowlist, get_allowlist
 
-    add_to_allowlist("ws-falha-remove", "terminal", {"command": "pwd"})
+    add_to_allowlist("ws-falha-remove", "terminal", {"command": "pwd"}, run_id="run")
     antes = get_allowlist("ws-falha-remove")
-    from backend.services.smart_approval import allowlist_id
-
-    rule_id = allowlist_id(antes[0])
+    rule_id = antes[0]
     monkeypatch.setattr(
         _runtime_settings_isolado,
         "_persist",
@@ -183,9 +225,7 @@ async def test_endpoints_rejeitam_workspace_nao_autorizado(monkeypatch):
 
     with pytest.raises(HTTPException) as add_error:
         await add_smart_approval_allowlist(
-            SmartApprovalAllowlistRequest(
-                workspace_id="privado", tool_name="terminal", args={}
-            ),
+            _grant_request(workspace_id="privado"),
             request,
         )
     assert add_error.value.status_code == 404
@@ -205,7 +245,7 @@ async def test_endpoints_rejeitam_workspace_de_outro_usuario(
     from backend.services.smart_approval import add_to_allowlist, get_allowlist
     from backend.workspace.workspace import workspace_registry
 
-    add_to_allowlist("ws-outro", "terminal", {"command": "git status"})
+    add_to_allowlist("ws-outro", "terminal", {"command": "git status"}, run_id="run")
     antes = get_allowlist("ws-outro")
     monkeypatch.setitem(
         workspace_registry._workspaces,
@@ -226,9 +266,7 @@ async def test_endpoints_rejeitam_workspace_de_outro_usuario(
 
     with pytest.raises(HTTPException) as add_error:
         await add_smart_approval_allowlist(
-            SmartApprovalAllowlistRequest(
-                workspace_id="ws-outro", tool_name="terminal", args={"command": "pwd"}
-            ),
+            _grant_request(workspace_id="ws-outro", args={"command": "pwd"}),
             request,
         )
     assert add_error.value.status_code == 403
@@ -252,7 +290,10 @@ async def test_mutacoes_concorrentes_preservam_todas_as_regras():
         list(
             executor.map(
                 lambda index: add_to_allowlist(
-                    "ws-concorrente", "terminal", {"command": f"cmd-{index}"}
+                    "ws-concorrente",
+                    "terminal",
+                    {"command": f"cmd-{index}"},
+                    run_id=f"run-{index}",
                 ),
                 range(8),
             )
@@ -280,10 +321,10 @@ async def test_auditoria_de_mutacao_nao_expoe_assinatura(monkeypatch):
     monkeypatch.setattr(auth, "get_db_for_audit", fake_db)
     monkeypatch.setattr(auth, "write_audit", fake_audit)
     request = _authenticated_request("auditor-1")
+    body = _grant_request(workspace_id="ws-audit", args={"command": "pwd"})
+    _install_pending(monkeypatch, body)
     resposta = await add_smart_approval_allowlist(
-        SmartApprovalAllowlistRequest(
-            workspace_id="ws-audit", tool_name="terminal", args={"command": "pwd"}
-        ),
+        body,
         request,
     )
     await remove_smart_approval_allowlist(
