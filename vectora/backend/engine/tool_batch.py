@@ -58,8 +58,15 @@ def _is_tool_error(text: str, *, structured: bool = False) -> bool:
 
 
 def _has_structured_result(spec: ToolSpec) -> bool:
-    """Use structured error classification for envelopes and browser tools."""
-    return spec.extras.structured_envelope or spec.extras.category == "browser"
+    """Use structured error classification for envelopes, browser and git tools.
+
+    Tools de Git devolvem ``{"status": "error", ...}`` em falhas sem declarar
+    ``structured_envelope``; sem esta regra o lote grava ``is_error=False``.
+    """
+    return spec.extras.structured_envelope or spec.extras.category in (
+        "browser",
+        "git",
+    )
 
 
 def _redact_secrets(texto: str) -> str:
