@@ -114,6 +114,7 @@
   "ai_models_selected_provider": "Selected provider",
   "ai_models_surface_background": "Background tasks",
   "ai_models_surface_browser": "Browser Workbench",
+  "ai_models_surface_connectors": "External connectors",
   "ai_models_surface_hitl": "HITL / sensitive actions",
   "ai_models_surface_kanban": "Kanban",
   "ai_models_surface_mcp": "MCP",

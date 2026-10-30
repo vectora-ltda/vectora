@@ -149,6 +149,10 @@ class TestRunAgentForThread:
 
         assert reply == "Olá! Como posso ajudar?"
         assert client.chamadas == 1
+        runs = await native_session_store.list_agent_runs("connect-telegram-abc")
+        assert len(runs) == 1
+        assert runs[0].user_id == "local"
+        assert runs[0].untrusted_content is True
 
         # A mensagem do usuário e a resposta do agente ficaram persistidas
         # em SessionStore, sob o mesmo thread_id do mapeamento da plataforma.
@@ -247,6 +251,89 @@ class TestRunAgentForThread:
             "tool",
             "assistant",
         ]
+
+    async def test_conector_nao_executa_tool_quando_modelo_exige_aprovacao(
+        self, native_session_store, monkeypatch
+    ):
+        from backend.engine import conversation_loop
+        from backend.engine.hitl import _risk_assessment_key
+        from backend.tools.registry import TOOL_REGISTRY, ToolExtras, vtool
+
+        executions = 0
+        if TOOL_REGISTRY.get("escrever_arquivo_com_aprovacao_connect") is None:
+
+            @vtool(extras=ToolExtras(destructive=True))
+            async def escrever_arquivo_com_aprovacao_connect(
+                ctx: ToolContext,
+            ) -> str:
+                """Escreve apenas quando a política libera a execução."""
+                nonlocal executions
+                executions += 1
+                return "executado"
+
+        registry = ToolRegistry()
+        registry.register(_require_spec("escrever_arquivo_com_aprovacao_connect"))
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0,
+                        id="call_requires_approval",
+                        name="escrever_arquivo_com_aprovacao_connect",
+                        args="{}",
+                    )
+                ]
+            ]
+        )
+        _patch_native_engine(
+            monkeypatch,
+            session_store=native_session_store,
+            tool_registry=registry,
+            chat_client=client,
+        )
+
+        original_ctx_from_config = runner.ctx_from_config
+
+        def _ctx_with_connector_decisions(config):
+            ctx = original_ctx_from_config(config)
+            ctx._extra["decision_model_preferences"] = {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": {"connectors": True, "hitl": True},
+            }
+            return ctx
+
+        async def _require_human(_harness, *, tool_name, ctx, args, **_kwargs):
+            key = _risk_assessment_key(tool_name, args)
+            ctx._extra.setdefault("systemone_decisions", {})[key] = {
+                "decision": "requires_human",
+                "reason": "test_requires_human",
+                "provider": "clef-local",
+                "model": "test-model",
+                "confidence": 0.99,
+            }
+            ctx._extra.setdefault("systemone_risk_elevated_calls", set()).add(key)
+            ctx._extra["systemone_risk_requires_approval"] = True
+            return True
+
+        monkeypatch.setattr(runner, "ctx_from_config", _ctx_with_connector_decisions)
+        monkeypatch.setattr(
+            conversation_loop, "_build_selected_decision_harness", lambda _ctx: object()
+        )
+        monkeypatch.setattr(
+            "backend.engine.hitl.precompute_tool_risk_assessment", _require_human
+        )
+
+        reply = await runner.run_agent_for_thread(
+            "connect-slack-approval", "escreva um arquivo"
+        )
+
+        assert reply == "A ação requer aprovação no Vectora e foi pausada sem execução."
+        assert executions == 0
+        assert client.chamadas == 1
+        run = (await native_session_store.list_agent_runs("connect-slack-approval"))[0]
+        assert run.status == "waiting_approval"
+        assert run.approvals[0]["tool_name"] == "escrever_arquivo_com_aprovacao_connect"
 
     async def test_delegacao_a_uma_soul_roda_sem_pausar_em_hitl(
         self, native_session_store, monkeypatch

@@ -859,7 +859,9 @@ async def test_disabled_hitl_surface_does_not_call_decision_provider() -> None:
         args={"path": "safe.txt"},
     )
     assert result is False
-    assert "systemone_decisions" not in ctx._extra
+    decision = next(iter(ctx._extra["systemone_decisions"].values()))
+    assert decision["decision"] == "unavailable"
+    assert decision["reason"] == "decision_model_surface_disabled"
 
 
 @pytest.mark.asyncio
@@ -975,7 +977,6 @@ async def test_plan_mode_uses_its_own_flag_without_bypassing_approval() -> None:
     assert should_require_approval("file_write", ctx, {"path": "plan.txt"}, []) is True
 
     ctx._extra["decision_model_preferences"]["surfaces"]["plan_mode"] = False
-    ctx._extra.pop("systemone_decisions")
     assert (
         await precompute_tool_risk_assessment(
             harness,
@@ -986,7 +987,9 @@ async def test_plan_mode_uses_its_own_flag_without_bypassing_approval() -> None:
         )
         is False
     )
-    assert "systemone_decisions" not in ctx._extra
+    decision = next(iter(ctx._extra["systemone_decisions"].values()))
+    assert decision["decision"] == "unavailable"
+    assert decision["reason"] == "decision_model_surface_disabled"
 
 
 @pytest.mark.parametrize(
@@ -1022,6 +1025,26 @@ def test_decision_model_requires_provenance_and_capability_flags(
     applicable = decision_model_surfaces_for_tool(ctx, tool_name)
     assert applicable[0] == "subagents"
     assert decision_model_enabled_for(ctx, applicable) is enabled
+
+
+def test_connector_decisions_require_the_connector_surface_flag() -> None:
+    ctx = ToolContext(
+        thread_id="external-thread",
+        permission_mode="auto",
+        _extra={
+            "connector_execution": True,
+            "decision_model_preferences": {
+                "enabled": True,
+                "surfaces": {"hitl": True, "connectors": False},
+            },
+        },
+    )
+    surface = decision_model_surfaces_for_tool(ctx, "file_write")
+    assert surface == ("connectors", "hitl")
+    assert decision_model_enabled_for(ctx, surface) is False
+
+    ctx._extra["decision_model_preferences"]["surfaces"]["connectors"] = True
+    assert decision_model_enabled_for(ctx, surface) is True
 
 
 @pytest.mark.asyncio

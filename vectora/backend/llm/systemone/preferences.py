@@ -51,6 +51,8 @@ def decision_model_surfaces_for_tool(ctx: object, tool_name: str) -> tuple[str, 
     else:
         surface = "hitl"
     provenance = []
+    if extra.get("connector_execution") is True:
+        provenance.append("connectors")
     if extra.get("subagent_execution") is True:
         provenance.append("subagents")
     if getattr(ctx, "background_task_id", ""):

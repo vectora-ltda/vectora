@@ -31,6 +31,7 @@ const DECISION_SURFACES = [
   ["terminal", "ai_models_surface_terminal"],
   ["network", "ai_models_surface_network"],
   ["background", "ai_models_surface_background"],
+  ["connectors", "ai_models_surface_connectors"],
 ] as const;
 
 interface DecisionStatus {

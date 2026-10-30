@@ -573,6 +573,7 @@ class RuntimeSettings:
                 "terminal",
                 "network",
                 "background",
+                "connectors",
             }
             if not isinstance(surfaces, dict) or any(
                 key not in valid_surfaces or not isinstance(value, bool)

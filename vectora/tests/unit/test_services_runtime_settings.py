@@ -146,6 +146,11 @@ class TestPersistence:
         assert "decisionModelProvider" not in saved
         assert "decisionModelSurfaces" not in saved
 
+        saved_connectors = rs.set_frontend_prefs(
+            "alice", {"decisionModelSurfaces": {"connectors": True}}
+        )
+        assert saved_connectors["decisionModelSurfaces"] == {"connectors": True}
+
     def test_set_creates_file(
         self, rs: RuntimeSettings, tmp_settings_path: Path
     ) -> None:
