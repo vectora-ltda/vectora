@@ -407,7 +407,7 @@ const DEFAULTS = {
   reasoningEffort: "medium" as ReasoningEffort,
   decisionModelsEnabled: false,
   decisionModelProvider: "clef-local" as DecisionModelProvider,
-  decisionModelSurfaces: { hitl: true },
+  decisionModelSurfaces: {},
   transcriptionMode: "remote" as const,
   sidebarWidth: 280,
   sidebarPosition: "left" as SidebarPosition,
@@ -791,48 +791,62 @@ export function loadUserSettings(userId?: string): void {
  */
 export async function hydrateFromBackend(): Promise<void> {
   const prefs = await fetchPrefs(activeDecisionWorkspaceId());
-  const s = useSettingsStore.getState();
-  if (prefs.selectedModel) s.setSelectedModel(prefs.selectedModel);
+  const update: Partial<SettingsState> = {};
+  if (prefs.selectedModel) update.selectedModel = prefs.selectedModel;
   if (typeof prefs.decisionModelsEnabled === "boolean")
-    s.setDecisionModelsEnabled(prefs.decisionModelsEnabled);
+    update.decisionModelsEnabled = prefs.decisionModelsEnabled;
   if (
     prefs.decisionModelProvider === "clef-local" ||
     prefs.decisionModelProvider === "laya-local" ||
     prefs.decisionModelProvider === "clef-api" ||
     prefs.decisionModelProvider === "jev-api"
   )
-    s.setDecisionModelProvider(prefs.decisionModelProvider);
+    update.decisionModelProvider = prefs.decisionModelProvider;
   if (
     prefs.decisionModelSurfaces &&
     typeof prefs.decisionModelSurfaces === "object"
   )
-    s.setDecisionModelSurfaces(prefs.decisionModelSurfaces);
+    update.decisionModelSurfaces = Object.fromEntries(
+      Object.entries(prefs.decisionModelSurfaces).filter(
+        ([, enabled]) => typeof enabled === "boolean",
+      ),
+    );
   if (
     prefs.transcriptionMode === "local" ||
     prefs.transcriptionMode === "remote"
   )
-    s.setTranscriptionMode(prefs.transcriptionMode);
-  if (prefs.theme) s.setTheme(prefs.theme as Theme);
-  if (prefs.language) s.setLanguage(prefs.language as Lang);
-  if (typeof prefs.chatMode === "boolean") s.setChatMode(prefs.chatMode);
+    update.transcriptionMode = prefs.transcriptionMode;
+  if (prefs.theme) update.theme = prefs.theme as Theme;
+  if (
+    prefs.language === "en" ||
+    prefs.language === "es" ||
+    prefs.language === "pt"
+  )
+    update.language = prefs.language;
+  if (typeof prefs.chatMode === "boolean") update.chatMode = prefs.chatMode;
   if (prefs.permissionMode)
-    s.setPermissionMode(prefs.permissionMode as PermissionMode);
+    update.permissionMode = prefs.permissionMode as PermissionMode;
   if (prefs.reasoningEffort)
-    s.setReasoningEffort(prefs.reasoningEffort as ReasoningEffort);
+    update.reasoningEffort = prefs.reasoningEffort as ReasoningEffort;
   if (prefs.sidebarPosition)
-    s.setSidebarPosition(prefs.sidebarPosition as SidebarPosition);
+    update.sidebarPosition = prefs.sidebarPosition as SidebarPosition;
   if (typeof prefs.autoUpdateEnabled === "boolean")
-    s.setAutoUpdateEnabled(prefs.autoUpdateEnabled);
+    update.autoUpdateEnabled = prefs.autoUpdateEnabled;
   if (typeof prefs.weeklyInsightEnabled === "boolean")
-    s.setWeeklyInsightEnabled(prefs.weeklyInsightEnabled);
+    update.weeklyInsightEnabled = prefs.weeklyInsightEnabled;
   if (
     prefs.weeklyInsightWeeks === 1 ||
     prefs.weeklyInsightWeeks === 2 ||
     prefs.weeklyInsightWeeks === 4
   )
-    s.setWeeklyInsightWeeks(prefs.weeklyInsightWeeks);
+    update.weeklyInsightWeeks = prefs.weeklyInsightWeeks;
   if (typeof prefs.weeklyInsightDismissedWindow === "string")
-    s.setWeeklyInsightDismissedWindow(prefs.weeklyInsightDismissedWindow);
+    update.weeklyInsightDismissedWindow = prefs.weeklyInsightDismissedWindow;
+  useSettingsStore.setState(update);
+  if (update.language) {
+    const { setLocale, getLocale } = await import("@/lib/paraglide/runtime");
+    if (getLocale() !== update.language) setLocale(update.language);
+  }
 }
 
 /** Reload workspace-specific Decision Model controls after the active workspace changes. */
@@ -854,7 +868,7 @@ export async function hydrateDecisionModelPreferences(
       prefs.decisionModelSurfaces &&
       typeof prefs.decisionModelSurfaces === "object"
         ? prefs.decisionModelSurfaces
-        : { hitl: true },
+        : {},
     transcriptionMode: prefs.transcriptionMode === "local" ? "local" : "remote",
   });
 }

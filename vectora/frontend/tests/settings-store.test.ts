@@ -91,6 +91,42 @@ describe("useSettingsStore — valores padrão", () => {
     const state = useSettingsStore.getState();
     expect(state.customSystemPrompt).toBe("");
   });
+
+  it("Decision Models iniciam sem superfícies implicitamente autorizadas", async () => {
+    const { useSettingsStore } = await getStore();
+    expect(useSettingsStore.getState().decisionModelSurfaces).toEqual({});
+  });
+});
+
+describe("useSettingsStore — hidratação remota", () => {
+  beforeEach(() => {
+    localStorageMock.clear();
+    vi.resetModules();
+  });
+
+  it("aplica as preferências do backend sem reenviar PATCH", async () => {
+    const { hydrateFromBackend, useSettingsStore } = await getStore();
+    const { fetchPrefs, pushPrefs } = await import("../lib/api/settings-prefs");
+    vi.mocked(fetchPrefs).mockResolvedValueOnce({
+      decisionModelsEnabled: true,
+      decisionModelProvider: "jev-api",
+      decisionModelSurfaces: { hitl: true, browser: false },
+      transcriptionMode: "local",
+      permissionMode: "auto",
+    });
+    vi.mocked(pushPrefs).mockClear();
+
+    await hydrateFromBackend();
+
+    expect(useSettingsStore.getState()).toMatchObject({
+      decisionModelsEnabled: true,
+      decisionModelProvider: "jev-api",
+      decisionModelSurfaces: { hitl: true, browser: false },
+      transcriptionMode: "local",
+      permissionMode: "auto",
+    });
+    expect(pushPrefs).not.toHaveBeenCalled();
+  });
 });
 
 describe("useSettingsStore — mutações de estado", () => {
