@@ -2931,14 +2931,15 @@ class TestLlamaCppConfiguration:
 
 @pytest.mark.parametrize("capabilities_fail", [False, True])
 def test_decision_model_status_with_empty_local_model(
-    client,
-    monkeypatch,
-    capabilities_fail,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    capabilities_fail: bool,
 ) -> None:
     """A bad provider entry cannot make the status endpoint fail validation."""
     from types import SimpleNamespace
 
     from backend.api.handlers import provider_routing
+    from backend.llm.systemone.settings import SystemOneSettings
     from backend.llm.systemone.types import ProviderCapabilities
     from backend.settings import settings
 
@@ -2954,7 +2955,7 @@ def test_decision_model_status_with_empty_local_model(
         health=AsyncMock(return_value=False),
     )
 
-    def provider(sys_settings, **kwargs):
+    def provider(sys_settings: SystemOneSettings, **kwargs: object) -> SimpleNamespace:
         return (
             broken
             if sys_settings.provider == "clef-local" and capabilities_fail

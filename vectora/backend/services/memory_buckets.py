@@ -238,6 +238,10 @@ async def publish_memory_bucket(
         raise MemoryBucketsError(
             f"Bucket '{bucket_id}' não tem tabela LanceDB local pra publicar."
         )
+    if source_dir.is_symlink():
+        raise MemoryBucketsError(
+            "Bucket contém link simbólico ou caminho fora da coleção"
+        )
 
     # Empacota o CONTEÚDO do diretório .lance, não o diretório em si —
     # o nome do bucket muda ao ser instalado do outro lado

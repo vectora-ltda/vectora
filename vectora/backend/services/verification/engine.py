@@ -363,7 +363,9 @@ async def run_verification(
             commit_sha=commit_sha,
         )
 
-    has_infra_error = any(result.reason == "dispatch_error" for result in gate_results)
+    has_infra_error = any(
+        result.reason in ("dispatch_error", "timeout") for result in gate_results
+    )
     status: Literal["passed", "degraded", "failed"]
     if has_infra_error:
         outcome: VerificationOutcome = "infra_error"

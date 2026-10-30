@@ -187,6 +187,81 @@ async def test_run_verification_dispatch_error_is_not_approved(
 
 
 @pytest.mark.asyncio
+async def test_run_verification_timeout_on_degrade_gate_is_not_approved(
+    test_workspace: Path,
+) -> None:
+    """Gate que excede o tempo limite não concluiu; não pode aprovar a execução."""
+    gate = QualityGateSpec(
+        id="slow_gate",
+        name="Slow gate",
+        command=[sys.executable, "-c", "import time; time.sleep(30)"],
+        policy="degrade",
+        timeout_seconds=5,
+    )
+    result = await run_verification(
+        "timeout_ws",
+        test_workspace,
+        profile=WorkspaceVerificationProfile(
+            workspace_id="timeout_ws", enabled=True, gates=[gate]
+        ),
+    )
+    assert result.gate_results[0].reason == "timeout"
+    assert result.outcome == "infra_error"
+    assert result.status == "failed"
+    assert result.passed is False
+
+
+def _init_repo_with_commit(repo: Path) -> str:
+    """Cria um repositório com um commit e devolve o SHA do HEAD."""
+    import os
+    import shutil
+    import subprocess
+
+    git = shutil.which("git")
+    assert git is not None, "git é necessário para este teste"
+    repo.mkdir(exist_ok=True)
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.com",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.com",
+    }
+    subprocess.run([git, "init", "-q"], cwd=repo, check=True, env=env)  # noqa: S603
+    (repo / "f.txt").write_text("x\n", encoding="utf-8")
+    subprocess.run([git, "add", "f.txt"], cwd=repo, check=True, env=env)  # noqa: S603
+    subprocess.run(  # noqa: S603
+        [git, "commit", "-q", "-m", "init"], cwd=repo, check=True, env=env
+    )
+    head = subprocess.run(  # noqa: S603
+        [git, "rev-parse", "HEAD"],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    return head.stdout.strip()
+
+
+@pytest.mark.asyncio
+async def test_run_verification_records_head_commit_sha(tmp_path: Path) -> None:
+    """O commit avaliado vem do HEAD real; sem repositório Git fica ausente."""
+    repo = tmp_path / "repo"
+    expected = _init_repo_with_commit(repo)
+    profile = WorkspaceVerificationProfile(
+        workspace_id="sha_ws", enabled=True, gates=[]
+    )
+    res = await run_verification("sha_ws", repo, profile=profile)
+    assert res.commit_sha == expected
+
+    no_repo = tmp_path / "plain"
+    no_repo.mkdir()
+    res_plain = await run_verification("sha_ws", no_repo, profile=profile)
+    assert res_plain.commit_sha is None
+
+
+@pytest.mark.asyncio
 async def test_run_verification_passing_gate(test_workspace: Path) -> None:
     """Verifica o comportamento de run verification passing gate."""
     gate = QualityGateSpec(

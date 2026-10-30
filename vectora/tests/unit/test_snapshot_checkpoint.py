@@ -306,3 +306,23 @@ def test_gc_no_op_when_under_limits(tmp_path: Path) -> None:
 def test_gc_returns_zero_on_missing_dir(tmp_path: Path) -> None:
     removed = gc_snapshots(tmp_path / "no_such_dir")
     assert removed == 0
+
+
+def test_create_snapshot_reserva_espaco_para_o_manifesto(tmp_path: Path) -> None:
+    """Par de erro: arquivos que enchem o cap total não podem deixar o manifesto
+    de fora do limite; o snapshot ainda assim precisa ser criado e restaurado."""
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    ten_mib = 10 * 1024 * 1024
+    for i in range(5):
+        (workspace / f"big-{i}.bin").write_bytes(b"\x00" * ten_mib)
+
+    result = create_snapshot_checkpoint(str(workspace), tmp_path / "snaps", "t1", "msg")
+    assert result["status"] == "ok"
+
+    restore = tmp_path / "restore"
+    restore.mkdir()
+    assert (
+        restore_snapshot_checkpoint(result["snapshot_path"], str(restore))["status"]
+        == "ok"
+    )

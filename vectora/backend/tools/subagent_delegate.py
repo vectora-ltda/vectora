@@ -52,6 +52,8 @@ _DIRECT_ONLY_PHRASES = frozenset(
         "se apresente",
         "obrigado",
         "obrigada",
+        "ok",
+        "sim",
     }
 )
 
@@ -67,12 +69,10 @@ def _delegation_is_actionable(prompt: str) -> bool:
     normalized = re.sub(r"\s+", " ", normalized).strip()
     if not normalized or normalized in _DIRECT_ONLY_PHRASES:
         return False
-    if any(
+    return not any(
         normalized.removeprefix(f"{phrase} ") in _DIRECT_ONLY_PHRASES
         for phrase in _DIRECT_ONLY_PHRASES
-    ):
-        return False
-    return len(normalized) >= 8
+    )
 
 
 class SubagentDeps:

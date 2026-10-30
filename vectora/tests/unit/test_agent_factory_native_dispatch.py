@@ -100,7 +100,7 @@ class TestGetNativeAgent:
 
 
 class TestNativeSubagentCatalogAbac:
-    def test_souls_expoem_matrizes_de_tools_sem_excesso_de_permissao(self):
+    def test_souls_expoem_matrizes_de_tools_sem_excesso_de_permissao(self) -> None:
         """Cada Soul deve receber exatamente a superfície do seu contrato."""
         from backend.agents.souls import SOUL_CATALOG
 

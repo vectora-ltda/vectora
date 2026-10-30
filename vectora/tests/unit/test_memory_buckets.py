@@ -263,6 +263,28 @@ async def test_publish_rejects_symlink_inside_collection(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_publish_rejects_symlinked_collection_root(tmp_path):
+    """A raiz da coleção não pode ser symlink: nada pode sair do diretório dela."""
+    real_dir = tmp_path / "elsewhere"
+    real_dir.mkdir()
+    (real_dir / "data.lance").write_text("dados", encoding="utf-8")
+    try:
+        (tmp_path / "bucket_b1.lance").symlink_to(real_dir, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks não disponíveis neste ambiente")
+    with pytest.raises(MemoryBucketsError, match="link simbólico"):
+        await publish_memory_bucket(
+            "b1",
+            "n",
+            "d",
+            "MIT",
+            workspace_id="ws1",
+            session_token="tok",
+            lancedb_dir=tmp_path,
+        )
+
+
+@pytest.mark.asyncio
 async def test_publish_missing_local_workspace_raises_clear_error(tmp_path):
     with pytest.raises(MemoryBucketsError, match="não tem tabela"):
         await publish_memory_bucket(

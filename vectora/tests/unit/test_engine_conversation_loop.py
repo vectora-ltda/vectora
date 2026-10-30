@@ -1726,15 +1726,16 @@ class TestResumeConversation:
         "extras",
         [
             ToolExtras(category="browser"),
+            ToolExtras(category="git"),
             ToolExtras(structured_envelope=True),
         ],
     )
     async def test_hitl_resume_records_structured_error(
         self,
-        session_store,
-        ctx,
-        monkeypatch,
-        extras,
+        session_store: SessionStore,
+        ctx: ToolContext,
+        monkeypatch: pytest.MonkeyPatch,
+        extras: ToolExtras,
     ) -> None:
         """Approval resume preserves error classification in history and usage."""
         from unittest.mock import AsyncMock
