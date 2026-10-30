@@ -226,20 +226,45 @@ class RuntimeSettings:
     def update_list(
         self, key: str, update: Callable[[list[object]], list[object]]
     ) -> list[object]:
-        """Atualiza uma lista sob o mesmo lock da leitura e da persistência."""
+        """Atualiza uma lista atomicamente entre threads e processos.
+
+        A leitura precisa ocorrer dentro da transação SQLite: o cache local
+        pode estar desatualizado quando outra instância do backend altera a
+        mesma chave. ``BEGIN IMMEDIATE`` serializa os escritores antes de
+        carregar a lista, evitando consumo duplicado de concessões de uso único.
+        """
         with self._lock:
-            raw = self._data.get(key, [])
-            current = list(raw) if isinstance(raw, list) else []
-            updated = update(current)
-            previous = self._data.get(key)
-            self._data[key] = updated
             try:
-                self._persist(key, updated)
+                self._conn.execute("BEGIN IMMEDIATE")
+                row = self._conn.execute(
+                    "SELECT value FROM app_settings WHERE key = ?", (key,)
+                ).fetchone()
+                try:
+                    raw = json.loads(row[0]) if row is not None else []
+                except (TypeError, ValueError):
+                    logger.warning(
+                        "runtime_settings: lista inválida pra %r; substituindo", key
+                    )
+                    raw = []
+                current = list(raw) if isinstance(raw, list) else []
+                updated = update(current)
+                payload = json.dumps(updated, ensure_ascii=False)
+                now = datetime.now(UTC).isoformat()
+                self._conn.execute(
+                    "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                    (key, payload, now),
+                )
+                self._conn.commit()
+                self._data[key] = updated
             except Exception:
-                if previous is None:
-                    self._data.pop(key, None)
-                else:
-                    self._data[key] = previous
+                try:
+                    self._conn.rollback()
+                except Exception:
+                    logger.exception(
+                        "runtime_settings: falha ao desfazer atualização da lista %r",
+                        key,
+                    )
                 raise
             return list(updated)
 

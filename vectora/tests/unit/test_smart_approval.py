@@ -12,6 +12,9 @@ Cada caminho feliz tem o par de erro/borda no mesmo teste (CLAUDE.md §18).
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from backend.services import smart_approval as sa
@@ -56,6 +59,51 @@ class TestAllowlist:
         assert sa.consume_run_grant("ws1", "run-1", "terminal", args) == grants[0]
         assert sa.consume_run_grant("ws1", "run-1", "terminal", args) is None
         assert sa.get_allowlist("ws1") == []
+
+    def test_grant_de_uso_unico_e_atomico_entre_instancias_sqlite(
+        self, tmp_path, monkeypatch
+    ):
+        """Caches stale de processos distintos não podem consumir a mesma grant."""
+        from backend.workspace.runtime_settings import RuntimeSettings
+
+        path = tmp_path / "runtime-settings.db"
+        primeira = RuntimeSettings(path)
+        args = {"command": "git status"}
+        monkeypatch.setattr(sa, "_runtime_settings", lambda: primeira)
+        expected_grant = sa.add_to_allowlist("ws", "terminal", args, run_id="run")
+        segunda = RuntimeSettings(path)
+
+        # As duas instâncias carregaram a concessão antes do consumo concorrente.
+        assert segunda.get(sa._allowlist_key("ws"), []) == primeira.get(
+            sa._allowlist_key("ws"), []
+        )
+        worker_settings = threading.local()
+        monkeypatch.setattr(
+            sa, "_runtime_settings", lambda: worker_settings.runtime_settings
+        )
+        barrier = threading.Barrier(2)
+
+        def consume(runtime_settings):
+            worker_settings.runtime_settings = runtime_settings
+            barrier.wait(timeout=5)
+            return sa.consume_run_grant("ws", "run", "terminal", args)
+
+        try:
+            with ThreadPoolExecutor(max_workers=2) as executor:
+                results = list(executor.map(consume, (primeira, segunda)))
+            assert sorted(result is not None for result in results) == [False, True]
+            assert (
+                next(result for result in results if result is not None)
+                == expected_grant[0]
+            )
+            verificacao = RuntimeSettings(path)
+            try:
+                assert verificacao.get(sa._allowlist_key("ws"), []) == []
+            finally:
+                verificacao._conn.close()
+        finally:
+            primeira._conn.close()
+            segunda._conn.close()
 
     def test_workspace_vazio_e_recusado_na_escrita(self):
         """Erro/borda: allowlist é por workspace — sem id não há onde
