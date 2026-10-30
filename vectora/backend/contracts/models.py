@@ -322,6 +322,9 @@ class WorkspaceVerificationProfile(BaseModel):
     )
 
 
+QualityGateReason = Literal["passed", "assertion_failed", "timeout", "dispatch_error"]
+
+
 class QualityGateRunResult(BaseModel):
     """Resultado auditável da execução de um gate de qualidade com evidências associadas."""
 
@@ -334,9 +337,7 @@ class QualityGateRunResult(BaseModel):
     duration_ms: int = Field(
         default=0, description="Tempo de execução do gate em milissegundos"
     )
-    reason: (
-        Literal["passed", "assertion_failed", "timeout", "dispatch_error"] | None
-    ) = Field(
+    reason: QualityGateReason | None = Field(
         default=None,
         description=(
             "Classificação explícita do resultado: passed, assertion_failed, "
