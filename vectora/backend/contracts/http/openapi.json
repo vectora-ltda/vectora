@@ -17262,7 +17262,7 @@
     },
     "/runs/{run_id}/timeline": {
       "get": {
-        "description": "Consulta o estado e a timeline de eventos correlacionados ao AgentRun.",
+        "description": "Consulta o estado e uma página da timeline de eventos do AgentRun.",
         "operationId": "get_agent_run_timeline_runs__run_id__timeline_get",
         "parameters": [
           {
@@ -17272,6 +17272,29 @@
             "schema": {
               "title": "Run Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 500,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
             }
           }
         ],

@@ -2801,9 +2801,12 @@ async def get_agent_run(run_id: str, request: Request) -> AgentRun:
 
 @router.get("/runs/{run_id}/timeline", response_model=AgentRunTimelineResponse)
 async def get_agent_run_timeline(
-    run_id: str, request: Request
+    run_id: str,
+    request: Request,
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> AgentRunTimelineResponse:
-    """Consulta o estado e a timeline de eventos correlacionados ao AgentRun."""
+    """Consulta o estado e uma página da timeline de eventos do AgentRun."""
     session_store = await _get_session_store()
     if not hasattr(session_store, "get_agent_run"):
         raise HTTPException(
@@ -2819,7 +2822,9 @@ async def get_agent_run_timeline(
     await _assert_existing_thread_ownership(run.thread_id, request)
     timeline: list[AgentRunTimelineEntry] = []
     if hasattr(session_store, "get_agent_run_timeline"):
-        timeline = await session_store.get_agent_run_timeline(run_id)
+        timeline = await session_store.get_agent_run_timeline(
+            run_id, limit=limit, offset=offset
+        )
     return AgentRunTimelineResponse(run=run, timeline=timeline)
 
 
