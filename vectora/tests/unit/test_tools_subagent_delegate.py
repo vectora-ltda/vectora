@@ -91,7 +91,9 @@ def _handler():
 
 
 class TestDelegateToSubagent:
-    async def test_solicitacao_trivial_nao_inicia_subagente(self, session_store):
+    async def test_solicitacao_trivial_nao_inicia_subagente(
+        self, session_store: SessionStore
+    ) -> None:
         client = _ScriptedChatClient([[_texto_chunk("não deveria ser chamado")]])
         deps = SubagentDeps(
             catalog={"coder": _spec("coder")},
@@ -208,10 +210,15 @@ class TestShouldRequireApprovalObrigatorio:
 
 @pytest.mark.parametrize(
     "prompt",
-    ["Documente a API de buckets", "implementar o endpoint", "corrigir os testes"],
+    [
+        "Documente a API de buckets",
+        "implementar o endpoint",
+        "corrigir os testes",
+        "Teste",
+    ],
 )
 async def test_actionable_requests_do_not_require_execution_markers(
-    prompt, session_store
+    prompt: str, session_store: SessionStore
 ) -> None:
     """Valid task descriptions must reach the selected subagent."""
     client = _ScriptedChatClient([[_texto_chunk("feito")]])
@@ -233,9 +240,10 @@ async def test_actionable_requests_do_not_require_execution_markers(
 
 
 @pytest.mark.parametrize(
-    "prompt", ["", "  ", "Olá!", "bom dia", "Obrigado", "Olá, quem é você?"]
+    "prompt",
+    ["", "  ", "Olá!", "bom dia", "Obrigado", "Olá, quem é você?", "ok", "sim"],
 )
-def test_trivial_requests_remain_direct_only(prompt) -> None:
+def test_trivial_requests_remain_direct_only(prompt: str) -> None:
     """Empty prompts, greetings and identity questions do not need delegation."""
     from backend.tools.subagent_delegate import _delegation_is_actionable
 
