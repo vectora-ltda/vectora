@@ -15,14 +15,21 @@ Only shows providers with a configured API key — Google Gemini, OpenAI, Anthro
 
 Control how automatically the agent acts before asking for your approval:
 
-| Mode             | The agent...                                                              |
-| ---------------- | ------------------------------------------------------------------------- |
-| **Always ask**   | pauses before any destructive action (writing a file, terminal, git push) |
-| **Accept edits** | applies file edits directly; terminal and git still pause                 |
-| **Autonomous**   | doesn't pause for anything — use with a workspace you already fully trust |
-| **Plan**         | only plans, never executes a real action                                  |
+| Mode             | Approval-gate behavior                                                                       |
+| ---------------- | -------------------------------------------------------------------------------------------- |
+| **Always ask**   | pauses for tools classified as sensitive or destructive                                     |
+| **Accept edits** | allows file writes and edits without pausing; other protected actions remain subject to HITL |
+| **Autonomous**   | does not pause for ordinary human approval; policy and security blocks remain active        |
+| **Plan**         | pauses for the first protected action in a turn; each metered media call needs its own approval |
+| **Bypass**       | disables ordinary HITL pauses; independent guardrails still apply                           |
 
-See [Orchestrator & Subagents](../../concepts/sub-agents) to understand the HITL behind this.
+These are permission modes, not trust levels for the model. Some operations, such as desktop control, can still require confirmation in every mode. In **Plan**, an approval already granted in the same turn lets the plan continue; it is not a permanent authorization.
+
+A pre-approval is a separate, explicit grant. It can be consumed once for one tool and its exact arguments, within the same workspace and `run_id`, and expires after a limited time. Irreversible tools cannot use this grant.
+
+In **Autonomous** mode, a Decision Model participates only when enabled, selected, ready, and allowed for the action's surface. Without it, no additional automated decision is assumed: static policy still controls what can run. If an evaluation that has started fails, times out, or requires human review, the action is not treated as approved.
+
+See [Orchestrator & Subagents](../../concepts/sub-agents) for the HITL flow and [Decision models](../decision-models) to configure providers and surfaces.
 
 ## Orchestrator thinking
 
