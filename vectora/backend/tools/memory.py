@@ -90,7 +90,9 @@ def _memory_namespace_candidates(ctx: ToolContext) -> list[tuple[str, ...]]:
 _is_memory_expired = is_store_value_expired
 
 
-async def list_fact_contents(user_id: str) -> list[str]:
+async def list_fact_contents(
+    user_id: str, *, workspace_id: str = "", org_id: str = ""
+) -> list[str]:
     """Conteúdo de todos os fatos salvos de um usuário — usado por
     `backend/services/remember_trigger.py` pra deduplicar propostas do
     Remember (`dedupe_fact_drafts`) antes de sugerir de novo um fato já
@@ -105,7 +107,9 @@ async def list_fact_contents(user_id: str) -> list[str]:
     from backend.services.agent_factory import get_store as get_agent_store
 
     store = await get_agent_store()
-    ctx = ToolContext(user_id=user_id)
+    # The scope must match what save_memory writes: a fact saved in a workspace
+    # lives in the scoped namespace and has to be seen by the deduplication.
+    ctx = ToolContext(user_id=user_id, workspace_id=workspace_id, org_id=org_id)
     items: list[Any] = []
     seen: set[str] = set()
     for ns in _memory_namespace_candidates(ctx):

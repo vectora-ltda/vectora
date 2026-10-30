@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 REMEMBER_TRIGGER_EVERY_N_TURNS = 5
 
 
-async def maybe_trigger_remember(thread_id: str, user_id: str) -> None:
+async def maybe_trigger_remember(
+    thread_id: str, user_id: str, *, workspace_id: str = ""
+) -> None:
     """Incrementa o contador de turnos da thread; a cada N turnos, sem
     proposta pendente, destila o transcript e propõe skills/fatos.
 
@@ -78,7 +80,7 @@ async def maybe_trigger_remember(thread_id: str, user_id: str) -> None:
         result = await distill_transcript(transcript)
         existing_names = {s.name for s in list_skills(user_id)}
         skills = dedupe_skill_drafts(result.skills, existing_names)
-        existing_facts = await list_fact_contents(user_id)
+        existing_facts = await list_fact_contents(user_id, workspace_id=workspace_id)
         facts = dedupe_fact_drafts(result.facts, existing_facts)
 
         if not skills and not facts:

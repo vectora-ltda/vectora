@@ -564,7 +564,11 @@ def stream_engine_events(
                         )
 
                         try:
-                            await maybe_trigger_remember(thread_id, user_id or "local")
+                            await maybe_trigger_remember(
+                                thread_id,
+                                user_id or "local",
+                                workspace_id=workspace_id or "",
+                            )
                         except Exception:
                             logger.warning(
                                 "native_stream: falha ao disparar remember",
@@ -668,7 +672,9 @@ def stream_engine_events(
 
                                     with contextlib.suppress(Exception):
                                         await maybe_trigger_remember(
-                                            thread_id, user_id or "local"
+                                            thread_id,
+                                            user_id or "local",
+                                            workspace_id=workspace_id or "",
                                         )
                             finally:
                                 _release_workspace_lock()

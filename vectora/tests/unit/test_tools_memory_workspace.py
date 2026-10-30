@@ -119,3 +119,26 @@ async def test_listing_skips_expired_scoped_copy_before_deduplicating(
     await store.aput(legacy, "key", expired)
     assert json.loads(await get_memory(ctx))["memories"] == []
     assert await list_fact_contents("alice") == []
+
+
+async def test_deduplicacao_do_remember_enxerga_fato_salvo_no_workspace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Um fato gravado no namespace do workspace entra na deduplicação do
+    Remember quando o gatilho recebe o mesmo workspace; sem o escopo a
+    proposta repetida seria aceita de novo."""
+    from backend.services import agent_factory
+    from backend.testing.mocks import NativeInMemoryStore
+    from backend.tools.memory import _memory_namespace, list_fact_contents
+
+    store = NativeInMemoryStore()
+
+    async def _store() -> NativeInMemoryStore:
+        return store
+
+    monkeypatch.setattr(agent_factory, "get_store", _store)
+    ctx = ToolContext(user_id="alice", workspace_id="ws1", store=store)
+    await store.aput(_memory_namespace(ctx), "fato", {"content": "usa pytest"})
+
+    assert await list_fact_contents("alice", workspace_id="ws1") == ["usa pytest"]
+    assert await list_fact_contents("alice") == []
