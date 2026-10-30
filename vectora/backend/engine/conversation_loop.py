@@ -121,6 +121,7 @@ async def _bind_decision_model_snapshot(
     }
     runtime = {
         "model": model_by_provider.get(provider),
+        "systemone_enabled": settings.systemone_enabled,
         "allow_remote_fallback": settings.systemone_allow_remote_fallback,
         "risk_assessment_timeout_s": SystemOneSettings().risk_assessment_timeout_s,
         "confidence_threshold_hitl": settings.systemone_confidence_threshold_hitl,

@@ -379,6 +379,66 @@ def _risk_assessment_key(tool_name: str, args: dict[str, Any]) -> str:
     return f"{tool_name}:{digest}"
 
 
+def _decision_snapshot_matches_runtime(ctx: ToolContext) -> bool:
+    """Fail closed when a run's decision preferences or runtime changed."""
+    extra = getattr(ctx, "_extra", None)
+    snapshot = extra.get("decision_model_snapshot") if isinstance(extra, dict) else None
+    run_id = getattr(ctx, "run_id", "")
+    if not isinstance(snapshot, dict) or not run_id or snapshot.get("run_id") != run_id:
+        return True
+
+    try:
+        from backend.llm.systemone.settings import SystemOneSettings
+        from backend.settings import settings
+        from backend.workspace.runtime_settings import runtime_settings
+
+        prefs = runtime_settings.get_frontend_prefs(
+            getattr(ctx, "user_id", "local"),
+            getattr(ctx, "workspace_id", None) or None,
+        )
+        surfaces = prefs.get("decisionModelSurfaces")
+        effective = {
+            "enabled": prefs.get("decisionModelsEnabled") is True,
+            "provider": prefs.get("decisionModelProvider"),
+            "surfaces": {
+                str(name): enabled is True for name, enabled in surfaces.items()
+            }
+            if isinstance(surfaces, dict)
+            else {},
+        }
+        if effective != snapshot.get("preferences"):
+            return False
+
+        runtime = {
+            "systemone_enabled": settings.systemone_enabled,
+            "allow_remote_fallback": settings.systemone_allow_remote_fallback,
+            "risk_assessment_timeout_s": SystemOneSettings().risk_assessment_timeout_s,
+            "confidence_threshold_hitl": settings.systemone_confidence_threshold_hitl,
+        }
+        provider = effective["provider"]
+        model_by_provider = {
+            "clef-local": settings.systemone_local_model,
+            "laya-local": settings.systemone_laya_model,
+            "clef-api": settings.systemone_clef_api_model,
+            "jev-api": settings.systemone_jev_api_model,
+        }
+        runtime["model"] = model_by_provider.get(provider)
+        if any(
+            key in snapshot and snapshot.get(key) != value
+            for key, value in runtime.items()
+        ):
+            return False
+
+        from backend.services.policy_compiler import compile_policy_snapshot
+
+        return compile_policy_snapshot(ctx).version == snapshot.get("policy_version")
+    except Exception:
+        logger.warning(
+            "hitl: não foi possível validar snapshot da decisão", exc_info=True
+        )
+        return False
+
+
 async def precompute_tool_risk_assessment(  # noqa: PLR0911
     harness: SystemOneHarness,
     *,
@@ -398,7 +458,7 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
         return False
 
     mode = getattr(ctx, "permission_mode", None) or "ask"
-    if mode not in {"auto", "plan"} or not decision_model_enabled_for(ctx, surface):
+    if mode not in {"auto", "plan"}:
         return False
 
     workspace_id = getattr(ctx, "workspace_id", None) or "default"
@@ -420,6 +480,11 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
 
     if extra.get("decision_model_revoked") is True:
         return require_human("decision_model_revoked")
+    if not _decision_snapshot_matches_runtime(ctx):
+        extra["decision_model_revoked"] = True
+        return require_human("decision_model_revoked")
+    if not decision_model_enabled_for(ctx, surface):
+        return False
 
     try:
         if not await harness.is_ready():
@@ -474,38 +539,50 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
         logger.warning("hitl: falha ao pré-calcular risco via SystemOne", exc_info=True)
         return require_human("decision_model_failed")
 
-    if res.mode in ("off", "shadow"):
-        return require_human("decision_model_mode_mismatch")
-    if res.policy_result.outcome == "rejected":
-        return require_human("decision_policy_rejected")
-    if res.response is None:
-        return require_human("decision_model_empty_response")
+    # Re-read preferences and policy after the model call. A user or policy
+    # change while the provider was running revokes this result before it can
+    # be used to allow or auto-approve the tool call.
+    if not _decision_snapshot_matches_runtime(ctx):
+        extra["decision_model_revoked"] = True
+        return require_human("decision_model_revoked")
 
-    answer = res.response.answers.get("risk_score") if res.response else None
-    score = getattr(answer, "score", None)
-    confidence = getattr(answer, "confidence", None)
-    # An incomplete or malformed model answer is not evidence that a call is
-    # safe. Only an explicit, policy-accepted, confident low-risk score may
-    # produce an autonomous allow.
-    decision = "requires_human"
-    reason = "decision_model_missing_or_invalid_risk_score"
-    if res.policy_result.requires_hitl:
-        decision, reason = "requires_human", res.policy_result.reason
-    elif (
-        isinstance(score, int | float)
-        and not isinstance(score, bool)
-        and 0 <= score <= 1
-        and isinstance(confidence, int | float)
-        and not isinstance(confidence, bool)
-        and 0 <= confidence <= 1
-        and confidence >= confidence_threshold
-    ):
-        if score >= 0.95:
-            decision, reason = "deny", "decision_model_high_risk"
-        elif score >= risk_score_threshold:
-            decision, reason = "requires_human", "decision_model_risk_threshold"
-        else:
-            decision, reason = "allow", "risk_below_threshold"
+    try:
+        if res.mode in ("off", "shadow"):
+            return require_human("decision_model_mode_mismatch")
+        if res.policy_result.outcome == "rejected":
+            return require_human("decision_policy_rejected")
+        if res.response is None:
+            return require_human("decision_model_empty_response")
+
+        answer = res.response.answers.get("risk_score")
+        score = getattr(answer, "score", None)
+        confidence = getattr(answer, "confidence", None)
+        # An incomplete or malformed model answer is not evidence that a call
+        # is safe. Only an explicit, policy-accepted, confident low-risk score
+        # may produce an autonomous allow.
+        decision = "requires_human"
+        reason = "decision_model_missing_or_invalid_risk_score"
+        if res.policy_result.requires_hitl:
+            decision, reason = "requires_human", res.policy_result.reason
+        elif (
+            isinstance(score, int | float)
+            and not isinstance(score, bool)
+            and 0 <= score <= 1
+            and isinstance(confidence, int | float)
+            and not isinstance(confidence, bool)
+            and 0 <= confidence <= 1
+            and confidence >= confidence_threshold
+        ):
+            if score >= 0.95:
+                decision, reason = "deny", "decision_model_high_risk"
+            elif score >= risk_score_threshold:
+                decision, reason = "requires_human", "decision_model_risk_threshold"
+            else:
+                decision, reason = "allow", "risk_below_threshold"
+        response_redacted = _redacted_decision_response(res.response)
+    except Exception:
+        logger.warning("hitl: resposta de risco inválida", exc_info=True)
+        return require_human("decision_model_invalid_response")
     elevate = decision == "requires_human"
     elevated = extra.setdefault("systemone_risk_elevated_calls", set())
     if elevate:
@@ -524,7 +601,7 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
         "decision_id": res.decision_id,
         "run_id": ctx.run_id,
         "thread_id": ctx.thread_id,
-        "response_redacted": _redacted_decision_response(res.response),
+        "response_redacted": response_redacted,
     }
     logger.info(
         "systemone.execution_decision tool=%s decision=%s reason=%s provider=%s model=%s",

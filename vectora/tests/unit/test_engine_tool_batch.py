@@ -73,6 +73,7 @@ class TestDespachoParaleloSequencial:
             ("empty", "decision_model_empty_response", True),
             ("low_confidence", "decision_model_missing_or_invalid_risk_score", True),
             ("invalid_score", "decision_model_missing_or_invalid_risk_score", True),
+            ("malformed_response", "decision_model_invalid_response", True),
             ("unhealthy", "decision_model_unavailable", False),
         ],
     )
@@ -86,6 +87,11 @@ class TestDespachoParaleloSequencial:
             should_require_approval,
         )
         from backend.llm.systemone.errors import SystemOneRateLimitError
+        from backend.llm.systemone.types import (
+            ScoreAnswer,
+            SystemOneMetadata,
+            SystemOneResponse,
+        )
 
         invoked = False
 
@@ -111,20 +117,33 @@ class TestDespachoParaleloSequencial:
                 if failure == "rate_limit":
                     raise SystemOneRateLimitError("rate limited")
                 answer = (
-                    SimpleNamespace(
+                    ScoreAnswer(
                         score=1.5 if failure == "invalid_score" else 0.2,
                         confidence=0.1,
                     )
-                    if failure in {"low_confidence", "invalid_score"}
+                    if failure
+                    in {"low_confidence", "invalid_score", "malformed_response"}
                     else None
                 )
+                response = (
+                    SystemOneResponse(
+                        answers={"risk_score": answer},
+                        metadata=SystemOneMetadata(
+                            provider="clef-local", model="test", latency_ms=1
+                        ),
+                    )
+                    if answer is not None
+                    else None
+                )
+                if failure == "malformed_response":
+                    response = SimpleNamespace(
+                        answers={
+                            "risk_score": SimpleNamespace(score=0.1, confidence=1.0)
+                        }
+                    )
                 return SimpleNamespace(
                     mode="enforced",
-                    response=(
-                        SimpleNamespace(answers={"risk_score": answer})
-                        if answer is not None
-                        else None
-                    ),
+                    response=response,
                     policy_result=SimpleNamespace(
                         outcome="rejected" if failure == "rejected" else "accepted",
                         requires_hitl=False,
@@ -178,6 +197,201 @@ class TestDespachoParaleloSequencial:
         result = await execute_tool_batch([call], tool_registry=registry, ctx=ctx)
         assert invoked is not blocked
         assert result[0].is_error is blocked
+
+    async def test_revocation_during_risk_assessment_blocks_tool(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A preference change while the provider runs invalidates its allow."""
+        from backend.engine.hitl import (
+            _risk_assessment_key,
+            precompute_tool_risk_assessment,
+            should_require_approval,
+        )
+        from backend.llm.systemone.settings import SystemOneSettings
+        from backend.services.policy_compiler import compile_policy_snapshot
+        from backend.settings import settings
+
+        preferences: dict[str, object] = {
+            "decisionModelsEnabled": True,
+            "decisionModelProvider": "clef-local",
+            "decisionModelSurfaces": {"hitl": True},
+        }
+
+        class PreferenceStore:
+            def get_frontend_prefs(self, _user_id: str, _workspace_id: str | None):
+                return dict(preferences)
+
+        monkeypatch.setattr(
+            "backend.workspace.runtime_settings.runtime_settings", PreferenceStore()
+        )
+        invoked = False
+
+        async def mutating_tool(value: str, ctx: ToolContext) -> str:
+            nonlocal invoked
+            invoked = True
+            return value
+
+        class RevokingHarness:
+            risk_assessment_timeout_s = SystemOneSettings().risk_assessment_timeout_s
+            confidence_threshold_hitl = settings.systemone_confidence_threshold_hitl
+
+            async def is_ready(self) -> bool:
+                return True
+
+            def set_mode(self, *_args: object, **_kwargs: object) -> None:
+                pass
+
+            async def assess_tool_risk(self, **_kwargs: object) -> object:
+                preferences["decisionModelsEnabled"] = False
+                return SimpleNamespace(
+                    mode="enforced",
+                    response=SimpleNamespace(
+                        answers={
+                            "risk_score": SimpleNamespace(score=0.1, confidence=1.0)
+                        }
+                    ),
+                    policy_result=SimpleNamespace(
+                        outcome="accepted", requires_hitl=False, reason=""
+                    ),
+                    provider="clef-local",
+                    model="test",
+                    policy_version="1",
+                    decision_id="revoked-decision",
+                )
+
+        ctx = ToolContext(
+            user_id="u1",
+            thread_id="revocation-thread",
+            workspace_id="revocation-workspace",
+            run_id="revocation-run",
+            permission_mode="auto",
+            _extra={
+                "decision_model_preferences": {
+                    "enabled": True,
+                    "provider": "clef-local",
+                    "surfaces": {"hitl": True},
+                },
+            },
+        )
+        from backend.llm.systemone.settings import SystemOneSettings
+
+        ctx._extra["decision_model_snapshot"] = {
+            "run_id": ctx.run_id,
+            "preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": {"hitl": True},
+            },
+            "model": settings.systemone_local_model,
+            "systemone_enabled": settings.systemone_enabled,
+            "allow_remote_fallback": settings.systemone_allow_remote_fallback,
+            "risk_assessment_timeout_s": SystemOneSettings().risk_assessment_timeout_s,
+            "confidence_threshold_hitl": settings.systemone_confidence_threshold_hitl,
+            "policy_version": compile_policy_snapshot(ctx).version,
+        }
+        call = ToolCall(id="revoked-call", name="file_write", args={"value": "x"})
+        registry = ToolRegistry()
+        registry.register(
+            ToolSpec(
+                name="file_write",
+                description="mutating",
+                args_model=create_model("RevocationArgs", value=(str, ...)),
+                handler=mutating_tool,
+                extras=ToolExtras(destructive=True),
+                needs_ctx=True,
+            )
+        )
+
+        await precompute_tool_risk_assessment(
+            cast("SystemOneHarness", RevokingHarness()),
+            tool_name=call.name,
+            ctx=ctx,
+            args=call.args,
+        )
+        key = _risk_assessment_key(call.name, call.args)
+        assert ctx._extra["systemone_decisions"][key]["reason"] == (
+            "decision_model_revoked"
+        )
+        assert ctx._extra["systemone_decisions"][key]["decision"] == "requires_human"
+        assert should_require_approval(call.name, ctx, call.args, []) is True
+
+        result = await execute_tool_batch([call], tool_registry=registry, ctx=ctx)
+        assert invoked is False
+        assert result[0].is_error is True
+
+    async def test_revocation_before_risk_assessment_blocks_tool(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Disabling a model after run start still requires human approval."""
+        from backend.engine.hitl import (
+            _risk_assessment_key,
+            precompute_tool_risk_assessment,
+            should_require_approval,
+        )
+        from backend.llm.systemone.settings import SystemOneSettings
+        from backend.services.policy_compiler import compile_policy_snapshot
+        from backend.settings import settings
+
+        class PreferenceStore:
+            def get_frontend_prefs(self, _user_id: str, _workspace_id: str | None):
+                return {
+                    "decisionModelsEnabled": False,
+                    "decisionModelProvider": "clef-local",
+                    "decisionModelSurfaces": {"hitl": True},
+                }
+
+        monkeypatch.setattr(
+            "backend.workspace.runtime_settings.runtime_settings", PreferenceStore()
+        )
+        ctx = ToolContext(
+            user_id="u1",
+            thread_id="revocation-before-thread",
+            workspace_id="revocation-before-workspace",
+            run_id="revocation-before-run",
+            permission_mode="auto",
+            _extra={
+                "decision_model_preferences": {
+                    "enabled": True,
+                    "provider": "clef-local",
+                    "surfaces": {"hitl": True},
+                },
+            },
+        )
+        ctx._extra["decision_model_snapshot"] = {
+            "run_id": ctx.run_id,
+            "preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": {"hitl": True},
+            },
+            "model": settings.systemone_local_model,
+            "systemone_enabled": settings.systemone_enabled,
+            "allow_remote_fallback": settings.systemone_allow_remote_fallback,
+            "risk_assessment_timeout_s": SystemOneSettings().risk_assessment_timeout_s,
+            "confidence_threshold_hitl": settings.systemone_confidence_threshold_hitl,
+            "policy_version": compile_policy_snapshot(ctx).version,
+        }
+        call = ToolCall(
+            id="revoked-before-call", name="file_write", args={"value": "x"}
+        )
+
+        class NeverCalledHarness:
+            async def is_ready(self) -> bool:
+                raise AssertionError("revoked decision must not probe the provider")
+
+        await precompute_tool_risk_assessment(
+            cast("SystemOneHarness", NeverCalledHarness()),
+            tool_name=call.name,
+            ctx=ctx,
+            args=call.args,
+        )
+
+        decision = ctx._extra["systemone_decisions"][
+            _risk_assessment_key(call.name, call.args)
+        ]
+        assert decision["decision"] == "requires_human"
+        assert decision["reason"] == "decision_model_revoked"
+        assert should_require_approval(call.name, ctx, call.args, []) is True
 
     async def test_veto_do_decision_model_impede_handler(
         self, ctx: ToolContext
