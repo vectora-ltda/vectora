@@ -198,6 +198,78 @@ class TestDespachoParaleloSequencial:
         assert invoked is not blocked
         assert result[0].is_error is blocked
 
+    async def test_disabled_surface_is_recorded_but_does_not_claim_model_protection(
+        self,
+    ) -> None:
+        from backend.engine.hitl import (
+            _risk_assessment_key,
+            precompute_tool_risk_assessment,
+            should_require_approval,
+        )
+
+        invoked = False
+
+        async def read_like_tool(value: str, ctx: ToolContext) -> str:
+            nonlocal invoked
+            invoked = True
+            return value
+
+        class DisabledHarness:
+            async def is_ready(self) -> bool:
+                raise AssertionError("disabled surface must not probe a provider")
+
+        ctx = ToolContext(
+            user_id="u1",
+            thread_id="disabled-surface-thread",
+            run_id="disabled-surface-run",
+            permission_mode="auto",
+            _extra={
+                "decision_model_preferences": {
+                    "enabled": True,
+                    "provider": "clef-local",
+                    "surfaces": {"hitl": False},
+                }
+            },
+        )
+        call = ToolCall(
+            id="disabled-surface-call", name="file_write", args={"value": "x"}
+        )
+        elevated = await precompute_tool_risk_assessment(
+            cast("SystemOneHarness", DisabledHarness()),
+            tool_name=call.name,
+            ctx=ctx,
+            args=call.args,
+        )
+        decision = ctx._extra["systemone_decisions"][
+            _risk_assessment_key(call.name, call.args)
+        ]
+
+        assert elevated is False
+        assert decision == {
+            "decision": "unavailable",
+            "reason": "decision_model_surface_disabled",
+            "provider": "clef-local",
+            "run_id": "disabled-surface-run",
+            "thread_id": "disabled-surface-thread",
+        }
+        assert should_require_approval(call.name, ctx, call.args, []) is False
+
+        registry = ToolRegistry()
+        registry.register(
+            ToolSpec(
+                name="file_write",
+                description="test mutation",
+                args_model=create_model("DisabledSurfaceArgs", value=(str, ...)),
+                handler=read_like_tool,
+                extras=ToolExtras(destructive=True),
+                needs_ctx=True,
+            )
+        )
+        result = await execute_tool_batch([call], tool_registry=registry, ctx=ctx)
+
+        assert invoked is True
+        assert result[0].is_error is False
+
     async def test_revocation_during_risk_assessment_blocks_tool(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

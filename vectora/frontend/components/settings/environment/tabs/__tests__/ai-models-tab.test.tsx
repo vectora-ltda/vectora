@@ -73,9 +73,21 @@ describe("SystemOneConfiguration", () => {
 
 describe("TranscriptionSettings", () => {
   it("persists local mode and offers explicit remote mode", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ transcriptionMode: "local" }),
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(input).includes("TranscriptionReadiness")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            dependency_available: true,
+            model_cached: false,
+            ready: false,
+          }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        json: async () => ({ transcriptionMode: "local" }),
+      });
     });
     vi.stubGlobal("fetch", fetchMock);
     useSettingsStore.setState({ transcriptionMode: "remote" });
@@ -84,13 +96,76 @@ describe("TranscriptionSettings", () => {
     const mode = screen.getByLabelText("Mode used for chat dictation");
     fireEvent.change(mode, { target: { value: "local" } });
     expect(mode).toHaveValue("local");
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    expect(fetchMock.mock.calls[0][1]).toMatchObject({
+    const readiness = await screen.findByRole("status");
+    await waitFor(() =>
+      expect(readiness.textContent).toMatch(
+        /ai_models_transcription_model_download_required|The local runtime is installed; the base model will download on first use\./,
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([input, init]) =>
+            !String(input).includes("TranscriptionReadiness") &&
+            init?.method === "PATCH",
+        ),
+      ).toBe(true),
+    );
+    const updateCall = fetchMock.mock.calls.find(
+      ([input]) => !String(input).includes("TranscriptionReadiness"),
+    );
+    expect(updateCall?.[1]).toMatchObject({
       method: "PATCH",
       body: JSON.stringify({ transcriptionMode: "local" }),
     });
     expect(
       screen.getByRole("option", { name: "Configured remote provider" }),
     ).toHaveValue("remote");
+  });
+
+  it("reports when the local transcription dependency is missing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          dependency_available: false,
+          model_cached: false,
+          ready: false,
+        }),
+      }),
+    );
+    useSettingsStore.setState({ transcriptionMode: "local" });
+    render(<TranscriptionSettings />);
+
+    const readiness = await screen.findByRole("status");
+    await waitFor(() =>
+      expect(readiness.textContent).toMatch(
+        /ai_models_transcription_dependency_missing|faster-whisper is not installed/,
+      ),
+    );
+  });
+
+  it("reports when the local transcription model is ready from cache", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          dependency_available: true,
+          model_cached: true,
+          ready: true,
+        }),
+      }),
+    );
+    useSettingsStore.setState({ transcriptionMode: "local" });
+    render(<TranscriptionSettings />);
+
+    const readiness = await screen.findByRole("status");
+    await waitFor(() =>
+      expect(readiness.textContent).toMatch(
+        /ai_models_transcription_local_ready|Local transcription is ready; the base model is cached\./,
+      ),
+    );
   });
 });

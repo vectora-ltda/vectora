@@ -15,6 +15,7 @@ não há o que chamar.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import logging
 import tempfile
 from pathlib import PurePath
@@ -51,6 +52,44 @@ _AUDIO_MIME_BY_SUFFIX = {
 
 class TranscriptionError(Exception):
     """Falha ao transcrever um áudio — sem chave configurada ou erro da API."""
+
+
+def local_transcription_readiness() -> dict[str, bool | str]:
+    """Report whether local STT can run without downloading model weights.
+
+    Readiness is deliberately observational: it does not import CTranslate2,
+    allocate a model, access the network, or download weights. A missing model
+    is reported separately because the first transcription downloads it.
+    """
+    from backend.settings import settings
+
+    dependency_available = importlib.util.find_spec("faster_whisper") is not None
+    model_root = settings.vectora_home / "models" / "whisper"
+    model_cached = (
+        any(
+            snapshot.is_dir() and (snapshot / "model.bin").is_file()
+            for snapshots in model_root.glob(
+                "models--Systran--faster-whisper-base/snapshots"
+            )
+            for snapshot in snapshots.iterdir()
+        )
+        if model_root.exists()
+        else False
+    )
+    ready = dependency_available and model_cached
+    if not dependency_available:
+        diagnostic = "faster-whisper não está instalado"
+    elif not model_cached:
+        diagnostic = "modelo base ainda não baixado; o primeiro uso exigirá download"
+    else:
+        diagnostic = "modelo local disponível"
+    return {
+        "mode": "local",
+        "dependency_available": dependency_available,
+        "model_cached": model_cached,
+        "ready": ready,
+        "diagnostic": diagnostic,
+    }
 
 
 async def transcribe_audio(

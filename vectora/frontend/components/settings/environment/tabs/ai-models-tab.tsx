@@ -425,6 +425,33 @@ export function TranscriptionSettings() {
   const setTranscriptionMode = useSettingsStore(
     (state) => state.setTranscriptionMode,
   );
+  const [localReadiness, setLocalReadiness] = useState<{
+    dependency_available: boolean;
+    model_cached: boolean;
+    ready: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/vectora.chat.v1.ChatService/TranscriptionReadiness")
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return (await response.json()) as {
+          dependency_available: boolean;
+          model_cached: boolean;
+          ready: boolean;
+        };
+      })
+      .then((value) => {
+        if (active) setLocalReadiness(value);
+      })
+      .catch(() => {
+        if (active) setLocalReadiness(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   return (
     <section
       className="space-y-2 rounded-lg border p-3"
@@ -452,6 +479,19 @@ export function TranscriptionSettings() {
       <p className="text-xs text-muted-foreground">
         {mDyn("ai_models_transcription_description")}
       </p>
+      {transcriptionMode === "local" && (
+        <p role="status" className="text-xs text-muted-foreground">
+          {!localReadiness
+            ? mDyn("ai_models_transcription_readiness_unknown")
+            : !localReadiness.dependency_available
+              ? mDyn("ai_models_transcription_dependency_missing")
+              : !localReadiness.model_cached
+                ? mDyn("ai_models_transcription_model_download_required")
+                : localReadiness.ready
+                  ? mDyn("ai_models_transcription_local_ready")
+                  : mDyn("ai_models_transcription_readiness_unknown")}
+        </p>
+      )}
     </section>
   );
 }

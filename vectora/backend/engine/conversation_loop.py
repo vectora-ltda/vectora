@@ -1285,17 +1285,39 @@ async def run_conversation(  # noqa: PLR0911
                 for candidate in tool_calls
                 if call_requires_separate_approval(candidate.name, candidate.args)
             ]
-            decision_candidates = [
-                (candidate, surface)
-                for candidate, surface in decision_candidates
-                if decision_model_enabled_for(ctx, surface)
-            ]
             if decision_candidates:
                 from backend.engine.hitl import _risk_assessment_key
 
-                decision_harness = _build_selected_decision_harness(ctx)
+                decision_harness = (
+                    _build_selected_decision_harness(ctx)
+                    if any(
+                        decision_model_enabled_for(ctx, surface)
+                        for _, surface in decision_candidates
+                    )
+                    else None
+                )
                 for candidate, decision_surface in decision_candidates:
-                    if decision_harness is None:
+                    if not decision_model_enabled_for(ctx, decision_surface):
+                        from backend.llm.systemone.preferences import (
+                            decision_model_preferences,
+                        )
+
+                        preferences = decision_model_preferences(ctx)
+                        reason = (
+                            "decision_model_disabled"
+                            if preferences.get("enabled") is not True
+                            else "decision_model_surface_disabled"
+                        )
+                        ctx._extra.setdefault("systemone_decisions", {})[
+                            _risk_assessment_key(candidate.name, candidate.args)
+                        ] = {
+                            "decision": "unavailable",
+                            "reason": reason,
+                            "provider": preferences.get("provider"),
+                            "run_id": config.run_id,
+                            "thread_id": thread_id,
+                        }
+                    elif decision_harness is None:
                         ctx._extra.setdefault("systemone_decisions", {})[
                             _risk_assessment_key(candidate.name, candidate.args)
                         ] = {

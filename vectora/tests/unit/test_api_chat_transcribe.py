@@ -13,7 +13,7 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 
-from backend.api.handlers.chat import transcribe_audio_endpoint
+from backend.api.handlers.chat import transcribe_audio_endpoint, transcription_readiness
 from backend.api.schemas import (
     _ATTACHMENT_MAX_SIZE_AUDIO_BYTES,
     TranscribeAudioRequest,
@@ -68,6 +68,75 @@ def test_modo_local_nao_chama_provider_remoto():
 
     assert result.text == "transcrição local"
     remote.assert_not_called()
+
+
+def test_readiness_local_expoe_dependencia_e_cache_sem_tocar_modelo(monkeypatch):
+    readiness = {
+        "mode": "local",
+        "dependency_available": True,
+        "model_cached": False,
+        "ready": False,
+        "diagnostic": "modelo base ainda não baixado",
+    }
+    monkeypatch.setattr(
+        "backend.llm.transcription.local_transcription_readiness",
+        lambda: readiness,
+    )
+
+    result = asyncio.run(transcription_readiness())
+
+    assert result == readiness
+
+
+def test_local_transcription_readiness_distingue_runtime_de_modelo_cacheado(
+    tmp_path, monkeypatch
+):
+    from backend.llm.transcription import local_transcription_readiness
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    monkeypatch.setattr(
+        "backend.llm.transcription.importlib.util.find_spec",
+        lambda _name: object(),
+    )
+
+    not_cached = local_transcription_readiness()
+    assert not_cached["dependency_available"] is True
+    assert not_cached["model_cached"] is False
+    assert not_cached["ready"] is False
+
+    snapshot = (
+        tmp_path
+        / "models"
+        / "whisper"
+        / "models--Systran--faster-whisper-base"
+        / "snapshots"
+        / "snapshot-id"
+    )
+    snapshot.mkdir(parents=True)
+    (snapshot / "model.bin").write_bytes(b"weights")
+    cached = local_transcription_readiness()
+    assert cached["dependency_available"] is True
+    assert cached["model_cached"] is True
+    assert cached["ready"] is True
+
+
+def test_local_transcription_readiness_fails_when_dependency_missing(
+    tmp_path, monkeypatch
+):
+    from backend.llm.transcription import local_transcription_readiness
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    monkeypatch.setattr(
+        "backend.llm.transcription.importlib.util.find_spec", lambda _name: None
+    )
+
+    result = local_transcription_readiness()
+
+    assert result["dependency_available"] is False
+    assert result["ready"] is False
+    assert "não está instalado" in str(result["diagnostic"])
 
 
 def test_audio_base64_invalido_retorna_422():

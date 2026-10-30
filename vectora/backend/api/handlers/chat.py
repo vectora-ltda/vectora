@@ -1554,6 +1554,14 @@ async def get_tools(http_request: Request) -> GetToolsResponse:
 # ---------------------------------------------------------------------------
 
 
+@router.get("/vectora.chat.v1.ChatService/TranscriptionReadiness")
+async def transcription_readiness() -> dict[str, bool | str]:
+    """Report local STT dependency and cached-model state without downloading."""
+    from backend.llm.transcription import local_transcription_readiness
+
+    return local_transcription_readiness()
+
+
 @router.post("/vectora.chat.v1.ChatService/TranscribeAudio")
 async def transcribe_audio_endpoint(
     request: TranscribeAudioRequest,

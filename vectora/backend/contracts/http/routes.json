@@ -1591,6 +1591,13 @@
   },
   {
     "methods": [
+      "GET"
+    ],
+    "name": "transcription_readiness_vectora_chat_v1_ChatService_TranscriptionReadiness_get",
+    "path": "/vectora.chat.v1.ChatService/TranscriptionReadiness"
+  },
+  {
+    "methods": [
       "POST"
     ],
     "name": "create_thread_vectora_chat_v1_ThreadService_CreateThread_post",

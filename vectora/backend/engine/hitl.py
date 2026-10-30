@@ -379,6 +379,16 @@ def _risk_assessment_key(tool_name: str, args: dict[str, Any]) -> str:
     return f"{tool_name}:{digest}"
 
 
+def _decision_args_summary(args: dict[str, Any]) -> str:
+    """Return bounded structured arguments with credentials redacted."""
+    from backend.persistence.native.agent_run import redact_sensitive_data
+
+    serialized = json.dumps(
+        redact_sensitive_data(args), sort_keys=True, separators=(",", ":"), default=str
+    )
+    return serialized if len(serialized) <= 4000 else serialized[:3997] + "..."
+
+
 def _decision_snapshot_matches_runtime(ctx: ToolContext) -> bool:
     """Fail closed when a run's decision preferences or runtime changed."""
     extra = getattr(ctx, "_extra", None)
@@ -463,8 +473,7 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
 
     workspace_id = getattr(ctx, "workspace_id", None) or "default"
     key = _risk_assessment_key(tool_name, args)
-    safe_keys = sorted(str(k) for k in args)
-    args_summary = f"keys={safe_keys}"
+    args_summary = _decision_args_summary(args)
 
     def require_human(reason: str) -> bool:
         elevated = extra.setdefault("systemone_risk_elevated_calls", set())
@@ -484,6 +493,21 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
         extra["decision_model_revoked"] = True
         return require_human("decision_model_revoked")
     if not decision_model_enabled_for(ctx, surface):
+        from backend.llm.systemone.preferences import decision_model_preferences
+
+        preferences = decision_model_preferences(ctx)
+        reason = (
+            "decision_model_disabled"
+            if preferences.get("enabled") is not True
+            else "decision_model_surface_disabled"
+        )
+        extra.setdefault("systemone_decisions", {})[key] = {
+            "decision": "unavailable",
+            "reason": reason,
+            "provider": preferences.get("provider"),
+            "run_id": ctx.run_id,
+            "thread_id": ctx.thread_id,
+        }
         return False
 
     try:

@@ -21712,6 +21712,36 @@
         "summary": "Transcribe Audio Endpoint"
       }
     },
+    "/vectora.chat.v1.ChatService/TranscriptionReadiness": {
+      "get": {
+        "description": "Report local STT dependency and cached-model state without downloading.",
+        "operationId": "transcription_readiness_vectora_chat_v1_ChatService_TranscriptionReadiness_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "string"
+                      }
+                    ]
+                  },
+                  "title": "Response Transcription Readiness Vectora Chat V1 Chatservice Transcriptionreadiness Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Transcription Readiness"
+      }
+    },
     "/vectora.chat.v1.ThreadService/CreateThread": {
       "post": {
         "description": "Cria uma nova thread e a associa ao workspace escolhido pelo usuário.\n\nQuando `workspace_id` vem vazio, a thread nasce sem workspace — o\nbackend cria e atribui o workspace dedicado da sessão\n(`~/Documents/vectora/<thread_id>`) na primeira mensagem, em\n`chat.py::_resolve_workspace_id`.",
