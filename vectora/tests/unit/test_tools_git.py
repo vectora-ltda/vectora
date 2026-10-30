@@ -1,7 +1,7 @@
 """Testes para git_stage / git_unstage e metadados de invalidação das tools git."""
 
 import json
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -477,3 +477,25 @@ class TestGitCommandNotFound:
 
         result = _safe_call(lambda: {"status": "ok", "value": 42})
         assert result == {"status": "ok", "value": 42}
+
+
+def test_git_pull_usa_somente_fast_forward() -> None:
+    """Par de erro: um pull que exigiria merge ou rebase é recusado pelo Git
+    (`--ff-only`) em vez de criar um commit de merge automaticamente."""
+    from types import SimpleNamespace
+
+    from backend.tools.git import _git_pull_impl
+
+    calls: list[tuple[str, ...]] = []
+
+    class _Git:
+        def pull(self, *args: str) -> None:
+            calls.append(args)
+
+    class _Repo:
+        git = _Git()
+        active_branch = SimpleNamespace(name="feature")
+
+    result = _git_pull_impl(cast("Any", _Repo()), remote="origin", branch=None)
+    assert result == {"status": "ok", "remote": "origin", "branch": "feature"}
+    assert calls == [("--ff-only", "origin", "feature")]

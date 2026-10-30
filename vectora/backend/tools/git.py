@@ -543,7 +543,9 @@ def _git_pull_impl(
     """Faz pull do remote."""
     try:
         active = branch or repo.active_branch.name
-        repo.git.pull(remote, active)
+        # Fast-forward only: a configured pull strategy must not create a merge
+        # commit or rebase local work behind the user's back.
+        repo.git.pull("--ff-only", remote, active)
         return {"status": "ok", "remote": remote, "branch": active}
     except git.GitCommandError as exc:
         return {"status": "error", "message": str(exc)}
