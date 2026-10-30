@@ -68,7 +68,7 @@ class ReplayChatClient(ChatClient):
                 "tool_calls": [
                     {
                         "name": str(call.get("name", "")),
-                        "args": call.get("args", {}),
+                        "args": call.get("args", call.get("arguments", {})),
                     }
                     for call in message.get("tool_calls", [])
                     if isinstance(call, dict)
@@ -103,7 +103,7 @@ class ReplayChatClient(ChatClient):
 
         tool_calls: list[ToolCall] = []
         for tc in item.tool_calls:
-            raw_args = tc.get("args")
+            raw_args = tc.get("args", tc.get("arguments"))
             args: JsonObject = raw_args if isinstance(raw_args, dict) else {}
             tool_calls.append(
                 ToolCall(
@@ -149,7 +149,9 @@ class ReplayChatClient(ChatClient):
                         index=idx,
                         id=str(tc.get("id", f"call_{idx}")),
                         name=str(tc.get("name", "")),
-                        args_fragment=json.dumps(tc.get("args", {})),
+                        args_fragment=json.dumps(
+                            tc.get("args", tc.get("arguments", {}))
+                        ),
                     )
                 ]
             )

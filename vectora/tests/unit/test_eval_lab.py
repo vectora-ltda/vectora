@@ -443,3 +443,24 @@ def test_cli_compare_reports_incomparable_cassettes_without_traceback(
     assert "interaction_id duplicado" in output.err
     assert "Traceback" not in output.err
     assert output.out == ""
+
+
+async def test_replay_reproduz_argumentos_de_cassete_legada_com_chave_arguments() -> (
+    None
+):
+    """Uma cassete que guarda os argumentos em `arguments` é reproduzida com
+    os mesmos argumentos; sem a normalização o replay devolvia `{}`."""
+    from backend.evaluation.cassette import Cassette, CassetteInteraction
+    from backend.evaluation.replay_client import ReplayChatClient
+    from backend.vtypes.message import MessageRole, text_message
+
+    interaction = CassetteInteraction(
+        interaction_id="legacy-args",
+        messages=[{"role": "user", "content": "leia o arquivo"}],
+        tool_calls=[{"id": "c1", "name": "file_read", "arguments": {"path": "a.txt"}}],
+    )
+    cassette = Cassette(cassette_id="legacy", interactions=[interaction])
+    client = ReplayChatClient(cassette)
+    message = await client.agenerate([text_message(MessageRole.USER, "leia o arquivo")])
+    assert message.tool_calls[0].name == "file_read"
+    assert message.tool_calls[0].args == {"path": "a.txt"}
