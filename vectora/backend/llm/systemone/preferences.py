@@ -14,14 +14,16 @@ def decision_model_preferences(ctx: object) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
-def decision_model_enabled_for(ctx: object, surface: str) -> bool:
-    """Check the durable master switch and a specific backend-enforced surface."""
+def decision_model_enabled_for(ctx: object, surface: str | tuple[str, ...]) -> bool:
+    """Require every applicable surface in the durable preference snapshot."""
     preferences = decision_model_preferences(ctx)
     surfaces = preferences.get("surfaces")
-    return (
-        preferences.get("enabled") is True
+    required = (surface,) if isinstance(surface, str) else surface
+    return bool(
+        required
+        and preferences.get("enabled") is True
         and isinstance(surfaces, dict)
-        and surfaces.get(surface) is True
+        and all(surfaces.get(name) is True for name in required)
     )
 
 
@@ -33,16 +35,12 @@ def selected_decision_model_provider(ctx: object) -> DecisionProviderType | None
     return None
 
 
-def decision_model_surface_for_tool(ctx: object, tool_name: str) -> str:
-    """Map execution provenance and tool capability to its independent toggle."""
+def decision_model_surfaces_for_tool(ctx: object, tool_name: str) -> tuple[str, ...]:
+    """Require provenance and capability flags independently for a tool call."""
     extra = getattr(ctx, "_extra", None)
     extra = extra if isinstance(extra, dict) else {}
     name = tool_name.lower()
-    if extra.get("subagent_execution") is True:
-        surface = "subagents"
-    elif getattr(ctx, "background_task_id", ""):
-        surface = "background"
-    elif name == "call_mcp_tool" or name.startswith("mcp_"):
+    if name == "call_mcp_tool" or name.startswith("mcp_"):
         surface = "mcp"
     elif name == "write_terminal" or name.startswith("terminal_"):
         surface = "terminal"
@@ -52,4 +50,9 @@ def decision_model_surface_for_tool(ctx: object, tool_name: str) -> str:
         surface = "browser"
     else:
         surface = "hitl"
-    return surface
+    provenance = []
+    if extra.get("subagent_execution") is True:
+        provenance.append("subagents")
+    if getattr(ctx, "background_task_id", ""):
+        provenance.append("background")
+    return (*provenance, surface)

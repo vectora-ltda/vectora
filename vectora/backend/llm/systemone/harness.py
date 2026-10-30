@@ -265,6 +265,16 @@ class SystemOneHarness:
         return self._registry
 
     @property
+    def risk_assessment_timeout_s(self) -> float:
+        """Return the configured deadline for a tool-risk decision."""
+        return self._settings.risk_assessment_timeout_s
+
+    @property
+    def confidence_threshold_hitl(self) -> float:
+        """Return the minimum confidence for autonomous risk decisions."""
+        return self._settings.confidence_threshold_hitl
+
+    @property
     def budget_tracker(self) -> WorkspaceBudgetTracker:
         """Executa a operação budget tracker."""
         return self._budget

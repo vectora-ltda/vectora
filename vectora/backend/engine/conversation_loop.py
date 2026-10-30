@@ -988,7 +988,7 @@ async def run_conversation(  # noqa: PLR0911
         # do not pretend to provide a safety layer over the user's auto policy.
         from backend.llm.systemone.preferences import (
             decision_model_enabled_for,
-            decision_model_surface_for_tool,
+            decision_model_surfaces_for_tool,
             selected_decision_model_provider,
         )
 
@@ -999,7 +999,7 @@ async def run_conversation(  # noqa: PLR0911
             )
 
             decision_candidates = [
-                (candidate, decision_model_surface_for_tool(ctx, candidate.name))
+                (candidate, decision_model_surfaces_for_tool(ctx, candidate.name))
                 for candidate in tool_calls
                 if call_requires_separate_approval(candidate.name, candidate.args)
             ]

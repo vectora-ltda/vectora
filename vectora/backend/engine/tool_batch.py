@@ -90,8 +90,11 @@ def _check_policy_snapshot_pre_execute(
         decision = decisions.get(
             _risk_assessment_key(tool_call.name, tool_call.args), {}
         )
-        if isinstance(decision, dict) and decision.get("decision") == "deny":
-            return False, "decision_model_denied: ação bloqueada antes da execução"
+        if isinstance(decision, dict):
+            if decision.get("decision") == "deny":
+                return False, "decision_model_denied: ação bloqueada antes da execução"
+            if decision.get("decision") == "requires_human":
+                return False, "decision_model_requires_human: aprovação pendente"
     except Exception:
         logger.exception("Não foi possível validar o veto do Decision Model")
         return False, "decision_model_policy_unavailable"

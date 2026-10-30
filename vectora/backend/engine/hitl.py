@@ -13,12 +13,14 @@ decide COMO persistir/esperar.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
+from backend.llm.systemone.errors import SystemOneRateLimitError, SystemOneTimeoutError
 from backend.llm.systemone.preferences import decision_model_enabled_for
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import MessageRole
@@ -383,7 +385,7 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
     tool_name: str,
     ctx: ToolContext,
     args: dict[str, Any],
-    surface: str = "hitl",
+    surface: str | tuple[str, ...] = "hitl",
     risk_score_threshold: float = 0.70,
 ) -> bool:
     """Calcula a avaliação de risco no fluxo assíncrono anterior ao predicado síncrono `should_require_approval`.
@@ -400,53 +402,65 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
         return False
 
     workspace_id = getattr(ctx, "workspace_id", None) or "default"
+    key = _risk_assessment_key(tool_name, args)
     safe_keys = sorted(str(k) for k in args)
     args_summary = f"keys={safe_keys}"
 
     try:
         if not await harness.is_ready():
-            extra.setdefault("systemone_decisions", {})[
-                _risk_assessment_key(tool_name, args)
-            ] = {"decision": "unavailable", "reason": "decision_model_unavailable"}
+            extra.setdefault("systemone_decisions", {})[key] = {
+                "decision": "unavailable",
+                "reason": "decision_model_unavailable",
+            }
             return False
     except Exception:
         logger.warning("hitl: readiness probe failed", exc_info=True)
-        extra.setdefault("systemone_decisions", {})[
-            _risk_assessment_key(tool_name, args)
-        ] = {"decision": "unavailable", "reason": "decision_model_unavailable"}
+        extra.setdefault("systemone_decisions", {})[key] = {
+            "decision": "unavailable",
+            "reason": "decision_model_unavailable",
+        }
         return False
+
+    def require_human(reason: str) -> bool:
+        elevated = extra.setdefault("systemone_risk_elevated_calls", set())
+        elevated.add(key)
+        extra["systemone_risk_requires_approval"] = True
+        extra.setdefault("systemone_decisions", {})[key] = {
+            "decision": "requires_human",
+            "reason": reason,
+            "run_id": ctx.run_id,
+            "thread_id": ctx.thread_id,
+        }
+        return True
 
     try:
         harness.set_mode(
             "tool_risk_assessment_score", "enforced", workspace_id=workspace_id
         )
-        res = await harness.assess_tool_risk(
-            workspace_id=workspace_id,
-            tool_name=tool_name,
-            args_summary=args_summary,
-            permission_mode=mode,
-            allow_remote_override=True,
-        )
+        async with asyncio.timeout(harness.risk_assessment_timeout_s):
+            res = await harness.assess_tool_risk(
+                workspace_id=workspace_id,
+                tool_name=tool_name,
+                args_summary=args_summary,
+                permission_mode=mode,
+                allow_remote_override=True,
+            )
+    except (TimeoutError, SystemOneTimeoutError):
+        logger.warning("hitl: prazo da decisão SystemOne excedido", exc_info=True)
+        return require_human("decision_model_timeout")
+    except SystemOneRateLimitError:
+        logger.warning("hitl: limite de taxa da decisão SystemOne", exc_info=True)
+        return require_human("decision_model_rate_limited")
     except Exception:
         logger.warning("hitl: falha ao pré-calcular risco via SystemOne", exc_info=True)
-        extra.setdefault("systemone_decisions", {})[
-            _risk_assessment_key(tool_name, args)
-        ] = {"decision": "unavailable", "reason": "decision_model_unavailable"}
-        return False
+        return require_human("decision_model_failed")
 
     if res.mode in ("off", "shadow"):
-        return False
-    key = _risk_assessment_key(tool_name, args)
-    if res.response is None or res.policy_result.outcome == "rejected":
-        extra.setdefault("systemone_decisions", {})[key] = {
-            "decision": "unavailable",
-            "reason": "decision_model_unavailable",
-            "provider": res.provider,
-            "model": res.model,
-            "run_id": ctx.run_id,
-            "thread_id": ctx.thread_id,
-        }
-        return False
+        return require_human("decision_model_mode_mismatch")
+    if res.policy_result.outcome == "rejected":
+        return require_human("decision_policy_rejected")
+    if res.response is None:
+        return require_human("decision_model_empty_response")
 
     answer = res.response.answers.get("risk_score") if res.response else None
     score = getattr(answer, "score", None)
@@ -465,7 +479,7 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
         and isinstance(confidence, int | float)
         and not isinstance(confidence, bool)
         and 0 <= confidence <= 1
-        and confidence >= harness._settings.confidence_threshold_hitl
+        and confidence >= harness.confidence_threshold_hitl
     ):
         if score >= 0.95:
             decision, reason = "deny", "decision_model_high_risk"

@@ -30,6 +30,10 @@ from backend.llm.systemone.patterns import (
     build_default_patterns,
     serialize_canonical_state,
 )
+from backend.llm.systemone.preferences import (
+    decision_model_enabled_for,
+    decision_model_surfaces_for_tool,
+)
 from backend.llm.systemone.protocol import SystemOneProvider
 from backend.llm.systemone.settings import SystemOneSettings
 from backend.llm.systemone.types import (
@@ -838,7 +842,7 @@ async def test_subagent_surface_uses_its_own_preference_flag() -> None:
             "subagent_execution": True,
             "decision_model_preferences": {
                 "enabled": True,
-                "surfaces": {"hitl": False, "subagents": True},
+                "surfaces": {"hitl": True, "subagents": True},
             },
         },
     )
@@ -853,6 +857,41 @@ async def test_subagent_surface_uses_its_own_preference_flag() -> None:
 
     assert elevated is True
     assert "systemone_decisions" in ctx._extra
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "background_task_id", "surfaces", "enabled"),
+    [
+        ("browser_navigate", "", {"subagents": True, "browser": False}, False),
+        ("browser_navigate", "", {"subagents": False, "browser": True}, False),
+        ("browser_navigate", "", {"subagents": True, "browser": True}, True),
+        ("call_mcp_tool", "", {"subagents": True, "mcp": False}, False),
+        (
+            "write_terminal",
+            "job-1",
+            {"subagents": True, "background": True, "terminal": False},
+            False,
+        ),
+    ],
+)
+def test_decision_model_requires_provenance_and_capability_flags(
+    tool_name: str,
+    background_task_id: str,
+    surfaces: dict[str, bool],
+    enabled: bool,
+) -> None:
+    ctx = ToolContext(
+        thread_id="child-thread",
+        workspace_id="ws-1",
+        background_task_id=background_task_id,
+        _extra={
+            "subagent_execution": True,
+            "decision_model_preferences": {"enabled": True, "surfaces": surfaces},
+        },
+    )
+    applicable = decision_model_surfaces_for_tool(ctx, tool_name)
+    assert applicable[0] == "subagents"
+    assert decision_model_enabled_for(ctx, applicable) is enabled
 
 
 @pytest.mark.asyncio

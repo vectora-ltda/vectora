@@ -9,7 +9,10 @@ volta que tem tool calls).
 
 from __future__ import annotations
 
+import asyncio
 import socket
+from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -17,6 +20,7 @@ from pydantic import create_model
 
 from backend.engine.guardrails import LoopCapConfig, TurnBudget
 from backend.engine.tool_batch import _redact_secrets, execute_tool_batch
+from backend.llm.systemone.harness import SystemOneHarness
 from backend.services.egress_policy import EgressPolicy
 from backend.services.policy_compiler import PolicySnapshot
 from backend.tools.context import ToolContext
@@ -60,6 +64,121 @@ def ctx() -> ToolContext:
 
 
 class TestDespachoParaleloSequencial:
+    @pytest.mark.parametrize(
+        ("failure", "reason", "blocked"),
+        [
+            ("timeout", "decision_model_timeout", True),
+            ("rate_limit", "decision_model_rate_limited", True),
+            ("rejected", "decision_policy_rejected", True),
+            ("empty", "decision_model_empty_response", True),
+            ("low_confidence", "decision_model_missing_or_invalid_risk_score", True),
+            ("invalid_score", "decision_model_missing_or_invalid_risk_score", True),
+            ("unhealthy", "decision_model_unavailable", False),
+        ],
+    )
+    async def test_risk_failure_never_executes_without_approval(
+        self, failure: str, reason: str, blocked: bool
+    ) -> None:
+        """A started decision fails closed; an absent provider follows auto policy."""
+        from backend.engine.hitl import (
+            _risk_assessment_key,
+            precompute_tool_risk_assessment,
+            should_require_approval,
+        )
+        from backend.llm.systemone.errors import SystemOneRateLimitError
+
+        invoked = False
+
+        async def mutating_tool(value: str, ctx: ToolContext) -> str:
+            nonlocal invoked
+            invoked = True
+            assert value == "x"
+            return "mutated"
+
+        class RiskHarness:
+            risk_assessment_timeout_s = 0.01
+            confidence_threshold_hitl = 0.5
+
+            async def is_ready(self) -> bool:
+                return failure != "unhealthy"
+
+            def set_mode(self, *_args: object, **_kwargs: object) -> None:
+                pass
+
+            async def assess_tool_risk(self, **_kwargs: object) -> object:
+                if failure == "timeout":
+                    await asyncio.sleep(0.05)
+                if failure == "rate_limit":
+                    raise SystemOneRateLimitError("rate limited")
+                answer = (
+                    SimpleNamespace(
+                        score=1.5 if failure == "invalid_score" else 0.2,
+                        confidence=0.1,
+                    )
+                    if failure in {"low_confidence", "invalid_score"}
+                    else None
+                )
+                return SimpleNamespace(
+                    mode="enforced",
+                    response=(
+                        SimpleNamespace(answers={"risk_score": answer})
+                        if answer is not None
+                        else None
+                    ),
+                    policy_result=SimpleNamespace(
+                        outcome="rejected" if failure == "rejected" else "accepted",
+                        requires_hitl=False,
+                        reason="",
+                    ),
+                    provider="clef-local",
+                    model="test",
+                    policy_version="1",
+                    decision_id="risk-decision",
+                )
+
+        ctx = ToolContext(
+            user_id="u1",
+            thread_id="risk-thread",
+            workspace_id="risk-workspace",
+            permission_mode="auto",
+            _extra={
+                "decision_model_preferences": {
+                    "enabled": True,
+                    "provider": "clef-local",
+                    "surfaces": {"hitl": True},
+                }
+            },
+        )
+        call = ToolCall(id="risk-call", name="file_write", args={"value": "x"})
+        registry = ToolRegistry()
+        registry.register(
+            ToolSpec(
+                name="file_write",
+                description="mutating",
+                args_model=create_model("RiskArgs", value=(str, ...)),
+                handler=mutating_tool,
+                extras=ToolExtras(destructive=True),
+                needs_ctx=True,
+            )
+        )
+
+        elevated = await precompute_tool_risk_assessment(
+            cast("SystemOneHarness", RiskHarness()),
+            tool_name=call.name,
+            ctx=ctx,
+            args=call.args,
+        )
+        decision = ctx._extra["systemone_decisions"][
+            _risk_assessment_key(call.name, call.args)
+        ]
+        assert elevated is blocked
+        assert decision["reason"] == reason
+        assert should_require_approval(call.name, ctx, call.args, []) is blocked
+
+        result = await execute_tool_batch([call], tool_registry=registry, ctx=ctx)
+        assert invoked is not blocked
+        assert result[0].is_error is blocked
+
     async def test_veto_do_decision_model_impede_handler(
         self, ctx: ToolContext
     ) -> None:
