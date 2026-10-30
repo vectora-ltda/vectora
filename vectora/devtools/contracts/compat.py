@@ -77,6 +77,8 @@ def check_schema_compatibility(
         elif old_numeric and new_value is None:
             tightened, loosened = False, True
         elif old_numeric and new_numeric:
+            if new_value == old_value:
+                continue
             if constraint.startswith("min") or constraint == "exclusiveMinimum":
                 tightened = new_value > old_value
             else:
@@ -336,9 +338,12 @@ def check_schema_compatibility(
             if match_index is None:
                 if best_report is not None:
                     report.breaking.extend(best_report.breaking)
-                report.breaking.append(
-                    f"{path}: alternativa {source_index} de {combo_key} não possui correspondente"
-                )
+                unmatched = f"{path}: alternativa {source_index} de {combo_key} não possui correspondente"
+                # Dropping one of several allOf alternatives widens what a
+                # request accepts, but makes a response stricter for clients.
+                (
+                    report.breaking if direction == "response" else report.non_breaking
+                ).append(unmatched)
                 continue
             matched_target_indexes.add(match_index)
             if best_report is not None:
