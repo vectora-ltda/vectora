@@ -162,12 +162,20 @@ async def _persist_terminal_outcome(
 
         store = await agent_factory.get_session_store()
         terminal_writer = getattr(store, "append_terminal_outcome", None)
+        turn_id = f"{run_id}:terminal"
+        terminal_message_id = await store.get_message_id_by_turn_id(thread_id, turn_id)
         # ``hasattr`` alone is unsafe with duck-typed stores and test doubles:
         # a plain ``MagicMock`` advertises every attribute but cannot be
         # awaited.  Only treat the atomic path as available when the exposed
         # writer is genuinely asynchronous, as the native stores require.
-        atomic_terminal = status == "failed" and inspect.iscoroutinefunction(
-            terminal_writer
+        # The atomic writer is idempotent on ``turn_id`` and returns before
+        # touching the run status or the ledger when the terminal message
+        # already exists, so a pair left half-written by an earlier failure is
+        # repaired through the legacy path below instead.
+        atomic_terminal = (
+            status == "failed"
+            and terminal_message_id is None
+            and inspect.iscoroutinefunction(terminal_writer)
         )
         if not atomic_terminal and hasattr(store, "update_run"):
             await store.update_run(
@@ -182,8 +190,6 @@ async def _persist_terminal_outcome(
                 status=status,  # type: ignore
                 detail=detail,
             )
-        turn_id = f"{run_id}:terminal"
-        terminal_message_id = await store.get_message_id_by_turn_id(thread_id, turn_id)
         parent_id = await store.get_branch_head_id(thread_id)
         label = "falha" if status == "failed" else "cancelado"
         message = VMessage(

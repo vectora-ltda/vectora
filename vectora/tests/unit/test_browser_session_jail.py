@@ -335,12 +335,17 @@ def test_find_agent_page_rejeita_vectora_app_e_ui() -> None:
 async def test_close_tab_da_ultima_aba_libera_guards_antes_de_reusar_a_pagina(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A última aba é reaproveitada, então seus guards não podem sobreviver."""
+    """A última aba é reaproveitada, então seus guards não podem sobreviver ao
+    reset; se o reset falhar, a aba continua na sessão e mantém todos os guards."""
     from backend.tools import browser as browser_tools
 
     unroutes: list[tuple[str, object]] = []
     released: list[object] = []
+    redirect_released: list[str] = []
     handler = object()
+
+    async def _release_redirect() -> None:
+        redirect_released.append("redirect")
 
     class _Owner:
         async def unroute(self, pattern: str, route_handler: object) -> None:
@@ -350,6 +355,7 @@ async def test_close_tab_da_ultima_aba_libera_guards_antes_de_reusar_a_pagina(
         goto=AsyncMock(),
         _vectora_route_owner=_Owner(),
         _vectora_route_handler=handler,
+        _vectora_redirect_release=_release_redirect,
     )
     tab = SimpleNamespace(
         page=page,
@@ -373,8 +379,18 @@ async def test_close_tab_da_ultima_aba_libera_guards_antes_de_reusar_a_pagina(
     assert unroutes == []
     assert released == []
 
+    page.goto.side_effect = RuntimeError("reset falhou")
+    assert await browser_session.close_tab("ws-last-tab-guard", "only") is False
+    assert unroutes == []
+    assert released == []
+    assert redirect_released == []
+    assert hasattr(page, "_vectora_route_handler")
+    assert "only" in browser_session._sessions["ws-last-tab-guard"]["tabs"]
+
+    page.goto.side_effect = None
     assert await browser_session.close_tab("ws-last-tab-guard", "only") is True
     assert unroutes == [("**/*", handler)]
     assert released == [page]
+    assert redirect_released == ["redirect"]
     assert not hasattr(page, "_vectora_route_handler")
-    page.goto.assert_awaited_once_with("about:blank", wait_until="domcontentloaded")
+    page.goto.assert_awaited_with("about:blank", wait_until="domcontentloaded")

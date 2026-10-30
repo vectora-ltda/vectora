@@ -1650,7 +1650,9 @@ async def _execute_single_call(
     ``TurnBudget`` (o teto de volume é do turno que gerou o lote original,
     já contabilizado ou não antes da pausa — reaplicá-lo no resume duplicaria
     ou perderia contagem)."""
-    allowed, deny_reason = _apply_pre_execute(tool_call, ctx, policy_snapshot)
+    allowed, deny_reason = await asyncio.to_thread(
+        _apply_pre_execute, tool_call, ctx, policy_snapshot
+    )
     if not allowed:
         return VMessage(
             role=MessageRole.TOOL,

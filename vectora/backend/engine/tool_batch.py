@@ -147,7 +147,11 @@ async def _run_one(
     on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> VMessage:
     """Executa uma chamada do lote com contexto correlacionado à própria tool."""
-    allowed, deny_reason = _apply_pre_execute(tool_call, ctx, policy_snapshot)
+    # ``validate_call`` may resolve DNS synchronously for URL egress tools; a slow
+    # resolver must not stall every other session sharing the event loop.
+    allowed, deny_reason = await asyncio.to_thread(
+        _apply_pre_execute, tool_call, ctx, policy_snapshot
+    )
     if not allowed:
         return VMessage(
             role=MessageRole.TOOL,

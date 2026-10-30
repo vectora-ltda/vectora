@@ -295,6 +295,8 @@ export interface HistoryMessage {
   checkpoint_id?: string;
   attachments?: HistoryAttachment[];
   edited_files?: HistoryEditedFile[];
+  /** Falha persistida; `null` é estado desconhecido e não marca erro. */
+  is_error?: boolean | null;
 }
 
 export interface ToolSchema {

@@ -22,6 +22,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from backend.browser.dev_server import resolve_dev_server_url
+from backend.browser.redirect_guard import install_redirect_guard
 from backend.browser.session import (
     get_browser_page,
     get_tab_state,
@@ -97,6 +98,16 @@ async def _install_navigation_guard(
             await route_obj.abort()
 
     await route("**/*", handler)
+
+    async def check_url(url: str) -> tuple[bool, str]:
+        allowed, reason, _ = await async_is_url_allowed(
+            url, state["snapshot"].egress_policy
+        )
+        return allowed, reason
+
+    # ``route`` only sees the first request of a navigation; the redirect
+    # guard pauses every hop at the CDP layer before the browser sends it.
+    state["release_redirect"] = await install_redirect_guard(page, check_url, blocked)
     _navigation_guards[id(page)] = (page, handler, state)
     return handler, blocked
 
@@ -105,6 +116,11 @@ async def _remove_navigation_guard(page: Any, handler: Any) -> None:
     """Remove a previously registered navigation guard when supported."""
     if handler is None:
         return
+    entry = _navigation_guards.get(id(page))
+    release_redirect = entry[2].get("release_redirect") if entry is not None else None
+    if release_redirect is not None:
+        with contextlib.suppress(Exception):
+            await release_redirect()
     unroute = getattr(page, "unroute", None)
     if callable(unroute):
         with contextlib.suppress(Exception):

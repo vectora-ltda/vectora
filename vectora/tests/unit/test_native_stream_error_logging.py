@@ -21,7 +21,7 @@ import pytest
 from backend.api.native_stream import stream_engine_events
 from backend.engine.stream_events import ErrorSignal, EventSink, MessageBreak
 from backend.persistence.native.ledger import LedgerEventTypeLiteral, ThreadLedgerEvent
-from backend.vtypes.message import VMessage
+from backend.vtypes.message import MessageRole, VMessage, text_message
 
 
 def _parse(sse: str) -> dict:
@@ -148,6 +148,57 @@ class TestErroDeExecucaoFicaLogado:
         assert failed[0].event_key == "run_failed:run-real-ledger"
         assert str(failed[0].payload["detail"]).startswith("STREAM_ERROR:")
         assert failed[0].seq == 1
+
+    async def test_mensagem_terminal_orfa_recebe_status_e_evento_no_store_real(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Uma mensagem terminal gravada sem o evento nem o status final é
+        reparada pela repetição, sem duplicar a mensagem nem o evento."""
+        from backend.persistence.native.session_store import SessionStore
+        from backend.services import agent_factory
+        from backend.storage.sqlite.pool import AsyncConnectionPool
+
+        pool = AsyncConnectionPool(
+            str(tmp_path / "sessions.db"), min_size=1, max_size=2
+        )
+        await pool.open()
+        store = SessionStore(pool)
+        await store.setup()
+        thread_id, run_id = "t-orfa", "run-orfa"
+        await store.create_session(thread_id, user_id="u1")
+        await store.start_run(thread_id, run_id, turn_id="turn-orfa")
+        await store.append_message_recorded(
+            thread_id,
+            text_message(MessageRole.ASSISTANT, "[falha] provider indisponível"),
+            turn_id=f"{run_id}:terminal",
+            run_id=run_id,
+        )
+
+        async def _get_store() -> SessionStore:
+            return store
+
+        monkeypatch.setattr(agent_factory, "get_session_store", _get_store)
+
+        async def _run(on_event: EventSink) -> str:
+            raise RuntimeError("provider indisponível")
+
+        try:
+            for _ in range(2):
+                _ = [
+                    _parse(sse)
+                    async for sse in stream_engine_events(
+                        _run, thread_id=thread_id, run_id=run_id
+                    )
+                ]
+            events = await store.list_events(thread_id)
+            run = await store.get_agent_run(run_id)
+            history = await store.get_history(thread_id)
+        finally:
+            await pool.close()
+
+        assert [e.type for e in events if e.run_id == run_id].count("run_failed") == 1
+        assert run is not None and run.status == "failed"
+        assert sum(1 for m in history if m.role == MessageRole.ASSISTANT) == 1
 
     async def test_run_error_persiste_desfecho_terminal_idempotente(
         self, monkeypatch: pytest.MonkeyPatch

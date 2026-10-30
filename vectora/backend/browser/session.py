@@ -31,6 +31,7 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, cast
 
+from backend.browser.redirect_guard import install_redirect_guard
 from backend.vtypes.browser import (
     BrowserConsoleEntry,
     BrowserNetworkEntry,
@@ -63,7 +64,15 @@ async def _release_route_guard(page: Any) -> None:
         if callable(unroute):
             with suppress(Exception):
                 await unroute("**/*", handler)
-    for attr in ("_vectora_route_owner", "_vectora_route_handler"):
+    release_redirect = getattr(page, "_vectora_redirect_release", None)
+    if release_redirect is not None:
+        with suppress(Exception):
+            await release_redirect()
+    for attr in (
+        "_vectora_route_owner",
+        "_vectora_route_handler",
+        "_vectora_redirect_release",
+    ):
         with suppress(AttributeError):
             delattr(page, attr)
 
@@ -404,6 +413,17 @@ async def new_tab(
 
         route_handler = _guard
         await route("**/*", route_handler)
+
+        async def _check_redirect_hop(candidate: str) -> tuple[bool, str]:
+            return await asyncio.to_thread(url_validator, candidate)
+
+        # ``route`` is only consulted for the first request; the CDP guard
+        # validates every redirect hop before the browser sends it.
+        release_redirect = await install_redirect_guard(
+            page, _check_redirect_hop, blocked_reason
+        )
+        if release_redirect is not None:
+            page._vectora_redirect_release = release_redirect
     navigation_succeeded = False
     try:
         if url:
@@ -451,16 +471,21 @@ async def close_tab(workspace_id: str, tab_id: str) -> bool:
         # cannot be repaired through CDP because Target.createTarget is not
         # implemented. Reset it to a blank document and assign a fresh logical
         # id instead. The page is reused, so its route and navigation guards
-        # are released first to keep them from applying to the next tab.
+        # are released once the reset succeeds, to keep them from applying to
+        # the next tab.
         try:
-            await _release_route_guard(tab.page)
-            from backend.tools.browser import release_navigation_guard
-
-            await release_navigation_guard(tab.page)
+            # about:blank issues no network request, so the active guards do not
+            # block it. They are released only after the reset succeeds: if
+            # ``goto`` fails the tab stays in the session and must keep its
+            # egress perimeter.
             await tab.page.goto("about:blank", wait_until="domcontentloaded")
         except Exception:
             logger.debug("browser_session: falha ao resetar última aba %s", tab_id)
             return False
+        await _release_route_guard(tab.page)
+        from backend.tools.browser import release_navigation_guard
+
+        await release_navigation_guard(tab.page)
         tab.console_log.clear()
         tab.network_log.clear()
         tab._request_entries.clear()
