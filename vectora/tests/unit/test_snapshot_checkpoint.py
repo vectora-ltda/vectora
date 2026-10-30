@@ -308,17 +308,50 @@ def test_gc_returns_zero_on_missing_dir(tmp_path: Path) -> None:
     assert removed == 0
 
 
-def test_create_snapshot_reserva_espaco_para_o_manifesto(tmp_path: Path) -> None:
-    """Par de erro: arquivos que enchem o cap total não podem deixar o manifesto
-    de fora do limite; o snapshot ainda assim precisa ser criado e restaurado."""
+def test_create_snapshot_inclui_arquivo_que_cabe_com_o_manifesto(
+    tmp_path: Path,
+) -> None:
+    """Par de erro: quatro arquivos de 10 MiB e um de 9,5 MiB somam 49,5 MiB, e
+    o manifesto cabe no cap. O arquivo não pode ser omitido; se o workspace muda
+    depois do checkpoint, a restauração devolve o conteúdo original."""
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    ten_mib = 10 * 1024 * 1024
+    for i in range(4):
+        (workspace / f"big-{i}.bin").write_bytes(b"\0" * ten_mib)
+    original = b"" * (9 * 1024 * 1024 + 512 * 1024)
+    (workspace / "zz-last.bin").write_bytes(original)
+
+    result = create_snapshot_checkpoint(str(workspace), tmp_path / "snaps", "t1", "msg")
+    assert result["status"] == "ok"
+    assert "zz-last.bin" in result["files_touched"]
+    assert len(result["files_touched"]) == 5
+
+    (workspace / "zz-last.bin").write_bytes(b"alterado")
+    restore = tmp_path / "restore"
+    restore.mkdir()
+    assert (
+        restore_snapshot_checkpoint(result["snapshot_path"], str(restore))["status"]
+        == "ok"
+    )
+    assert (restore / "zz-last.bin").read_bytes() == original
+
+
+def test_create_snapshot_omite_arquivo_que_excede_o_cap_com_manifesto(
+    tmp_path: Path,
+) -> None:
+    """Par de erro: cinco arquivos de 10 MiB não cabem com o manifesto; o quinto
+    é omitido e os quatro primeiros são restaurados com o conteúdo original."""
     workspace = tmp_path / "ws"
     workspace.mkdir()
     ten_mib = 10 * 1024 * 1024
     for i in range(5):
-        (workspace / f"big-{i}.bin").write_bytes(b"\x00" * ten_mib)
+        (workspace / f"big-{i}.bin").write_bytes(bytes([i + 1]) * ten_mib)
 
     result = create_snapshot_checkpoint(str(workspace), tmp_path / "snaps", "t1", "msg")
     assert result["status"] == "ok"
+    assert len(result["files_touched"]) == 4
+    assert "big-4.bin" not in result["files_touched"]
 
     restore = tmp_path / "restore"
     restore.mkdir()
@@ -326,3 +359,4 @@ def test_create_snapshot_reserva_espaco_para_o_manifesto(tmp_path: Path) -> None
         restore_snapshot_checkpoint(result["snapshot_path"], str(restore))["status"]
         == "ok"
     )
+    assert (restore / "big-0.bin").read_bytes() == bytes([1]) * ten_mib
