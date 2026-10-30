@@ -478,3 +478,29 @@ def test_boolean_exclusive_minimum_is_not_a_numeric_bound(old, new, direction) -
     )
     assert report.breaking == []
     assert report.non_breaking == []
+
+
+def test_unchanged_numeric_bound_produces_empty_report() -> None:
+    """Par de erro: mesmo limite nos dois lados não é alteração."""
+    old = {"type": "string", "minLength": 3}
+    report = check_schema_compatibility(old, dict(old), direction="request")
+    assert report.is_compatible
+    assert report.breaking == [] and report.non_breaking == []
+
+
+def test_removed_allof_alternative_is_classified_by_direction() -> None:
+    """Request: remover uma das duas alternativas de allOf amplia o aceito
+    (não quebra). Response: a mesma remoção estreita o que o cliente recebe."""
+    old = {
+        "allOf": [
+            {"type": "object", "required": ["id"]},
+            {"type": "object", "required": ["name"]},
+        ]
+    }
+    new = {"allOf": [{"type": "object", "required": ["id"]}]}
+    request = check_schema_compatibility(old, new, direction="request")
+    assert not any("não possui correspondente" in msg for msg in request.breaking)
+    assert any("não possui correspondente" in msg for msg in request.non_breaking)
+
+    response = check_schema_compatibility(old, new, direction="response")
+    assert any("não possui correspondente" in msg for msg in response.breaking)
