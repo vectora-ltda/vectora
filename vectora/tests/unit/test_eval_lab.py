@@ -283,7 +283,7 @@ def test_total_tokens_helper():
     assert _total_tokens({"input": 40, "output": 60}) == 100
 
 
-def test_cli_eval_compare(tmp_path: Path, capsys):
+def test_cli_eval_compare(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Verifica o comportamento de cli eval compare."""
     b_path = tmp_path / "base.json"
     c_path = tmp_path / "cand.json"
@@ -302,7 +302,7 @@ def test_cli_eval_compare(tmp_path: Path, capsys):
     assert "Relatório de Avaliação" in captured.out
 
 
-def test_cli_eval_run(tmp_path: Path, capsys):
+def test_cli_eval_run(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Verifica o comportamento de cli eval run."""
     suite_path = tmp_path / "suite.json"
     cassette = Cassette(
@@ -342,7 +342,7 @@ def test_cli_eval_run(tmp_path: Path, capsys):
     assert '"suite_id": "my-suite"' in captured_json.out
 
 
-def test_cli_eval_missing_suite(capsys):
+def test_cli_eval_missing_suite(capsys: pytest.CaptureFixture[str]) -> None:
     """Verifica o comportamento de cli eval missing suite."""
     args = argparse.Namespace(
         action="run",
@@ -355,7 +355,9 @@ def test_cli_eval_missing_suite(capsys):
     assert "obrigatório" in captured.err
 
 
-def test_cli_eval_corrupted_file(tmp_path: Path, capsys):
+def test_cli_eval_corrupted_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Verifica o comportamento de cli eval corrupted file."""
     corrupt = tmp_path / "corrupt.json"
     corrupt.write_text("{bad json", encoding="utf-8")
