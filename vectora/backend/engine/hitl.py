@@ -518,6 +518,7 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
         "reason": reason,
         "provider": res.provider,
         "model": res.model,
+        "risk_score": score,
         "confidence": confidence,
         "policy_version": res.policy_version,
         "decision_id": res.decision_id,

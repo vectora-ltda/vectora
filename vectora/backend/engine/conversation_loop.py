@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import math
@@ -61,6 +62,7 @@ from backend.persistence.native.ledger import (
     LedgerEventType,
     ThreadLedgerEvent,
     make_agent_turn_started_key,
+    make_decision_model_decision_key,
     make_run_completed_key,
     make_run_failed_key,
     make_tool_finished_key,
@@ -191,6 +193,71 @@ def _build_selected_decision_harness(ctx: ToolContext) -> Any | None:
     from backend.tools.systemone_tools import _build_default_harness
 
     return _build_default_harness(provider)
+
+
+async def _persist_decision_model_record(
+    session_store: SessionStore,
+    *,
+    run_id: str | None,
+    thread_id: str,
+    tool_call: ToolCall,
+    surface: str | tuple[str, ...],
+    record: dict[str, Any],
+) -> None:
+    """Persist a redacted decision in AgentRun and the thread ledger."""
+    if not run_id:
+        msg = "Decision Model requires a run_id for durable audit"
+        raise ValueError(msg)
+    if not hasattr(session_store, "record_run_evidence") or not hasattr(
+        session_store, "append_ledger_event"
+    ):
+        msg = "Decision Model audit storage is unavailable"
+        raise RuntimeError(msg)
+
+    args_digest = hashlib.sha256(
+        json.dumps(tool_call.args, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    call_id = tool_call.id or f"{tool_call.name}:{args_digest}"
+    payload = {
+        "tool_name": tool_call.name,
+        "tool_call_id": call_id,
+        "args_digest": args_digest,
+        "surface": list(surface) if isinstance(surface, tuple) else surface,
+        **{
+            key: record[key]
+            for key in (
+                "decision",
+                "reason",
+                "provider",
+                "model",
+                "confidence",
+                "risk_score",
+                "policy_version",
+                "decision_id",
+            )
+            if key in record
+        },
+    }
+    evidence = {
+        "type": "decision_model_decision",
+        "evidence_id": make_decision_model_decision_key(run_id, call_id),
+        "run_id": run_id,
+        "thread_id": thread_id,
+        **payload,
+    }
+    await session_store.record_run_evidence(
+        run_id,
+        tool_used=tool_call.name,
+        evidence=evidence,
+    )
+    await session_store.append_ledger_event(
+        thread_id,
+        event_key=make_decision_model_decision_key(run_id, call_id),
+        event_type=LedgerEventType.DECISION_MODEL_DECISION,
+        run_id=run_id,
+        tool_call_id=call_id,
+        payload=payload,
+    )
 
 
 def _preserve_latest_tool_result(model_id: str) -> bool:
@@ -1142,26 +1209,48 @@ async def run_conversation(  # noqa: PLR0911
                             args=candidate.args,
                             surface=decision_surface,
                         )
-                    try:
-                        record = ctx._extra.get("systemone_decisions", {}).get(
-                            _risk_assessment_key(candidate.name, candidate.args)
-                        )
-                        if isinstance(record, dict):
+                    record = ctx._extra.get("systemone_decisions", {}).get(
+                        _risk_assessment_key(candidate.name, candidate.args)
+                    )
+                    if isinstance(record, dict):
+                        try:
+                            await _persist_decision_model_record(
+                                session_store,
+                                run_id=config.run_id,
+                                thread_id=thread_id,
+                                tool_call=candidate,
+                                surface=decision_surface,
+                                record=record,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Falha ao persistir decisão SystemOne do run %s",
+                                config.run_id,
+                            )
+                            record.update(
+                                {
+                                    "decision": "requires_human",
+                                    "reason": "decision_audit_unavailable",
+                                }
+                            )
+                            elevated = ctx._extra.setdefault(
+                                "systemone_risk_elevated_calls", set()
+                            )
+                            elevated.add(
+                                _risk_assessment_key(candidate.name, candidate.args)
+                            )
+                            ctx._extra["systemone_risk_requires_approval"] = True
                             await _safe_record_run_evidence(
                                 session_store,
                                 config.run_id,
                                 tool_used=candidate.name,
                                 evidence={
-                                    "type": "decision_model_decision",
+                                    "type": "decision_model_audit_failure",
                                     "tool_call_id": candidate.id,
-                                    **record,
+                                    "reason": "decision_audit_unavailable",
+                                    "run_id": config.run_id,
                                 },
                             )
-                    except Exception:
-                        logger.exception(
-                            "Falha ao anexar decisão SystemOne ao AgentRun %s",
-                            config.run_id,
-                        )
 
         if should_require_approval is not None:
             pendente = next(

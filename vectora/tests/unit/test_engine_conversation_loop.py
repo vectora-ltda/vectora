@@ -16,6 +16,7 @@ from backend.engine.conversation_loop import (
     _bind_decision_model_snapshot,
     _build_selected_decision_harness,
     _load_persistent_context_memories,
+    _persist_decision_model_record,
     _preserve_latest_tool_result,
     resume_conversation,
     run_conversation,
@@ -260,6 +261,74 @@ async def test_decision_snapshot_survives_preference_change_without_duplicate_ev
         sum(item.get("kind") == "decision_model_snapshot" for item in stored.evidence)
         == 1
     )
+
+
+@pytest.mark.asyncio
+async def test_decision_model_audit_persists_redacted_agent_run_and_ledger(
+    session_store: SessionStore,
+) -> None:
+    from backend.persistence.native.agent_run import AgentRun
+
+    run_id = "run-decision-audit"
+    await session_store.upsert_agent_run(
+        AgentRun(run_id=run_id, thread_id="thread-1", status="running")
+    )
+    tool_call = ToolCall(
+        id="call-audit",
+        name="file_write",
+        args={"path": "private/customer.txt", "token": "do-not-persist"},
+    )
+    decision = {
+        "decision": "allow",
+        "reason": "risk_below_threshold",
+        "provider": "clef-local",
+        "model": "test-model",
+        "risk_score": 0.12,
+        "confidence": 0.98,
+        "policy_version": "policy-v1",
+        "decision_id": "decision-1",
+        "raw_response": "must not be copied",
+    }
+
+    await _persist_decision_model_record(
+        session_store,
+        run_id=run_id,
+        thread_id="thread-1",
+        tool_call=tool_call,
+        surface="hitl",
+        record=decision,
+    )
+    await _persist_decision_model_record(
+        session_store,
+        run_id=run_id,
+        thread_id="thread-1",
+        tool_call=tool_call,
+        surface="hitl",
+        record=decision,
+    )
+
+    stored = await session_store.get_agent_run(run_id)
+    assert stored is not None
+    evidence = [
+        item
+        for item in stored.evidence
+        if item.get("type") == "decision_model_decision"
+    ]
+    assert len(evidence) == 1
+    assert evidence[0]["decision"] == "allow"
+    assert evidence[0]["risk_score"] == 0.12
+    assert "args_digest" in evidence[0]
+    assert "path" not in evidence[0]
+    assert "raw_response" not in evidence[0]
+
+    events = await session_store.list_events("thread-1")
+    decisions = [event for event in events if event.type == "decision_model_decision"]
+    assert len(decisions) == 1
+    assert decisions[0].run_id == run_id
+    assert decisions[0].tool_call_id == "call-audit"
+    assert decisions[0].payload["args_digest"] == evidence[0]["args_digest"]
+    assert "private/customer.txt" not in str(decisions[0].payload)
+    assert "do-not-persist" not in str(decisions[0].payload)
 
 
 class TestParadaNormal:
