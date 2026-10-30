@@ -379,6 +379,10 @@ def restore_snapshot_checkpoint(snapshot_path: str, cwd: str) -> dict[str, Any]:
                     staged_path.parent.mkdir(parents=True, exist_ok=True)
                     with source, staged_path.open("wb") as output:
                         shutil.copyfileobj(source, output)
+                    # Keep the executable bit recorded in the snapshot. Only
+                    # permission bits are applied: setuid/setgid/sticky stay
+                    # out of a restored workspace.
+                    staged_path.chmod(member.mode & 0o777)
                     staged.append((staged_path, destination))
                 for staged_path, destination in staged:
                     destination.parent.mkdir(parents=True, exist_ok=True)
