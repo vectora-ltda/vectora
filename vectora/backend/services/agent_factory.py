@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -61,9 +61,12 @@ from backend.workspace.plugins import tools_version
 from backend.workspace.skills import skills_version
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from backend.engine.hitl import ApprovalGate
     from backend.engine.subagents import SubagentSpec
     from backend.persistence.native.session_store import SessionStore
+    from backend.tools.registry import ToolSpec
     from backend.vtypes.history import ThreadHistoryEntry
     from backend.vtypes.message import VMessage
 from backend.tools.registry import ToolRegistry
@@ -688,6 +691,25 @@ def _native_tool_registry(chat_mode: bool, user_id: str | None) -> ToolRegistry:
     return registry
 
 
+def _recusa_amend(spec: ToolSpec) -> ToolSpec:
+    """Recusa ``amend=True`` no próprio handler: a restrição vale mesmo que o
+    modelo chame a tool direto, sem depender de instrução no prompt."""
+    handler = spec.handler
+
+    async def sem_amend(*args: Any, **kwargs: Any) -> str:
+        if kwargs.get("amend"):
+            return "Error: amend reescreve histórico e não é permitido nesta SOUL."
+        return await handler(*args, **kwargs)
+
+    return replace(spec, handler=sem_amend)
+
+
+# Restrições por SOUL aplicadas no handler da tool, não só no prompt.
+_GUARDAS_DE_SOUL: dict[tuple[str, str], Callable[[ToolSpec], ToolSpec]] = {
+    ("coder", "git_commit"): _recusa_amend,
+}
+
+
 def _native_subagent_catalog(user_id: str | None) -> dict[str, SubagentSpec]:
     """Catálogo de ``SubagentSpec`` nativas a partir de ``SOUL_CATALOG``,
     filtrando cada ``ToolSpec`` já nativo por ``TOOL_REGISTRY.get(tool.name)``
@@ -718,7 +740,8 @@ def _native_subagent_catalog(user_id: str | None) -> dict[str, SubagentSpec]:
                 continue
             spec = TOOL_REGISTRY.get(name)
             if spec is not None:
-                tools.append(spec)
+                guarda = _GUARDAS_DE_SOUL.get((soul.name, name))
+                tools.append(guarda(spec) if guarda is not None else spec)
         catalog[soul.name] = SubagentSpec(
             name=soul.name,
             description=soul.description,
