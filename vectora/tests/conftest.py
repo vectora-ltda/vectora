@@ -33,7 +33,7 @@ import shutil
 import socket
 import sys
 import tempfile
-from collections.abc import Generator
+from collections.abc import AsyncIterator, Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -331,7 +331,7 @@ async def _close_stale_db_conn() -> None:
 
 
 @pytest_asyncio.fixture
-async def spawned_backend(tmp_path: Path):
+async def spawned_backend(tmp_path: Path) -> AsyncIterator[tuple[str, int]]:
     """Backend real (``python -m backend.main start``) rodando num
     ``VECTORA_HOME`` isolado. Não exige ``frontend/dist`` (diferente de
     ``_spawned_backend`` em ``test_frontend_served_lifecycle.py``, que serve

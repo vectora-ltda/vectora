@@ -395,6 +395,7 @@ def test_context_planner_hybrid_memory_does_not_cross_workspace() -> None:
     mem_store = MemoryStore()
     mem_store.store("graph-a", "structural_graph", "ws-a", "grafo permitido")
     mem_store.store("vector-b", "vector_rag", "ws-b", "vetor secreto")
+    mem_store.store("graph-b", "structural_graph", "ws-b", "grafo secreto de outro ws")
     planned = ContextPlanner(memory_store=mem_store).plan_context(
         [_msg(MessageRole.USER, "continue")],
         max_tokens=4000,
@@ -403,6 +404,7 @@ def test_context_planner_hybrid_memory_does_not_cross_workspace() -> None:
     rendered = "\n".join(message.text() for message in planned.messages)
     assert "grafo permitido" in rendered
     assert "vetor secreto" not in rendered
+    assert "grafo secreto de outro ws" not in rendered
 
 
 def test_backend_memories_are_converted_with_scope_and_trust() -> None:

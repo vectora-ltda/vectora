@@ -375,7 +375,7 @@ def test_cli_eval_corrupted_file(tmp_path: Path, capsys):
     "raw", ["[]", "null", "42", '{"cassette_id":"x","redaction_version":2}']
 )
 def test_cassette_load_rejects_invalid_shape_and_redaction_version(
-    tmp_path, raw
+    tmp_path: Path, raw: str
 ) -> None:
     """Loading untrusted JSON must fail with a validation error, never AttributeError."""
     source = tmp_path / "invalid.json"
@@ -387,7 +387,10 @@ def test_cassette_load_rejects_invalid_shape_and_redaction_version(
 @pytest.mark.parametrize("action", ["run", "compare"])
 @pytest.mark.parametrize("raw", ["[]", '{"cassette_id":"x","redaction_version":2}'])
 def test_cli_reports_invalid_cassette_without_traceback(
-    tmp_path, capsys, action, raw
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    action: str,
+    raw: str,
 ) -> None:
     """Both CLI entry points explain invalid cassettes and return failure."""
     source = tmp_path / "invalid.json"
