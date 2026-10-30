@@ -22,11 +22,11 @@ from typing import Any
 from urllib.parse import urlparse
 
 from backend.browser.dev_server import resolve_dev_server_url
-from backend.browser.redirect_guard import install_redirect_guard
 from backend.browser.session import (
     get_browser_page,
     get_tab_state,
     has_browser_session,
+    install_redirect_guard,
     resolve_uid_center,
     set_value_by_uid,
 )

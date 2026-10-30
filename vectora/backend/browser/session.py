@@ -30,8 +30,8 @@ from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, cast
+from urllib.parse import urlparse
 
-from backend.browser.redirect_guard import install_redirect_guard
 from backend.vtypes.browser import (
     BrowserConsoleEntry,
     BrowserNetworkEntry,
@@ -53,6 +53,81 @@ _sessions: dict[str, dict[str, Any]] = {}
 #: Referências às tasks de accept/dismiss de dialog em voo — sem isso o
 #: garbage collector pode coletar a task antes dela rodar (RUF006).
 _pending_dialog_tasks: set[asyncio.Task[Any]] = set()
+
+
+# --- Bloqueio de egress por salto de redirect (CDP) -------------------------
+# ``page.route`` do Playwright só é consultado para a requisição inicial: o
+# navegador segue os redirects seguintes sem chamar o handler, então um destino
+# privado atrás de um host permitido seria alcançado antes de qualquer checagem.
+# O domínio ``Fetch`` do CDP pausa cada requisição, inclusive as geradas por
+# redirects, antes de o navegador enviá-la; a guarda valida a URL de cada salto
+# e falha a requisição bloqueada com ``BlockedByClient``. O navegador resolve o
+# DNS por conta própria depois da validação, portanto a guarda não elimina DNS
+# rebinding.
+
+#: ``(url) -> (permitido, motivo)``.
+UrlCheck = Callable[[str], Awaitable[tuple[bool, str]]]
+
+_CHECKED_SCHEMES = frozenset({"http", "https"})
+
+
+async def install_redirect_guard(
+    page: Any, check_url: UrlCheck, blocked: dict[str, str]
+) -> Callable[[], Awaitable[None]] | None:
+    """Pausa toda requisição http(s) da página e bloqueia as não permitidas.
+
+    Devolve a função que desfaz a guarda, ou ``None`` quando a página não
+    expõe uma sessão CDP (adaptadores de teste), caso em que a validação do
+    URL final após ``goto`` continua sendo a única checagem de redirect.
+    ``blocked["reason"]`` recebe o motivo da última requisição recusada.
+    """
+    context = getattr(page, "context", None)
+    new_session: Any = getattr(context, "new_cdp_session", None)
+    if not callable(new_session):
+        return None
+    session = await new_session(page)
+    pending: set[asyncio.Task[None]] = set()
+
+    async def _resolve(event: dict[str, Any]) -> None:
+        request_id = event["requestId"]
+        url = str(event.get("request", {}).get("url", ""))
+        allowed = True
+        reason = ""
+        if urlparse(url).scheme.lower() in _CHECKED_SCHEMES:
+            try:
+                allowed, reason = await check_url(url)
+            except Exception:
+                logger.exception("redirect_guard: falha ao validar a URL")
+                allowed, reason = False, "falha ao validar a URL"
+        try:
+            if allowed:
+                await session.send("Fetch.continueRequest", {"requestId": request_id})
+            else:
+                blocked["reason"] = reason
+                await session.send(
+                    "Fetch.failRequest",
+                    {"requestId": request_id, "errorReason": "BlockedByClient"},
+                )
+        except Exception:
+            logger.debug("redirect_guard: requisição já encerrada", exc_info=True)
+
+    def _on_paused(event: dict[str, Any]) -> None:
+        task = asyncio.ensure_future(_resolve(event))
+        pending.add(task)
+        task.add_done_callback(pending.discard)
+
+    session.on("Fetch.requestPaused", _on_paused)
+    await session.send("Fetch.enable", {"patterns": [{"urlPattern": "*"}]})
+
+    async def release() -> None:
+        with suppress(Exception):
+            await session.send("Fetch.disable")
+        with suppress(Exception):
+            await session.detach()
+        for task in tuple(pending):
+            task.cancel()
+
+    return release
 
 
 async def _release_route_guard(page: Any) -> None:
