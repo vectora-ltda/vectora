@@ -468,6 +468,44 @@ async def test_dag_rejects_mutated_approved_plan_before_creating_execution(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_dag_persiste_estagios_canonicos_e_nao_o_json_cru(tmp_path) -> None:
+    """Valores armazenados que coincidem com o estágio canônico (ids numéricos)
+    viram texto canônico nas linhas de execução; o plano adulterado de verdade
+    continua sendo rejeitado."""
+    db = await aiosqlite.connect(tmp_path / "dag-canonical.db")
+    store = DAGStore(db)
+    await store.setup()
+    plan_id, plan_hash = await store.create_plan(
+        run_id="run-canonical",
+        stages=[DAGStage("1", "Primeiro"), DAGStage("2", "Segundo", ("1",))],
+    )
+    await store.approve_plan(plan_id, plan_hash=plan_hash, approver="user-1")
+    await db.execute(
+        "UPDATE vectora_dag_plans SET stages_json=? WHERE plan_id=?",
+        (
+            (
+                '[{"stage_id":1,"name":"Primeiro","depends_on":[]},'
+                '{"stage_id":2,"name":"Segundo","depends_on":[1]}]'
+            ),
+            plan_id,
+        ),
+    )
+    await db.commit()
+
+    execution = await store.start_execution(
+        plan_id, run_id="run-canonical", idempotency_key="canonical-1"
+    )
+    async with db.execute(
+        "SELECT stage_id,depends_on_json FROM vectora_dag_stages "
+        "WHERE execution_id=? ORDER BY stage_id",
+        (execution.execution_id,),
+    ) as cursor:
+        rows = [(row[0], row[1]) for row in await cursor.fetchall()]
+    assert rows == [("1", "[]"), ("2", '["1"]')]
+    await db.close()
+
+
+@pytest.mark.asyncio
 async def test_dag_cancel_invalidates_claims_and_is_idempotent(tmp_path) -> None:
     """Cancel a DAG idempotently and invalidate outstanding claims."""
     db = await aiosqlite.connect(tmp_path / "dag-cancel.db")

@@ -230,7 +230,6 @@ class DAGStore:
                 )
             return DAGExecution(*existing)
         execution_id = str(uuid.uuid4())
-        stages = persisted_stages
         try:
             await self.db.execute(
                 "INSERT INTO vectora_dag_executions(execution_id,plan_id,run_id,idempotency_key,created_at) VALUES(?,?,?,?,?)",
@@ -238,14 +237,17 @@ class DAGStore:
             )
             await self.db.executemany(
                 "INSERT INTO vectora_dag_stages(execution_id,stage_id,name,depends_on_json) VALUES(?,?,?,?)",
+                # The rows use the canonical stages that were validated and
+                # hashed, never the raw JSON: a stored value that coerces to
+                # the same canonical stage must not be persisted as-is.
                 [
                     (
                         execution_id,
-                        s["stage_id"],
-                        s["name"],
-                        json.dumps(s["depends_on"]),
+                        stage.stage_id,
+                        stage.name,
+                        json.dumps(list(stage.depends_on)),
                     )
-                    for s in stages
+                    for stage in canonical_stages
                 ],
             )
             await self._event(
