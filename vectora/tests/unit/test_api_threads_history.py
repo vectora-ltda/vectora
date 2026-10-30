@@ -269,6 +269,10 @@ async def test_history_cursor_capturado_antes_da_leitura_nao_pula_mensagem(
             "backend.services.agent_factory.aget_thread_messages_with_files",
             new=AsyncMock(return_value=pairs),
         ),
+        patch(
+            "backend.services.agent_factory.aget_thread_todos",
+            new=AsyncMock(return_value=[]),
+        ),
     ):
         from backend.api.handlers.threads import get_history
 

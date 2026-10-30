@@ -687,8 +687,12 @@ async def test_get_decision_models_status_reports_selected_health_failure(
     async def unhealthy(_: object) -> bool:
         return False
 
+    # Pin the selected provider: the patch below only affects the Clef local
+    # adapter, so another provider in the environment would stay ready.
+    monkeypatch.setattr(app_settings, "systemone_provider", "clef-local")
     monkeypatch.setattr(ClefLocalAdapter, "health", unhealthy)
     res = await get_decision_models_status()
+    assert res.provider == "clef-local"
     selected = next(
         item for item in res.capability_matrix if item.provider == res.provider
     )
