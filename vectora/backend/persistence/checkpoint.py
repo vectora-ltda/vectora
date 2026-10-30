@@ -186,6 +186,10 @@ _SNAPSHOT_MAX_FILE_BYTES = 10 * 1024 * 1024
 # Cap de tamanho total por snapshot (50 MiB). Arquivos além do cap são omitidos.
 _SNAPSHOT_MAX_TOTAL_BYTES = 50 * 1024 * 1024
 
+# Margem reservada no cap total para o manifesto JSON, que é gravado depois
+# dos arquivos e também conta no limite validado na restauração.
+_SNAPSHOT_MANIFEST_RESERVE_BYTES = 1024 * 1024
+
 
 def _iter_snapshot_files(cwd: Path) -> list[Path]:
     """Lista arquivos do workspace excluindo diretórios ignorados.
@@ -266,7 +270,10 @@ def create_snapshot_checkpoint(
                     continue
                 if size > _SNAPSHOT_MAX_FILE_BYTES:
                     continue
-                if total_bytes + size > _SNAPSHOT_MAX_TOTAL_BYTES:
+                if (
+                    total_bytes + size
+                    > _SNAPSHOT_MAX_TOTAL_BYTES - _SNAPSHOT_MANIFEST_RESERVE_BYTES
+                ):
                     continue
                 arcname = str(fpath.relative_to(cwd_path))
                 tar.add(str(fpath), arcname=arcname, recursive=False)
