@@ -1064,8 +1064,14 @@ async def list_threads(
             foreign_ids = await session_store.foreign_thread_ids(
                 [r[0] for r in page], user_id
             )
+            # Posse nativa só se exige quando há principal autenticado; o
+            # launcher local sem usuário mantém as threads legadas visíveis.
+            require_native = getattr(http_request.state, "user", None) is not None
             rows.extend(
-                r for r in page if r[0] in native_thread_ids and r[0] not in foreign_ids
+                r
+                for r in page
+                if r[0] not in foreign_ids
+                and (not require_native or r[0] in native_thread_ids)
             )
             if len(page) < limit:
                 break

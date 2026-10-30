@@ -195,6 +195,25 @@ class TestListThreadsReflectsSessionStore:
         assert result.threads == []
         assert await session_store.get_session("thread-legada") is None
 
+    async def test_thread_legada_aparece_so_sem_usuario_autenticado(
+        self,
+        session_store: SessionStore,
+    ) -> None:
+        """Launcher local sem usuário mantém threads legadas visíveis; para um
+        usuário autenticado a mesma thread continua oculta sem posse nativa."""
+        await th._upsert_session("thread-local-antiga", title="Conversa local")
+        await th._increment_message_count("thread-local-antiga")
+
+        sem_usuario = await th.list_threads(
+            ListThreadsRequest(limit=50), _http_request(None)
+        )
+        autenticado = await th.list_threads(
+            ListThreadsRequest(limit=50), _http_request("alice")
+        )
+
+        assert [t.id for t in sem_usuario.threads] == ["thread-local-antiga"]
+        assert autenticado.threads == []
+
     async def test_metadados_legados_recentes_nao_escondem_thread_valida(
         self,
         session_store: SessionStore,
