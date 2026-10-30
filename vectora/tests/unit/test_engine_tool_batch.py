@@ -9,7 +9,9 @@ volta que tem tool calls).
 
 from __future__ import annotations
 
+import asyncio
 import socket
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -373,6 +375,60 @@ class TestRedacaoDeSegredosPosExecucao:
 
         assert "sk-abcdefghijklmnopqrstuvwx" not in resultados[0].text()
         assert "[REDACTED]" in resultados[0].text()
+
+    async def test_validacao_de_policy_nao_bloqueia_o_event_loop(self, ctx):
+        """Uma validação lenta (DNS síncrono) roda fora do loop: outras tarefas
+        continuam avançando, e a negação ainda impede a tool de executar."""
+        import time
+
+        ran: list[str] = []
+
+        @vtool(extras=ToolExtras(destructive=False))
+        async def slow_policy_probe(ctx: ToolContext) -> str:
+            ran.append("executou")
+            return "ok"
+
+        registry = ToolRegistry()
+        _register(registry, "slow_policy_probe")
+
+        class _SlowSnapshot:
+            def __init__(self, verdict: bool) -> None:
+                self.verdict = verdict
+
+            def validate_call(self, name: str, args: dict) -> tuple[bool, str]:
+                time.sleep(0.3)
+                return self.verdict, "" if self.verdict else "fora da allowlist"
+
+        ticks = 0
+
+        async def ticker() -> None:
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        task = asyncio.create_task(ticker())
+        try:
+            allowed = await execute_tool_batch(
+                [ToolCall(id="slow-ok", name="slow_policy_probe", args={})],
+                tool_registry=registry,
+                ctx=ctx,
+                policy_snapshot=cast("PolicySnapshot", _SlowSnapshot(True)),
+            )
+            ticks_while_validating = ticks
+            denied = await execute_tool_batch(
+                [ToolCall(id="slow-no", name="slow_policy_probe", args={})],
+                tool_registry=registry,
+                ctx=ctx,
+                policy_snapshot=cast("PolicySnapshot", _SlowSnapshot(False)),
+            )
+        finally:
+            task.cancel()
+
+        assert allowed[0].text() == "ok"
+        assert ticks_while_validating >= 10
+        assert "policy_denied" in denied[0].text()
+        assert ran == ["executou"]
 
     async def test_propagates_immutable_policy_snapshot_to_tool_context(self, ctx):
         """A tool recebe o snapshot do run, sem recompilar settings mutáveis."""
