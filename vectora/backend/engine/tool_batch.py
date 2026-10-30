@@ -44,7 +44,9 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
 
 #: Estados de envelope que indicam operação não concluída: falha geral, conflito
 #: de merge e workspace sem repositório Git. Os valores são preservados no JSON.
-_FAILED_ENVELOPE_STATUSES = frozenset({"error", "conflict", "not_git"})
+_FAILED_ENVELOPE_STATUSES = frozenset(
+    {"error", "conflict", "not_git", "remote_unsupported", "git_not_found"}
+)
 
 
 def _is_tool_error(text: str, *, structured: bool = False) -> bool:

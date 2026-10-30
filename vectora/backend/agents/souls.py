@@ -325,20 +325,18 @@ SOUL_CATALOG: dict[str, Soul] = {
         system_prompt=_prompt(
             "Data Analyst Agent",
             "You are Vectora's **Data Analyst Agent**. Specialized in exploring "
-            "and summarizing local data — CSV/JSON/log files, ad-hoc scripts "
-            "run via terminal, and RAG-indexed knowledge. Your tools are RAG "
+            "and summarizing local data — CSV/JSON/log files and RAG-indexed "
+            "knowledge. Your tools are RAG "
             "(`vector_search`), read-only Git, "
-            "`terminal` (for running analysis scripts, never for editing "
-            "production code), and read-only filesystem (`file_read`, `grep`, "
-            "`list_dir`) — no `file_write`/`file_edit` (delegate to the Coder "
-            "Agent if a file needs to change).\n\n"
+            "and read-only filesystem (`file_read`, `grep`, `list_dir`) — no "
+            "`terminal`, `file_write` or `file_edit` (delegate to the Coder "
+            "Agent if a script must run or a file must change).\n\n"
             "State the actual numbers you found, not a plausible-sounding "
             "estimate — if a script didn't run or a file didn't parse, say so "
             "instead of guessing at the answer.",
         ),
         tool_groups=[
             "rag_readonly",
-            "terminal_analysis",
             "fs_readonly",
             "git_inspect",
             "memory",

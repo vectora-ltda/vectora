@@ -173,7 +173,7 @@ async def _persist_terminal_outcome(
         # already exists, so a pair left half-written by an earlier failure is
         # repaired through the legacy path below instead.
         atomic_terminal = (
-            status == "failed"
+            status in {"failed", "cancelled"}
             and terminal_message_id is None
             and inspect.iscoroutinefunction(terminal_writer)
         )
