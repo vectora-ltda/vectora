@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Awaitable, Callable
+import asyncio
+import http.server
+import threading
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from functools import partial
 from types import SimpleNamespace
 from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from playwright.async_api import Browser, Page, async_playwright
 
 from backend.browser import session as browser_session
 
@@ -394,3 +399,302 @@ async def test_close_tab_da_ultima_aba_libera_guards_antes_de_reusar_a_pagina(
     assert redirect_released == ["redirect"]
     assert not hasattr(page, "_vectora_route_handler")
     page.goto.assert_awaited_with("about:blank", wait_until="domcontentloaded")
+
+
+# --- Guarda de redirect por CDP ------------------------------------------
+
+
+class _FakeCdp:
+    """Sessão CDP que registra os comandos e deixa o teste disparar eventos."""
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[str, dict[str, Any]]] = []
+        self.handlers: dict[str, Any] = {}
+        self.detached = False
+
+    def on(self, name: str, handler: Any) -> None:
+        self.handlers[name] = handler
+
+    async def send(self, method: str, params: dict[str, Any] | None = None) -> None:
+        self.sent.append((method, params or {}))
+
+    async def detach(self) -> None:
+        self.detached = True
+
+    async def pause(self, request_id: str, url: str) -> None:
+        self.handlers["Fetch.requestPaused"](
+            {"requestId": request_id, "request": {"url": url}}
+        )
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+
+def _page_with_cdp(cdp: _FakeCdp) -> Any:
+    async def new_cdp_session(_page: object) -> _FakeCdp:
+        return cdp
+
+    return SimpleNamespace(context=SimpleNamespace(new_cdp_session=new_cdp_session))
+
+
+async def test_cada_salto_e_validado_e_o_bloqueado_falha_antes_do_envio() -> None:
+    cdp = _FakeCdp()
+    seen: list[str] = []
+    blocked: dict[str, str] = {}
+
+    async def check(url: str) -> tuple[bool, str]:
+        seen.append(url)
+        return ("interno" not in url, "destino privado")
+
+    release = await browser_session.install_redirect_guard(
+        _page_with_cdp(cdp), check, blocked
+    )
+    assert release is not None
+    assert cdp.sent[0] == ("Fetch.enable", {"patterns": [{"urlPattern": "*"}]})
+
+    await cdp.pause("1", "https://permitido.example/inicio")
+    await cdp.pause("2", "http://interno.local/segredo")
+    await cdp.pause("3", "data:text/plain,ok")
+
+    assert seen == ["https://permitido.example/inicio", "http://interno.local/segredo"]
+    assert cdp.sent[1:] == [
+        ("Fetch.continueRequest", {"requestId": "1"}),
+        (
+            "Fetch.failRequest",
+            {"requestId": "2", "errorReason": "BlockedByClient"},
+        ),
+        ("Fetch.continueRequest", {"requestId": "3"}),
+    ]
+    assert blocked == {"reason": "destino privado"}
+
+    await release()
+    assert ("Fetch.disable", {}) in cdp.sent
+    assert cdp.detached
+
+
+async def test_falha_ao_validar_bloqueia_em_vez_de_liberar() -> None:
+    cdp = _FakeCdp()
+    blocked: dict[str, str] = {}
+
+    async def check(url: str) -> tuple[bool, str]:
+        raise RuntimeError("política indisponível")
+
+    await browser_session.install_redirect_guard(_page_with_cdp(cdp), check, blocked)
+    await cdp.pause("1", "https://qualquer.example/")
+
+    assert cdp.sent[-1][0] == "Fetch.failRequest"
+    assert blocked["reason"] == "falha ao validar a URL"
+
+
+async def test_pagina_sem_sessao_cdp_nao_instala_guarda() -> None:
+    async def check(url: str) -> tuple[bool, str]:
+        return True, ""
+
+    assert (
+        await browser_session.install_redirect_guard(SimpleNamespace(), check, {})
+        is None
+    )
+
+
+async def test_navigation_guard_instala_e_libera_a_guarda_de_redirect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.tools import browser as browser_tools
+
+    cdp = _FakeCdp()
+    routed: list[str] = []
+    page = _page_with_cdp(cdp)
+
+    async def route(pattern: str, handler: Any) -> None:
+        routed.append(pattern)
+
+    async def unroute(pattern: str, handler: Any) -> None:
+        routed.remove(pattern)
+
+    page.route, page.unroute = route, unroute
+    snapshot: Any = SimpleNamespace(
+        egress_policy=SimpleNamespace(allowed_hosts=["permitido.example"])
+    )
+
+    async def allowed(url: str, policy: object) -> tuple[bool, str, None]:
+        return ("permitido.example" in url, "fora da allowlist", None)
+
+    monkeypatch.setattr(browser_tools, "async_is_url_allowed", allowed)
+    handler, blocked = await browser_tools._install_navigation_guard(page, snapshot)
+    assert handler is not None and routed == ["**/*"]
+
+    await cdp.pause("1", "https://permitido.example/")
+    await cdp.pause("2", "http://169.254.169.254/")
+    assert [method for method, _ in cdp.sent[1:]] == [
+        "Fetch.continueRequest",
+        "Fetch.failRequest",
+    ]
+    assert blocked["reason"] == "fora da allowlist"
+
+    await browser_tools.release_navigation_guard(page)
+    assert routed == [] and cdp.detached
+
+
+# --- Guarda de redirect contra um Chromium real --------------------------
+
+
+class _Counter:
+    def __init__(self) -> None:
+        self.hits = 0
+
+
+def _serve(handler: type[http.server.BaseHTTPRequestHandler]) -> http.server.HTTPServer:
+    server = http.server.HTTPServer(("127.0.0.1", 0), handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
+
+
+def _redirector(
+    location: Callable[[], str],
+) -> type[http.server.BaseHTTPRequestHandler]:
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            self.send_response(302)
+            self.send_header("Location", location())
+            self.end_headers()
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            return
+
+    return Handler
+
+
+@pytest.fixture
+def redirect_target() -> Iterator[tuple[http.server.HTTPServer, _Counter]]:
+    counter = _Counter()
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            counter.hits += 1
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(b"target")
+
+        def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+            return
+
+    server = _serve(Handler)
+    yield server, counter
+    server.shutdown()
+
+
+@pytest.fixture
+async def real_browser() -> AsyncIterator[Browser]:
+    async with async_playwright() as playwright:
+        launched: Browser | None = None
+        launchers = (
+            playwright.chromium.launch,
+            partial(playwright.chromium.launch, channel="msedge"),
+            partial(playwright.chromium.launch, channel="chrome"),
+        )
+        for launch in launchers:
+            try:
+                launched = await launch()
+                break
+            except Exception:  # noqa: S112 - tentativa de outro canal
+                continue
+        if launched is None:
+            pytest.skip("nenhum Chromium utilizável neste ambiente")
+        try:
+            yield launched
+        finally:
+            await launched.close()
+
+
+async def _navigate(
+    real_browser: Browser,
+    start_url: str,
+    blocked_port: int,
+    *,
+    guarded: bool,
+) -> tuple[str | None, dict[str, str]]:
+    """Navega com ``page.route`` ativo e, opcionalmente, a guarda de redirect."""
+    context = await real_browser.new_context()
+    page: Page = await context.new_page()
+    blocked: dict[str, str] = {}
+
+    async def check_url(url: str) -> tuple[bool, str]:
+        if f":{blocked_port}/" in url:
+            return False, "destino privado"
+        return True, ""
+
+    async def route_handler(route: Any) -> None:
+        allowed, reason = await check_url(route.request.url)
+        if allowed:
+            await route.continue_()
+        else:
+            blocked["route"] = reason
+            await route.abort()
+
+    await page.route("**/*", route_handler)
+    release = None
+    if guarded:
+        release = await browser_session.install_redirect_guard(page, check_url, blocked)
+        assert release is not None
+    error: str | None = None
+    try:
+        await page.goto(start_url, timeout=8000)
+    except Exception as exc:
+        error = str(exc).splitlines()[0]
+    if release is not None:
+        await release()
+    await context.close()
+    return error, blocked
+
+
+@pytest.mark.parametrize("hops", [1, 2])
+async def test_redirect_para_destino_bloqueado_nao_chega_ao_servidor(
+    real_browser: Browser,
+    redirect_target: tuple[http.server.HTTPServer, _Counter],
+    hops: int,
+) -> None:
+    server, counter = redirect_target
+    port = server.server_port
+    middle = _serve(_redirector(lambda: f"http://127.0.0.1:{port}/segredo"))
+    entry = (
+        _serve(_redirector(lambda: f"http://127.0.0.1:{middle.server_port}/meio"))
+        if hops == 2
+        else middle
+    )
+    start = f"http://127.0.0.1:{entry.server_port}/inicio"
+    try:
+        # Controle: sem a guarda, o ``route`` não vê o salto e o destino é atingido.
+        await _navigate(real_browser, start, port, guarded=False)
+        assert counter.hits == 1
+
+        counter.hits = 0
+        error, blocked = await _navigate(real_browser, start, port, guarded=True)
+        assert counter.hits == 0
+        assert error is not None and "ERR_BLOCKED_BY_CLIENT" in error
+        assert blocked["reason"] == "destino privado"
+    finally:
+        middle.shutdown()
+        if entry is not middle:
+            entry.shutdown()
+
+
+async def test_redirect_entre_hosts_permitidos_continua_funcionando(
+    real_browser: Browser,
+    redirect_target: tuple[http.server.HTTPServer, _Counter],
+) -> None:
+    """Par do caso de erro: um redirect permitido carrega a página final."""
+    server, counter = redirect_target
+    port = server.server_port
+    entry = _serve(_redirector(lambda: f"http://127.0.0.1:{port}/ok"))
+    try:
+        error, blocked = await _navigate(
+            real_browser,
+            f"http://127.0.0.1:{entry.server_port}/inicio",
+            0,
+            guarded=True,
+        )
+        assert error is None
+        assert blocked == {}
+        assert counter.hits == 1
+    finally:
+        entry.shutdown()
