@@ -44,7 +44,7 @@ export function DecisionModelMenu({ compact = false }: { compact?: boolean }) {
     provider: DecisionModelProvider;
     ready: boolean;
     configured: boolean;
-    credentialValid: boolean;
+    credentialValid: boolean | null;
     healthy: boolean;
   } | null>(null);
   const [readinessErrorProvider, setReadinessErrorProvider] =
@@ -73,7 +73,7 @@ export function DecisionModelMenu({ compact = false }: { compact?: boolean }) {
         return (await response.json()) as {
           ready?: boolean;
           configured?: boolean;
-          credential_valid?: boolean;
+          credential_valid?: boolean | null;
           healthy?: boolean;
         };
       })
@@ -83,7 +83,7 @@ export function DecisionModelMenu({ compact = false }: { compact?: boolean }) {
             provider,
             ready: value.ready === true,
             configured: value.configured === true,
-            credentialValid: value.credential_valid === true,
+            credentialValid: value.credential_valid ?? null,
             healthy: value.healthy === true,
           });
         }

@@ -69,10 +69,22 @@ class BaseSystemOneApiAdapter(SystemOneProvider):
         try:
             if self._external_client is not None:
                 res = await self._external_client.get(url, headers=headers)
+                if res.status_code in (401, 403):
+                    raise SystemOneAuthenticationError(
+                        "credencial rejeitada no health probe",
+                        provider=self.provider_id,
+                    )
                 return res.status_code == 200
             async with httpx.AsyncClient(timeout=5.0) as client:
                 res = await client.get(url, headers=headers)
+                if res.status_code in (401, 403):
+                    raise SystemOneAuthenticationError(
+                        "credencial rejeitada no health probe",
+                        provider=self.provider_id,
+                    )
                 return res.status_code == 200
+        except SystemOneAuthenticationError:
+            raise
         except Exception:
             return False
 
@@ -246,11 +258,17 @@ class ClefApiAdapter(BaseSystemOneApiAdapter):
         headers = {"Authorization": f"Bearer {self._api_key}"}
         try:
             if self._external_client is not None:
-                return (
-                    await self._external_client.get(url, headers=headers)
-                ).status_code == 200
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                return (await client.get(url, headers=headers)).status_code == 200
+                res = await self._external_client.get(url, headers=headers)
+            else:
+                async with httpx.AsyncClient(timeout=5.0) as client:
+                    res = await client.get(url, headers=headers)
+            if res.status_code in (401, 403):
+                raise SystemOneAuthenticationError(
+                    "credencial rejeitada no health probe", provider=self.provider_id
+                )
+            return res.status_code == 200
+        except SystemOneAuthenticationError:
+            raise
         except Exception:
             return False
 

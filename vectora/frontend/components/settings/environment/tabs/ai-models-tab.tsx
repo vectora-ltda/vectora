@@ -37,7 +37,7 @@ interface DecisionStatus {
   model: string;
   ready: boolean;
   configured: boolean;
-  credential_valid: boolean;
+  credential_valid: boolean | null;
   healthy: boolean;
   diagnostic?: string | null;
 }
@@ -378,7 +378,7 @@ function DecisionModelsSection() {
                 ? m.decision_models_readiness_ready()
                 : !status.configured
                   ? m.decision_models_readiness_unconfigured()
-                  : !status.credential_valid
+                  : status.credential_valid === false
                     ? m.decision_models_readiness_no_credential()
                     : !status.healthy
                       ? m.decision_models_readiness_unhealthy()

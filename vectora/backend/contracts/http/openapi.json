@@ -2059,8 +2059,15 @@
             "type": "boolean"
           },
           "credential_valid": {
-            "title": "Credential Valid",
-            "type": "boolean"
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Valid"
           },
           "diagnostic": {
             "anyOf": [

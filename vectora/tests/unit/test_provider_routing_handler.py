@@ -151,6 +151,64 @@ async def test_decision_model_readiness_probes_user_selected_provider(monkeypatc
     assert factory.call_args.args[0].provider == "clef-api"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure", "expected_valid"),
+    [("auth", False), ("unavailable", None)],
+)
+async def test_decision_model_readiness_distinguishes_rejected_key_from_outage(
+    monkeypatch: pytest.MonkeyPatch,
+    failure: str,
+    expected_valid: bool | None,
+) -> None:
+    from backend.api.handlers import provider_routing
+    from backend.llm.systemone.errors import SystemOneAuthenticationError
+
+    monkeypatch.setattr(
+        "backend.settings.settings",
+        SimpleNamespace(
+            systemone_enabled=True,
+            systemone_jev_api_model="jev-fast",
+            systemone_local_base_url="http://127.0.0.1:8080",
+            systemone_local_model="clef",
+            systemone_laya_base_url="http://127.0.0.1:8000",
+            systemone_laya_model="laya",
+            systemone_laya_api_key=None,
+            systemone_clef_api_base_url="https://api.cloudflare.com/client/v4/accounts",
+            systemone_clef_api_model="clef",
+            systemone_jev_api_base_url="https://api.jev.ai",
+            systemone_confidence_threshold_hitl=0.7,
+            jev_api_key="present-but-unverified",
+        ),
+    )
+
+    class ProbeAdapter:
+        async def capabilities(self) -> object:
+            return object()
+
+        async def health(self) -> bool:
+            if failure == "auth":
+                raise SystemOneAuthenticationError("rejected", provider="jev-api")
+            return False
+
+    monkeypatch.setattr(
+        provider_routing,
+        "get_systemone_provider",
+        lambda *_args, **_kwargs: ProbeAdapter(),
+    )
+    result = await get_decision_model_readiness("jev-api")
+
+    assert result.configured is True
+    assert result.credential_valid is expected_valid
+    assert result.healthy is False
+    assert result.ready is False
+    assert result.diagnostic == (
+        "credencial rejeitada pelo provider"
+        if failure == "auth"
+        else "provider não saudável"
+    )
+
+
 @pytest.fixture(scope="module")
 def app(tmp_path_factory):
     """App FastAPI com banco de registro (Ollama/OpenRouter) isolado.

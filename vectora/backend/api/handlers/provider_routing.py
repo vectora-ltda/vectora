@@ -4272,6 +4272,7 @@ async def unregister_nine_router_model(
 from pydantic import BaseModel, Field
 
 from backend.contracts import ProviderCapability
+from backend.llm.systemone.errors import SystemOneAuthenticationError
 from backend.llm.systemone.settings import (
     SystemOneSettings,
     get_systemone_provider,
@@ -4483,7 +4484,7 @@ class DecisionModelReadinessResponse(BaseModel):
     provider: str
     model: str
     configured: bool
-    credential_valid: bool
+    credential_valid: bool | None
     healthy: bool
     ready: bool
     diagnostic: str | None = None
@@ -4513,12 +4514,12 @@ async def get_decision_model_readiness(
         "jev-api": getattr(settings, "systemone_jev_api_model", ""),
     }
     model = models[provider]
-    credential_valid = True
+    credential_valid: bool | None = True
     if provider == "clef-api":
         configured = configured and bool(clef_account_id)
-        credential_valid = bool(clef_api_key)
+        credential_valid = None if clef_api_key else False
     elif provider == "jev-api":
-        credential_valid = bool(jev_api_key)
+        credential_valid = None if jev_api_key else False
     elif provider == "laya-local":
         configured = configured and bool(
             settings.systemone_laya_base_url and settings.systemone_laya_model
@@ -4538,7 +4539,7 @@ async def get_decision_model_readiness(
             ready=False,
             diagnostic="Decision Model desabilitado ou sem configuração completa",
         )
-    if not credential_valid:
+    if credential_valid is False:
         return DecisionModelReadinessResponse(
             provider=provider,
             model=model,
@@ -4573,6 +4574,10 @@ async def get_decision_model_readiness(
         )
         await adapter.capabilities()
         healthy = await adapter.health()
+    except SystemOneAuthenticationError:
+        healthy = False
+        credential_valid = False
+        diagnostic = "credencial rejeitada pelo provider"
     except Exception as exc:
         logger.info(
             "provider_routing: readiness probe falhou para %s (%s)",
@@ -4582,6 +4587,8 @@ async def get_decision_model_readiness(
         healthy = False
         diagnostic = f"provider indisponível ({type(exc).__name__})"
     else:
+        if provider in {"clef-api", "jev-api"} and healthy:
+            credential_valid = True
         diagnostic = None if healthy else "provider não saudável"
 
     return DecisionModelReadinessResponse(
