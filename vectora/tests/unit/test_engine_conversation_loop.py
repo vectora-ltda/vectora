@@ -13,6 +13,8 @@ import pytest
 
 from backend.engine.conversation_loop import (
     LoopConfig,
+    _bind_decision_model_snapshot,
+    _build_selected_decision_harness,
     _load_persistent_context_memories,
     _preserve_latest_tool_result,
     resume_conversation,
@@ -35,7 +37,7 @@ from backend.engine.stream_events import (
 )
 from backend.persistence.native.session_store import SessionStore
 from backend.services.context_planner import compute_transcript_hash
-from backend.services.policy_compiler import PolicySnapshot
+from backend.services.policy_compiler import PolicySnapshot, compile_policy_snapshot
 from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.tools import media as _media_module
 from backend.tools import planning as _planning_module
@@ -125,6 +127,47 @@ def test_local_models_preserve_latest_tool_result(
     assert _preserve_latest_tool_result(model_id) is expected
 
 
+def test_missing_decision_provider_does_not_select_global_default(
+    monkeypatch: pytest.MonkeyPatch, ctx: ToolContext
+) -> None:
+    from backend.llm.systemone import preferences
+    from backend.tools import systemone_tools
+
+    monkeypatch.setattr(
+        preferences, "selected_decision_model_provider", lambda _ctx: None
+    )
+
+    def unexpected_default(_provider):
+        msg = "sem provider selecionado, não deve haver fallback global"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(systemone_tools, "_build_default_harness", unexpected_default)
+
+    assert _build_selected_decision_harness(ctx) is None
+
+
+def test_decision_harness_uses_only_the_selected_provider(
+    monkeypatch: pytest.MonkeyPatch, ctx: ToolContext
+) -> None:
+    from backend.llm.systemone import preferences
+    from backend.tools import systemone_tools
+
+    calls: list[str] = []
+    sentinel = object()
+    monkeypatch.setattr(
+        preferences, "selected_decision_model_provider", lambda _ctx: "clef-local"
+    )
+
+    def build(provider):
+        calls.append(provider)
+        return sentinel
+
+    monkeypatch.setattr(systemone_tools, "_build_default_harness", build)
+
+    assert _build_selected_decision_harness(ctx) is sentinel
+    assert calls == ["clef-local"]
+
+
 @pytest.mark.asyncio
 async def test_load_persistent_context_memories_uses_memory_tool_namespace() -> None:
     """Verifica o comportamento de load persistent context memories uses memory tool namespace."""
@@ -162,6 +205,60 @@ def _tool_call_chunk(*, index: int, id: str, name: str, args: str) -> VMessageCh
         tool_call_chunks=[
             ToolCallChunk(index=index, id=id, name=name, args_fragment=args)
         ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_decision_snapshot_survives_preference_change_without_duplicate_evidence(
+    session_store: SessionStore, ctx: ToolContext
+) -> None:
+    from backend.persistence.native.agent_run import AgentRun
+
+    run_id = "run-decision-snapshot"
+    await session_store.upsert_agent_run(
+        AgentRun(run_id=run_id, thread_id="thread-1", status="running")
+    )
+    ctx._extra["decision_model_preferences"] = {
+        "enabled": True,
+        "provider": "clef-local",
+        "surfaces": {"hitl": True},
+    }
+    policy = compile_policy_snapshot(ctx)
+    await _bind_decision_model_snapshot(session_store, ctx, run_id, policy)
+
+    changed = replace(
+        ctx,
+        _extra={
+            "decision_model_preferences": {
+                "enabled": False,
+                "provider": None,
+                "surfaces": {"hitl": False},
+            }
+        },
+    )
+    await _bind_decision_model_snapshot(session_store, changed, run_id, policy)
+
+    assert changed._extra["decision_model_revoked"] is True
+    assert changed._extra["decision_model_preferences"] == {
+        "enabled": True,
+        "provider": "clef-local",
+        "surfaces": {"hitl": True},
+    }
+    stored = await session_store.get_agent_run(run_id)
+    assert stored is not None
+    snapshots = [
+        item
+        for item in stored.evidence
+        if item.get("kind") == "decision_model_snapshot"
+    ]
+    assert len(snapshots) == 1
+    assert snapshots[0]["policy_version"] == policy.version
+    await session_store.record_run_evidence(run_id, evidence=snapshots[0])
+    stored = await session_store.get_agent_run(run_id)
+    assert stored is not None
+    assert (
+        sum(item.get("kind") == "decision_model_snapshot" for item in stored.evidence)
+        == 1
     )
 
 

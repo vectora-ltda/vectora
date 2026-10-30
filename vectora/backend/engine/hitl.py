@@ -406,6 +406,21 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
     safe_keys = sorted(str(k) for k in args)
     args_summary = f"keys={safe_keys}"
 
+    def require_human(reason: str) -> bool:
+        elevated = extra.setdefault("systemone_risk_elevated_calls", set())
+        elevated.add(key)
+        extra["systemone_risk_requires_approval"] = True
+        extra.setdefault("systemone_decisions", {})[key] = {
+            "decision": "requires_human",
+            "reason": reason,
+            "run_id": ctx.run_id,
+            "thread_id": ctx.thread_id,
+        }
+        return True
+
+    if extra.get("decision_model_revoked") is True:
+        return require_human("decision_model_revoked")
+
     try:
         if not await harness.is_ready():
             extra.setdefault("systemone_decisions", {})[key] = {
@@ -421,23 +436,27 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
         }
         return False
 
-    def require_human(reason: str) -> bool:
-        elevated = extra.setdefault("systemone_risk_elevated_calls", set())
-        elevated.add(key)
-        extra["systemone_risk_requires_approval"] = True
-        extra.setdefault("systemone_decisions", {})[key] = {
-            "decision": "requires_human",
-            "reason": reason,
-            "run_id": ctx.run_id,
-            "thread_id": ctx.thread_id,
-        }
-        return True
+    snapshot = extra.get("decision_model_snapshot")
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    timeout_s = snapshot.get("risk_assessment_timeout_s")
+    timeout_s = (
+        float(timeout_s)
+        if isinstance(timeout_s, int | float) and timeout_s > 0
+        else harness.risk_assessment_timeout_s
+    )
+    confidence_threshold = snapshot.get("confidence_threshold_hitl")
+    confidence_threshold = (
+        float(confidence_threshold)
+        if isinstance(confidence_threshold, int | float)
+        and 0 <= confidence_threshold <= 1
+        else harness.confidence_threshold_hitl
+    )
 
     try:
         harness.set_mode(
             "tool_risk_assessment_score", "enforced", workspace_id=workspace_id
         )
-        async with asyncio.timeout(harness.risk_assessment_timeout_s):
+        async with asyncio.timeout(timeout_s):
             res = await harness.assess_tool_risk(
                 workspace_id=workspace_id,
                 tool_name=tool_name,
@@ -479,7 +498,7 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
         and isinstance(confidence, int | float)
         and not isinstance(confidence, bool)
         and 0 <= confidence <= 1
-        and confidence >= harness.confidence_threshold_hitl
+        and confidence >= confidence_threshold
     ):
         if score >= 0.95:
             decision, reason = "deny", "decision_model_high_risk"

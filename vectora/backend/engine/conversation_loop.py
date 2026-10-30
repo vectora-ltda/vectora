@@ -83,6 +83,116 @@ _REPEATED_CALL_HARD_LIMIT = 6
 logger = logging.getLogger(__name__)
 
 
+async def _bind_decision_model_snapshot(
+    session_store: SessionStore,
+    ctx: ToolContext,
+    run_id: str | None,
+    policy_snapshot: PolicySnapshot,
+) -> None:
+    """Keep a run's decision settings stable across retries and resume."""
+    if not run_id or not hasattr(session_store, "get_agent_run"):
+        return
+    run = await session_store.get_agent_run(run_id)
+    if run is None:
+        return
+    if not isinstance(ctx._extra, dict):
+        ctx._extra = {}
+    from backend.llm.systemone.preferences import decision_model_preferences
+    from backend.llm.systemone.settings import SystemOneSettings
+    from backend.settings import settings
+
+    current = decision_model_preferences(ctx)
+    surfaces = current.get("surfaces")
+    effective = {
+        "enabled": current.get("enabled") is True,
+        "provider": current.get("provider"),
+        "surfaces": {str(name): enabled is True for name, enabled in surfaces.items()}
+        if isinstance(surfaces, dict)
+        else {},
+    }
+    provider = effective["provider"] if isinstance(effective["provider"], str) else None
+    model_by_provider = {
+        "clef-local": settings.systemone_local_model,
+        "laya-local": settings.systemone_laya_model,
+        "clef-api": settings.systemone_clef_api_model,
+        "jev-api": settings.systemone_jev_api_model,
+    }
+    runtime = {
+        "model": model_by_provider.get(provider),
+        "allow_remote_fallback": settings.systemone_allow_remote_fallback,
+        "risk_assessment_timeout_s": SystemOneSettings().risk_assessment_timeout_s,
+        "confidence_threshold_hitl": settings.systemone_confidence_threshold_hitl,
+        "policy_version": policy_snapshot.version,
+    }
+    evidence_id = f"decision-model-snapshot:{run_id}"
+    previous = next(
+        (
+            item
+            for item in run.evidence
+            if isinstance(item, dict) and item.get("evidence_id") == evidence_id
+        ),
+        None,
+    )
+    if previous is not None:
+        saved = previous.get("preferences")
+        if isinstance(saved, dict):
+            prior_snapshot = ctx._extra.get("decision_model_snapshot")
+            previously_revoked = (
+                isinstance(prior_snapshot, dict)
+                and prior_snapshot.get("run_id") == run_id
+                and ctx._extra.get("decision_model_revoked") is True
+            )
+            ctx._extra["decision_model_preferences"] = saved
+            if (
+                effective != saved
+                or any(previous.get(key) != value for key, value in runtime.items())
+                or previously_revoked
+            ):
+                ctx._extra["decision_model_revoked"] = True
+            else:
+                ctx._extra.pop("decision_model_revoked", None)
+            ctx._extra["decision_model_snapshot"] = previous
+        return
+    snapshot = {
+        "kind": "decision_model_snapshot",
+        "evidence_id": evidence_id,
+        "run_id": run_id,
+        "preferences": effective,
+        **runtime,
+    }
+    await session_store.record_run_evidence(run_id, evidence=snapshot)
+    persisted_run = await session_store.get_agent_run(run_id)
+    persisted = next(
+        (
+            item
+            for item in (persisted_run.evidence if persisted_run is not None else [])
+            if isinstance(item, dict) and item.get("evidence_id") == evidence_id
+        ),
+        snapshot,
+    )
+    if persisted != snapshot:
+        ctx._extra["decision_model_revoked"] = True
+        snapshot = persisted
+        effective = persisted.get("preferences", effective)
+    else:
+        ctx._extra.pop("decision_model_revoked", None)
+    ctx._extra["decision_model_preferences"] = effective
+    ctx._extra["decision_model_snapshot"] = snapshot
+
+
+def _build_selected_decision_harness(ctx: ToolContext) -> Any | None:
+    """Build only the explicitly selected decision provider for this run."""
+    from backend.llm.systemone.preferences import selected_decision_model_provider
+
+    provider = selected_decision_model_provider(ctx)
+    if provider is None:
+        return None
+
+    from backend.tools.systemone_tools import _build_default_harness
+
+    return _build_default_harness(provider)
+
+
 def _preserve_latest_tool_result(model_id: str) -> bool:
     """Executa a operação  preserve latest tool result."""
     normalized = model_id.strip().casefold()
@@ -417,6 +527,9 @@ async def run_conversation(  # noqa: PLR0911
     refreshed_policy_snapshot = compile_policy_snapshot(ctx)
     if policy_snapshot is None:
         policy_snapshot = refreshed_policy_snapshot
+    await _bind_decision_model_snapshot(
+        session_store, ctx, config.run_id, policy_snapshot
+    )
 
     if isinstance(ctx._extra, dict):
         sub_deps = ctx._extra.get("subagent_deps")
@@ -1008,22 +1121,28 @@ async def run_conversation(  # noqa: PLR0911
                 if decision_model_enabled_for(ctx, surface)
             ]
             if decision_candidates:
-                from backend.tools.systemone_tools import _build_default_harness
+                from backend.engine.hitl import _risk_assessment_key
 
-                decision_harness = _build_default_harness(
-                    selected_decision_model_provider(ctx)
-                )
+                decision_harness = _build_selected_decision_harness(ctx)
                 for candidate, decision_surface in decision_candidates:
-                    await precompute_tool_risk_assessment(
-                        decision_harness,
-                        tool_name=candidate.name,
-                        ctx=ctx,
-                        args=candidate.args,
-                        surface=decision_surface,
-                    )
+                    if decision_harness is None:
+                        ctx._extra.setdefault("systemone_decisions", {})[
+                            _risk_assessment_key(candidate.name, candidate.args)
+                        ] = {
+                            "decision": "unavailable",
+                            "reason": "decision_model_unavailable",
+                            "run_id": config.run_id,
+                            "thread_id": thread_id,
+                        }
+                    else:
+                        await precompute_tool_risk_assessment(
+                            decision_harness,
+                            tool_name=candidate.name,
+                            ctx=ctx,
+                            args=candidate.args,
+                            surface=decision_surface,
+                        )
                     try:
-                        from backend.engine.hitl import _risk_assessment_key
-
                         record = ctx._extra.get("systemone_decisions", {}).get(
                             _risk_assessment_key(candidate.name, candidate.args)
                         )

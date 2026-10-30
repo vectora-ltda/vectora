@@ -1761,13 +1761,15 @@ class PostgresSessionStore:
                     if evidence:
                         clean_evidence = redact_sensitive_data(evidence)
                         evidence_id = (
-                            clean_evidence.get("projection_id")
+                            clean_evidence.get("evidence_id")
+                            or clean_evidence.get("projection_id")
                             if isinstance(clean_evidence, dict)
                             else None
                         )
                         if evidence_id is None or not any(
                             isinstance(item, dict)
-                            and item.get("projection_id") == evidence_id
+                            and (item.get("evidence_id") or item.get("projection_id"))
+                            == evidence_id
                             for item in run.evidence
                         ):
                             run.evidence.append(clean_evidence)

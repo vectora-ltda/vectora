@@ -719,6 +719,47 @@ async def test_hitl_risk_assessment_only_elevates_and_never_reduces_approval() -
 
 
 @pytest.mark.asyncio
+async def test_revoked_decision_model_requires_human_without_provider_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = SystemOneHarness(
+        SystemOneSettings(enabled=True), FakeDecisionProvider("clef-local")
+    )
+
+    async def unexpected_readiness() -> bool:
+        pytest.fail("revoked provider must not be queried")
+
+    monkeypatch.setattr(harness, "is_ready", unexpected_readiness)
+    ctx = ToolContext(
+        thread_id="t-revoked",
+        workspace_id="ws-1",
+        permission_mode="auto",
+        _extra={
+            "decision_model_preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": {"hitl": True},
+            },
+            "decision_model_revoked": True,
+        },
+    )
+    args = {"path": "secret.txt"}
+    assert await precompute_tool_risk_assessment(
+        harness, tool_name="file_read", ctx=ctx, args=args
+    )
+    from backend.engine.hitl import _risk_assessment_key
+
+    assert ctx._extra["systemone_decisions"][
+        _risk_assessment_key("file_read", args)
+    ] == {
+        "decision": "requires_human",
+        "reason": "decision_model_revoked",
+        "run_id": "",
+        "thread_id": "t-revoked",
+    }
+
+
+@pytest.mark.asyncio
 async def test_high_confidence_risk_is_a_veto_not_a_human_approval() -> None:
     """A strong deny must be persisted as deny and never converted to HITL approval."""
     provider = FakeDecisionProvider("clef-local")
