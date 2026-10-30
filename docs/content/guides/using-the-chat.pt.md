@@ -19,10 +19,12 @@ Controlam o quão automático o agente age antes de pedir sua aprovação:
 | -------------------- | ------------------------------------------------------------------------------ |
 | **Perguntar sempre** | pausa antes de qualquer ação destrutiva (escrever arquivo, terminal, git push) |
 | **Aceitar edições**  | aplica edições de arquivo direto; terminal e git ainda pausam                  |
-| **Autônomo**         | não pausa pra nada — use com um workspace que você já confia plenamente        |
-| **Plano**            | só planeja, nunca executa uma ação real                                        |
+| **Autônomo**         | não pede aprovação humana por padrão; policy e bloqueios de segurança continuam ativos |
+| **Plano**            | prepara e executa o fluxo de planejamento; ações protegidas ainda passam pelos gates aplicáveis |
 
-Veja [Orchestrator & Subagentes](../../concepts/sub-agents) pra entender o HITL por trás disso.
+No modo **Autônomo**, um Decision Model só participa quando está habilitado, selecionado e pronto para a superfície da ação. Sem ele, o runtime não deve ser interpretado como se uma decisão automatizada adicional tivesse sido tomada: a policy estática ainda determina o que pode executar. Quando uma avaliação iniciada falha, excede o prazo ou exige revisão humana, a ação não deve ser liberada como se tivesse sido aprovada.
+
+Veja [Orchestrator & Subagentes](../../concepts/sub-agents) para entender o HITL por trás desses gates e [Modelos de decisão](../decision-models) para configurar Decision Models e suas superfícies.
 
 ## Thinking / raciocínio do orchestrator
 
