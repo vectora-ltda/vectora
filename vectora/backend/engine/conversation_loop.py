@@ -245,6 +245,9 @@ async def _persist_decision_model_record(
         "thread_id": thread_id,
         **payload,
     }
+    response_redacted = record.get("response_redacted")
+    if isinstance(response_redacted, dict):
+        evidence["response_redacted"] = response_redacted
     await session_store.record_run_evidence(
         run_id,
         tool_used=tool_call.name,

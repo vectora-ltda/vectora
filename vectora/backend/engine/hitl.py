@@ -524,6 +524,7 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
         "decision_id": res.decision_id,
         "run_id": ctx.run_id,
         "thread_id": ctx.thread_id,
+        "response_redacted": _redacted_decision_response(res.response),
     }
     logger.info(
         "systemone.execution_decision tool=%s decision=%s reason=%s provider=%s model=%s",
@@ -542,6 +543,15 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
         },
     )
     return elevate
+
+
+def _redacted_decision_response(response: Any) -> dict[str, Any]:
+    """Serialize the provider response through the shared secret redactor."""
+    from backend.persistence.native.agent_run import redact_sensitive_data
+
+    serialized = response.model_dump(mode="json")
+    redacted = redact_sensitive_data(serialized)
+    return redacted if isinstance(redacted, dict) else {}
 
 
 _MAX_NON_TOOL_REVIEW_RECORDS = 500

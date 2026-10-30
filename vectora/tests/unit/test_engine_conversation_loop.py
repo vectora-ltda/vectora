@@ -288,6 +288,10 @@ async def test_decision_model_audit_persists_redacted_agent_run_and_ledger(
         "policy_version": "policy-v1",
         "decision_id": "decision-1",
         "raw_response": "must not be copied",
+        "response_redacted": {
+            "answers": {"risk_score": {"type": "score", "score": 0.12}},
+            "raw_payload": {"api_key": "must-be-redacted"},
+        },
     }
 
     await _persist_decision_model_record(
@@ -320,6 +324,16 @@ async def test_decision_model_audit_persists_redacted_agent_run_and_ledger(
     assert "args_digest" in evidence[0]
     assert "path" not in evidence[0]
     assert "raw_response" not in evidence[0]
+    response_redacted = evidence[0].get("response_redacted")
+    assert isinstance(response_redacted, dict)
+    answers = response_redacted.get("answers")
+    raw_payload = response_redacted.get("raw_payload")
+    assert isinstance(answers, dict)
+    assert isinstance(raw_payload, dict)
+    risk_score = answers.get("risk_score")
+    assert isinstance(risk_score, dict)
+    assert risk_score.get("score") == 0.12
+    assert raw_payload.get("api_key") == "[REDACTED]"
 
     events = await session_store.list_events("thread-1")
     decisions = [event for event in events if event.type == "decision_model_decision"]
@@ -329,6 +343,7 @@ async def test_decision_model_audit_persists_redacted_agent_run_and_ledger(
     assert decisions[0].payload["args_digest"] == evidence[0]["args_digest"]
     assert "private/customer.txt" not in str(decisions[0].payload)
     assert "do-not-persist" not in str(decisions[0].payload)
+    assert "response_redacted" not in decisions[0].payload
 
 
 class TestParadaNormal:
