@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import io
 import tarfile
+from pathlib import Path
 
 import httpx
 import pytest
@@ -263,7 +264,7 @@ async def test_publish_rejects_symlink_inside_collection(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_publish_rejects_symlinked_collection_root(tmp_path):
+async def test_publish_rejects_symlinked_collection_root(tmp_path: Path) -> None:
     """A raiz da coleção não pode ser symlink: nada pode sair do diretório dela."""
     real_dir = tmp_path / "elsewhere"
     real_dir.mkdir()

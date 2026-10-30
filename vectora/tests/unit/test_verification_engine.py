@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -211,15 +213,25 @@ async def test_run_verification_timeout_on_degrade_gate_is_not_approved(
     assert result.passed is False
 
 
-def _init_repo_with_commit(repo: Path) -> str:
-    """Cria um repositório com um commit e devolve o SHA do HEAD."""
-    import os
-    import shutil
-    import subprocess
+async def _git(repo: Path, env: dict[str, str], *args: str) -> str:
+    """Executa git de forma assíncrona e devolve a saída padrão."""
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        *args,
+        cwd=str(repo),
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        msg = f"git {' '.join(args)} falhou: {stderr.decode(errors='replace')}"
+        raise RuntimeError(msg)
+    return stdout.decode().strip()
 
-    git = shutil.which("git")
-    assert git is not None, "git é necessário para este teste"
-    repo.mkdir(exist_ok=True)
+
+async def _init_repo_with_commit(repo: Path) -> str:
+    """Cria um repositório com um commit e devolve o SHA do HEAD."""
     env = {
         **os.environ,
         "GIT_AUTHOR_NAME": "t",
@@ -227,28 +239,19 @@ def _init_repo_with_commit(repo: Path) -> str:
         "GIT_COMMITTER_NAME": "t",
         "GIT_COMMITTER_EMAIL": "t@example.com",
     }
-    subprocess.run([git, "init", "-q"], cwd=repo, check=True, env=env)  # noqa: S603
+    repo.mkdir(exist_ok=True)
+    await _git(repo, env, "init", "-q")
     (repo / "f.txt").write_text("x\n", encoding="utf-8")
-    subprocess.run([git, "add", "f.txt"], cwd=repo, check=True, env=env)  # noqa: S603
-    subprocess.run(  # noqa: S603
-        [git, "commit", "-q", "-m", "init"], cwd=repo, check=True, env=env
-    )
-    head = subprocess.run(  # noqa: S603
-        [git, "rev-parse", "HEAD"],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-        env=env,
-    )
-    return head.stdout.strip()
+    await _git(repo, env, "add", "f.txt")
+    await _git(repo, env, "commit", "-q", "-m", "init")
+    return await _git(repo, env, "rev-parse", "HEAD")
 
 
 @pytest.mark.asyncio
 async def test_run_verification_records_head_commit_sha(tmp_path: Path) -> None:
     """O commit avaliado vem do HEAD real; sem repositório Git fica ausente."""
     repo = tmp_path / "repo"
-    expected = _init_repo_with_commit(repo)
+    expected = await _init_repo_with_commit(repo)
     profile = WorkspaceVerificationProfile(
         workspace_id="sha_ws", enabled=True, gates=[]
     )
