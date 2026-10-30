@@ -431,6 +431,37 @@ async def test_remote_privacy_and_fallback_model_reconstruction() -> None:
 
 
 @pytest.mark.asyncio
+async def test_remote_override_does_not_enable_disabled_fallback() -> None:
+    """A autorização de privacidade não substitui a opção global de fallback."""
+    settings = SystemOneSettings(
+        enabled=True,
+        local_model="clef-flash",
+        clef_api_model="@cf/cloudflare/clef-flash",
+        allow_remote_fallback=False,
+    )
+    primary = FakeDecisionProvider("clef-local")
+    primary.error_to_raise = SystemOneConnectionError(
+        "systemone_connection_error", provider="clef-local"
+    )
+    remote_fallback = FakeDecisionProvider("clef-api")
+    harness = SystemOneHarness(settings, primary, fallback_provider=remote_fallback)
+    harness.set_mode("kanban_block_classifier", "enforced")
+
+    result = await harness.decide_pattern(
+        "kanban_block_classifier",
+        {"task_id": "task-1", "error_summary": "explicit privacy override"},
+        workspace_id="ws-1",
+        allow_remote_override=True,
+    )
+
+    assert result.used_fallback is False
+    assert result.policy_result.outcome == "requires_hitl"
+    assert primary.calls
+    assert all(call.model == "clef-flash" for call in primary.calls)
+    assert remote_fallback.calls == []
+
+
+@pytest.mark.asyncio
 async def test_queue_full_and_cancellation_release_budget() -> None:
     """Verifica o comportamento de queue full and cancellation release budget."""
     settings = SystemOneSettings(enabled=True)
