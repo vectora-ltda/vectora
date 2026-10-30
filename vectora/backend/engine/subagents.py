@@ -132,10 +132,14 @@ class LivenessConfig:
     max_stalled_heartbeats: int = 3
 
 
-_IN_FLIGHT_BY_CORRELATION: dict[CorrelationId, asyncio.Future[str]] = {}
-"""Delegações em andamento por `correlation_id` — chave só existe entre o
-início e o fim de `run_subagent`; usada pra reaproveitar (nunca duplicar)
-uma delegação concorrente com o mesmo id."""
+_IN_FLIGHT_BY_CORRELATION: dict[
+    tuple[str, str, CorrelationId], asyncio.Future[str]
+] = {}
+"""Delegações em andamento por (usuário, workspace, `correlation_id`) — chave
+só existe entre o início e o fim de `run_subagent`; usada pra reaproveitar
+(nunca duplicar) uma delegação concorrente com o mesmo id da mesma identidade.
+Sem a identidade na chave, um id repetido por outro usuário receberia o
+resultado alheio."""
 
 _ACTIVE_CONVERSATION_TASKS: dict[CorrelationId, asyncio.Task[Any]] = {}
 """`conversation_task` de cada subagente em execução com `correlation_id`
@@ -258,13 +262,17 @@ async def run_subagent(
             parent_policy_snapshot=parent_policy_snapshot,
         )
 
-    correlation_id = spec.correlation_id
-    existente = _IN_FLIGHT_BY_CORRELATION.get(correlation_id)
+    chave = (
+        ctx.user_id or "local",
+        ctx.workspace_id or "",
+        spec.correlation_id,
+    )
+    existente = _IN_FLIGHT_BY_CORRELATION.get(chave)
     if existente is not None:
         return await existente
 
     future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
-    _IN_FLIGHT_BY_CORRELATION[correlation_id] = future
+    _IN_FLIGHT_BY_CORRELATION[chave] = future
     try:
         resultado = await _run_subagent_once(
             spec,
@@ -289,7 +297,7 @@ async def run_subagent(
             future.set_result(resultado)
         return resultado
     finally:
-        _IN_FLIGHT_BY_CORRELATION.pop(correlation_id, None)
+        _IN_FLIGHT_BY_CORRELATION.pop(chave, None)
 
 
 async def _run_subagent_once(
