@@ -10,6 +10,8 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+const workspaceState = vi.hoisted(() => ({ activeId: null as string | null }));
+
 // O store é a unidade sob teste: a API de preferências, o workspace e a
 // configuração de deployment não precisam carregar suas árvores de módulos.
 vi.mock("@/lib/api/settings-prefs", () => ({
@@ -18,7 +20,9 @@ vi.mock("@/lib/api/settings-prefs", () => ({
   pushPrefs: vi.fn().mockResolvedValue({}),
 }));
 vi.mock("@/lib/stores/workspaces-store", () => ({
-  useWorkspacesStore: { getState: () => ({ active_id: null }) },
+  useWorkspacesStore: {
+    getState: () => ({ active_id: workspaceState.activeId }),
+  },
 }));
 vi.mock("@/lib/config/deployment-config", () => ({
   getDefaultModel: () => "",
@@ -61,6 +65,7 @@ async function getStore() {
 describe("useSettingsStore — valores padrão", () => {
   beforeEach(() => {
     localStorageMock.clear();
+    workspaceState.activeId = null;
     vi.resetModules();
   });
 
@@ -101,6 +106,7 @@ describe("useSettingsStore — valores padrão", () => {
 describe("useSettingsStore — hidratação remota", () => {
   beforeEach(() => {
     localStorageMock.clear();
+    workspaceState.activeId = null;
     vi.resetModules();
   });
 
@@ -125,6 +131,32 @@ describe("useSettingsStore — hidratação remota", () => {
       transcriptionMode: "local",
       permissionMode: "auto",
     });
+    expect(pushPrefs).not.toHaveBeenCalled();
+  });
+
+  it("hidrata Decision Models por workspace sem persistir novamente", async () => {
+    workspaceState.activeId = "workspace-a";
+    const { hydrateDecisionModelPreferences, useSettingsStore } =
+      await getStore();
+    const { fetchPrefsOrNull, pushPrefs } =
+      await import("../lib/api/settings-prefs");
+    vi.mocked(fetchPrefsOrNull).mockResolvedValueOnce({
+      decisionModelsEnabled: true,
+      decisionModelProvider: "clef-api",
+      decisionModelSurfaces: { hitl: true, browser: false },
+      transcriptionMode: "local",
+    });
+    vi.mocked(pushPrefs).mockClear();
+
+    await hydrateDecisionModelPreferences("workspace-a");
+
+    expect(useSettingsStore.getState()).toMatchObject({
+      decisionModelsEnabled: true,
+      decisionModelProvider: "clef-api",
+      decisionModelSurfaces: { hitl: true, browser: false },
+      transcriptionMode: "local",
+    });
+    expect(fetchPrefsOrNull).toHaveBeenCalledWith("workspace-a");
     expect(pushPrefs).not.toHaveBeenCalled();
   });
 });

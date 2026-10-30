@@ -56,6 +56,30 @@ class TestVectoraContext:
             "surfaces": {"hitl": True, "mcp": False},
         }
 
+    def test_decision_preferences_fail_closed_with_shared_empty_surface_default(
+        self, monkeypatch
+    ):
+        """Store failures must match the frontend's disabled, empty defaults."""
+        from backend.vtypes.context import ctx_from_config
+
+        class UnavailablePreferences:
+            def get_frontend_prefs(
+                self, user_id: str, workspace_id: str | None = None
+            ) -> dict[str, object]:
+                raise OSError("preferences database unavailable")
+
+        monkeypatch.setattr(
+            "backend.workspace.runtime_settings.runtime_settings",
+            UnavailablePreferences(),
+        )
+        ctx = ctx_from_config({"configurable": {"user_id": "alice"}})
+
+        assert ctx._extra["decision_model_preferences"] == {
+            "enabled": False,
+            "provider": None,
+            "surfaces": {},
+        }
+
     def test_ctx_from_config_full(self):
         """Todos os campos são preenchidos corretamente."""
         from backend.vtypes.context import ctx_from_config
