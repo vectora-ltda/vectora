@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 from typing import Any, cast
 
 from backend.llm.systemone.types import DecisionProviderType
@@ -33,6 +36,46 @@ def selected_decision_model_provider(ctx: object) -> DecisionProviderType | None
     if provider in {"clef-local", "laya-local", "clef-api", "jev-api"}:
         return cast("DecisionProviderType", provider)
     return None
+
+
+def decision_model_runtime_fingerprint(provider: str | None) -> str | None:
+    """Fingerprint provider routing and credentials without persisting secrets."""
+    if provider not in {"clef-local", "laya-local", "clef-api", "jev-api"}:
+        return None
+
+    from backend.settings import settings
+
+    if provider == "clef-local":
+        config = {
+            "base_url": settings.systemone_local_base_url,
+            "model": settings.systemone_local_model,
+            "credential": os.getenv("LLAMACPP_API_KEY", ""),
+        }
+    elif provider == "laya-local":
+        config = {
+            "base_url": settings.systemone_laya_base_url,
+            "model": settings.systemone_laya_model,
+            "credential": settings.systemone_laya_api_key
+            or os.getenv("LAYA_API_KEY", ""),
+        }
+    elif provider == "clef-api":
+        config = {
+            "base_url": settings.systemone_clef_api_base_url,
+            "account_id": settings.systemone_clef_account_id
+            or os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+            or os.getenv("CLEF_ACCOUNT_ID", ""),
+            "model": settings.systemone_clef_api_model,
+            "credential": settings.clef_api_key or os.getenv("CLEF_API_KEY", ""),
+        }
+    else:
+        config = {
+            "base_url": settings.systemone_jev_api_base_url,
+            "model": settings.systemone_jev_api_model,
+            "credential": settings.jev_api_key or os.getenv("JEV_API_KEY", ""),
+        }
+
+    serialized = json.dumps(config, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def decision_model_surfaces_for_tool(ctx: object, tool_name: str) -> tuple[str, ...]:

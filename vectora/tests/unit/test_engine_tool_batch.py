@@ -391,6 +391,99 @@ class TestDespachoParaleloSequencial:
         assert invoked is False
         assert result[0].is_error is True
 
+    async def test_provider_configuration_change_revokes_decision_snapshot(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from backend.engine.hitl import (
+            _risk_assessment_key,
+            precompute_tool_risk_assessment,
+            should_require_approval,
+        )
+        from backend.llm.systemone.preferences import decision_model_runtime_fingerprint
+        from backend.llm.systemone.settings import SystemOneSettings
+        from backend.services.policy_compiler import compile_policy_snapshot
+        from backend.settings import settings
+
+        preferences = {
+            "decisionModelsEnabled": True,
+            "decisionModelProvider": "clef-local",
+            "decisionModelSurfaces": {"hitl": True},
+        }
+
+        class PreferenceStore:
+            def get_frontend_prefs(self, _user_id: str, _workspace_id: str | None):
+                return dict(preferences)
+
+        monkeypatch.setattr(
+            "backend.workspace.runtime_settings.runtime_settings", PreferenceStore()
+        )
+        monkeypatch.setenv("LLAMACPP_API_KEY", "credential-before-decision")
+        provider_called = False
+
+        class UnexpectedProvider:
+            risk_assessment_timeout_s = SystemOneSettings().risk_assessment_timeout_s
+            confidence_threshold_hitl = settings.systemone_confidence_threshold_hitl
+
+            async def is_ready(self) -> bool:
+                nonlocal provider_called
+                provider_called = True
+                return True
+
+        ctx = ToolContext(
+            user_id="u1",
+            thread_id="provider-config-change-thread",
+            workspace_id="provider-config-change-workspace",
+            run_id="provider-config-change-run",
+            permission_mode="auto",
+            _extra={
+                "decision_model_preferences": {
+                    "enabled": True,
+                    "provider": "clef-local",
+                    "surfaces": {"hitl": True},
+                }
+            },
+        )
+        policy = compile_policy_snapshot(ctx)
+        ctx._extra["decision_model_snapshot"] = {
+            "run_id": ctx.run_id,
+            "preferences": ctx._extra["decision_model_preferences"],
+            "provider_config_fingerprint": decision_model_runtime_fingerprint(
+                "clef-local"
+            ),
+            "model": settings.systemone_local_model,
+            "systemone_enabled": settings.systemone_enabled,
+            "allow_remote_fallback": settings.systemone_allow_remote_fallback,
+            "risk_assessment_timeout_s": SystemOneSettings().risk_assessment_timeout_s,
+            "confidence_threshold_hitl": settings.systemone_confidence_threshold_hitl,
+            "policy_version": policy.version,
+        }
+        prior_fingerprint = ctx._extra["decision_model_snapshot"][
+            "provider_config_fingerprint"
+        ]
+        monkeypatch.setenv("LLAMACPP_API_KEY", "credential-after-decision")
+        assert decision_model_runtime_fingerprint("clef-local") != prior_fingerprint
+        call = ToolCall(
+            id="provider-config-change-call",
+            name="file_write",
+            args={"path": "notes.txt", "content": "safe"},
+        )
+
+        elevated = await precompute_tool_risk_assessment(
+            cast("SystemOneHarness", UnexpectedProvider()),
+            tool_name=call.name,
+            ctx=ctx,
+            args=call.args,
+        )
+
+        decision = ctx._extra["systemone_decisions"][
+            _risk_assessment_key(call.name, call.args)
+        ]
+        assert elevated is True
+        assert decision["decision"] == "requires_human"
+        assert decision["reason"] == "decision_model_revoked"
+        assert provider_called is False
+        assert should_require_approval(call.name, ctx, call.args, []) is True
+
     async def test_revocation_before_risk_assessment_blocks_tool(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

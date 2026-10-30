@@ -99,7 +99,10 @@ async def _bind_decision_model_snapshot(
         return
     if not isinstance(ctx._extra, dict):
         ctx._extra = {}
-    from backend.llm.systemone.preferences import decision_model_preferences
+    from backend.llm.systemone.preferences import (
+        decision_model_preferences,
+        decision_model_runtime_fingerprint,
+    )
     from backend.llm.systemone.settings import SystemOneSettings
     from backend.settings import settings
 
@@ -120,6 +123,7 @@ async def _bind_decision_model_snapshot(
         "jev-api": settings.systemone_jev_api_model,
     }
     runtime = {
+        "provider_config_fingerprint": decision_model_runtime_fingerprint(provider),
         "model": model_by_provider.get(provider),
         "systemone_enabled": settings.systemone_enabled,
         "allow_remote_fallback": settings.systemone_allow_remote_fallback,
