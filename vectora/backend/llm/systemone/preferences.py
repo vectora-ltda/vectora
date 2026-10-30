@@ -36,7 +36,7 @@ def selected_decision_model_provider(ctx: object) -> DecisionProviderType | None
 
 
 def decision_model_surfaces_for_tool(ctx: object, tool_name: str) -> tuple[str, ...]:
-    """Require provenance and capability flags independently for a tool call."""
+    """Require provenance, execution mode and capability flags for a tool call."""
     extra = getattr(ctx, "_extra", None)
     extra = extra if isinstance(extra, dict) else {}
     name = tool_name.lower()
@@ -55,4 +55,6 @@ def decision_model_surfaces_for_tool(ctx: object, tool_name: str) -> tuple[str, 
         provenance.append("subagents")
     if getattr(ctx, "background_task_id", ""):
         provenance.append("background")
+    if getattr(ctx, "permission_mode", None) == "plan":
+        return (*provenance, "plan_mode", *((surface,) if surface != "hitl" else ()))
     return (*provenance, surface)

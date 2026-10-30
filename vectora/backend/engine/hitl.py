@@ -398,7 +398,7 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
         return False
 
     mode = getattr(ctx, "permission_mode", None) or "ask"
-    if mode != "auto" or not decision_model_enabled_for(ctx, surface):
+    if mode not in {"auto", "plan"} or not decision_model_enabled_for(ctx, surface):
         return False
 
     workspace_id = getattr(ctx, "workspace_id", None) or "default"

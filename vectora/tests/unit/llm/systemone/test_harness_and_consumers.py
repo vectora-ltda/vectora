@@ -859,6 +859,64 @@ async def test_subagent_surface_uses_its_own_preference_flag() -> None:
     assert "systemone_decisions" in ctx._extra
 
 
+@pytest.mark.asyncio
+async def test_plan_mode_uses_its_own_flag_without_bypassing_approval() -> None:
+    """A Plan Mode decision may add a gate but cannot remove the static one."""
+    provider = FakeDecisionProvider("clef-local")
+    provider.custom_answers = {
+        "risk_score": ScoreAnswer(
+            score=0.80, min_score=0.0, max_score=1.0, confidence=0.95
+        )
+    }
+    harness = SystemOneHarness(SystemOneSettings(enabled=True), provider)
+    ctx = ToolContext(
+        thread_id="plan-thread",
+        workspace_id="ws-1",
+        permission_mode="plan",
+        _extra={
+            "decision_model_preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": {"plan_mode": True, "browser": False},
+            }
+        },
+    )
+
+    from backend.llm.systemone.preferences import decision_model_surfaces_for_tool
+
+    plan_surface = decision_model_surfaces_for_tool(ctx, "file_write")
+    assert plan_surface == ("plan_mode",)
+    assert decision_model_surfaces_for_tool(ctx, "browser_navigate") == (
+        "plan_mode",
+        "browser",
+    )
+    assert decision_model_enabled_for(ctx, ("plan_mode", "browser")) is False
+
+    elevated = await precompute_tool_risk_assessment(
+        harness,
+        tool_name="file_write",
+        ctx=ctx,
+        args={"path": "plan.txt"},
+        surface=plan_surface,
+    )
+    assert elevated is True
+    assert should_require_approval("file_write", ctx, {"path": "plan.txt"}, []) is True
+
+    ctx._extra["decision_model_preferences"]["surfaces"]["plan_mode"] = False
+    ctx._extra.pop("systemone_decisions")
+    assert (
+        await precompute_tool_risk_assessment(
+            harness,
+            tool_name="file_write",
+            ctx=ctx,
+            args={"path": "plan.txt"},
+            surface=plan_surface,
+        )
+        is False
+    )
+    assert "systemone_decisions" not in ctx._extra
+
+
 @pytest.mark.parametrize(
     ("tool_name", "background_task_id", "surfaces", "enabled"),
     [

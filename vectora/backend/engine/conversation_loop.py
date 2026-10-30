@@ -982,17 +982,16 @@ async def run_conversation(  # noqa: PLR0911
                 tool_names=tuple(sorted(observed_tools)),
             )
 
-        # In autonomous mode, an explicitly enabled and configured Decision
-        # Model evaluates approval-sensitive calls before the synchronous HITL
-        # predicate. Missing/unhealthy models are recorded as unavailable and
-        # do not pretend to provide a safety layer over the user's auto policy.
+        # In auto and Plan Mode, an explicitly enabled Decision Model can raise
+        # the approval requirement or veto a sensitive call. It never removes
+        # an approval required by the static policy.
         from backend.llm.systemone.preferences import (
             decision_model_enabled_for,
             decision_model_surfaces_for_tool,
             selected_decision_model_provider,
         )
 
-        if ctx.permission_mode == "auto":
+        if ctx.permission_mode in {"auto", "plan"}:
             from backend.engine.hitl import (
                 call_requires_separate_approval,
                 precompute_tool_risk_assessment,
