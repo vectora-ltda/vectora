@@ -1785,12 +1785,31 @@ async def resume_conversation(
         tc: ToolCall,
         args: dict[str, Any] | None = None,
         policy_snapshot: PolicySnapshot | None = None,
+        human_approved: bool = False,
     ) -> VMessage:
         """Executa a operação  execute resume tool."""
         call = replace(tc, args=args) if args is not None else tc
         call_id = call.id or f"{resume_run_id or thread_id}:tool:{uuid4().hex}"
         call = replace(call, id=call_id)
         sanitized = _sanitize_tool_call(call, ctx)
+
+        execution_ctx = ctx
+        if human_approved and isinstance(ctx._extra, dict):
+            from backend.engine.hitl import _risk_assessment_key
+
+            risk_key = _risk_assessment_key(call.name, call.args)
+            decisions = ctx._extra.get("systemone_decisions", {})
+            if (
+                isinstance(decisions, dict)
+                and isinstance(decisions.get(risk_key), dict)
+                and decisions[risk_key].get("decision") == "requires_human"
+            ):
+                remaining = dict(decisions)
+                remaining.pop(risk_key)
+                execution_ctx = replace(
+                    ctx,
+                    _extra={**ctx._extra, "systemone_decisions": remaining},
+                )
 
         async def record(event_type: str, payload: dict[str, Any]) -> None:
             """Executa a operação record."""
@@ -1841,7 +1860,7 @@ async def resume_conversation(
             result = await _execute_single_call(
                 call,
                 tool_registry=tool_registry,
-                ctx=ctx,
+                ctx=execution_ctx,
                 on_event=on_event,
                 policy_snapshot=policy_snapshot,
             )
@@ -1954,7 +1973,9 @@ async def resume_conversation(
                 call_snapshot = dc_replace(policy_snapshot, allow_force_push=True)
 
             resultado = await _execute_resume_tool(
-                replace(tc, args=args), policy_snapshot=call_snapshot
+                replace(tc, args=args),
+                policy_snapshot=call_snapshot,
+                human_approved=tc.id == flagged_id,
             )
 
         parent_id = await session_store.append_message(

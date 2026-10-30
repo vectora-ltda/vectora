@@ -1487,6 +1487,13 @@ class TestResumeConversation:
         assert resultado.stopped_reason == "interrupted"
         assert await session_store.get_pending_approval("thread-1") is not None
 
+        from backend.engine.hitl import _risk_assessment_key
+
+        risk_key = _risk_assessment_key("escrever_arquivo2", {})
+        ctx._extra["systemone_decisions"] = {
+            risk_key: {"decision": "requires_human", "reason": "risk_threshold"}
+        }
+
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
@@ -1509,6 +1516,9 @@ class TestResumeConversation:
         assert historico[-1].role.value == "tool"
         assert historico[-1].text() == "escrito!"
         assert historico[-1].is_error is False
+        assert (
+            ctx._extra["systemone_decisions"][risk_key]["decision"] == "requires_human"
+        )
         resultados = [e for e in eventos if isinstance(e, ToolResult)]
         assert resultados == [
             ToolResult(tool_call_id="call_1", content_json="escrito!", is_error=False)
