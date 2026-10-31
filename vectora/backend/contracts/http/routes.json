@@ -1,1681 +1,2411 @@
 [
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "resolve_agent_admin_agents_resolve_get",
     "path": "/admin/agents/resolve"
   },
   {
-    "methods": ["GET", "PATCH"],
+    "methods": [
+      "GET",
+      "PATCH"
+    ],
     "name": "get_api_keys_admin_api_keys_get",
     "path": "/admin/api-keys"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "test_api_key_admin_api_keys_test_post",
     "path": "/admin/api-keys/test"
   },
   {
-    "methods": ["GET", "PATCH"],
+    "methods": [
+      "GET",
+      "PATCH"
+    ],
     "name": "get_server_config_admin_config_get",
     "path": "/admin/config"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "list_invites_admin_invites_get",
     "path": "/admin/invites"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "revoke_invite_admin_invites__token_hash__delete",
     "path": "/admin/invites/{token_hash}"
   },
   {
-    "methods": ["GET", "PATCH"],
+    "methods": [
+      "GET",
+      "PATCH"
+    ],
     "name": "get_media_models_admin_media_models_get",
     "path": "/admin/media-models"
   },
   {
-    "methods": ["GET", "PATCH"],
+    "methods": [
+      "GET",
+      "PATCH"
+    ],
     "name": "get_fallback_order_admin_model_fallback_order_get",
     "path": "/admin/model/fallback-order"
   },
   {
-    "methods": ["GET", "PATCH"],
+    "methods": [
+      "GET",
+      "PATCH"
+    ],
     "name": "get_image_fallback_model_admin_model_image_fallback_get",
     "path": "/admin/model/image-fallback"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "list_safe_roots_admin_admin_safe_roots_get",
     "path": "/admin/safe-roots"
   },
   {
-    "methods": ["DELETE", "PATCH"],
+    "methods": [
+      "DELETE",
+      "PATCH"
+    ],
     "name": "update_safe_root_admin_safe_roots__root_id__patch",
     "path": "/admin/safe-roots/{root_id}"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "restore_safe_root_admin_safe_roots__root_id__restore_post",
     "path": "/admin/safe-roots/{root_id}/restore"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "list_service_tokens_endpoint_admin_service_tokens_get",
     "path": "/admin/service-tokens"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "revoke_service_token_endpoint_admin_service_tokens__token_id__delete",
     "path": "/admin/service-tokens/{token_id}"
   },
   {
-    "methods": ["GET", "PATCH"],
+    "methods": [
+      "GET",
+      "PATCH"
+    ],
     "name": "get_storage_status_admin_storage_get",
     "path": "/admin/storage"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_storage_defaults_admin_storage_defaults_get",
     "path": "/admin/storage/defaults"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "test_storage_connection_admin_storage_test_post",
     "path": "/admin/storage/test"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "system_info_admin_system_get",
     "path": "/admin/system"
   },
   {
-    "methods": ["GET", "PATCH"],
+    "methods": [
+      "GET",
+      "PATCH"
+    ],
     "name": "get_timezone_admin_timezone_get",
     "path": "/admin/timezone"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_tools_admin_admin_tools_get",
     "path": "/admin/tools"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "toggle_tool_admin_tools__tool_name__toggle_post",
     "path": "/admin/tools/{tool_name}/toggle"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_users_admin_users_get",
     "path": "/admin/users"
   },
   {
-    "methods": ["DELETE", "GET"],
+    "methods": [
+      "DELETE",
+      "GET"
+    ],
     "name": "get_user_detail_admin_users__user_id__get",
     "path": "/admin/users/{user_id}"
   },
   {
-    "methods": ["PATCH"],
+    "methods": [
+      "PATCH"
+    ],
     "name": "update_user_role_admin_users__user_id__role_patch",
     "path": "/admin/users/{user_id}/role"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "get_user_tools_admin_users__user_id__tools_get",
     "path": "/admin/users/{user_id}/tools"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "get_agent_profiles_agent_profiles_get",
     "path": "/agent-profiles"
   },
   {
-    "methods": ["DELETE", "PATCH"],
+    "methods": [
+      "DELETE",
+      "PATCH"
+    ],
     "name": "patch_agent_profile_agent_profiles__profile_id__patch",
     "path": "/agent-profiles/{profile_id}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "tools_schema_api_tools_schema_get",
     "path": "/api/tools/schema"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "update_changelog_api_updates_changelog_get",
     "path": "/api/updates/changelog"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_artifacts_artifacts__get",
     "path": "/artifacts/"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_media_artifact_artifacts__session_id__media__filename__get",
     "path": "/artifacts/{session_id}/media/{filename}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_artifact_artifacts__slug__get",
     "path": "/artifacts/{slug}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_audit_log_auth_audit_get",
     "path": "/auth/audit"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "change_password_endpoint_auth_change_password_post",
     "path": "/auth/change-password"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "get_envs_auth_envs_get",
     "path": "/auth/envs"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "delete_env_auth_envs__key__delete",
     "path": "/auth/envs/{key}"
   },
   {
-    "methods": ["DELETE", "GET"],
+    "methods": [
+      "DELETE",
+      "GET"
+    ],
     "name": "github_oauth_start_auth_github_get",
     "path": "/auth/github"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "github_oauth_callback_auth_github_callback_get",
     "path": "/auth/github/callback"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "github_oauth_status_auth_github_status_get",
     "path": "/auth/github/status"
   },
   {
-    "methods": ["DELETE", "GET"],
+    "methods": [
+      "DELETE",
+      "GET"
+    ],
     "name": "gitlab_oauth_start_auth_gitlab_get",
     "path": "/auth/gitlab"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "gitlab_oauth_callback_auth_gitlab_callback_get",
     "path": "/auth/gitlab/callback"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "gitlab_oauth_status_auth_gitlab_status_get",
     "path": "/auth/gitlab/status"
   },
   {
-    "methods": ["DELETE", "GET"],
+    "methods": [
+      "DELETE",
+      "GET"
+    ],
     "name": "google_oauth_start_auth_google_get",
     "path": "/auth/google"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "google_oauth_callback_auth_google_callback_get",
     "path": "/auth/google/callback"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "google_oauth_status_auth_google_status_get",
     "path": "/auth/google/status"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "has_users_endpoint_auth_has_users_get",
     "path": "/auth/has-users"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "validate_invite_endpoint_auth_invite__token__get",
     "path": "/auth/invite/{token}"
   },
   {
-    "methods": ["GET", "PATCH"],
+    "methods": [
+      "GET",
+      "PATCH"
+    ],
     "name": "me_endpoint_auth_me_get",
     "path": "/auth/me"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "oidc_callback_auth_oidc_callback_get",
     "path": "/auth/oidc/callback"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "oidc_login_auth_oidc_login_get",
     "path": "/auth/oidc/login"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "oidc_status_auth_oidc_status_get",
     "path": "/auth/oidc/status"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "password_reset_confirm_endpoint_auth_password_reset_confirm_post",
     "path": "/auth/password-reset/confirm"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "password_reset_request_endpoint_auth_password_reset_request_post",
     "path": "/auth/password-reset/request"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "refresh_endpoint_auth_refresh_post",
     "path": "/auth/refresh"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "setup_local_endpoint_auth_setup_local_post",
     "path": "/auth/setup-local"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "signin_endpoint_auth_signin_post",
     "path": "/auth/signin"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "signout_endpoint_auth_signout_post",
     "path": "/auth/signout"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "signup_endpoint_auth_signup_post",
     "path": "/auth/signup"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "list_user_ssh_keys_auth_ssh_keys_get",
     "path": "/auth/ssh-keys"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "delete_user_ssh_key_auth_ssh_keys__key_id__delete",
     "path": "/auth/ssh-keys/{key_id}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_usage_auth_usage_get",
     "path": "/auth/usage"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "username_available_endpoint_auth_username_available_get",
     "path": "/auth/username-available"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_users_auth_users_get",
     "path": "/auth/users"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "update_role_auth_users__user_id__role_post",
     "path": "/auth/users/{user_id}/role"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_ws_token_auth_ws_token_get",
     "path": "/auth/ws-token"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "get_boards_boards_get",
     "path": "/boards"
   },
   {
-    "methods": ["DELETE", "PATCH"],
+    "methods": [
+      "DELETE",
+      "PATCH"
+    ],
     "name": "patch_board_boards__board_id__patch",
     "path": "/boards/{board_id}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_board_view_boards__board_id__board_get",
     "path": "/boards/{board_id}/board"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_status_connect_status_get",
     "path": "/connect/status"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "set_platform_enabled_connect__platform__enabled_post",
     "path": "/connect/{platform}/enabled"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "submit_feedback_feedback_post",
     "path": "/feedback"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "gateway_revoke_gateway_revoke_post",
     "path": "/gateway/revoke"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "gateway_status_gateway_status_get",
     "path": "/gateway/status"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "health_health_get",
     "path": "/health"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "health_live_health_live_get",
     "path": "/health/live"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "health_ready_health_ready_get",
     "path": "/health/ready"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_integrations_integrations_get",
     "path": "/integrations"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "verify_integration_integrations__integration_id__verify_post",
     "path": "/integrations/{integration_id}/verify"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "license_connect_license_connect_post",
     "path": "/license/connect"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "license_oauth_init_license_oauth_init_post",
     "path": "/license/oauth/init"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "license_oauth_poll_license_oauth_poll_get",
     "path": "/license/oauth/poll"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "license_portal_license_portal_post",
     "path": "/license/portal"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "license_status_license_status_get",
     "path": "/license/status"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "license_validate_license_validate_post",
     "path": "/license/validate"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "license_validate_token_license_validate_token_post",
     "path": "/license/validate-token"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "preview_import_mcp_import_preview_post",
     "path": "/mcp/import/preview"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "post_install_mcp_install_post",
     "path": "/mcp/install"
   },
   {
-    "methods": ["DELETE", "GET", "PUT"],
+    "methods": [
+      "DELETE",
+      "GET",
+      "PUT"
+    ],
     "name": "get_policy_mcp_policy_get",
     "path": "/mcp/policy"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_registry_mcp_registry_get",
     "path": "/mcp/registry"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_registry_status_mcp_registry_status_get",
     "path": "/mcp/registry/status"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "post_uninstall_mcp_uninstall_post",
     "path": "/mcp/uninstall"
   },
   {
-    "methods": ["DELETE", "GET", "POST"],
+    "methods": [
+      "DELETE",
+      "GET",
+      "POST"
+    ],
     "name": "create_memory_memory_post",
     "path": "/memory"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_catalog_memory_buckets_catalog_get",
     "path": "/memory-buckets/catalog"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "post_install_memory_buckets_install_post",
     "path": "/memory-buckets/install"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "post_publish_memory_buckets_publish_post",
     "path": "/memory-buckets/publish"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_journey_memory_journey_get",
     "path": "/memory/journey"
   },
   {
-    "methods": ["DELETE", "GET", "PUT"],
+    "methods": [
+      "DELETE",
+      "GET",
+      "PUT"
+    ],
     "name": "get_memory_by_key_memory__key__get",
     "path": "/memory/{key}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "metrics_metrics_get",
     "path": "/metrics"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_configured_providers_models_providers_get",
     "path": "/models/providers"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "list_plugins_plugins_get",
     "path": "/plugins"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "delete_plugin_plugins__name__delete",
     "path": "/plugins/{name}"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "verify_plugin_plugins__name__verify_post",
     "path": "/plugins/{name}/verify"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "update_decision_models_config_provider_routing_decision_models_config_post",
     "path": "/provider-routing/decision-models/config"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_decision_models_status_provider_routing_decision_models_status_get",
     "path": "/provider-routing/decision-models/status"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "set_dmr_config_provider_routing_dmr_config_post",
     "path": "/provider-routing/dmr/config"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_dmr_http_status_provider_routing_dmr_http_status_get",
     "path": "/provider-routing/dmr/http-status"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_dmr_models_provider_routing_dmr_models_get",
     "path": "/provider-routing/dmr/models"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "create_dmr_model_job_provider_routing_dmr_models_jobs_post",
     "path": "/provider-routing/dmr/models/jobs"
   },
   {
-    "methods": ["DELETE", "GET"],
+    "methods": [
+      "DELETE",
+      "GET"
+    ],
     "name": "get_dmr_model_job_provider_routing_dmr_models_jobs__job_id__get",
     "path": "/provider-routing/dmr/models/jobs/{job_id}"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "retry_dmr_model_job_provider_routing_dmr_models_jobs__job_id__retry_post",
     "path": "/provider-routing/dmr/models/jobs/{job_id}/retry"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "prepare_dmr_model_provider_routing_dmr_models_prepare_post",
     "path": "/provider-routing/dmr/models/prepare"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "start_dmr_model_provider_routing_dmr_models_start_post",
     "path": "/provider-routing/dmr/models/start"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "stop_dmr_model_provider_routing_dmr_models_stop_post",
     "path": "/provider-routing/dmr/models/stop"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "remove_dmr_model_provider_routing_dmr_models__reference__delete",
     "path": "/provider-routing/dmr/models/{reference}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_dmr_status_provider_routing_dmr_status_get",
     "path": "/provider-routing/dmr/status"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "test_dmr_connection_provider_routing_dmr_test_post",
     "path": "/provider-routing/dmr/test"
   },
   {
-    "methods": ["DELETE", "POST"],
+    "methods": [
+      "DELETE",
+      "POST"
+    ],
     "name": "download_huggingface_model_provider_routing_huggingface_download_post",
     "path": "/provider-routing/huggingface/download"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_huggingface_download_progress_provider_routing_huggingface_download_progress_get",
     "path": "/provider-routing/huggingface/download/progress"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "install_huggingface_model_provider_routing_huggingface_install_post",
     "path": "/provider-routing/huggingface/install"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_installed_huggingface_models_provider_routing_huggingface_installed_get",
     "path": "/provider-routing/huggingface/installed"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "search_huggingface_models_provider_routing_huggingface_models_get",
     "path": "/provider-routing/huggingface/models"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_huggingface_model_metadata_provider_routing_huggingface_models__repo_id__get",
     "path": "/provider-routing/huggingface/models/{repo_id}"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "start_installed_huggingface_model_provider_routing_huggingface_start_post",
     "path": "/provider-routing/huggingface/start"
   },
   {
-    "methods": ["DELETE", "POST"],
+    "methods": [
+      "DELETE",
+      "POST"
+    ],
     "name": "set_llamacpp_config_provider_routing_llamacpp_config_post",
     "path": "/provider-routing/llamacpp/config"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "install_llamacpp_runtime_provider_routing_llamacpp_install_post",
     "path": "/provider-routing/llamacpp/install"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "set_llamacpp_mode_provider_routing_llamacpp_mode_post",
     "path": "/provider-routing/llamacpp/mode"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "discover_llamacpp_models_provider_routing_llamacpp_models_get",
     "path": "/provider-routing/llamacpp/models"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "confirm_llamacpp_model_provider_routing_llamacpp_models_confirm_post",
     "path": "/provider-routing/llamacpp/models/confirm"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_llamacpp_model_confirmations_provider_routing_llamacpp_models_confirmations_get",
     "path": "/provider-routing/llamacpp/models/confirmations"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "get_registered_llamacpp_models_provider_routing_llamacpp_registered_get",
     "path": "/provider-routing/llamacpp/registered"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "unregister_llamacpp_model_provider_routing_llamacpp_registered__model_id__delete",
     "path": "/provider-routing/llamacpp/registered/{model_id}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_llamacpp_releases_provider_routing_llamacpp_releases_get",
     "path": "/provider-routing/llamacpp/releases"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "remove_llamacpp_runtime_provider_routing_llamacpp_runtime_delete",
     "path": "/provider-routing/llamacpp/runtime"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "cleanup_llamacpp_runtime_versions_provider_routing_llamacpp_runtime_cleanup_post",
     "path": "/provider-routing/llamacpp/runtime/cleanup"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "rollback_llamacpp_runtime_provider_routing_llamacpp_runtime_rollback_post",
     "path": "/provider-routing/llamacpp/runtime/rollback"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "llamacpp_runtime_status_provider_routing_llamacpp_runtime_status_get",
     "path": "/provider-routing/llamacpp/runtime/status"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "check_llamacpp_runtime_provider_routing_llamacpp_runtime_test_post",
     "path": "/provider-routing/llamacpp/runtime/test"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "update_llamacpp_runtime_provider_routing_llamacpp_runtime_update_post",
     "path": "/provider-routing/llamacpp/runtime/update"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "remove_llamacpp_runtime_version_provider_routing_llamacpp_runtime__runtime_id__delete",
     "path": "/provider-routing/llamacpp/runtime/{runtime_id}"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "start_llamacpp_sidecar_provider_routing_llamacpp_sidecar_start_post",
     "path": "/provider-routing/llamacpp/sidecar/start"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_llamacpp_sidecar_status_provider_routing_llamacpp_sidecar_status_get",
     "path": "/provider-routing/llamacpp/sidecar/status"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "stop_llamacpp_sidecar_provider_routing_llamacpp_sidecar_stop_post",
     "path": "/provider-routing/llamacpp/sidecar/stop"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_llamacpp_status_provider_routing_llamacpp_status_get",
     "path": "/provider-routing/llamacpp/status"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "test_llamacpp_connection_provider_routing_llamacpp_test_post",
     "path": "/provider-routing/llamacpp/test"
   },
   {
-    "methods": ["DELETE", "POST"],
+    "methods": [
+      "DELETE",
+      "POST"
+    ],
     "name": "set_nine_router_config_provider_routing_nine_router_config_post",
     "path": "/provider-routing/nine-router/config"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "discover_nine_router_models_provider_routing_nine_router_models_get",
     "path": "/provider-routing/nine-router/models"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "list_registered_nine_router_models_provider_routing_nine_router_registered_get",
     "path": "/provider-routing/nine-router/registered"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "unregister_nine_router_model_provider_routing_nine_router_registered__model_id__delete",
     "path": "/provider-routing/nine-router/registered/{model_id}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_nine_router_status_provider_routing_nine_router_status_get",
     "path": "/provider-routing/nine-router/status"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "discover_ollama_models_provider_routing_ollama_models_get",
     "path": "/provider-routing/ollama/models"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "list_registered_ollama_models_provider_routing_ollama_registered_get",
     "path": "/provider-routing/ollama/registered"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "unregister_ollama_model_provider_routing_ollama_registered__model_id__delete",
     "path": "/provider-routing/ollama/registered/{model_id}"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "install_ollama_runtime_provider_routing_ollama_runtime_install_post",
     "path": "/provider-routing/ollama/runtime/install"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "ollama_runtime_status_provider_routing_ollama_runtime_status_get",
     "path": "/provider-routing/ollama/runtime/status"
   },
   {
-    "methods": ["DELETE", "POST"],
+    "methods": [
+      "DELETE",
+      "POST"
+    ],
     "name": "set_openrouter_key_provider_routing_openrouter_key_post",
     "path": "/provider-routing/openrouter/key"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "discover_openrouter_models_provider_routing_openrouter_models_get",
     "path": "/provider-routing/openrouter/models"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "list_registered_openrouter_models_provider_routing_openrouter_registered_get",
     "path": "/provider-routing/openrouter/registered"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "unregister_openrouter_model_provider_routing_openrouter_registered__model_id__delete",
     "path": "/provider-routing/openrouter/registered/{model_id}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_openrouter_status_provider_routing_openrouter_status_get",
     "path": "/provider-routing/openrouter/status"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_collections_rag_collections_get",
     "path": "/rag/collections"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "delete_collection_rag_collections__name__delete",
     "path": "/rag/collections/{name}"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "search_rag_rag_search_post",
     "path": "/rag/search"
   },
   {
-    "methods": ["GET", "PATCH"],
+    "methods": [
+      "GET",
+      "PATCH"
+    ],
     "name": "get_rag_settings_rag_settings_get",
     "path": "/rag/settings"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_workspace_rag_summary_rag_workspace_summary_get",
     "path": "/rag/workspace-summary"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_agent_run_runs__run_id__get",
     "path": "/runs/{run_id}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_agent_run_timeline_runs__run_id__timeline_get",
     "path": "/runs/{run_id}/timeline"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_board_sessions__thread_id__background_board_get",
     "path": "/sessions/{thread_id}/background/board"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_runs_sessions__thread_id__background_runs_get",
     "path": "/sessions/{thread_id}/background/runs"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "resume_run_endpoint_sessions__thread_id__background_runs__run_id__resume_post",
     "path": "/sessions/{thread_id}/background/runs/{run_id}/resume"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "get_tasks_sessions__thread_id__background_tasks_get",
     "path": "/sessions/{thread_id}/background/tasks"
   },
   {
-    "methods": ["PATCH"],
+    "methods": [
+      "PATCH"
+    ],
     "name": "bulk_tasks_endpoint_sessions__thread_id__background_tasks_bulk_patch",
     "path": "/sessions/{thread_id}/background/tasks/bulk"
   },
   {
-    "methods": ["DELETE", "PATCH"],
+    "methods": [
+      "DELETE",
+      "PATCH"
+    ],
     "name": "patch_task_sessions__thread_id__background_tasks__task_id__patch",
     "path": "/sessions/{thread_id}/background/tasks/{task_id}"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "post_comment_endpoint_sessions__thread_id__background_tasks__task_id__comments_post",
     "path": "/sessions/{thread_id}/background/tasks/{task_id}/comments"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_events_endpoint_sessions__thread_id__background_tasks__task_id__events_get",
     "path": "/sessions/{thread_id}/background/tasks/{task_id}/events"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "add_link_endpoint_sessions__thread_id__background_tasks__task_id__links_post",
     "path": "/sessions/{thread_id}/background/tasks/{task_id}/links"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "remove_link_endpoint_sessions__thread_id__background_tasks__task_id__links__parent_id__delete",
     "path": "/sessions/{thread_id}/background/tasks/{task_id}/links/{parent_id}"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "approve_review_endpoint_sessions__thread_id__background_tasks__task_id__review_approve_post",
     "path": "/sessions/{thread_id}/background/tasks/{task_id}/review/approve"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "run_task_endpoint_sessions__thread_id__background_tasks__task_id__run_post",
     "path": "/sessions/{thread_id}/background/tasks/{task_id}/run"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_task_runs_sessions__thread_id__background_tasks__task_id__runs_get",
     "path": "/sessions/{thread_id}/background/tasks/{task_id}/runs"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "unblock_task_endpoint_sessions__thread_id__background_tasks__task_id__unblock_post",
     "path": "/sessions/{thread_id}/background/tasks/{task_id}/unblock"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_flags_settings_flags_get",
     "path": "/settings/flags"
   },
   {
-    "methods": ["GET", "PATCH"],
+    "methods": [
+      "GET",
+      "PATCH"
+    ],
     "name": "get_prefs_settings_prefs_get",
     "path": "/settings/prefs"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "list_user_skills_skills_get",
     "path": "/skills"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_skills_catalog_skills_catalog_get",
     "path": "/skills/catalog"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_skills_catalog_status_skills_catalog_status_get",
     "path": "/skills/catalog/status"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "preview_skill_import_skills_import_preview_post",
     "path": "/skills/import/preview"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "delete_user_skill_skills__skill_id__delete",
     "path": "/skills/{skill_id}"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "verify_user_skill_skills__skill_id__verify_post",
     "path": "/skills/{skill_id}/verify"
   },
   {
-    "methods": ["DELETE", "GET", "POST"],
+    "methods": [
+      "DELETE",
+      "GET",
+      "POST"
+    ],
     "name": "get_smart_approval_allowlist_smart_approval_allowlist_get",
     "path": "/smart-approval/allowlist"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "inspect_local_backup_storage_backup_inspect_post",
     "path": "/storage/backup/inspect"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "restore_local_backup_storage_backup_restore_post",
     "path": "/storage/backup/restore"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "revoke_current_device_threads_device_revoke_post",
     "path": "/threads/device/revoke"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "create_share_threads_share_post",
     "path": "/threads/share"
   },
   {
-    "methods": ["DELETE", "GET"],
+    "methods": [
+      "DELETE",
+      "GET"
+    ],
     "name": "get_shared_thread_threads_share__token__get",
     "path": "/threads/share/{token}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "thread_activity_threads__thread_id__activity_get",
     "path": "/threads/{thread_id}/activity"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_thread_asset_threads__thread_id__assets__asset_id__get",
     "path": "/threads/{thread_id}/assets/{asset_id}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_thread_attachment_threads__thread_id__attachments__filename__get",
     "path": "/threads/{thread_id}/attachments/{filename}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_conversation_branches_threads__thread_id__branches_get",
     "path": "/threads/{thread_id}/branches"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "select_conversation_branch_threads__thread_id__branches_select_post",
     "path": "/threads/{thread_id}/branches/select"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "compare_conversation_branch_threads__thread_id__branches__head_message_id__compare_get",
     "path": "/threads/{thread_id}/branches/{head_message_id}/compare"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_thread_checkpoints_threads__thread_id__checkpoints_get",
     "path": "/threads/{thread_id}/checkpoints"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "stream_thread_ledger_events_threads__thread_id__events_get",
     "path": "/threads/{thread_id}/events"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_thread_history_paginated_threads__thread_id__history_get",
     "path": "/threads/{thread_id}/history"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "thread_pending_interrupt_threads__thread_id__pending_interrupt_get",
     "path": "/threads/{thread_id}/pending-interrupt"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "mark_thread_read_threads__thread_id__read_post",
     "path": "/threads/{thread_id}/read"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "rewind_thread_threads__thread_id__rewind_post",
     "path": "/threads/{thread_id}/rewind"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_thread_agent_runs_threads__thread_id__runs_get",
     "path": "/threads/{thread_id}/runs"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "answer_structured_question_threads__thread_id__structured_questions_answer_post",
     "path": "/threads/{thread_id}/structured-questions/answer"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "latest_turn_files_threads__thread_id__turn_files__workspace_id__get",
     "path": "/threads/{thread_id}/turn-files/{workspace_id}"
   },
   {
-    "methods": ["GET", "PUT"],
+    "methods": [
+      "GET",
+      "PUT"
+    ],
     "name": "get_policy_tools_policy_get",
     "path": "/tools/policy"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_usage_tools_usage_get",
     "path": "/tools/usage"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "preview_url_url_preview_get",
     "path": "/url-preview"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_weekly_insight_usage_insights_weekly_get",
     "path": "/usage/insights/weekly"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_media_quota_usage_media_get",
     "path": "/usage/media"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_provider_usage_usage_providers_get",
     "path": "/usage/providers"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_tools_vectora_chat_v1_ChatService_GetTools_get",
     "path": "/vectora.chat.v1.ChatService/GetTools"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "resume_chat_vectora_chat_v1_ChatService_ResumeChat_post",
     "path": "/vectora.chat.v1.ChatService/ResumeChat"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "stream_chat_vectora_chat_v1_ChatService_StreamChat_post",
     "path": "/vectora.chat.v1.ChatService/StreamChat"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "transcribe_audio_endpoint_vectora_chat_v1_ChatService_TranscribeAudio_post",
     "path": "/vectora.chat.v1.ChatService/TranscribeAudio"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "create_thread_vectora_chat_v1_ThreadService_CreateThread_post",
     "path": "/vectora.chat.v1.ThreadService/CreateThread"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "delete_thread_vectora_chat_v1_ThreadService_DeleteThread_post",
     "path": "/vectora.chat.v1.ThreadService/DeleteThread"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "generate_title_vectora_chat_v1_ThreadService_GenerateTitle_post",
     "path": "/vectora.chat.v1.ThreadService/GenerateTitle"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "get_history_vectora_chat_v1_ThreadService_GetHistory_post",
     "path": "/vectora.chat.v1.ThreadService/GetHistory"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "get_thread_vectora_chat_v1_ThreadService_GetThread_post",
     "path": "/vectora.chat.v1.ThreadService/GetThread"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "get_thread_pins_vectora_chat_v1_ThreadService_GetThreadPins_post",
     "path": "/vectora.chat.v1.ThreadService/GetThreadPins"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "list_threads_vectora_chat_v1_ThreadService_ListThreads_post",
     "path": "/vectora.chat.v1.ThreadService/ListThreads"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "set_thread_pins_vectora_chat_v1_ThreadService_SetThreadPins_post",
     "path": "/vectora.chat.v1.ThreadService/SetThreadPins"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "update_thread_vectora_chat_v1_ThreadService_UpdateThread_post",
     "path": "/vectora.chat.v1.ThreadService/UpdateThread"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "close_terminal_vectora_terminal_v1_close_post",
     "path": "/vectora.terminal.v1/close"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_terminals_vectora_terminal_v1_list_get",
     "path": "/vectora.terminal.v1/list"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "approve_hooks_vectora_workspace_v1_WorkspaceService_ApproveHooks_post",
     "path": "/vectora.workspace.v1.WorkspaceService/ApproveHooks"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "browse_dir_vectora_workspace_v1_WorkspaceService_BrowseDir_get",
     "path": "/vectora.workspace.v1.WorkspaceService/BrowseDir"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_codespaces_endpoint_vectora_workspace_v1_WorkspaceService_Codespaces_get",
     "path": "/vectora.workspace.v1.WorkspaceService/Codespaces"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "create_remote_workspace_vectora_workspace_v1_WorkspaceService_CreateRemoteWorkspace_post",
     "path": "/vectora.workspace.v1.WorkspaceService/CreateRemoteWorkspace"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "create_workspace_vectora_workspace_v1_WorkspaceService_CreateWorkspace_post",
     "path": "/vectora.workspace.v1.WorkspaceService/CreateWorkspace"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "create_worktree_vectora_workspace_v1_WorkspaceService_CreateWorktree_post",
     "path": "/vectora.workspace.v1.WorkspaceService/CreateWorktree"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_active_workspace_vectora_workspace_v1_WorkspaceService_GetActiveWorkspace_get",
     "path": "/vectora.workspace.v1.WorkspaceService/GetActiveWorkspace"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_init_workspace_vectora_workspace_v1_WorkspaceService_GitInitWorkspace_post",
     "path": "/vectora.workspace.v1.WorkspaceService/GitInitWorkspace"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_safe_roots_vectora_workspace_v1_WorkspaceService_ListSafeRoots_get",
     "path": "/vectora.workspace.v1.WorkspaceService/ListSafeRoots"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_workspaces_vectora_workspace_v1_WorkspaceService_ListWorkspaces_get",
     "path": "/vectora.workspace.v1.WorkspaceService/ListWorkspaces"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_worktrees_vectora_workspace_v1_WorkspaceService_ListWorktrees_get",
     "path": "/vectora.workspace.v1.WorkspaceService/ListWorktrees"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "mkdir_dir_vectora_workspace_v1_WorkspaceService_Mkdir_post",
     "path": "/vectora.workspace.v1.WorkspaceService/Mkdir"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "set_active_workspace_vectora_workspace_v1_WorkspaceService_SetActiveWorkspace_post",
     "path": "/vectora.workspace.v1.WorkspaceService/SetActiveWorkspace"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "test_ssh_vectora_workspace_v1_WorkspaceService_TestSsh_post",
     "path": "/vectora.workspace.v1.WorkspaceService/TestSsh"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "trust_workspace_vectora_workspace_v1_WorkspaceService_TrustWorkspace_post",
     "path": "/vectora.workspace.v1.WorkspaceService/TrustWorkspace"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "webhook_events_stream_webhook_events_get",
     "path": "/webhook/events"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "receive_observability_webhook_webhook_observability_post",
     "path": "/webhook/observability"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "receive_webhook_webhook__provider__post",
     "path": "/webhook/{provider}"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_workspaces_rest_workspaces_get",
     "path": "/workspaces"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_active_workspace_rest_workspaces_active_get",
     "path": "/workspaces/active"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "approve_hooks_rest_workspaces_approve_hooks_post",
     "path": "/workspaces/approve-hooks"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "browse_view_workspaces_browse_get",
     "path": "/workspaces/browse"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "mkdir_view_workspaces_browse_mkdir_post",
     "path": "/workspaces/browse/mkdir"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_codespaces_rest_workspaces_codespaces_get",
     "path": "/workspaces/codespaces"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "create_workspace_rest_workspaces_create_post",
     "path": "/workspaces/create"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "create_remote_workspace_rest_workspaces_create_remote_post",
     "path": "/workspaces/create-remote"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_init_workspace_rest_workspaces_git_init_post",
     "path": "/workspaces/git-init"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_safe_roots_rest_workspaces_safe_roots_get",
     "path": "/workspaces/safe-roots"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "set_active_workspace_rest_workspaces_set_active_post",
     "path": "/workspaces/set-active"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "test_ssh_rest_workspaces_test_ssh_post",
     "path": "/workspaces/test-ssh"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "trust_workspace_rest_workspaces_trust_post",
     "path": "/workspaces/trust"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "browser_detect_workspaces__workspace_id__browser_detect_get",
     "path": "/workspaces/{workspace_id}/browser/detect"
   },
   {
-    "methods": ["DELETE", "GET"],
+    "methods": [
+      "DELETE",
+      "GET"
+    ],
     "name": "devtools_console_workspaces__workspace_id__browser_devtools_console_get",
     "path": "/workspaces/{workspace_id}/browser/devtools/console"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "devtools_evaluate_workspaces__workspace_id__browser_devtools_evaluate_post",
     "path": "/workspaces/{workspace_id}/browser/devtools/evaluate"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "devtools_network_workspaces__workspace_id__browser_devtools_network_get",
     "path": "/workspaces/{workspace_id}/browser/devtools/network"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "devtools_tabs_workspaces__workspace_id__browser_devtools_tabs_get",
     "path": "/workspaces/{workspace_id}/browser/devtools/tabs"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "get_launch_json_workspaces__workspace_id__browser_launch_get",
     "path": "/workspaces/{workspace_id}/browser/launch"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "browser_logs_workspaces__workspace_id__browser_logs_get",
     "path": "/workspaces/{workspace_id}/browser/logs"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "browser_start_workspaces__workspace_id__browser_start_post",
     "path": "/workspaces/{workspace_id}/browser/start"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "browser_status_workspaces__workspace_id__browser_status_get",
     "path": "/workspaces/{workspace_id}/browser/status"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "browser_stop_workspaces__workspace_id__browser_stop_post",
     "path": "/workspaces/{workspace_id}/browser/stop"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_graph_workspaces__workspace_id__context_graph_get",
     "path": "/workspaces/{workspace_id}/context-graph"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "post_affected_workspaces__workspace_id__context_graph_affected_post",
     "path": "/workspaces/{workspace_id}/context-graph/affected"
   },
   {
-    "methods": ["DELETE", "POST"],
+    "methods": [
+      "DELETE",
+      "POST"
+    ],
     "name": "post_build_workspaces__workspace_id__context_graph_build_post",
     "path": "/workspaces/{workspace_id}/context-graph/build"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "post_explain_workspaces__workspace_id__context_graph_explain_post",
     "path": "/workspaces/{workspace_id}/context-graph/explain"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_html_workspaces__workspace_id__context_graph_html_get",
     "path": "/workspaces/{workspace_id}/context-graph/html"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "post_path_workspaces__workspace_id__context_graph_path_post",
     "path": "/workspaces/{workspace_id}/context-graph/path"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "post_query_workspaces__workspace_id__context_graph_query_post",
     "path": "/workspaces/{workspace_id}/context-graph/query"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_report_workspaces__workspace_id__context_graph_report_get",
     "path": "/workspaces/{workspace_id}/context-graph/report"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "get_status_workspaces__workspace_id__context_graph_status_get",
     "path": "/workspaces/{workspace_id}/context-graph/status"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "set_active_context_workspaces__workspace_id__context_active_post",
     "path": "/workspaces/{workspace_id}/context/active"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "workspace_events_workspaces__workspace_id__events_get",
     "path": "/workspaces/{workspace_id}/events"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "workspace_file_workspaces__workspace_id__file_get",
     "path": "/workspaces/{workspace_id}/file"
   },
   {
-    "methods": ["DELETE"],
+    "methods": [
+      "DELETE"
+    ],
     "name": "delete_fs_node_workspaces__workspace_id__fs_delete",
     "path": "/workspaces/{workspace_id}/fs"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "create_fs_dir_workspaces__workspace_id__fs_dir_post",
     "path": "/workspaces/{workspace_id}/fs/dir"
   },
   {
-    "methods": ["POST", "PUT"],
+    "methods": [
+      "POST",
+      "PUT"
+    ],
     "name": "create_fs_file_workspaces__workspace_id__fs_file_post",
     "path": "/workspaces/{workspace_id}/fs/file"
   },
   {
-    "methods": ["GET", "PUT"],
+    "methods": [
+      "GET",
+      "PUT"
+    ],
     "name": "get_gitignore_workspaces__workspace_id__fs_gitignore_get",
     "path": "/workspaces/{workspace_id}/fs/gitignore"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "gitignore_preview_workspaces__workspace_id__fs_gitignore_preview_get",
     "path": "/workspaces/{workspace_id}/fs/gitignore-preview"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "append_gitignore_workspaces__workspace_id__fs_gitignore_append_post",
     "path": "/workspaces/{workspace_id}/fs/gitignore/append"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "move_fs_node_workspaces__workspace_id__fs_move_post",
     "path": "/workspaces/{workspace_id}/fs/move"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "workspace_file_raw_workspaces__workspace_id__fs_raw_get",
     "path": "/workspaces/{workspace_id}/fs/raw"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "search_workspace_files_workspaces__workspace_id__fs_search_get",
     "path": "/workspaces/{workspace_id}/fs/search"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "git_branches_workspaces__workspace_id__git_branches_get",
     "path": "/workspaces/{workspace_id}/git/branches"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_checkout_workspaces__workspace_id__git_checkout_post",
     "path": "/workspaces/{workspace_id}/git/checkout"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_cherry_pick_inline_workspaces__workspace_id__git_cherry_pick_post",
     "path": "/workspaces/{workspace_id}/git/cherry-pick"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_commit_inline_workspaces__workspace_id__git_commit_post",
     "path": "/workspaces/{workspace_id}/git/commit"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "git_commit_diff_workspaces__workspace_id__git_commit_diff_get",
     "path": "/workspaces/{workspace_id}/git/commit/diff"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "git_commit_suggestion_workspaces__workspace_id__git_commit_suggestion_get",
     "path": "/workspaces/{workspace_id}/git/commit/suggestion"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "git_compare_refs_workspaces__workspace_id__git_compare_get",
     "path": "/workspaces/{workspace_id}/git/compare"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "git_compare_file_workspaces__workspace_id__git_compare_file_get",
     "path": "/workspaces/{workspace_id}/git/compare/file"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_conflicts_workspaces__workspace_id__git_conflicts_get",
     "path": "/workspaces/{workspace_id}/git/conflicts"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "workspace_git_diff_workspaces__workspace_id__git_diff_get",
     "path": "/workspaces/{workspace_id}/git/diff"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "workspace_git_diff_file_workspaces__workspace_id__git_diff_file_get",
     "path": "/workspaces/{workspace_id}/git/diff/file"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_discard_workspaces__workspace_id__git_discard_post",
     "path": "/workspaces/{workspace_id}/git/discard"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_fetch_workspaces__workspace_id__git_fetch_post",
     "path": "/workspaces/{workspace_id}/git/fetch"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "git_log_workspaces__workspace_id__git_log_get",
     "path": "/workspaces/{workspace_id}/git/log"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "git_log_file_workspaces__workspace_id__git_log_file_get",
     "path": "/workspaces/{workspace_id}/git/log/file"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "git_members_workspaces__workspace_id__git_members_get",
     "path": "/workspaces/{workspace_id}/git/members"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_merge_workspaces__workspace_id__git_merge_post",
     "path": "/workspaces/{workspace_id}/git/merge"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "git_operation_workspaces__workspace_id__git_operation_get",
     "path": "/workspaces/{workspace_id}/git/operation"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "git_operations_workspaces__workspace_id__git_operations_get",
     "path": "/workspaces/{workspace_id}/git/operations"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_pull_workspaces__workspace_id__git_pull_post",
     "path": "/workspaces/{workspace_id}/git/pull"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_push_workspaces__workspace_id__git_push_post",
     "path": "/workspaces/{workspace_id}/git/push"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_reorder_inline_workspaces__workspace_id__git_reorder_post",
     "path": "/workspaces/{workspace_id}/git/reorder"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "resolve_conflict_workspaces__workspace_id__git_resolve_conflict_post",
     "path": "/workspaces/{workspace_id}/git/resolve-conflict"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_revert_commit_workspaces__workspace_id__git_revert_post",
     "path": "/workspaces/{workspace_id}/git/revert"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "git_show_file_workspaces__workspace_id__git_show_get",
     "path": "/workspaces/{workspace_id}/git/show"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_squash_inline_workspaces__workspace_id__git_squash_post",
     "path": "/workspaces/{workspace_id}/git/squash"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_stage_workspaces__workspace_id__git_stage_post",
     "path": "/workspaces/{workspace_id}/git/stage"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_stash_workspaces__workspace_id__git_stash_post",
     "path": "/workspaces/{workspace_id}/git/stash"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "git_status_workspaces__workspace_id__git_status_get",
     "path": "/workspaces/{workspace_id}/git/status"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "git_unstage_workspaces__workspace_id__git_unstage_post",
     "path": "/workspaces/{workspace_id}/git/unstage"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "search_memory_unified_workspaces__workspace_id__memory_search_get",
     "path": "/workspaces/{workspace_id}/memory/search"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "pr_list_workspaces__workspace_id__pr_get",
     "path": "/workspaces/{workspace_id}/pr"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "list_rag_buckets_workspaces__workspace_id__rag_buckets_get",
     "path": "/workspaces/{workspace_id}/rag/buckets"
   },
   {
-    "methods": ["DELETE", "PATCH"],
+    "methods": [
+      "DELETE",
+      "PATCH"
+    ],
     "name": "toggle_rag_bucket_workspaces__workspace_id__rag_buckets__bucket_id__patch",
     "path": "/workspaces/{workspace_id}/rag/buckets/{bucket_id}"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "rag_ingest_workspaces__workspace_id__rag_ingest_post",
     "path": "/workspaces/{workspace_id}/rag/ingest"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "rag_ingest_preview_workspaces__workspace_id__rag_ingest_preview_get",
     "path": "/workspaces/{workspace_id}/rag/ingest/preview"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "rag_jobs_workspaces__workspace_id__rag_jobs_get",
     "path": "/workspaces/{workspace_id}/rag/jobs"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "rag_job_status_workspaces__workspace_id__rag_jobs__job_id__get",
     "path": "/workspaces/{workspace_id}/rag/jobs/{job_id}"
   },
   {
-    "methods": ["POST"],
+    "methods": [
+      "POST"
+    ],
     "name": "workspace_sandbox_init_workspaces__workspace_id__sandbox_init_post",
     "path": "/workspaces/{workspace_id}/sandbox/init"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "workspace_sandbox_status_workspaces__workspace_id__sandbox_status_get",
     "path": "/workspaces/{workspace_id}/sandbox/status"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "stack_hint_workspaces__workspace_id__stack_hint_get",
     "path": "/workspaces/{workspace_id}/stack-hint"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "workspace_tree_workspaces__workspace_id__tree_get",
     "path": "/workspaces/{workspace_id}/tree"
   },
   {
-    "methods": ["GET"],
+    "methods": [
+      "GET"
+    ],
     "name": "vscode_options_workspaces__workspace_id__vscode_options_get",
     "path": "/workspaces/{workspace_id}/vscode-options"
   },
   {
-    "methods": ["GET", "POST"],
+    "methods": [
+      "GET",
+      "POST"
+    ],
     "name": "list_workspace_worktrees_workspaces__workspace_id__worktrees_get",
     "path": "/workspaces/{workspace_id}/worktrees"
   }
