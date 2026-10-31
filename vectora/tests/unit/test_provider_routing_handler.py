@@ -83,6 +83,7 @@ async def test_decision_model_readiness_uses_remote_credentials_from_environment
         systemone_jev_api_base_url="https://api.jev.ai",
         systemone_jev_api_model="jev-fast",
         systemone_confidence_threshold_hitl=0.7,
+        systemone_risk_assessment_timeout_s=10.0,
         clef_api_key="",
         jev_api_key="",
     )
@@ -126,6 +127,7 @@ async def test_decision_model_readiness_probes_user_selected_provider(monkeypatc
         systemone_jev_api_model="jev-fast",
         systemone_allow_remote_fallback=False,
         systemone_confidence_threshold_hitl=0.7,
+        systemone_risk_assessment_timeout_s=10.0,
         clef_api_key="valid-secret",
         jev_api_key="",
     )
@@ -178,6 +180,7 @@ async def test_decision_model_readiness_distinguishes_rejected_key_from_outage(
             systemone_clef_api_model="clef",
             systemone_jev_api_base_url="https://api.jev.ai",
             systemone_confidence_threshold_hitl=0.7,
+            systemone_risk_assessment_timeout_s=10.0,
             jev_api_key="present-but-unverified",
         ),
     )
