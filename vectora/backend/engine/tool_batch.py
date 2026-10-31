@@ -143,6 +143,12 @@ async def _run_one(
     on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> VMessage:
     """Executa uma chamada do lote com contexto correlacionado à própria tool."""
+    if policy_snapshot is not None:
+        # Revogação entre réplicas: a versão compartilhada é relida a cada tool
+        # call, então uma réplica que perdeu o pubsub ainda recusa a execução.
+        from backend.rbac import tool_policy
+
+        await tool_policy.sync_persisted_versions()
     # ``validate_call`` may resolve DNS synchronously for URL egress tools; a slow
     # resolver must not stall every other session sharing the event loop.
     allowed, deny_reason = await asyncio.to_thread(
