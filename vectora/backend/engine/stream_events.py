@@ -16,6 +16,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Protocol
 
+from backend.vtypes.contracts import ChangedFile, ToolOption
+from backend.vtypes.permission import PermissionMode
+
 
 @dataclass(frozen=True, slots=True)
 class ThreadStarted:
@@ -108,11 +111,13 @@ class HitlRequested:
     tool_name: str
     args_json: str
     interrupt_id: str
+    permission_mode: PermissionMode = "ask"
+    workspace_id: str = ""
     reasoning: str = ""
     affected_paths: list[str] = field(default_factory=list)
     diff_preview: str = ""
     pre_approved: bool = False
-    options: list[dict[str, str]] = field(default_factory=list)
+    options: list[ToolOption] = field(default_factory=list)
     priority: int = 0
     expires_at: str | None = None
 
@@ -139,13 +144,15 @@ class WorkbenchInvalidate:
 class TurnFilesChanged:
     """Arquivos alterados pela resposta atual, com hunks para revisão."""
 
-    files: list[dict[str, object]] = field(default_factory=list)
+    files: list[ChangedFile] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
 class TodoItem:
     content: str
     status: Literal["pending", "in_progress", "completed"]
+    step_id: str | None = None
+    quality_gate: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -208,4 +215,6 @@ class EventSink(Protocol):
     chamam pra emitir um `EngineEvent` — o adapter (`sse_adapter.py`) é só
     um dos consumidores possíveis dessa interface."""
 
-    async def __call__(self, event: EngineEvent) -> None: ...
+    async def __call__(self, event: EngineEvent) -> None:
+        """Emite um evento para o consumidor configurado."""
+        ...

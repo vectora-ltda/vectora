@@ -13,7 +13,20 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Literal
 
+from pydantic import TypeAdapter, ValidationError
+
+from backend.vtypes.contracts import JsonObject, UsageSnapshot
+
 logger = logging.getLogger(__name__)
+
+
+def coerce_json_object(value: object, *, raw: object | None = None) -> JsonObject:
+    """Normalize provider tool arguments to the object shape tools require."""
+    try:
+        return TypeAdapter(JsonObject).validate_python(value)
+    except ValidationError:
+        pass
+    return {"_parse_error": str(raw if raw is not None else value)}
 
 
 class MessageRole(StrEnum):
@@ -32,7 +45,7 @@ class ToolCall:
 
     id: str
     name: str
-    args: dict[str, Any]
+    args: JsonObject
 
 
 @dataclass(slots=True)
@@ -81,9 +94,9 @@ class VMessage:
     finish_reason: str | None = None
     """`stop` | `length` | `content_filter` | `tool_calls` — decide se o
     loop de conversa continua ou para (backend/engine/conversation_loop.py)."""
-    is_error: bool = False
-    """Marca um resultado de tool como erro — vira `is_error` no evento
-    SSE `tool_result`."""
+    is_error: bool | None = False
+    """Marca um resultado de tool como erro — ``None`` preserva um estado
+    desconhecido ao reidratar dados antigos; vira `is_error` no evento SSE."""
 
     def text(self) -> str:
         """Concatena todos os blocos `text`, na ordem — equivalente ao
@@ -140,13 +153,21 @@ class VMessage:
                     for b in data.get("content", [])
                 ],
                 tool_calls=[
-                    ToolCall(id=tc["id"], name=tc["name"], args=tc["args"])
+                    ToolCall(
+                        id=tc["id"],
+                        name=tc["name"],
+                        args=coerce_json_object(tc["args"]),
+                    )
                     for tc in data.get("tool_calls", [])
                 ],
                 tool_call_id=data.get("tool_call_id"),
                 name=data.get("name"),
                 finish_reason=data.get("finish_reason"),
-                is_error=bool(data.get("is_error", False)),
+                is_error=(
+                    None
+                    if "is_error" in data and data["is_error"] is None
+                    else bool(data.get("is_error", False))
+                ),
             )
         except (KeyError, ValueError) as exc:
             logger.exception("mensagem corrompida no histórico", extra={"data": data})
@@ -178,6 +199,6 @@ class VMessageChunk:
     delta_reasoning: str | None = None
     tool_call_chunks: list[ToolCallChunk] = field(default_factory=list)
     finish_reason: str | None = None
-    usage: dict[str, int] | None = None
+    usage: UsageSnapshot | None = None
     """`{"input_tokens", "output_tokens", "total_tokens"}` — mesmo shape que
     os 5 chat clients nativos já preenchem hoje."""

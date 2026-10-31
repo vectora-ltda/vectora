@@ -68,6 +68,15 @@ class TestTrust:
 
 
 class TestSessionWorkspace:
+    def test_session_root_can_be_configured_independently_from_runtime_home(
+        self, monkeypatch, tmp_path
+    ):
+        from backend.workspace.workspace import _session_workspaces_root
+
+        configured = tmp_path / "user-documents" / "vectora"
+        monkeypatch.setenv("VECTORA_WORKSPACES_ROOT", str(configured))
+        assert _session_workspaces_root() == configured.resolve()
+
     def test_registers_workspace_without_creating_folder(
         self, reg, tmp_path, monkeypatch
     ):

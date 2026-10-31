@@ -1,0 +1,54 @@
+name: PR Labels
+
+on:
+  pull_request_target:
+    types:
+      [
+        opened,
+        edited,
+        synchronize,
+        reopened,
+        milestoned,
+        demilestoned,
+        labeled,
+        unlabeled,
+      ]
+    branches: ["**"]
+
+permissions:
+  contents: read
+
+jobs:
+  labeler:
+    name: Label PR
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/labeler@v6
+        with:
+          repo-token: ${{ github.token }}
+      - name: Reconcile Conventional Commit labels
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            const body = context.payload.pull_request.body || "";
+            const managed = new Set(["breaking-change", "enhancement", "bug", "documentation", "performance", "ci", "chore"]);
+            const desired = new Set();
+            if (/BREAKING CHANGE/.test(body) || /^[a-z]+(?:\([^)]*\))?!:/.test(title)) desired.add("breaking-change");
+            const match = title.match(/^(feat|fix|docs|perf|ci|chore|test|build|style|refactor)(?:\([^)]*\))?!?:/);
+            const byKind = { feat: "enhancement", fix: "bug", docs: "documentation", perf: "performance", ci: "ci", chore: "chore", test: "chore", build: "chore", style: "chore", refactor: "chore" };
+            if (match) desired.add(byKind[match[1]]);
+            const current = await github.paginate(github.rest.issues.listLabelsOnIssue, {
+              owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
+            });
+            for (const label of current) {
+              if (managed.has(label.name) && !desired.has(label.name)) {
+                await github.rest.issues.removeLabel({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, name: label.name });
+              }
+            }
+            if (desired.size) {
+              await github.rest.issues.addLabels({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, labels: [...desired] });
+            }

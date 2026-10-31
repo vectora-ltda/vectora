@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 
@@ -22,7 +22,7 @@ async def wait_until_available() -> None:
 
 
 @asynccontextmanager
-async def storage_operation() -> AsyncIterator[None]:
+async def storage_operation() -> AsyncGenerator[None]:
     """Registra uma operação que mantém arquivos restauráveis em uso."""
     global _active_operations
     async with _condition:
@@ -38,7 +38,7 @@ async def storage_operation() -> AsyncIterator[None]:
 
 
 @asynccontextmanager
-async def maintenance_bypass() -> AsyncIterator[None]:
+async def maintenance_bypass() -> AsyncGenerator[None]:
     """Permite reabrir consumidores enquanto a janela controla o processo.
 
     Deve ser usado apenas pelo fluxo de restore, depois que os consumidores
@@ -52,7 +52,7 @@ async def maintenance_bypass() -> AsyncIterator[None]:
 
 
 @asynccontextmanager
-async def maintenance_window() -> AsyncIterator[None]:
+async def maintenance_window() -> AsyncGenerator[None]:
     """Bloqueia novas aberturas de consumidores durante uma promoção."""
     global _maintenance_active
     async with _condition:

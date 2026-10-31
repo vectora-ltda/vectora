@@ -134,7 +134,6 @@ async def terminal_ws(ws: WebSocket) -> None:
     session = pty_registry.get(terminal_id)
     if session is not None and (
         getattr(session, "user_id", "local") != str(getattr(user, "id", "local"))
-        or session.thread_id != thread_id
         or session.workspace_id != workspace_id
     ):
         await ws.send_text(
@@ -248,8 +247,11 @@ async def list_terminals(request: Request, thread_id: str, workspace_id: str) ->
     user_id = _request_user_id(request)
     if not thread_id or not workspace_id:
         raise HTTPException(status_code=404, detail="Contexto não encontrado.")
-    sessions = pty_registry.list_for_context(
-        user_id=user_id, thread_id=thread_id, workspace_id=workspace_id
+    # PTYs are workspace resources.  The UI thread and the agent thread are
+    # intentionally different, so filtering by thread makes an already-open
+    # terminal disappear and causes a second shell to be spawned.
+    sessions = pty_registry.list_for_user_workspace(
+        user_id=user_id, workspace_id=workspace_id
     )
     return {
         "terminals": [
@@ -268,11 +270,8 @@ async def list_terminals(request: Request, thread_id: str, workspace_id: str) ->
 async def close_terminal(body: CloseBody, request: Request) -> dict:
     user_id = _request_user_id(request)
     if (
-        pty_registry.resolve_for_context(
-            body.terminal_id,
-            user_id=user_id,
-            thread_id=body.thread_id,
-            workspace_id=body.workspace_id,
+        pty_registry.resolve_for_user_workspace(
+            body.terminal_id, user_id=user_id, workspace_id=body.workspace_id
         )
         is None
     ):

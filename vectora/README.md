@@ -108,7 +108,8 @@ O frontend cobre toda a configuração, mas em VPS via SSH a CLI Rich expõe o e
 ```bash
 uv run vectora config keys         # wizard de API keys + provider de LLM
 uv run vectora config docker up    # sobe Postgres + Redis + Qdrant local
-uv run vectora start --headless    # backend, sem janela (bandeja)
+uv run vectora start --headless    # backend sem Electron (modo servidor)
+uv run vectora web                  # HTTP + Electron/Chromium, sem bandeja Python
 ```
 
 ---
@@ -189,13 +190,14 @@ vectora [comando] [opções]
 Comandos:
   (sem args)           Imprime este help
   start                Backend completo + SPA (fullstack)
-  start --headless     Sobe sem janela (bandeja + backend)
+  start --headless     Sobe somente o backend, sem janela Electron
+  web                  Sobe o webapp HTTP com Electron/Chromium, sem bandeja Python
   config               Mostra/edita settings; subcomandos: keys, docker, qdrant, redis
   storage              Migrations, diagnóstico, backup/restore, wizard BaaS
   sessions             Listar todas as sessões salvas
 
 Opções de start:
-  --headless           Não abre janela (mantém backend + bandeja)
+  --headless           Não inicia Electron nem bandeja (modo servidor)
   --host <host>        Host de escuta (padrão: 0.0.0.0)
   --port <n>           Porta (padrão: 8080)
   --ssl-certfile/-keyfile <pem>   TLS (serve em https://)

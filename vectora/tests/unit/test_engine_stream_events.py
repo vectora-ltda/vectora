@@ -161,6 +161,8 @@ class TestParidadeComOSchemaPydantic:
                 tool_name="file_write",
                 args_json="{}",
                 interrupt_id="int-1",
+                permission_mode="bypass",
+                workspace_id="ws-1",
                 affected_paths=["a.py"],
             )
         )
@@ -169,6 +171,8 @@ class TestParidadeComOSchemaPydantic:
                 tool_name="file_write",
                 args_json="{}",
                 interrupt_id="int-1",
+                permission_mode="bypass",
+                workspace_id="ws-1",
                 affected_paths=["a.py"],
             )
         )
@@ -176,9 +180,9 @@ class TestParidadeComOSchemaPydantic:
         assert _parse(nativo)["type"] == "hitl"
 
     def test_workbench_invalidate(self):
-        nativo = to_sse_line(WorkbenchInvalidate(tabs=["files", "diff"]))
+        nativo = to_sse_line(WorkbenchInvalidate(tabs=["files", "git"]))
         pydantic = schemas.encode_event(
-            schemas.WorkbenchInvalidateEvent(tabs=["files", "diff"])
+            schemas.WorkbenchInvalidateEvent(tabs=["files", "git"])
         )
         assert nativo == pydantic
         assert _parse(nativo)["type"] == "workbench_invalidate"

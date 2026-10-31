@@ -20,6 +20,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from backend.llm.openai.client import OpenAIClient, OpenAIResponseError
+from backend.vtypes.contracts import UsageSnapshot
 from backend.vtypes.message import (
     ContentBlock,
     MessageRole,
@@ -27,6 +28,7 @@ from backend.vtypes.message import (
     ToolCallChunk,
     VMessage,
     VMessageChunk,
+    coerce_json_object,
 )
 
 if TYPE_CHECKING:
@@ -162,7 +164,7 @@ def _parse_output_items(output: list) -> tuple[str, list[ToolCall]]:
         elif tipo == "function_call":
             args_texto = item.get("arguments") or "{}"
             try:
-                args = json.loads(args_texto)
+                args = coerce_json_object(json.loads(args_texto), raw=args_texto)
             except (json.JSONDecodeError, TypeError):
                 # JSON inválido do modelo é um caso real, não hipotético —
                 # a tool call entra mesmo assim (preserva o texto já gerado
@@ -178,7 +180,7 @@ def _parse_output_items(output: list) -> tuple[str, list[ToolCall]]:
     return "".join(texto_partes), chamadas
 
 
-def _usage_metadata(usage: dict | None) -> dict[str, int] | None:
+def _usage_metadata(usage: dict | None) -> UsageSnapshot | None:
     if not usage:
         return None
     entrada = int(usage.get("input_tokens") or 0)

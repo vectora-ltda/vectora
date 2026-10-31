@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -15,6 +16,21 @@ import pytest
 
 from backend.tools import browser_devtools as bd
 from backend.tools.context import ToolContext
+
+
+@pytest.fixture(autouse=True)
+def public_dns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep browser-policy unit tests independent of external DNS."""
+    original = socket.getaddrinfo
+
+    def resolve(host, port, *args, **kwargs):
+        if host == "example.com":
+            return [
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port))
+            ]
+        return original(host, port, *args, **kwargs)
+
+    monkeypatch.setattr(socket, "getaddrinfo", resolve)
 
 
 def _ctx(workspace_id: str = "ws1") -> ToolContext:
@@ -27,7 +43,9 @@ def _ctx(workspace_id: str = "ws1") -> ToolContext:
 
 
 @pytest.mark.asyncio
-async def test_browser_list_tabs_retorna_abas_da_sessao(monkeypatch):
+async def test_browser_list_tabs_retorna_abas_da_sessao(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         bd,
         "list_tabs",
@@ -46,7 +64,10 @@ async def test_browser_list_tabs_retorna_abas_da_sessao(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_browser_new_tab_cria_aba_e_retorna_id(monkeypatch):
+async def test_browser_new_tab_cria_aba_e_retorna_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Create a new devtools target and expose its identifier."""
     monkeypatch.setattr(bd, "new_tab", AsyncMock(return_value="tab-abc"))
 
     result = json.loads(await bd.browser_new_tab(url="https://example.com", ctx=_ctx()))
@@ -55,7 +76,32 @@ async def test_browser_new_tab_cria_aba_e_retorna_id(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_browser_new_tab_falha_devolve_erro_tipado(monkeypatch):
+async def test_browser_new_tab_bloqueia_redirect_para_destino_privado(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Erro/regressão: redirects de uma nova aba também são filtrados."""
+    monkeypatch.setattr(bd, "new_tab", AsyncMock(return_value="tab-abc"))
+    monkeypatch.setattr(
+        bd,
+        "list_tabs",
+        AsyncMock(
+            return_value=[{"tab_id": "tab-abc", "url": "http://127.0.0.1:8080/private"}]
+        ),
+    )
+    close_tab = AsyncMock(return_value=True)
+    monkeypatch.setattr(bd, "close_tab", close_tab)
+
+    result = json.loads(await bd.browser_new_tab(url="https://example.com", ctx=_ctx()))
+
+    assert result["status"] == "error"
+    assert "redirect bloqueado" in result["error"]
+    close_tab.assert_awaited_once_with("ws1", "tab-abc")
+
+
+@pytest.mark.asyncio
+async def test_browser_new_tab_falha_devolve_erro_tipado(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(
         bd, "new_tab", AsyncMock(side_effect=RuntimeError("chromium crashed"))
     )
@@ -66,7 +112,29 @@ async def test_browser_new_tab_falha_devolve_erro_tipado(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_browser_close_tab_sem_sessao_retorna_erro(monkeypatch):
+async def test_browser_new_tab_fecha_aba_se_pos_criar_ocorrer_falha(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Uma falha posterior à criação não pode deixar uma aba órfã aberta."""
+    monkeypatch.setattr(bd, "new_tab", AsyncMock(return_value="tab-abc"))
+    monkeypatch.setattr(
+        bd,
+        "list_tabs",
+        AsyncMock(side_effect=RuntimeError("falha ao inspecionar target")),
+    )
+    close_tab = AsyncMock(return_value=True)
+    monkeypatch.setattr(bd, "close_tab", close_tab)
+
+    result = json.loads(await bd.browser_new_tab(url="https://example.com", ctx=_ctx()))
+
+    assert result["status"] == "error"
+    close_tab.assert_awaited_once_with("ws1", "tab-abc")
+
+
+@pytest.mark.asyncio
+async def test_browser_close_tab_sem_sessao_retorna_erro(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(bd, "has_browser_session", lambda _wid: False)
 
     result = json.loads(await bd.browser_close_tab(tab_id="t1", ctx=_ctx()))
@@ -75,7 +143,9 @@ async def test_browser_close_tab_sem_sessao_retorna_erro(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_browser_close_tab_id_inexistente_retorna_erro(monkeypatch):
+async def test_browser_close_tab_id_inexistente_retorna_erro(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(bd, "has_browser_session", lambda _wid: True)
     monkeypatch.setattr(bd, "close_tab", AsyncMock(return_value=False))
 

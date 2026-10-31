@@ -13,21 +13,54 @@ decide COMO persistir/esperar.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+from collections import deque
 from typing import TYPE_CHECKING, Any
 
+from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import MessageRole
 
 if TYPE_CHECKING:
+    from backend.llm.systemone.harness import SystemOneHarness
     from backend.persistence.native.session_store import SessionStore
     from backend.tools.context import ToolContext
     from backend.vtypes.message import VMessage
 
 logger = logging.getLogger(__name__)
 
+
+def _log_decision(
+    tool_name: str,
+    ctx: ToolContext,
+    *,
+    decision: bool,
+    mode: str,
+    reason: str,
+) -> None:
+    """Registra a decisão efetiva do gate com contexto auditável."""
+    logger.info(
+        "hitl.decision tool=%s decision=%s mode=%s reason=%s",
+        tool_name,
+        decision,
+        mode,
+        reason,
+        extra={
+            "tool_name": tool_name,
+            "decision": decision,
+            "mode": mode,
+            "reason": reason,
+            "thread_id": ctx.thread_id,
+            "workspace_id": ctx.workspace_id,
+        },
+    )
+
+
 #: Tools destrutivas candidatas a pausar o loop para aprovação.
 REQUIRE_APPROVAL: frozenset[str] = frozenset(
     {
+        "bash",
         "terminal",
         "terminal_tool",
         "write_terminal",
@@ -52,6 +85,8 @@ REQUIRE_APPROVAL: frozenset[str] = frozenset(
         "kanban_create",
         "kanban_update_status",
         "apply_memory_consolidation",
+        "git_push",
+        "call_mcp_tool",
         # Operações com custo variável: a quota e o preço estimado são
         # apresentados ao usuário antes da execução do provider.
         "generate_image",
@@ -128,14 +163,14 @@ def _plan_mode_ja_passou_neste_turno(history: list[VMessage]) -> bool:
             last_user_idx = idx
 
     for msg in history[last_user_idx + 1 :]:
-        if msg.role == MessageRole.TOOL and (msg.name or "") in REQUIRE_APPROVAL:
+        if msg.role == MessageRole.TOOL and _tool_requires_approval(msg.name or ""):
             return True
     return False
 
 
 def _mode_should_interrupt(mode: str, tool_name: str, history: list[VMessage]) -> bool:
     """Política canônica dos 5 modos — fonte única de verdade do HITL nativo."""
-    requires_approval = tool_name in REQUIRE_APPROVAL
+    requires_approval = _tool_requires_approval(tool_name)
     always_interrupt = tool_name in _ALWAYS_INTERRUPT
     if mode in _NON_INTERRUPTING_MODES:
         decision = False
@@ -152,7 +187,54 @@ def _mode_should_interrupt(mode: str, tool_name: str, history: list[VMessage]) -
     return requires_approval and (always_interrupt or decision)
 
 
-def should_require_approval(
+def _tool_requires_approval(tool_name: str) -> bool:
+    """Resolve the approval candidate from the canonical tool metadata.
+
+    ``REQUIRE_APPROVAL`` remains a compatibility fallback for tools that are
+    intentionally resolved before their native module is imported. Once a
+    tool is registered, ``ToolExtras.destructive`` is the authoritative
+    contract shared by the registry, batching policy, UI metadata and HITL.
+    This prevents a newly added destructive tool from silently bypassing the
+    approval gate just because somebody forgot to update a second name list.
+    """
+    if tool_name in REQUIRE_APPROVAL:
+        return True
+    try:
+        from backend.tools.registry import TOOL_REGISTRY
+
+        spec = TOOL_REGISTRY.get(tool_name)
+    except Exception:
+        logger.warning(
+            "hitl: unable to resolve tool metadata",
+            extra={"tool_name": tool_name},
+        )
+        return True
+    return spec is not None and spec.extras.destructive
+
+
+def call_requires_separate_approval(
+    tool_name: str, args: dict[str, Any] | None = None
+) -> bool:
+    """Verifica se uma invocação específica de ferramenta exige aprovação isolada.
+
+    Preserva a regra canônica de aprovação por metadados de ferramenta,
+    além de interceptar operações sensíveis baseadas em argumentos:
+    - git_push com force=True
+    - http_request com métodos mutáveis (POST, PUT, PATCH, DELETE)
+    """
+    if _tool_requires_approval(tool_name):
+        return True
+    call_args = args or {}
+    if tool_name == "git_push" and bool(call_args.get("force", False)):
+        return True
+    if tool_name == "http_request":
+        method = str(call_args.get("method", "GET")).upper()
+        if method in ("POST", "PUT", "PATCH", "DELETE"):
+            return True
+    return False
+
+
+def should_require_approval(  # noqa: PLR0911
     tool_name: str,
     ctx: ToolContext,
     args: dict[str, Any],
@@ -160,7 +242,15 @@ def should_require_approval(
 ) -> bool:
     """Predicate único do HITL nativo — mesma assinatura que `run_conversation`
     já aceita opcionalmente em `should_require_approval`."""
+    mode = ctx.permission_mode or "ask"
     if _is_self_kanban_update(ctx, tool_name, args):
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=False,
+            mode=mode,
+            reason="self_kanban_update",
+        )
         return False
     if tool_name in {"generate_image", "text_to_speech", "generate_video"}:
         # O limiar é definido pelo backend autenticado no contexto. Ausência
@@ -183,22 +273,203 @@ def should_require_approval(
                     units=estimate.units,
                     result="auto_approved",
                 )
+                _log_decision(
+                    tool_name,
+                    ctx,
+                    decision=False,
+                    mode=mode,
+                    reason="media_below_threshold",
+                )
                 return False
             # Custos acima do limiar exigem aprovação em qualquer modo,
             # inclusive `auto` e `bypass`.
+            _log_decision(
+                tool_name,
+                ctx,
+                decision=True,
+                mode=mode,
+                reason="media_above_threshold",
+            )
             return True
         # Sem um limiar confiável, falha fechada: o custo deve ser
         # apresentado ao usuário antes da execução.
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=True,
+            mode=mode,
+            reason="media_threshold_unavailable",
+        )
+        return True
+    if tool_name == "git_push":
+        force = bool(args.get("force", False))
+        if force:
+            _log_decision(
+                tool_name,
+                ctx,
+                decision=True,
+                mode=mode,
+                reason="git_force_push",
+            )
+            return True
+    if tool_name == "http_request":
+        method = str(args.get("method", "GET")).upper()
+        if (
+            method in ("POST", "PUT", "PATCH", "DELETE")
+            and mode not in _NON_INTERRUPTING_MODES
+        ):
+            _log_decision(
+                tool_name,
+                ctx,
+                decision=True,
+                mode=mode,
+                reason="mutable_http_request",
+            )
+            return True
+    if tool_name == "call_mcp_tool" and mode not in _NON_INTERRUPTING_MODES:
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=True,
+            mode=mode,
+            reason="mcp_tool_invocation",
+        )
         return True
     if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=False,
+            mode=mode,
+            reason="workspace_jailed",
+        )
         return False
-    mode = ctx.permission_mode or "ask"
     decision = _mode_should_interrupt(mode, tool_name, history)
-    logger.info(
-        "hitl.decision",
-        extra={"tool_name": tool_name, "decision": decision, "mode": mode},
+    reason = "policy"
+    if not decision:
+        extra = getattr(ctx, "_extra", None)
+        if isinstance(extra, dict):
+            elevated = extra.get("systemone_risk_elevated_calls")
+            if (
+                isinstance(elevated, set)
+                and _risk_assessment_key(tool_name, args) in elevated
+            ) or (
+                elevated is None
+                and extra.get("systemone_risk_requires_approval") is True
+            ):
+                decision = True
+                reason = "systemone_risk_elevated"
+    _log_decision(
+        tool_name,
+        ctx,
+        decision=decision,
+        mode=mode,
+        reason=reason,
     )
     return decision
+
+
+def _risk_assessment_key(tool_name: str, args: dict[str, Any]) -> str:
+    """Executa a operação  risk assessment key."""
+    payload = json.dumps(args, sort_keys=True, default=str)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"{tool_name}:{digest}"
+
+
+async def precompute_tool_risk_assessment(
+    harness: SystemOneHarness,
+    *,
+    tool_name: str,
+    ctx: ToolContext,
+    args: dict[str, Any],
+    risk_score_threshold: float = 0.70,
+) -> bool:
+    """Calcula a avaliação de risco no fluxo assíncrono anterior ao predicado síncrono `should_require_approval`.
+
+    A avaliação só pode AUMENTAR a exigência de revisão humana (nunca reduzir uma
+    aprovação já exigida pelas regras estáticas).
+    """
+    extra = getattr(ctx, "_extra", None)
+    if not isinstance(extra, dict):
+        return False
+
+    workspace_id = getattr(ctx, "workspace_id", None) or "default"
+    mode = getattr(ctx, "permission_mode", None) or "ask"
+    safe_keys = sorted(str(k) for k in args)
+    args_summary = f"keys={safe_keys}"
+
+    try:
+        res = await harness.assess_tool_risk(
+            workspace_id=workspace_id,
+            tool_name=tool_name,
+            args_summary=args_summary,
+            permission_mode=mode,
+        )
+    except Exception:
+        logger.warning("hitl: falha ao pré-calcular risco via SystemOne", exc_info=True)
+        return False
+
+    if res.mode in ("off", "shadow"):
+        return False
+
+    elevate = False
+    if res.policy_result.requires_hitl:
+        elevate = True
+    elif res.response is not None:
+        ans = res.response.answers.get("risk_score")
+        score = getattr(ans, "score", 0.0)
+        if isinstance(score, int | float) and score >= risk_score_threshold:
+            elevate = True
+
+    elevated = extra.setdefault("systemone_risk_elevated_calls", set())
+    key = _risk_assessment_key(tool_name, args)
+    if elevate:
+        elevated.add(key)
+        extra["systemone_risk_requires_approval"] = True
+    else:
+        elevated.discard(key)
+        extra["systemone_risk_requires_approval"] = bool(elevated)
+    return elevate
+
+
+_MAX_NON_TOOL_REVIEW_RECORDS = 500
+_NON_TOOL_REVIEW_RECORDS: deque[dict[str, Any]] = deque(
+    maxlen=_MAX_NON_TOOL_REVIEW_RECORDS
+)
+
+
+def record_non_tool_review_request(
+    *,
+    workspace_id: str,
+    consumer: str,
+    pattern_id: str,
+    decision_id: str,
+    state_version: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Registra em memória (buffer circular limitado ao processo atual) revisão para decisões sem tool call."""
+    record = {
+        "workspace_id": workspace_id,
+        "consumer": consumer,
+        "pattern_id": pattern_id,
+        "decision_id": decision_id,
+        "state_version": state_version,
+        "reason": reason,
+        "status": "pending_review",
+    }
+    _NON_TOOL_REVIEW_RECORDS.append(record)
+    return dict(record)
+
+
+def list_non_tool_review_requests(
+    workspace_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Lista registros de revisão pendentes para consumidores que não usam tool calls."""
+    if workspace_id is None:
+        return [dict(r) for r in _NON_TOOL_REVIEW_RECORDS]
+    return [
+        dict(r) for r in _NON_TOOL_REVIEW_RECORDS if r["workspace_id"] == workspace_id
+    ]
 
 
 class ApprovalGate:
@@ -210,6 +481,7 @@ class ApprovalGate:
     persistência síncrona é quem garante."""
 
     def __init__(self, session_store: SessionStore) -> None:
+        """Inicializa o estado da instância."""
         self._session_store = session_store
         self._events: dict[str, Any] = {}
         self._ephemeral_args: dict[str, dict[str, Any]] = {}
@@ -221,13 +493,15 @@ class ApprovalGate:
         interrupt_id: str,
         tool_name: str,
         tool_call_id: str,
+        run_id: str | None = None,
         args: dict[str, Any],
         reasoning: str | None = None,
-        options: list[dict[str, str]] | None = None,
+        options: list[ToolOption] | None = None,
         priority: int = 0,
         expires_at: str | None = None,
         approval_metadata: dict[str, Any] | None = None,
     ) -> None:
+        """Executa a operação request approval."""
         import asyncio
 
         safe_args = dict(args)
@@ -264,6 +538,7 @@ class ApprovalGate:
             interrupt_id=interrupt_id,
             tool_name=tool_name,
             tool_call_id=tool_call_id,
+            run_id=run_id,
             args=safe_args,
             reasoning=reasoning,
             options=options,

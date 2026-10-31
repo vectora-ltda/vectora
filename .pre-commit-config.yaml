@@ -194,6 +194,12 @@ repos:
   # ~50–100x mais rapido que ESLint; config em chat/.oxlintrc.json.
   - repo: local
     hooks:
+      - id: translation-key-order
+        name: Ordenação das chaves de tradução
+        entry: uv run python utils/sort_translation_keys.py --check
+        language: system
+        files: ^(vectora/frontend/messages|company/messages)/.*\.json$
+
       - id: oxlint
         name: JS/TS Lint (oxlint)
         entry: pnpm --dir vectora/frontend exec oxlint

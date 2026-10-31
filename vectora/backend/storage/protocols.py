@@ -15,25 +15,18 @@ Cada Protocol tem um método ``health() -> HealthResult`` que retorna
 
 from __future__ import annotations
 
-from typing import Any, Protocol, TypedDict, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
-# ---------------------------------------------------------------------------
-# HealthResult
-# ---------------------------------------------------------------------------
-
-
-class HealthResult(TypedDict):
-    """Resultado de uma verificação de saúde de backend."""
-
-    ok: bool
-    error: str | None
+from backend.vtypes.storage import HealthResult
 
 
 def _ok() -> HealthResult:
+    """Executa a operação ok."""
     return {"ok": True, "error": None}
 
 
 def _err(msg: str) -> HealthResult:
+    """Executa a operação err."""
     return {"ok": False, "error": msg}
 
 
@@ -88,32 +81,11 @@ class StoreBackend(Protocol):
 # ---------------------------------------------------------------------------
 
 
-@runtime_checkable
-class VectorStoreBackend(Protocol):
-    """Backend de VectorStore para busca semântica (RAG).
-
-    Implementações:
-        lite     — ``LanceDBBackend`` nativo (F6)
-        complete — ``QdrantBackend`` nativo (F6)
-    """
-
-    async def asimilarity_search(
-        self,
-        query: str,
-        k: int = 4,
-        **kwargs: Any,
-    ) -> list[Any]:
-        """Busca os k documentos mais similares."""
-        ...
-
-    async def aadd_documents(self, documents: list[Any], **kwargs: Any) -> list[str]:
-        """Indexa documentos e retorna seus IDs."""
-        ...
-
-    async def health(self) -> HealthResult:
-        """Verifica se o backend está acessível."""
-        ...
-
+from backend.storage.vectorstore.base import (
+    VectorHit,
+    VectorRow,
+    VectorStoreBackend,
+)
 
 # ---------------------------------------------------------------------------
 # AuthDB — usuários, tokens, audit, invites
@@ -243,6 +215,8 @@ __all__ = [
     "SessionDB",
     "StoreBackend",
     "TracesDB",
+    "VectorHit",
+    "VectorRow",
     "VectorStoreBackend",
     "_err",
     "_ok",

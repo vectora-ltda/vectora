@@ -13,7 +13,7 @@ minimumReleaseAgeExclude:
   - zod@4.5.4
 
 # Força a versão patched do sharp (CVE-2026-33327/33328/35590/35591 nas
-# libvips herdadas) mesmo com @cloudflare/vitest-pool-workers/wrangler
+# libvips herdadas) mesmo com @cloudflare/vitest-plugin/wrangler
 # ainda resolvendo pra uma range mais antiga.
 overrides:
   sharp: ">=0.35.0"

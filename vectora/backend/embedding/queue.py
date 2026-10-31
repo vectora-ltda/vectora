@@ -104,7 +104,8 @@ class EmbeddingQueue:
             # (create_all não altera tabelas existentes). Adiciona a coluna +
             # índice se ausente, sem perder dados.
             cols = await conn.exec_driver_sql("PRAGMA table_info(embedding_queue);")
-            if "job_id" not in {row[1] for row in cols.fetchall()}:
+            column_names = {str(row._mapping["name"]) for row in cols.fetchall()}
+            if "job_id" not in column_names:
                 await conn.exec_driver_sql(
                     "ALTER TABLE embedding_queue ADD COLUMN job_id VARCHAR(36);"
                 )

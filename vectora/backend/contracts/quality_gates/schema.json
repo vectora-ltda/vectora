@@ -1,0 +1,171 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "QualityGateRunResult": {
+      "description": "Resultado auditável da execução de um gate de qualidade com evidências associadas.",
+      "properties": {
+        "artifacts_collected": {
+          "description": "Caminhos de artefatos gerados",
+          "items": {
+            "type": "string"
+          },
+          "title": "Artifacts Collected",
+          "type": "array"
+        },
+        "duration_ms": {
+          "default": 0,
+          "description": "Tempo de execução do gate em milissegundos",
+          "title": "Duration Ms",
+          "type": "integer"
+        },
+        "exit_code": {
+          "description": "Código de saída do processo",
+          "title": "Exit Code",
+          "type": "integer"
+        },
+        "gate_id": {
+          "description": "ID do gate executado",
+          "title": "Gate Id",
+          "type": "string"
+        },
+        "output": {
+          "default": "",
+          "description": "Saída textual resumida do comando (stdout/stderr)",
+          "title": "Output",
+          "type": "string"
+        },
+        "passed": {
+          "description": "Indica se o gate foi aprovado",
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "passed",
+                "assertion_failed",
+                "timeout",
+                "dispatch_error"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Classificação explícita do resultado: passed, assertion_failed, timeout ou dispatch_error",
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "gate_id",
+        "passed",
+        "exit_code"
+      ],
+      "title": "QualityGateRunResult",
+      "type": "object"
+    },
+    "QualityGateSpec": {
+      "description": "Definição de um gate de qualidade a ser executado pós-turno do agente.",
+      "properties": {
+        "command": {
+          "description": "Comando e argumentos a serem executados em sandbox",
+          "items": {
+            "type": "string"
+          },
+          "title": "Command",
+          "type": "array"
+        },
+        "file_patterns": {
+          "description": "Padrões glob de arquivos que ativam este gate (ex: ['**/*.py'])",
+          "items": {
+            "type": "string"
+          },
+          "title": "File Patterns",
+          "type": "array"
+        },
+        "id": {
+          "description": "Identificador único do gate (ex: pytest, eslint, sast)",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "description": "Nome legível para exibição na UI",
+          "title": "Name",
+          "type": "string"
+        },
+        "policy": {
+          "default": "block",
+          "description": "Comportamento em caso de falha: 'block' (falha o run), 'degrade' (marca degraded), 'inform' (adverte)",
+          "enum": [
+            "block",
+            "degrade",
+            "inform"
+          ],
+          "title": "Policy",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "default": 300,
+          "description": "Tempo máximo de execução em segundos",
+          "maximum": 3600,
+          "minimum": 5,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "command"
+      ],
+      "title": "QualityGateSpec",
+      "type": "object"
+    },
+    "WorkspaceVerificationProfile": {
+      "description": "Perfil de verificação pós-execução configurado por workspace.",
+      "properties": {
+        "enabled": {
+          "default": true,
+          "description": "Se a verificação automática está ativa",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "gates": {
+          "description": "Lista de gates configurados",
+          "items": {
+            "$ref": "#/definitions/QualityGateSpec"
+          },
+          "title": "Gates",
+          "type": "array"
+        },
+        "inject_stack_trace_on_failure": {
+          "default": true,
+          "description": "Reinjeta o stack trace / saída de erro no próximo turno para autocorreção",
+          "title": "Inject Stack Trace On Failure",
+          "type": "boolean"
+        },
+        "require_clean_git": {
+          "default": false,
+          "description": "Exige árvore de trabalho limpa pós-execução",
+          "title": "Require Clean Git",
+          "type": "boolean"
+        },
+        "workspace_id": {
+          "description": "ID do workspace proprietário do perfil",
+          "title": "Workspace Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace_id"
+      ],
+      "title": "WorkspaceVerificationProfile",
+      "type": "object"
+    }
+  },
+  "description": "Schemas de perfis e resultados de verificação pós-execução.",
+  "title": "QualityGatesVerificationBundle"
+}

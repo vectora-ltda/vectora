@@ -24,14 +24,16 @@ import contextlib
 import json
 import logging
 import os
+import sqlite3
 import stat
 import uuid
+from collections.abc import AsyncGenerator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi import APIRouter, Header, HTTPException, Query, Request, status
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
 
@@ -63,6 +65,9 @@ def _read_relative_nofollow(root: Path, parts: list[str]) -> bytes:
 
 
 from backend.api.schemas import (
+    AgentRun,
+    AgentRunTimelineEntry,
+    AgentRunTimelineResponse,
     ConversationBranch,
     ConversationBranchComparison,
     ConversationBranchesResponse,
@@ -85,12 +90,19 @@ from backend.api.schemas import (
     StructuredQuestionAnswerRequest,
     StructuredQuestionResponse,
     Thread,
+    ThreadLastMessagePreview,
     ThreadPinsResponse,
     TodoItem,
     UpdateThreadRequest,
 )
+from backend.persistence.native.ledger import (
+    ThreadLedgerEvent,
+    ThreadSummary,
+    ensure_thread_backfilled,
+)
 from backend.persistence.thread_activity import get_remote_activity
 from backend.rbac.device_id import validate_device_id
+from backend.vtypes.permission import PERMISSION_MODES, PermissionMode
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +144,7 @@ async def revoke_current_device(
 
 _db_conn: Any = None
 _db_conn_lock: asyncio.Lock = asyncio.Lock()
+_db_write_lock: asyncio.Lock = asyncio.Lock()
 
 # Serializa `reconcile_vectora_sessions` contra `delete_thread` — as duas
 # compartilham a mesma conexão `_db_conn`, então sem essa exclusão mútua a
@@ -196,9 +209,32 @@ async def _ensure_schema(db: Any) -> None:
             thread_id TEXT NOT NULL,
             user_id TEXT NOT NULL,
             read_count INTEGER NOT NULL DEFAULT 0,
+            read_message_id INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (thread_id, user_id)
         )
     """)
+    with contextlib.suppress(sqlite3.OperationalError):
+        await db.execute(
+            "ALTER TABLE thread_read_cursors ADD COLUMN "
+            "read_message_id INTEGER NOT NULL DEFAULT 0"
+        )
+    # Backfill the message cursor for rows created by the legacy count-only
+    # implementation.  The cursor points at the Nth assistant message, so old
+    # messages do not reappear as unread after migration.
+    # Backfill legacy count-only cursors with a windowed query. The previous
+    # correlated OFFSET expression was rejected by SQLite and left cursors at
+    # zero, making all old replies appear unread after migration.
+    with contextlib.suppress(sqlite3.OperationalError):
+        await db.execute(
+            "WITH ranked AS ("
+            " SELECT id, thread_id, ROW_NUMBER() OVER ("
+            "   PARTITION BY thread_id ORDER BY id"
+            " ) AS rn FROM messages WHERE role = 'assistant'"
+            ") UPDATE thread_read_cursors SET read_message_id = COALESCE(("
+            " SELECT ranked.id FROM ranked WHERE ranked.thread_id = thread_read_cursors.thread_id"
+            " AND ranked.rn = thread_read_cursors.read_count"
+            "), 0) WHERE read_count > 0 AND read_message_id = 0"
+        )
     from backend.services.usage_insights import usage_insight_store
 
     await usage_insight_store.ensure_schema(db)
@@ -250,6 +286,7 @@ async def _migrate_pinned_column(db: Any) -> None:
 
 
 async def _get_db() -> Any:
+    """Executa a operação get db."""
     from backend.services.maintenance import wait_until_available
 
     await wait_until_available()
@@ -376,11 +413,43 @@ def _row_to_thread(row: tuple) -> Thread:
 
 
 async def _unread_count(thread_id: str, user_id: str) -> int:
+    """Executa a operação unread count."""
+    session_store = await _get_session_store()
+    assistant_count = await session_store.count_assistant_messages(thread_id)
     db = await _get_db()
+    if assistant_count is not None and hasattr(
+        session_store, "count_assistant_messages_after"
+    ):
+        try:
+            async with db.execute(
+                "SELECT COALESCE((SELECT read_message_id FROM thread_read_cursors "
+                "WHERE thread_id = ? AND user_id = ?), 0)",
+                (thread_id, user_id),
+            ) as cur:
+                cursor_row = await cur.fetchone()
+            return max(
+                0,
+                int(
+                    await session_store.count_assistant_messages_after(
+                        thread_id, int(cursor_row[0] or 0) if cursor_row else 0
+                    )
+                ),
+            )
+        except sqlite3.OperationalError:
+            # Test doubles and legacy deployments may not have the cursor
+            # column yet; preserve the count-based behavior during migration.
+            pass
+    if assistant_count is None:
+        async with db.execute(
+            "SELECT message_count FROM vectora_sessions WHERE thread_id = ?",
+            (thread_id,),
+        ) as cur:
+            legacy_row = await cur.fetchone()
+        assistant_count = int(legacy_row[0]) if legacy_row else 0
     async with db.execute(
-        "SELECT message_count - COALESCE((SELECT read_count FROM thread_read_cursors "
-        "WHERE thread_id = ? AND user_id = ?), 0) FROM vectora_sessions WHERE thread_id = ?",
-        (thread_id, user_id, thread_id),
+        "SELECT ? - COALESCE((SELECT read_count FROM thread_read_cursors "
+        "WHERE thread_id = ? AND user_id = ?), 0)",
+        (assistant_count, thread_id, user_id),
     ) as cur:
         row = await cur.fetchone()
     return max(0, int(row[0])) if row else 0
@@ -593,6 +662,7 @@ async def increment_remember_turn_count(thread_id: str) -> int:
     count_holder: dict[str, int] = {}
 
     def _mutate(extra: dict) -> dict:
+        """Executa a operação mutate."""
         count = int(extra.get("remember_turn_count", 0)) + 1
         extra["remember_turn_count"] = count
         count_holder["count"] = count
@@ -623,6 +693,7 @@ async def set_remember_pending(thread_id: str, pending: bool) -> None:
     """Marca (ou limpa) a proposta pendente do Remember para a thread."""
 
     def _mutate(extra: dict) -> dict:
+        """Executa a operação mutate."""
         extra["remember_pending"] = pending
         return extra
 
@@ -687,6 +758,7 @@ async def build_pinned_context(
 
 @router.post("/vectora.chat.v1.ThreadService/GetThreadPins")
 async def get_thread_pins(request: GetThreadPinsRequest) -> ThreadPinsResponse:
+    """Executa a operação get thread pins."""
     return ThreadPinsResponse(
         thread_id=request.thread_id,
         pins=await _get_session_pins(request.thread_id),
@@ -695,6 +767,7 @@ async def get_thread_pins(request: GetThreadPinsRequest) -> ThreadPinsResponse:
 
 @router.post("/vectora.chat.v1.ThreadService/SetThreadPins")
 async def set_thread_pins(request: SetThreadPinsRequest) -> ThreadPinsResponse:
+    """Executa a operação set thread pins."""
     pins = await _set_session_pins(request.thread_id, request.pins)
     return ThreadPinsResponse(thread_id=request.thread_id, pins=pins)
 
@@ -803,7 +876,9 @@ async def _require_existing_thread(thread_id: str, request: Request) -> None:
 
 async def _assert_existing_thread_ownership(thread_id: str, request: Request) -> None:
     """Apply ownership checks and reject authenticated requests without a session."""
-    await _assert_owns_thread(thread_id, request)
+    # A read acknowledgement must never create an implicit ownership path for
+    # an unknown thread.  Require the session row before mutating its cursor.
+    await _assert_owns_thread(thread_id, request, require_existing=True)
     store = await _get_session_store()
     if await store.get_session(thread_id) is None:
         raise HTTPException(status_code=404, detail="Thread não encontrada")
@@ -814,6 +889,7 @@ async def get_thread(
     request: GetThreadRequest,
     http_request: Request = None,  # ty: ignore[invalid-parameter-default]
 ) -> Thread:
+    """Executa a operação get thread."""
     db = await _get_db()
     async with db.execute(
         "SELECT thread_id, user_type, created_at, last_activity, message_count, extra, mode, pinned "
@@ -821,15 +897,100 @@ async def get_thread(
         (request.thread_id,),
     ) as cur:
         row = await cur.fetchone()
-    if row is None:
-        raise HTTPException(
-            status_code=404, detail=f"Thread {request.thread_id!r} not found"
-        )
-    await _assert_owns_thread(request.thread_id, http_request)
-    thread = _row_to_thread(row)
-    thread.unread_count = await _unread_count(
-        thread.id, _user_id(http_request) if http_request is not None else "local"
+    session_store = await _get_session_store()
+    has_authenticated_user = (
+        http_request is not None
+        and getattr(http_request.state, "user", None) is not None
     )
+    session_user_id = _user_id(http_request) if has_authenticated_user else None
+    user_id = session_user_id if session_user_id is not None else "local"
+
+    if row is None:
+        # `sessions.db` é a fonte de verdade do motor. A tabela de metadados
+        # pode ficar defasada durante uma reconciliação ou quando a sidebar
+        # ainda está usando uma resposta cacheada; não transforme isso em um
+        # histórico vazio/404 se a sessão nativa e suas mensagens existem.
+        native = await session_store.get_session(
+            request.thread_id,
+            user_id=session_user_id,
+        )
+        if native is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "thread_not_found",
+                    "thread_id": request.thread_id,
+                    "deleted": True,
+                },
+            )
+        thread = Thread(
+            id=str(native["thread_id"]),
+            created_at=native["created_at"],
+            updated_at=native["updated_at"],
+            workspace_id=native["workspace_id"] or "",
+            mode=_normalize_mode(native["mode"]),
+        )
+    else:
+        # An authenticated HTTP read must be backed by the native session
+        # record.  Accepting a legacy ``vectora_sessions`` row without that
+        # ownership record would turn stale UI metadata into a history bypass.
+        await _assert_owns_thread(
+            request.thread_id,
+            http_request,
+            require_existing=has_authenticated_user,
+        )
+        thread = _row_to_thread(row)
+
+    # Derivações a partir do ledger de eventos
+    if hasattr(session_store, "get_thread_summaries"):
+        if hasattr(session_store, "_pool"):
+            legacy_count = 0
+            with contextlib.suppress(Exception):
+                async with db.execute(
+                    "SELECT read_count FROM thread_read_cursors WHERE thread_id = ? AND user_id = ?",
+                    (thread.id, user_id),
+                ) as cur_cursor:
+                    if cursor_row := await cur_cursor.fetchone():
+                        legacy_count = int(cursor_row[0] or 0)
+            try:
+                await ensure_thread_backfilled(
+                    session_store._pool,
+                    thread.id,
+                    user_id=user_id,
+                    legacy_read_count=legacy_count,
+                )
+            except Exception:
+                logger.exception(
+                    "threads: falha ao garantir backfill de ledger para thread %s",
+                    thread.id,
+                )
+        try:
+            summaries = await session_store.get_thread_summaries(
+                [thread.id], user_id=user_id
+            )
+            if summaries and summaries[0].last_seq > 0:
+                s = summaries[0]
+                thread.unread_count = s.unread_count
+                thread.status = s.status
+                thread.last_seq = s.last_seq
+                thread.read_seq = s.read_seq
+                if s.last_message:
+                    thread.last_message = ThreadLastMessagePreview(
+                        role=s.last_message.role,
+                        preview=s.last_message.preview,
+                        message_id=s.last_message.message_id,
+                        created_at=s.last_message.created_at,
+                    )
+            else:
+                thread.unread_count = await _unread_count(thread.id, user_id)
+        except Exception:
+            # Summary telemetry is ancillary.  Keep the thread and its
+            # messages readable when the summary store is degraded.
+            logger.exception(
+                "threads: resumo indisponível ao resolver thread %s", thread.id
+            )
+    else:
+        thread.unread_count = await _unread_count(thread.id, user_id)
     return thread
 
 
@@ -846,9 +1007,11 @@ async def list_threads(
     """Lista threads visíveis ao usuário, excluindo sessões internas."""
     limit = max(1, min(request.limit or 50, 200))
     session_store = await _get_session_store()
+    native_sessions = await session_store.list_all_sessions()
+    native_thread_ids = {session["thread_id"] for session in native_sessions}
     subagent_thread_ids = {
         session["thread_id"]
-        for session in await session_store.list_all_sessions()
+        for session in native_sessions
         if session["mode"] == "subagent"
     }
     db = await _get_db()
@@ -879,15 +1042,40 @@ async def list_threads(
             + " ORDER BY pinned DESC, last_activity DESC LIMIT ?"
         )
         params = (*legacy_params, limit)
-    async with db.execute(query, params) as cur:
-        rows = await cur.fetchall()
 
-    if http_request is not None:
+    if http_request is None:
+        async with db.execute(query, params) as cur:
+            rows = await cur.fetchall()
+    else:
+        # Legacy UI metadata cannot establish ownership during a read, so
+        # ineligible rows are dropped before the limit is applied: pages are
+        # read in order until ``limit`` eligible threads are collected, so
+        # stale metadata at the top never hides older valid threads.
         user_id = _user_id(http_request)
-        foreign_ids = await session_store.foreign_thread_ids(
-            [r[0] for r in rows], user_id
-        )
-        rows = [r for r in rows if r[0] not in foreign_ids]
+        paged_query = query + " OFFSET ?"
+        rows = []
+        offset = 0
+        while len(rows) < limit:
+            async with db.execute(paged_query, (*params, offset)) as cur:
+                page = await cur.fetchall()
+            if not page:
+                break
+            offset += len(page)
+            foreign_ids = await session_store.foreign_thread_ids(
+                [r[0] for r in page], user_id
+            )
+            # Posse nativa só se exige quando há principal autenticado; o
+            # launcher local sem usuário mantém as threads legadas visíveis.
+            require_native = getattr(http_request.state, "user", None) is not None
+            rows.extend(
+                r
+                for r in page
+                if r[0] not in foreign_ids
+                and (not require_native or r[0] in native_thread_ids)
+            )
+            if len(page) < limit:
+                break
+        rows = rows[:limit]
 
     user_id = _user_id(http_request) if http_request is not None else "local"
     current_device_id = (
@@ -900,10 +1088,56 @@ async def list_threads(
         if current_device_id
         else {}
     )
+    thread_ids = [r[0] for r in rows]
+    summaries_by_id: dict[str, ThreadSummary] = {}
+    if hasattr(session_store, "get_thread_summaries"):
+        if hasattr(session_store, "_pool") and thread_ids:
+            # Buscar contagens legadas de thread_read_cursors para preservar no backfill
+            legacy_counts: dict[str, int] = {}
+            placeholders = ",".join("?" for _ in thread_ids)
+            with contextlib.suppress(Exception):
+                async with db.execute(
+                    f"SELECT thread_id, read_count FROM thread_read_cursors "  # noqa: S608  # nosec B608
+                    f"WHERE user_id = ? AND thread_id IN ({placeholders})",
+                    (user_id, *thread_ids),
+                ) as cur_cursors:
+                    for row_c in await cur_cursors.fetchall():
+                        legacy_counts[str(row_c[0])] = int(row_c[1] or 0)
+            for tid in thread_ids:
+                try:
+                    await ensure_thread_backfilled(
+                        session_store._pool,
+                        tid,
+                        user_id=user_id,
+                        legacy_read_count=legacy_counts.get(tid, 0),
+                    )
+                except Exception:
+                    logger.exception(
+                        "threads: falha ao garantir backfill de ledger para thread %s",
+                        tid,
+                    )
+        summaries_list = await session_store.get_thread_summaries(
+            thread_ids, user_id=user_id
+        )
+        summaries_by_id = {s.thread_id: s for s in summaries_list}
+
     threads = []
     for row in rows:
         thread = _row_to_thread(row)
-        thread.unread_count = await _unread_count(thread.id, user_id)
+        if (s := summaries_by_id.get(thread.id)) and s.last_seq > 0:
+            thread.unread_count = s.unread_count
+            thread.status = s.status
+            thread.last_seq = s.last_seq
+            thread.read_seq = s.read_seq
+            if s.last_message:
+                thread.last_message = ThreadLastMessagePreview(
+                    role=s.last_message.role,
+                    preview=s.last_message.preview,
+                    message_id=s.last_message.message_id,
+                    created_at=s.last_message.created_at,
+                )
+        else:
+            thread.unread_count = await _unread_count(thread.id, user_id)
         if activity := remote_activity.get(thread.id):
             thread.remote_activity = RemoteActivity(last_active_at=activity)
         threads.append(thread)
@@ -911,29 +1145,186 @@ async def list_threads(
 
 
 class MarkThreadReadRequest(BaseModel):
-    thread_id: str
+    read_message_id: int | None = None
+    seen_seq: int | None = None
+    device_id: str | None = None
 
 
 @router.post("/threads/{thread_id}/read")
-async def mark_thread_read(thread_id: str, request: Request) -> dict[str, int | str]:
-    """Confirma a leitura da thread de modo idempotente e por usuário."""
+async def mark_thread_read(
+    thread_id: str,
+    request: Request,
+    body: MarkThreadReadRequest | None = None,
+) -> dict[str, int | str]:
+    """Confirma a leitura da thread de modo idempotente e por usuário/dispositivo."""
     await _assert_owns_thread(thread_id, request)
     user_id = _user_id(request)
     db = await _get_db()
-    async with db.execute(
-        "SELECT message_count FROM vectora_sessions WHERE thread_id = ?", (thread_id,)
-    ) as cur:
-        row = await cur.fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Thread não encontrada")
-    await db.execute(
-        "INSERT INTO thread_read_cursors(thread_id, user_id, read_count) VALUES (?, ?, ?) "
-        "ON CONFLICT(thread_id, user_id) DO UPDATE SET read_count = "
-        "MAX(thread_read_cursors.read_count, excluded.read_count)",
-        (thread_id, user_id, int(row[0])),
-    )
-    await db.commit()
-    return {"thread_id": thread_id, "unread_count": 0}
+    if body and body.device_id is not None:
+        validated_dev = validate_device_id(body.device_id)
+        if validated_dev is None:
+            raise HTTPException(
+                status_code=422,
+                detail="Identificador de dispositivo inválido",
+            )
+        device_id = validated_dev
+    else:
+        state_dev = getattr(request.state, "device_id", None)
+        device_id = validate_device_id(state_dev) or "default"
+
+    session_store = await _get_session_store()
+
+    # Se seen_seq foi fornecido ou SessionStore suporta ledger:
+    if (
+        body
+        and body.seen_seq is not None
+        and hasattr(session_store, "mark_events_seen")
+    ):
+        if hasattr(session_store, "_pool"):
+            legacy_count = 0
+            with contextlib.suppress(Exception):
+                async with db.execute(
+                    "SELECT read_count FROM thread_read_cursors WHERE thread_id = ? AND user_id = ?",
+                    (thread_id, user_id),
+                ) as cur_cursor:
+                    if cursor_row := await cur_cursor.fetchone():
+                        legacy_count = int(cursor_row[0] or 0)
+            try:
+                await ensure_thread_backfilled(
+                    session_store._pool,
+                    thread_id,
+                    user_id=user_id,
+                    legacy_read_count=legacy_count,
+                )
+            except Exception:
+                logger.exception(
+                    "threads: falha ao garantir backfill de ledger para thread %s",
+                    thread_id,
+                )
+        result = await session_store.mark_events_seen(
+            thread_id=thread_id,
+            user_id=user_id,
+            device_id=device_id,
+            seen_seq=body.seen_seq,
+        )
+        return {
+            "thread_id": thread_id,
+            "unread_count": result.get("unread_count", 0),
+            "read_seq": result.get("read_seq", body.seen_seq),
+        }
+
+    # Fallback / retrocompatibilidade com read_message_id
+    db = await _get_db()
+    async with _db_write_lock:
+        for attempt in range(5):
+            try:
+                assistant_count = await session_store.count_assistant_messages(
+                    thread_id
+                )
+                if assistant_count is None:
+                    async with db.execute(
+                        "SELECT message_count FROM vectora_sessions WHERE thread_id = ?",
+                        (thread_id,),
+                    ) as cur:
+                        legacy_row = await cur.fetchone()
+                    if legacy_row is None:
+                        raise HTTPException(
+                            status_code=404,
+                            detail={
+                                "code": "thread_not_found",
+                                "thread_id": thread_id,
+                                "deleted": True,
+                            },
+                        )
+                    assistant_count = int(legacy_row[0])
+                if hasattr(session_store, "latest_assistant_message_id"):
+                    latest_assistant = await session_store.latest_assistant_message_id(
+                        thread_id
+                    )
+                else:
+                    latest_assistant = assistant_count
+                async with db.execute(
+                    "SELECT read_message_id FROM thread_read_cursors "
+                    "WHERE thread_id = ? AND user_id = ?",
+                    (thread_id, user_id),
+                ) as cur:
+                    cursor_row = await cur.fetchone()
+                stored_cursor = int(cursor_row[0] or 0) if cursor_row else 0
+                requested_cursor = (
+                    max(0, int(body.read_message_id))
+                    if body and body.read_message_id is not None
+                    else stored_cursor
+                )
+                confirmed_cursor = max(
+                    stored_cursor, min(requested_cursor, latest_assistant or 0)
+                )
+                if hasattr(session_store, "count_assistant_messages_after"):
+                    remaining = await session_store.count_assistant_messages_after(
+                        thread_id, confirmed_cursor
+                    )
+                    unread_count = int(remaining or 0)
+                    read_count = max(0, int(assistant_count) - unread_count)
+                else:
+                    unread_count = max(0, int(assistant_count) - stored_cursor)
+                    read_count = max(0, int(assistant_count) - unread_count)
+                await db.execute(
+                    "INSERT INTO thread_read_cursors "
+                    "(thread_id, user_id, read_count, read_message_id) "
+                    "VALUES (?, ?, ?, ?) ON CONFLICT(thread_id, user_id) DO UPDATE SET "
+                    "read_count = MAX(thread_read_cursors.read_count, excluded.read_count), "
+                    "read_message_id = MAX(thread_read_cursors.read_message_id, "
+                    "excluded.read_message_id)",
+                    (thread_id, user_id, read_count, confirmed_cursor),
+                )
+                await db.commit()
+                break
+            except sqlite3.OperationalError as exc:
+                await db.rollback()
+                locked = "locked" in str(exc).lower()
+                if not locked or attempt == 4:
+                    raise
+                delay = 0.05 * (2**attempt)
+                logger.warning(
+                    "thread_read_write_locked_retry",
+                    extra={
+                        "thread_id": thread_id,
+                        "user_id": user_id,
+                        "attempt": attempt + 1,
+                        "delay_seconds": delay,
+                    },
+                )
+                await asyncio.sleep(delay)
+
+    # Sincroniza o fallback que processa read_message_id com o ledger
+    if hasattr(session_store, "mark_events_seen"):
+        try:
+            if hasattr(session_store, "_pool"):
+                await ensure_thread_backfilled(
+                    session_store._pool,
+                    thread_id,
+                    user_id=user_id,
+                    legacy_read_count=read_count,
+                )
+            target_seq = None
+            if hasattr(session_store, "get_event_seq_by_message_id"):
+                target_seq = await session_store.get_event_seq_by_message_id(
+                    thread_id, confirmed_cursor
+                )
+            if target_seq is not None and target_seq > 0:
+                ledger_res = await session_store.mark_events_seen(
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    device_id=device_id,
+                    seen_seq=target_seq,
+                )
+                unread_count = ledger_res.get("unread_count", unread_count)
+        except Exception:
+            logger.exception(
+                "threads: falha ao sincronizar fallback de read_message_id com ledger para thread %s",
+                thread_id,
+            )
+
+    return {"thread_id": thread_id, "unread_count": unread_count}
 
 
 async def cleanup_empty_threads(max_age_hours: float = 1.0) -> int:
@@ -1137,6 +1528,7 @@ async def delete_thread(
     request: DeleteThreadRequest,
     http_request: Request = None,  # ty: ignore[invalid-parameter-default]
 ) -> dict:
+    """Executa a operação delete thread."""
     await _assert_owns_thread(request.thread_id, http_request)
     db = await _get_db()
     # Grava o tombstone ANTES de qualquer exclusão: fecha a corrida onde
@@ -1236,7 +1628,10 @@ async def update_thread(
 
 
 @router.post("/vectora.chat.v1.ThreadService/GetHistory")
-async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
+async def get_history(
+    request: GetHistoryRequest,
+    http_request: Request = None,  # ty: ignore[invalid-parameter-default]
+) -> GetHistoryResponse:
     """Retorna o histórico de mensagens de uma thread via ``SessionStore`` nativo.
 
     Reusa o singleton do agente (mesmo que o handler de chat) — evita rebuild
@@ -1245,15 +1640,57 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
     try:
         from backend.services import agent_factory
 
-        thread = await get_thread(GetThreadRequest(thread_id=request.thread_id))
+        thread = await get_thread(
+            GetThreadRequest(thread_id=request.thread_id),
+            http_request=http_request,
+        )
+        # Capture the cursor before reading messages.  A write that races the
+        # history read must not make the response claim a sequence newer than
+        # the messages it contains; the next replay will deliver that event.
+        summary = None
+        store: object | None = None
+        try:
+            store = await _get_session_store()
+            summary_user_id = (
+                _user_id(http_request) if http_request is not None else "local"
+            )
+            summaries = (
+                await store.get_thread_summaries(
+                    [request.thread_id], user_id=summary_user_id
+                )
+                if hasattr(store, "get_thread_summaries")
+                else []
+            )
+            summary = summaries[0] if summaries else None
+        except Exception:
+            # Summary telemetry is optional; never discard messages when its
+            # store is temporarily unavailable.
+            logger.exception("api/threads: resumo indisponível no histórico")
         pairs = await agent_factory.aget_thread_messages_with_files(
             request.thread_id,
             workspace_id=thread.workspace_id or None,
         )
+        # A cursor derived from the ledger is only meaningful when the summary
+        # snapshot was read successfully.  If summary storage failed, expose
+        # the conservative idle/zero state instead of claiming a cursor from a
+        # different read snapshot than the one used for this response.
+        try:
+            safe_last_seq = (
+                await _safe_history_cursor(
+                    store, request.thread_id, pairs, summary.last_seq
+                )
+                if summary is not None
+                else 0
+            )
+        except Exception:
+            logger.exception("api/threads: cursor do histórico indisponível")
+            safe_last_seq = 0
         history = [
             HistoryMessage(
                 role=entry.role,
                 content=entry.text,
+                message_id=entry.message_id,
+                is_error=entry.is_error,
                 checkpoint_id=entry.checkpoint_id,
                 attachments=entry.attachments,
                 edited_files=[file.model_dump() for file in entry.edited_files],
@@ -1267,8 +1704,12 @@ async def get_history(request: GetHistoryRequest) -> GetHistoryResponse:
         return GetHistoryResponse(
             messages=history,
             todos=[TodoItem.model_validate(todo) for todo in todos],
+            run_status=summary.status if summary else "idle",
+            last_seq=safe_last_seq,
         )
 
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("api/threads: erro ao carregar histórico")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -1715,6 +2156,31 @@ async def rewind_thread(
 MESSAGES_CAP = 200
 
 
+async def _safe_history_cursor(
+    store: object | None,
+    thread_id: str,
+    entries: Sequence[object],
+    fallback: int,
+) -> int:
+    """Limit the returned cursor to events represented by response messages.
+
+    ``fallback`` is the summary cursor read together with ``run_status``; the
+    result never exceeds it, so SSE replay from this cursor still delivers
+    any run state change that happened after the summary was captured.
+    """
+    get_seq = getattr(store, "get_event_seq_by_message_id", None)
+    if not callable(get_seq):
+        return fallback
+    for entry in reversed(entries):
+        message_id = getattr(entry, "message_id", None)
+        if message_id is None:
+            continue
+        seq = await get_seq(thread_id, message_id)
+        if seq is not None:
+            return min(int(seq), fallback)
+    return 0
+
+
 @router.get("/threads/{thread_id}/history", response_model=PagedHistoryResponse)
 async def get_thread_history_paginated(
     thread_id: str,
@@ -1728,17 +2194,33 @@ async def get_thread_history_paginated(
     recentes), em ordem cronológica. ``has_more=True`` quando existem mensagens
     mais antigas além das retornadas.
     """
-    await _assert_owns_thread(
-        thread_id,
-        request,
-        require_existing=_user_id(request) != "local",
-    )
+    # Validate ownership when a native session is already present, but do not
+    # require that row before reconciliation.  ``get_thread`` below remains
+    # the canonical existence check.
+    await _assert_owns_thread(thread_id, request)
+
+    summary = None
+    store: object | None = None
     try:
         from backend.services import agent_factory
 
+        # ``get_thread`` is the source of truth for both existence and
+        # ownership.  Resolving it first also supports reconciliation windows
+        # where the native ledger exists before the UI metadata row.
         thread = await get_thread(
             GetThreadRequest(thread_id=thread_id), http_request=request
         )
+        try:
+            store = await _get_session_store()
+            if hasattr(store, "get_thread_summaries"):
+                summaries = await store.get_thread_summaries(
+                    [thread_id], user_id=_user_id(request)
+                )
+                summary = summaries[0] if summaries else None
+        except Exception:
+            # Status is ancillary to the message page. Preserve the loaded
+            # messages/count when summary storage is unavailable.
+            logger.exception("api/threads: resumo indisponível no histórico paginado")
         pairs = await agent_factory.aget_thread_messages_with_files(
             thread_id,
             workspace_id=thread.workspace_id or None,
@@ -1759,11 +2241,22 @@ async def get_thread_history_paginated(
     page = pairs[start:end]
 
     has_more = start > 0
+    try:
+        safe_last_seq = (
+            await _safe_history_cursor(store, thread_id, page, summary.last_seq)
+            if summary is not None
+            else 0
+        )
+    except Exception:
+        logger.exception("api/threads: cursor paginado indisponível")
+        safe_last_seq = 0
 
     messages = [
         HistoryMessage(
             role=entry.role,
             content=entry.text,
+            message_id=entry.message_id,
+            is_error=entry.is_error,
             checkpoint_id=entry.checkpoint_id,
             attachments=entry.attachments,
             edited_files=[file.model_dump() for file in entry.edited_files],
@@ -1801,6 +2294,8 @@ async def get_thread_history_paginated(
         messages=messages,
         has_more=has_more,
         total_count=total,
+        run_status=summary.status if summary else "idle",
+        last_seq=safe_last_seq,
     )
 
 
@@ -2015,12 +2510,25 @@ async def thread_pending_interrupt(
     if pending is None:
         return PendingInterruptResponse(interrupt=None)
 
+    session = None
+    permission_mode: PermissionMode = "ask"
+    resolved_workspace_id = workspace_id or ""
+    if request is not None:
+        session_store = await _get_session_store()
+        session = await session_store.get_session(thread_id, user_id=_user_id(request))
+        if isinstance(session, dict):
+            candidate_mode = str(session.get("permission_mode") or "ask")
+            permission_mode = (
+                candidate_mode if candidate_mode in PERMISSION_MODES else "ask"
+            )
+            resolved_workspace_id = str(session.get("workspace_id") or "")
+
     pre_approved = False
     with contextlib.suppress(Exception):
         from backend.services.smart_approval import evaluate_command
 
         pre_approved = await evaluate_command(
-            pending["tool_name"], pending["args"], workspace_id=workspace_id or ""
+            pending["tool_name"], pending["args"], workspace_id=resolved_workspace_id
         )
 
     return PendingInterruptResponse(
@@ -2028,6 +2536,8 @@ async def thread_pending_interrupt(
             tool_name=pending["tool_name"],
             args_json=json.dumps(pending["args"]),
             interrupt_id=pending["interrupt_id"],
+            permission_mode=permission_mode,
+            workspace_id=resolved_workspace_id,
             pre_approved=pre_approved,
             options=pending.get("options", []),
             priority=int(pending.get("priority", 0)),
@@ -2062,6 +2572,7 @@ class SmartApprovalAllowlistResponse(BaseModel):
 
 
 def _allowlist_items(workspace_id: str) -> list[SmartApprovalAllowlistItem]:
+    """Executa a operação allowlist items."""
     from backend.services.smart_approval import allowlist_id, get_allowlist
 
     return [
@@ -2176,3 +2687,160 @@ async def remove_smart_approval_allowlist(
         rule_id=body.rule_id,
     )
     return SmartApprovalAllowlistResponse(allowlist=_allowlist_items(body.workspace_id))
+
+
+@router.get(
+    "/threads/{thread_id}/events",
+    response_class=StreamingResponse,
+    responses={
+        200: {
+            "description": "Stream SSE de eventos do ledger da thread",
+            "content": {"text/event-stream": {}},
+        }
+    },
+)
+async def stream_thread_ledger_events(
+    thread_id: str,
+    request: Request,
+    from_seq: Annotated[int, Query(ge=0)] = 0,
+    last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
+) -> StreamingResponse:
+    """Stream SSE de eventos do ledger da thread com suporte a Last-Event-ID / from_seq."""
+    await _assert_owns_thread(thread_id, request, require_existing=True)
+    session_store = await _get_session_store()
+
+    # Validação e parsing de Last-Event-ID e from_seq
+    if from_seq < 0:
+        raise HTTPException(
+            status_code=422,
+            detail="from_seq deve ser maior ou igual a 0",
+        )
+
+    start_seq = from_seq
+    if last_event_id is not None:
+        try:
+            parsed_id = int(last_event_id)
+            if parsed_id < 0:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Last-Event-ID não pode ser negativo",
+                )
+            start_seq = parsed_id
+        except ValueError:
+            # Fallback para from_seq quando conversão numérica falhar
+            start_seq = from_seq
+
+    async def event_generator() -> AsyncGenerator[str]:
+        """Executa a operação event generator."""
+        current_seq = start_seq
+        last_heartbeat = asyncio.get_event_loop().time()
+
+        while True:
+            if await request.is_disconnected():
+                break
+
+            had_events = False
+            if hasattr(session_store, "list_events"):
+                while True:
+                    if await request.is_disconnected():
+                        return
+                    batch: list[ThreadLedgerEvent] = await session_store.list_events(
+                        thread_id,
+                        after_seq=current_seq,
+                        limit=500,
+                    )
+                    if not batch:
+                        break
+                    had_events = True
+                    for ev in batch:
+                        current_seq = max(current_seq, ev.seq)
+                        data = json.dumps(
+                            ev.model_dump(mode="json"),
+                            ensure_ascii=False,
+                        )
+                        yield f"id: {ev.seq}\nevent: {ev.type}\ndata: {data}\n\n"
+                    if len(batch) < 500:
+                        break
+
+            now = asyncio.get_event_loop().time()
+            if now - last_heartbeat >= 15.0:
+                yield ": keep-alive\n\n"
+                last_heartbeat = now
+            elif not had_events:
+                # Pequena pausa antes de consultar novos eventos
+                await asyncio.sleep(0.5)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# Endpoints de AgentRun e auditoria de execução.
+# ---------------------------------------------------------------------------
+
+
+@router.get("/runs/{run_id}", response_model=AgentRun)
+async def get_agent_run(run_id: str, request: Request) -> AgentRun:
+    """Consulta o estado consolidado, evidências e métricas de um AgentRun."""
+    session_store = await _get_session_store()
+    if not hasattr(session_store, "get_agent_run"):
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Store não suporta consulta de AgentRun.",
+        )
+    run = await session_store.get_agent_run(run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id!r} não encontrada.",
+        )
+    await _assert_existing_thread_ownership(run.thread_id, request)
+    return run
+
+
+@router.get("/runs/{run_id}/timeline", response_model=AgentRunTimelineResponse)
+async def get_agent_run_timeline(
+    run_id: str,
+    request: Request,
+    limit: Annotated[int, Query(ge=1, le=500)] = 500,
+    offset: Annotated[int, Query(ge=0)] = 0,
+) -> AgentRunTimelineResponse:
+    """Consulta o estado e uma página da timeline de eventos do AgentRun."""
+    session_store = await _get_session_store()
+    if not hasattr(session_store, "get_agent_run"):
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="Store não suporta consulta de AgentRun.",
+        )
+    run = await session_store.get_agent_run(run_id)
+    if run is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run {run_id!r} não encontrada.",
+        )
+    await _assert_existing_thread_ownership(run.thread_id, request)
+    timeline: list[AgentRunTimelineEntry] = []
+    if hasattr(session_store, "get_agent_run_timeline"):
+        timeline = await session_store.get_agent_run_timeline(
+            run_id, limit=limit, offset=offset
+        )
+    return AgentRunTimelineResponse(run=run, timeline=timeline)
+
+
+@router.get("/threads/{thread_id}/runs", response_model=list[AgentRun])
+async def list_thread_agent_runs(
+    thread_id: str, request: Request, limit: int = 50
+) -> list[AgentRun]:
+    """Lista as execuções de agente vinculadas a uma thread."""
+    await _assert_owns_thread(thread_id, request, require_existing=True)
+    session_store = await _get_session_store()
+    if not hasattr(session_store, "list_agent_runs"):
+        return []
+    return await session_store.list_agent_runs(thread_id, limit=limit)

@@ -1,7 +1,9 @@
 """Catálogo de tools do agente, agrupadas por categoria.
 
-Todos os agentes recebem ALL_TOOLS — a diferença entre eles é o treinamento
-(system prompt) e o contexto, não as ferramentas disponíveis.
+O agente principal recebe ALL_TOOLS. Subagents recebem apenas os grupos
+declarados em ``backend.agents.souls.Soul.tool_groups``; a diferença de
+permissões é enforcement real no catálogo de function-calling, não apenas
+uma instrução no prompt.
 
 As listas parciais (SEARCH_TOOLS, FS_TOOLS, etc.) são mantidas como referência
 semântica pra montar `SOUL_CATALOG` (backend/agents/souls.py) mas ALL_TOOLS é
@@ -36,6 +38,9 @@ from backend.tools import (
 )
 from backend.tools import (
     git as _git_module,
+)
+from backend.tools import (
+    github as _github_module,
 )
 from backend.tools import (
     gmail as _gmail_module,
@@ -87,6 +92,9 @@ from backend.tools import (
     slack as _slack_module,
 )
 from backend.tools import (
+    systemone_tools as _systemone_tools_module,
+)
+from backend.tools import (
     terminal_sessions as _terminal_sessions_module,
 )
 from backend.tools import (
@@ -130,11 +138,18 @@ graph_affected = _bridge("graph_affected")
 file_read = _bridge("file_read")
 file_edit = _bridge("file_edit")
 file_write = _bridge("file_write")
+file_create_dir = _bridge("file_create_dir")
+file_delete = _bridge("file_delete")
+file_move = _bridge("file_move")
+file_search = _bridge("file_search")
 grep = _bridge("grep")
 list_dir = _bridge("list_dir")
 terminal = _bridge("terminal")
 create_artifact = _bridge("create_artifact")
 git_status = _bridge("git_status")
+git_operation = _bridge("git_operation")
+git_operations = _bridge("git_operations")
+git_commit_suggestion = _bridge("git_commit_suggestion")
 git_log = _bridge("git_log")
 git_diff = _bridge("git_diff")
 git_branch = _bridge("git_branch")
@@ -226,12 +241,14 @@ browser_lighthouse_audit = _bridge("browser_lighthouse_audit")
 browser_screencast_start = _bridge("browser_screencast_start")
 browser_screencast_stop = _bridge("browser_screencast_stop")
 list_terminals = _bridge("list_terminals")
+open_terminal = _bridge("open_terminal")
 close_terminal = _bridge("close_terminal")
 list_desktop_windows = _bridge("list_desktop_windows")
 select_desktop_window = _bridge("select_desktop_window")
 focus_desktop_window = _bridge("focus_desktop_window")
 read_terminal = _bridge("read_terminal")
 write_terminal = _bridge("write_terminal")
+attach_terminal = _bridge("attach_terminal")
 gmail_list = _bridge("gmail_list")
 gmail_read = _bridge("gmail_read")
 slack_send = _bridge("slack_send")
@@ -257,6 +274,8 @@ gh_issue_list = _bridge("gh_issue_list")
 gh_issue_create = _bridge("gh_issue_create")
 gh_issue_view = _bridge("gh_issue_view")
 gh_issue_comment = _bridge("gh_issue_comment")
+github_fetch_pr_diff = _bridge("github_fetch_pr_diff")
+github_post_pr_comment = _bridge("github_post_pr_comment")
 workspace_describe = _bridge("workspace_describe")
 workspace_list = _bridge("workspace_list")
 time_now = _bridge("time_now")
@@ -295,6 +314,15 @@ extract_audio = _bridge("extract_audio")
 transcribe_local = _bridge("transcribe_local")
 write_todos = _bridge("write_todos")
 ask_structured_question = _bridge("ask_structured_question")
+systemone_list_patterns = _bridge("systemone_list_patterns")
+systemone_evaluate_pattern = _bridge("systemone_evaluate_pattern")
+systemone_propose_kanban_transition = _bridge("systemone_propose_kanban_transition")
+
+SYSTEMONE_TOOLS: list[ToolSpec] = [
+    systemone_list_patterns,
+    systemone_evaluate_pattern,
+    systemone_propose_kanban_transition,
+]
 
 # ---------------------------------------------------------------------------
 # Grupos semânticos (referência — não são usados diretamente pelos agentes)
@@ -319,9 +347,14 @@ FS_TOOLS: list[ToolSpec] = [
     file_read,
     file_edit,
     file_write,
+    file_create_dir,
+    file_delete,
+    file_move,
+    file_search,
     grep,
     list_dir,
     terminal,
+    open_terminal,
     create_artifact,
     list_terminals,
     close_terminal,
@@ -330,6 +363,7 @@ FS_TOOLS: list[ToolSpec] = [
     focus_desktop_window,
     read_terminal,
     write_terminal,
+    attach_terminal,
 ]
 
 #: Ferramentas de browser: navegação livre + automação + dev server
@@ -455,6 +489,9 @@ NATIVE_TOOLS: list[ToolSpec] = [
 #: Ferramentas git e GitHub CLI
 GIT_TOOLS: list[ToolSpec] = [
     git_status,
+    git_operation,
+    git_operations,
+    git_commit_suggestion,
     git_log,
     git_diff,
     git_branch,
@@ -485,6 +522,8 @@ GIT_TOOLS: list[ToolSpec] = [
     gh_issue_create,
     gh_issue_view,
     gh_issue_comment,
+    github_fetch_pr_diff,
+    github_post_pr_comment,
 ]
 
 # ---------------------------------------------------------------------------
@@ -509,9 +548,14 @@ for _t in [
     file_read,
     file_edit,
     file_write,
+    file_create_dir,
+    file_delete,
+    file_move,
+    file_search,
     grep,
     list_dir,
     terminal,
+    open_terminal,
     create_artifact,
     list_terminals,
     close_terminal,
@@ -520,6 +564,7 @@ for _t in [
     focus_desktop_window,
     read_terminal,
     write_terminal,
+    attach_terminal,
     browser_navigate,
     browser_screenshot,
     browser_click,
@@ -594,6 +639,9 @@ for _t in [
     kanban_decompose,
     # Git + GitHub CLI
     git_status,
+    git_operation,
+    git_operations,
+    git_commit_suggestion,
     git_log,
     git_diff,
     git_branch,
@@ -624,6 +672,8 @@ for _t in [
     gh_issue_create,
     gh_issue_view,
     gh_issue_comment,
+    github_fetch_pr_diff,
+    github_post_pr_comment,
     # Integrações externas (configuradas via OAuth/API key; cada tool degrada
     # para erro tipado quando o provider não está conectado).
     google_drive_list,
@@ -682,6 +732,10 @@ for _t in [
     # Planejamento (checklist de progresso, todo agente)
     write_todos,
     ask_structured_question,
+    # SystemOne — decisões e transições determinísticas do workspace
+    systemone_list_patterns,
+    systemone_evaluate_pattern,
+    systemone_propose_kanban_transition,
 ]:
     _all[_t.name] = _t
 

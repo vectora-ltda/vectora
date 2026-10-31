@@ -49,6 +49,17 @@ function mockFetch(
     nineRouterRegisterOk: boolean;
     mediaModelsGet: { models: Record<string, string> } | null;
     mediaModelsPatch: { models: Record<string, string> };
+    llamacppRuntimeStatus: {
+      installed: boolean;
+      path: string | null;
+      files: string[];
+      active_runtime?: string | null;
+      runtimes: Array<{ id: string; asset: string }>;
+    };
+    llamacppRuntimeRemoveOk: boolean;
+    hfModels?: object[];
+    hfMetadata?: object;
+    dmrJob?: { id: string; status: string; error?: string | null };
   }>,
 ) {
   global.fetch = vi
@@ -168,6 +179,16 @@ function mockFetch(
             },
         } as Response);
       }
+      if (url === "/provider-routing/llamacpp/status") {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({
+            configured: false,
+            base_url: "http://127.0.0.1:8080/v1",
+            model: "",
+          }),
+        } as Response);
+      }
       if (url === "/provider-routing/nine-router/config" && method === "POST") {
         const ok = handlers.nineRouterConfigSaveOk ?? true;
         return Promise.resolve({
@@ -244,6 +265,66 @@ function mockFetch(
           json: async () => body ?? {},
         } as Response);
       }
+      if (
+        typeof url === "string" &&
+        url.startsWith("/provider-routing/huggingface/models?q=")
+      ) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ models: handlers.hfModels ?? [] }),
+        } as Response);
+      }
+      if (
+        typeof url === "string" &&
+        url.startsWith("/provider-routing/huggingface/models/")
+      ) {
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            handlers.hfMetadata ?? { id: "owner/model", files: [] },
+        } as Response);
+      }
+      if (url === "/provider-routing/dmr/models/jobs" && method === "POST") {
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            handlers.dmrJob ?? { id: "a".repeat(32), status: "completed" },
+        } as Response);
+      }
+      if (
+        typeof url === "string" &&
+        url.startsWith("/provider-routing/dmr/models/jobs/") &&
+        !url.endsWith("/retry")
+      ) {
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            handlers.dmrJob ?? { id: "a".repeat(32), status: "completed" },
+        } as Response);
+      }
+      if (url === "/provider-routing/llamacpp/runtime/status") {
+        return Promise.resolve({
+          ok: true,
+          json: async () =>
+            handlers.llamacppRuntimeStatus ?? {
+              installed: false,
+              path: null,
+              files: [],
+              runtimes: [],
+            },
+        } as Response);
+      }
+      if (
+        typeof url === "string" &&
+        url.startsWith("/provider-routing/llamacpp/runtime/") &&
+        method === "DELETE"
+      ) {
+        return Promise.resolve({
+          ok: handlers.llamacppRuntimeRemoveOk ?? true,
+          status: handlers.llamacppRuntimeRemoveOk === false ? 409 : 200,
+          json: async () => ({ ok: true }),
+        } as Response);
+      }
       if (url === "/admin/media-models" && method === "PATCH") {
         return Promise.resolve({
           ok: true,
@@ -257,6 +338,108 @@ function mockFetch(
       } as Response);
     });
 }
+
+describe("ProviderRoutingTab - Hugging Face", () => {
+  beforeEach(() => {
+    overwriteGetLocale(() => "pt");
+  });
+
+  it("oferece uma única ação de instalação para cada modelo", async () => {
+    mockFetch({
+      registered: [],
+      hfModels: [
+        {
+          id: "owner/model",
+          name: "Modelo",
+          format: "GGUF",
+          compatibility: "provável",
+        },
+      ],
+      hfMetadata: {
+        id: "owner/model",
+        revision: "abc123",
+        license: "mit",
+        downloads: 12,
+        files: [{ rfilename: "model.Q4_K_M.gguf", format: "GGUF" }],
+      },
+    });
+    render(<ProviderRoutingTab />);
+    fireEvent.click(await screen.findByRole("button", { name: /^buscar$/i }));
+    expect(await screen.findByText("owner/model")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /baixar modelo/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /instalar modelo/i }));
+    expect(await screen.findByText(/mit/i)).toBeTruthy();
+  });
+
+  it("pesquisa referências Hugging Face do Docker Model Runner sem exigir GGUF", async () => {
+    mockFetch({
+      registered: [],
+      hfModels: [
+        {
+          id: "Qwen/Qwen3-0.6B",
+          name: "Qwen3",
+          compatibility: "não verificada",
+          format: "",
+        },
+      ],
+    });
+    render(<ProviderRoutingTab />);
+
+    const runtime = await screen.findByLabelText(
+      "Runtime do modelo Hugging Face",
+    );
+    fireEvent.change(runtime, { target: { value: "dmr" } });
+    fireEvent.click(screen.getByRole("button", { name: /^buscar$/i }));
+
+    expect(await screen.findByText("Qwen/Qwen3-0.6B")).toBeTruthy();
+    expect(
+      (
+        global.fetch as unknown as { mock: { calls: unknown[][] } }
+      ).mock.calls.some(
+        ([url]) =>
+          typeof url === "string" &&
+          url.includes("/provider-routing/huggingface/models?") &&
+          url.includes("provider=dmr"),
+      ),
+    ).toBe(true);
+  });
+
+  it("instala um modelo DMR sem exigir arquivo GGUF selecionado", async () => {
+    mockFetch({
+      registered: [],
+      hfModels: [{ id: "Qwen/Qwen3-0.6B", name: "Qwen3", format: "" }],
+      hfMetadata: { id: "Qwen/Qwen3-0.6B", files: [] },
+      dmrJob: { id: "a".repeat(32), status: "completed" },
+    });
+    render(<ProviderRoutingTab />);
+    fireEvent.change(
+      await screen.findByLabelText("Runtime do modelo Hugging Face"),
+      {
+        target: { value: "dmr" },
+      },
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^buscar$/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /instalar modelo/i }),
+    );
+    await screen.findByDisplayValue("hf.co/Qwen/Qwen3-0.6B");
+    const installButtons = await screen.findAllByRole("button", {
+      name: /instalar modelo/i,
+    });
+    fireEvent.click(installButtons.at(-1)!);
+    await waitFor(() => {
+      expect(
+        (
+          global.fetch as unknown as { mock: { calls: unknown[][] } }
+        ).mock.calls.some(
+          ([url, init]) =>
+            url === "/provider-routing/dmr/models/jobs" &&
+            (init as RequestInit)?.method === "POST",
+        ),
+      ).toBe(true);
+    });
+  });
+});
 
 describe("ProviderRoutingTab — Ollama", () => {
   beforeEach(() => {
@@ -390,7 +573,7 @@ describe("ProviderRoutingTab — OpenRouter", () => {
     render(<ProviderRoutingTab />);
     const input = await screen.findByPlaceholderText(/sk-or-v1/i);
     fireEvent.change(input, { target: { value: "sk-or-v1-abcdef" } });
-    fireEvent.click(screen.getByRole("button", { name: /salvar/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Salvar$/ }));
 
     await waitFor(() => {
       expect(screen.getByText(/configurada/i)).toBeTruthy();
@@ -407,7 +590,7 @@ describe("ProviderRoutingTab — OpenRouter", () => {
     render(<ProviderRoutingTab />);
     const input = await screen.findByPlaceholderText(/sk-or-v1/i);
     fireEvent.change(input, { target: { value: "bad-key" } });
-    fireEvent.click(screen.getByRole("button", { name: /salvar/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Salvar$/ }));
 
     await waitFor(() => {
       expect(screen.getByText(/key rejeitada/i)).toBeTruthy();
@@ -775,5 +958,41 @@ describe("MediaModelsSection", () => {
       "Ollama — voice",
     )) as HTMLInputElement;
     expect(campo.value).toBe("");
+  });
+});
+
+describe("LlamaCppSection", () => {
+  beforeEach(() => {
+    overwriteGetLocale(() => "pt");
+  });
+
+  it("remove uma versão inativa sem permitir remover a ativa", async () => {
+    const runtimeStatus = {
+      installed: true,
+      path: "/tmp/llama-server",
+      files: ["llama-server"],
+      active_runtime: "active-runtime",
+      runtimes: [
+        { id: "active-runtime", asset: "llama-active" },
+        { id: "old-runtime", asset: "llama-old" },
+      ],
+    };
+    mockFetch({ llamacppRuntimeStatus: runtimeStatus });
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<ProviderRoutingTab />);
+
+    const removeButtons = await screen.findAllByRole("button", {
+      name: /remover esta versão do runtime/i,
+    });
+    expect(removeButtons.length).toBe(1);
+    fireEvent.click(removeButtons[0]);
+
+    await waitFor(() => {
+      expect(global.fetch).toHaveBeenCalledWith(
+        "/provider-routing/llamacpp/runtime/old-runtime",
+        { method: "DELETE" },
+      );
+    });
   });
 });

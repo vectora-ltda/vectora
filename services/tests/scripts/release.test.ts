@@ -20,6 +20,8 @@ import {
   sha512Base64,
   indexInstallersByOsArch,
   selectManifestInstaller,
+  BLOCKMAP_RE,
+  readReleaseNotes,
 } from "../../scripts/release";
 
 describe("parseArgs", () => {
@@ -125,6 +127,17 @@ describe("INSTALLER_RE", () => {
     expect(INSTALLER_RE.exec("latest.yml")).toBeNull();
   });
 
+  it("reconhece blockmap de instalador para atualização diferencial", () => {
+    expect(
+      BLOCKMAP_RE.exec("Vectora-0.1.0-win-x64.exe.blockmap")?.groups,
+    ).toEqual({
+      version: "0.1.0",
+      os: "win",
+      arch: "x64",
+      ext: "exe",
+    });
+  });
+
   it("aceita mac universal e linux arm64", () => {
     expect(
       INSTALLER_RE.exec("Vectora-1.0.0-mac-universal.dmg")?.groups?.arch,
@@ -170,9 +183,8 @@ describe("MANIFEST_ARCHES", () => {
     expect(MANIFEST_ARCHES.linux).toEqual(["x64", "arm64"]);
   });
 
-  it("mac só publica manifesto em arm64 (Intel descontinuado, par de erro)", () => {
-    expect(MANIFEST_ARCHES.mac).toEqual(["arm64"]);
-    expect(MANIFEST_ARCHES.mac).not.toContain("x64");
+  it("mac publica manifesto em x64 e arm64", () => {
+    expect(MANIFEST_ARCHES.mac).toEqual(["x64", "arm64"]);
   });
 });
 
@@ -366,6 +378,29 @@ describe("buildArchManifest / resolveInstaller — regressão do manifesto cross
         size: manifest.files[0].size,
       },
     ]);
+  });
+
+  it("inclui notas da release no manifesto do auto-updater", () => {
+    const filePath = join(dir, "Vectora-0.2.0-win-x64.exe");
+    writeFileSync(filePath, "binario-fake");
+    const manifest = buildArchManifest(
+      "0.2.0",
+      filePath,
+      "Vectora-0.2.0-win-x64.exe",
+      "## 0.2.0\n\n### Features\n\n- Changelog no app",
+    );
+
+    expect(manifest.releaseNotes).toContain("Changelog no app");
+  });
+
+  it("lê apenas a primeira seção de release do changelog", () => {
+    const changelog = join(dir, "CHANGELOG.md");
+    writeFileSync(
+      changelog,
+      "# Changelog\n\n## 0.2.0\n\nNotas atuais\n\n## 0.1.0\n\nNotas antigas\n",
+    );
+
+    expect(readReleaseNotes(changelog)).toBe("## 0.2.0\n\nNotas atuais");
   });
 
   it("sha512Base64 muda quando o conteúdo do arquivo muda (par de erro)", () => {

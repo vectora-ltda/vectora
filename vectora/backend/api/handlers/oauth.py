@@ -79,20 +79,24 @@ def _purge_expired_broker_transactions(now: int | None = None) -> None:
 
 
 def _broker_url() -> str:
+    """Executa a operação broker url."""
     return os.getenv("VECTORA_OAUTH_BROKER_URL", "").strip()
 
 
 def _broker_secret() -> str:
+    """Executa a operação broker secret."""
     return os.getenv("VECTORA_OAUTH_SECRET", "").strip()
 
 
 def _broker_enabled() -> bool:
+    """Executa a operação broker enabled."""
     return bool(_broker_url() and _broker_secret())
 
 
 def _consume_broker_transaction(
     request: Request, state: str, provider: str, user_id: str
 ) -> bool:
+    """Executa a operação consume broker transaction."""
     _purge_expired_broker_transactions()
     proof = request.query_params.get("oauth_proof", "")
     transaction = _broker_transactions.get(state)
@@ -120,6 +124,7 @@ def _local_oauth_fallback_enabled() -> bool:
 
 
 async def _broker_providers() -> set[str]:
+    """Executa a operação broker providers."""
     global _broker_provider_cache
     if not _broker_enabled():
         return set()
@@ -149,6 +154,7 @@ async def _broker_providers() -> set[str]:
 
 
 async def _broker_start(request: Request, provider: str) -> RedirectResponse:
+    """Executa a operação broker start."""
     _purge_expired_broker_transactions()
     user = _get_user(request)
     broker_url = _broker_url()
@@ -252,6 +258,7 @@ async def _try_broker_start(request: Request, provider: str) -> RedirectResponse
 async def _broker_callback(
     provider: str, state: str, request: Request
 ) -> RedirectResponse:
+    """Executa a operação broker callback."""
     try:
         padded = state + "=" * (-len(state) % 4)
         decoded = base64.urlsafe_b64decode(padded).decode()
@@ -343,6 +350,7 @@ async def _broker_callback(
 
 
 def _looks_like_broker_state(state: str, provider: str) -> bool:
+    """Executa a operação looks like broker state."""
     try:
         padded = state + "=" * (-len(state) % 4)
         decoded = base64.urlsafe_b64decode(padded).decode()
@@ -589,6 +597,43 @@ INTEGRATIONS_REGISTRY: list[dict[str, Any]] = [
         "icon": "sendgrid",
     },
     {
+        "id": "openrouter",
+        "name": "OpenRouter",
+        "env_var": "OPENROUTER_API_KEY",
+        "kind": "apikey",
+        "description": "Acesso a centenas de modelos abertos e proprietários via OpenRouter",
+        "docs_url": "https://openrouter.ai/keys",
+        "icon": "openrouter",
+    },
+    {
+        "id": "cloudflare",
+        "name": "Cloudflare Workers AI",
+        "env_var": "CLEF_API_KEY",
+        "kind": "apikey",
+        "description": "Cloudflare Workers AI (Clef e Clef-Flash Decision Models)",
+        "docs_url": "https://developers.cloudflare.com/workers-ai/models/clef-flash/",
+        "icon": "cloudflare",
+        "env_var_aliases": ["CLOUDFLARE_API_KEY", "CLOUDFLARE_API_TOKEN"],
+    },
+    {
+        "id": "ollama",
+        "name": "Ollama Web Search",
+        "env_var": "OLLAMA_API_KEY",
+        "kind": "apikey",
+        "description": "Chave para web search e serviços do Ollama.com",
+        "docs_url": "https://ollama.com/settings/keys",
+        "icon": "ollama",
+    },
+    {
+        "id": "llamacpp",
+        "name": "llama.cpp Server",
+        "env_var": "LLAMACPP_API_KEY",
+        "kind": "apikey",
+        "description": "Chave de autenticação Bearer para instâncias protegidas do llama.cpp",
+        "docs_url": "https://github.com/ggml-org/llama.cpp/tree/master/tools/server",
+        "icon": "cpu",
+    },
+    {
         "id": "mailgun",
         "name": "Mailgun",
         "env_var": "MAILGUN_API_KEY",
@@ -609,6 +654,7 @@ _REGISTRY_BY_ID: dict[str, dict[str, Any]] = {i["id"]: i for i in INTEGRATIONS_R
 
 
 def _get_user(request: Request) -> Any:
+    """Executa a operação get user."""
     user = getattr(request.state, "user", None)
     if user is None:
         raise HTTPException(status_code=401, detail="Não autenticado")
@@ -879,6 +925,57 @@ async def _verify_apikey(integration_id: str, token: str) -> tuple[bool, str]:  
                 return True, f"Conectado como {name}"
             return False, f"Notion retornou {r.status_code}"
 
+        if integration_id == "openrouter":
+            r = await client.get(
+                "https://openrouter.ai/api/v1/auth/key",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if r.status_code == 200:
+                return True, "Chave OpenRouter válida"
+            return False, f"OpenRouter retornou {r.status_code}"
+
+        if integration_id == "cloudflare":
+            # Testa a chave via endpoint de verificação de token ou listagem mínima do Workers AI
+            r = await client.get(
+                "https://api.cloudflare.com/client/v4/user/tokens/verify",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if r.status_code == 200:
+                return True, "Token Cloudflare válido"
+            return False, f"Cloudflare retornou {r.status_code}"
+
+        if integration_id == "ollama":
+            # Validação via header Bearer em endpoint autenticado do ollama.com
+            r = await client.get(
+                "https://ollama.com/api/me",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+            if r.status_code == 200:
+                return True, "Chave Ollama válida"
+            if r.status_code in {401, 403}:
+                return False, f"Ollama rejeitou a chave ({r.status_code})"
+            return True, "Chave salva (verificação não disponível para este provedor)"
+
+        if integration_id == "llamacpp":
+            # Validação no servidor local configurado ou loopback padrão via endpoint protegido
+            base = os.environ.get("LLAMACPP_BASE_URL", "http://127.0.0.1:8080").rstrip(
+                "/"
+            )
+            if base.endswith("/v1"):
+                base = base[:-3].rstrip("/")
+            try:
+                r = await client.get(
+                    f"{base}/props",
+                    headers={"Authorization": f"Bearer {token}"},
+                )
+                if r.status_code in {401, 403}:
+                    return False, "llama.cpp rejeitou a chave"
+                if r.status_code == 200:
+                    return True, "Servidor llama.cpp acessível com a chave"
+                return False, f"llama.cpp retornou {r.status_code}"
+            except Exception:
+                return True, "Chave salva (servidor llama.cpp offline no momento)"
+
     # Provedores sem verificação automática
     return True, "Chave salva (verificação não disponível para este provedor)"
 
@@ -1023,6 +1120,7 @@ async def github_oauth_disconnect(request: Request) -> dict:
 
 
 def _gitlab_cfg() -> tuple[str, str, str, str]:
+    """Executa a operação gitlab cfg."""
     client_id = os.environ.get("GITLAB_OAUTH_CLIENT_ID", "")
     client_secret = os.environ.get("GITLAB_OAUTH_CLIENT_SECRET", "")
     base_url = os.environ.get("GITLAB_BASE_URL", "https://gitlab.com")
@@ -1041,6 +1139,7 @@ def _gitlab_cfg() -> tuple[str, str, str, str]:
 
 @router.get("/auth/gitlab")
 async def gitlab_oauth_start(request: Request) -> RedirectResponse:
+    """Executa a operação gitlab oauth start."""
     broker_redirect = await _try_broker_start(request, "gitlab")
     if broker_redirect is not None:
         return broker_redirect
@@ -1064,6 +1163,7 @@ async def gitlab_oauth_start(request: Request) -> RedirectResponse:
 async def gitlab_oauth_callback(
     request: Request, code: str = "", state: str = ""
 ) -> RedirectResponse:
+    """Executa a operação gitlab oauth callback."""
     if _broker_enabled() and _looks_like_broker_state(state, "gitlab"):
         return await _broker_callback("gitlab", state, request)
     if not code:
@@ -1110,6 +1210,7 @@ async def gitlab_oauth_callback(
 
 @router.get("/auth/gitlab/status")
 async def gitlab_oauth_status(request: Request) -> dict:
+    """Executa a operação gitlab oauth status."""
     user = _get_user(request)
     try:
         from backend.rbac import auth as auth_svc
@@ -1141,6 +1242,7 @@ async def gitlab_oauth_status(request: Request) -> dict:
 
 @router.delete("/auth/gitlab")
 async def gitlab_oauth_disconnect(request: Request) -> dict:
+    """Executa a operação gitlab oauth disconnect."""
     user = _get_user(request)
     try:
         from backend.rbac import auth as auth_svc
@@ -1157,6 +1259,7 @@ async def gitlab_oauth_disconnect(request: Request) -> dict:
 
 
 def _google_cfg() -> tuple[str, str, str]:
+    """Executa a operação google cfg."""
     client_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID", "")
     client_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET", "")
     redirect_uri = (
@@ -1174,6 +1277,7 @@ def _google_cfg() -> tuple[str, str, str]:
 
 @router.get("/auth/google")
 async def google_oauth_start(request: Request) -> RedirectResponse:
+    """Executa a operação google oauth start."""
     broker_redirect = await _try_broker_start(request, "google")
     if broker_redirect is not None:
         return broker_redirect
@@ -1203,6 +1307,7 @@ async def google_oauth_start(request: Request) -> RedirectResponse:
 async def google_oauth_callback(
     request: Request, code: str = "", state: str = ""
 ) -> RedirectResponse:
+    """Executa a operação google oauth callback."""
     if _broker_enabled() and _looks_like_broker_state(state, "google"):
         return await _broker_callback("google", state, request)
     if not code:
@@ -1255,6 +1360,7 @@ async def google_oauth_callback(
 
 @router.get("/auth/google/status")
 async def google_oauth_status(request: Request) -> dict:
+    """Executa a operação google oauth status."""
     user = _get_user(request)
     try:
         from backend.rbac import auth as auth_svc
@@ -1292,6 +1398,7 @@ async def google_oauth_status(request: Request) -> dict:
 
 @router.delete("/auth/google")
 async def google_oauth_disconnect(request: Request) -> dict:
+    """Executa a operação google oauth disconnect."""
     user = _get_user(request)
     try:
         from backend.rbac import auth as auth_svc

@@ -38,7 +38,7 @@ import { autoUpdater } from "electron-updater";
 import * as http from "http";
 import * as os from "os";
 import * as path from "path";
-import { randomUUID } from "crypto";
+import { randomInt, randomUUID } from "crypto";
 import { Readable } from "stream";
 // tree-kill ships its own types — no @types/tree-kill needed.
 import treeKill = require("tree-kill");
@@ -59,9 +59,32 @@ import {
 import {
   BrowserViewManager,
   clearBrowserSessionData,
+  type BrowserViewKind,
   type ManagedView,
   type ViewBounds,
 } from "./browser-view-manager.js";
+import {
+  isValidBrowserUrl,
+  isValidBrowserViewKind,
+  isValidProfileId,
+  isValidViewBounds,
+  isValidViewId,
+} from "./browser-ipc-validation.js";
+
+function browserOwnerId(event: unknown): number {
+  return (event as { sender?: { id?: number } }).sender?.id ?? -1;
+}
+
+function isTrustedBrowserSender(event: unknown): boolean {
+  const candidate = event as {
+    sender?: unknown;
+    senderFrame?: { url?: string } | null;
+  };
+  return (
+    candidate.sender === mainWindow?.webContents &&
+    (candidate.senderFrame?.url ?? "").startsWith(`${APP_SCHEME}://`)
+  );
+}
 
 import { computeDefaultWindowSize } from "./window-size.js";
 import {
@@ -74,6 +97,49 @@ import {
   restoreUpdateBackup,
 } from "./update-backup.js";
 import { startUpdateDownload as startUpdateDownloadAfterBackup } from "./updater-download.js";
+import {
+  resolveRuntimeProfile,
+  runtimeHome as resolveRuntimeHome,
+  runtimeUserDataName,
+} from "./runtime-profile.js";
+import { DockerCliExecutor } from "./docker-cli-executor.js";
+import { DmrOperations } from "./dmr-operations.js";
+import {
+  startElectronCdpProxy,
+  waitForElectronCdpTarget,
+} from "./electron-cdp-proxy.js";
+
+// O backend conecta ao mesmo Chromium do Electron via CDP. O endpoint fica
+// restrito ao loopback e é herdado pelo processo backend supervisionado. Em
+// produção o processo usa uma porta efêmera para evitar que outro processo
+// local consiga assumir o CDP apenas conhecendo uma porta fixa; o backend
+// recebe o valor pelo ambiente junto com o token da ponte desktop.
+const electronCdpPort =
+  process.env.VECTORA_ELECTRON_CDP_PORT ?? String(randomInt(10000, 60000));
+process.env.VECTORA_ELECTRON_CDP_PORT = electronCdpPort;
+const electronCdpProxyPort =
+  process.env.VECTORA_ELECTRON_CDP_PROXY_PORT ??
+  String(randomInt(60001, 65000));
+const electronCdpAuthToken =
+  process.env.VECTORA_ELECTRON_CDP_AUTH_TOKEN ?? randomUUID();
+process.env.VECTORA_ELECTRON_CDP_PROXY_PORT = electronCdpProxyPort;
+process.env.VECTORA_ELECTRON_CDP_AUTH_TOKEN = electronCdpAuthToken;
+app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
+app.commandLine.appendSwitch("remote-debugging-port", electronCdpPort);
+
+let electronCdpProxy: import("node:http").Server | null = null;
+void app.whenReady().then(async () => {
+  try {
+    await waitForElectronCdpTarget(Number(electronCdpPort));
+    electronCdpProxy = await startElectronCdpProxy(
+      Number(electronCdpPort),
+      Number(electronCdpProxyPort),
+      electronCdpAuthToken,
+    );
+  } catch (error) {
+    console.error("Falha ao validar o alvo CDP do Electron", error);
+  }
+});
 
 const ELECTRON_RESTART_EXIT_CODE = 42;
 
@@ -116,6 +182,24 @@ interface UpdateStatus {
 // precisar renomear o pacote. Chamado antes de qualquer path ser resolvido.
 app.setName("vectora");
 
+// O Electron mantém o lock de instância e o perfil Chromium dentro de
+// `userData`. A versão instalada e o Electron de desenvolvimento precisam de
+// perfis distintos para poderem coexistir na mesma máquina. O backend recebe
+// o mesmo perfil por `VECTORA_RUNTIME_PROFILE`/`VECTORA_HOME`, isolando também
+// banco, socket, PID e armazenamento do NATS.
+const safeRuntimeProfile = resolveRuntimeProfile(process.env, app.isPackaged);
+app.setPath(
+  "userData",
+  path.join(app.getPath("appData"), runtimeUserDataName(safeRuntimeProfile)),
+);
+
+const runtimeHome = resolveRuntimeHome(
+  process.env,
+  safeRuntimeProfile,
+  os.homedir(),
+);
+if (!process.env.VECTORA_HOME) process.env.VECTORA_HOME = runtimeHome;
+
 let backend: ChildProcess | null = null;
 let backendPort: number | null = null;
 let backendPipePath: string | null = null; // Windows named pipe path (\\.\pipe\vectora-<pid>)
@@ -129,6 +213,20 @@ const desktopBridgeToken =
 let selectedBackupPath: string | null = null;
 let pendingBackupPromise: Promise<void> | null = null;
 let updateDownloadPromise: Promise<void> | null = null;
+let dmrOperations: DmrOperations | null = null;
+
+function getDmrOperations(): DmrOperations {
+  return (dmrOperations ??= new DmrOperations(
+    new DockerCliExecutor(),
+    app.getPath("userData"),
+  ));
+}
+
+function assertTrustedRenderer(event: Electron.IpcMainInvokeEvent): void {
+  if (!mainWindow || event.sender !== mainWindow.webContents) {
+    throw new Error("origem IPC não autorizada");
+  }
+}
 
 function startUpdateDownload(): Promise<void> {
   if (updateDownloadPromise) return updateDownloadPromise;
@@ -186,15 +284,25 @@ async function rollbackPendingUpdate(): Promise<boolean> {
 function getBrowserViewManager(): BrowserViewManager {
   if (browserViewManager) return browserViewManager;
   browserViewManager = new BrowserViewManager({
-    createView: (profileId = "default") =>
-      new WebContentsView({
+    createView: (
+      profileId = "default",
+      _kind: BrowserViewKind = "tab",
+      options = {},
+    ) => {
+      const view = new WebContentsView({
         webPreferences: {
           contextIsolation: true,
           sandbox: true,
           nodeIntegration: false,
           session: session.fromPartition(`persist:browser-${profileId}`),
         },
-      }) as unknown as ManagedView,
+      });
+      if (options.zoomPercent !== undefined) {
+        const factor = Math.max(0.25, Math.min(5, options.zoomPercent / 100));
+        view.webContents.setZoomLevel(Math.log(factor) / Math.log(1.2));
+      }
+      return view as unknown as ManagedView;
+    },
     attach: (view) => {
       mainWindow?.contentView.addChildView(view as unknown as WebContentsView);
     },
@@ -235,7 +343,7 @@ const _MAX_LOG_LINES = 60;
 
 // Arquivo que persiste o PID do sidecar backend entre sessões. Permite matar
 // processo órfão deixado por crash do Electron sem disparar before-quit.
-const _BACKEND_PID_FILE = path.join(os.homedir(), ".vectora", "backend.pid");
+const _BACKEND_PID_FILE = path.join(runtimeHome, "backend.pid");
 
 async function killStaleBackend(): Promise<void> {
   try {
@@ -270,9 +378,10 @@ protocol.registerSchemesAsPrivileged([
  * - Windows: named pipe (\\.\pipe\vectora-<pid>) lido de stdout via VECTORA_IPC_PIPE
  * - Fallback Windows (sem pipe ainda pronto): TCP loopback
  */
+/** Build the IPC transport for the currently isolated runtime profile. */
 function backendTransport(): http.RequestOptions {
   if (process.platform !== "win32") {
-    return { socketPath: path.join(os.homedir(), ".vectora", "vectora.sock") };
+    return { socketPath: path.join(runtimeHome, "vectora.sock") };
   }
   if (backendPipePath) {
     return { socketPath: backendPipePath };
@@ -300,7 +409,7 @@ const _cookieStore = new Map<string, string>();
 // nenhuma, o login era perdido a cada restart do app. Grava um arquivo local
 // (criptografado via safeStorage — DPAPI no Windows/Keychain no macOS — quando
 // disponível) em vez de depender do cookie jar do Chromium.
-const _SESSION_STORE_FILE = path.join(os.homedir(), ".vectora", "session.dat");
+const _SESSION_STORE_FILE = path.join(runtimeHome, "session.dat");
 
 function persistCookieStore(): void {
   try {
@@ -357,6 +466,11 @@ async function forwardToBackend(request: Request): Promise<Response> {
   request.headers.forEach((value, key) => {
     if (!_HOP_BY_HOP.has(key.toLowerCase())) headers[key] = value;
   });
+
+  // Operações que executam binários ou gravam pesos são aceitas pelo backend
+  // apenas quando vieram do processo Electron que abriu a sessão local.
+  // O renderer nunca precisa conhecer esse segredo efêmero.
+  headers["x-vectora-desktop-bridge"] = desktopBridgeToken;
 
   // Injeta cookies do store in-memory no header Cookie. Necessário porque
   // Chromium não inclui automaticamente cookies de session.defaultSession
@@ -438,6 +552,7 @@ function pingBackend(): Promise<boolean> {
 const _resourcesPath = (): string =>
   process.resourcesPath || path.join(__dirname, "..");
 
+/** Start or connect to the backend owned by this Electron profile. */
 async function startBackend(): Promise<void> {
   // Modo backend-primário em dev: quando o backend Python já é o processo
   // primário (`uv run vectora start` rodado direto, fora do Electron) e se
@@ -461,6 +576,8 @@ async function startBackend(): Promise<void> {
   );
   const env: NodeJS.ProcessEnv = {
     ...process.env,
+    VECTORA_RUNTIME_PROFILE: safeRuntimeProfile,
+    VECTORA_HOME: runtimeHome,
     VECTORA_PORT: String(backendPort),
     VECTORA_DESKTOP: "1",
     VECTORA_DESKTOP_BRIDGE_TOKEN: desktopBridgeToken,
@@ -469,8 +586,12 @@ async function startBackend(): Promise<void> {
   const exePath = backendPath(process.env, process.platform, _resourcesPath());
   backend = spawnBackendProcess(exePath, ["start"], env);
   if (backend.pid) {
+    const backendPid = backend.pid;
     fs.promises
-      .writeFile(_BACKEND_PID_FILE, String(backend.pid), "utf-8")
+      .mkdir(path.dirname(_BACKEND_PID_FILE), { recursive: true })
+      .then(() =>
+        fs.promises.writeFile(_BACKEND_PID_FILE, String(backendPid), "utf-8"),
+      )
       .catch(() => {});
   }
   const pipeParser = new IpcPipeParser();
@@ -568,10 +689,14 @@ async function waitForBackend(): Promise<void> {
 // Window
 // ---------------------------------------------------------------------------
 
-function createWindow(): void {
+function createWindow(options: { visible?: boolean } = {}): void {
+  const webMode = process.env.VECTORA_WEB_MODE === "1";
+  const shouldShow = options.visible ?? !webMode;
   if (mainWindow) {
-    mainWindow.show();
-    mainWindow.focus();
+    if (shouldShow) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
     return;
   }
   if (backendPort === null && !backendPipePath)
@@ -582,6 +707,7 @@ function createWindow(): void {
   const { width, height } = computeDefaultWindowSize(
     screen.getPrimaryDisplay().workAreaSize,
   );
+  const visible = shouldShow;
   mainWindow = new BrowserWindow({
     width,
     height,
@@ -616,7 +742,7 @@ function createWindow(): void {
   // Carrega a SPA pela origem IPC — zero porta TCP exposta (UDS em Linux/macOS).
   void mainWindow.loadURL(`${APP_SCHEME}://app/`);
   mainWindow.once("ready-to-show", () => {
-    mainWindow?.show();
+    if (visible) mainWindow?.show();
     if (pendingDeepLink) {
       mainWindow?.webContents.send("vectora:deep-link", pendingDeepLink);
       pendingDeepLink = null;
@@ -778,6 +904,30 @@ async function isAutoUpdateEnabled(): Promise<boolean> {
   return prefs?.autoUpdateEnabled !== false;
 }
 
+/** Resolve changelog notes from the packaged manifest, using the authenticated backend as fallback. */
+async function fetchPackagedChangelog(
+  fallback: string,
+  expectedVersion: string,
+): Promise<string> {
+  const packaged = fallback.trim();
+  if (packaged) return packaged;
+  try {
+    const payload = await fetchBackendJson<{
+      notes?: string;
+      version?: string;
+    }>(
+      backendTransport(),
+      "/api/updates/changelog",
+      _cookieStore.size > 0 ? { cookie: buildCookieHeader(_cookieStore) } : {},
+    );
+    if (payload?.version !== expectedVersion) return "";
+    return payload.notes?.trim() || "";
+  } catch (error) {
+    console.warn("[updater] não foi possível carregar o changelog", error);
+    return fallback;
+  }
+}
+
 /**
  * Registra os listeners do `electron-updater` e propaga o estado pro
  * renderer via `vectora:update-status` (consumido em `UpdateBanner`,
@@ -786,13 +936,14 @@ async function isAutoUpdateEnabled(): Promise<boolean> {
  * (`vectora:check-for-update`, ver `registerIpc()`) também precisa desses
  * listeners pra a UI mostrar o resultado.
  */
+/** Register updater events and expose their merged status to the renderer. */
 function setupAutoUpdater(): void {
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
   let latestStatus: UpdateStatus = { state: "not-available" };
 
-  const broadcast = (status: UpdateStatus) => {
+  const broadcast = (status: Partial<UpdateStatus>) => {
     latestStatus = { ...latestStatus, ...status };
     mainWindow?.webContents.send("vectora:update-status", latestStatus);
   };
@@ -818,6 +969,13 @@ function setupAutoUpdater(): void {
       );
     });
     broadcast({ state: "available", message: info.version, changelog: notes });
+    void fetchPackagedChangelog(notes, info.version).then((changelog) => {
+      if (changelog && changelog !== notes) {
+        // Atualiza somente as notas. Preserva `downloading`/`downloaded` caso
+        // a resposta do backend chegue depois do progresso do download.
+        broadcast({ changelog });
+      }
+    });
     void startUpdateDownload().catch((error: unknown) => {
       broadcast({
         state: "error",
@@ -1004,46 +1162,181 @@ function registerIpc(): void {
   // Browser real da aba Browser (ver getBrowserViewManager) — comandos
   // invoke/handle (resposta esperada) + eventos fire-and-forget, mesmo
   // padrão do restante deste arquivo.
-  ipcMain.handle("vectora:browser-create-view", (_event, profileId?: string) =>
-    getBrowserViewManager().createView(profileId),
-  );
-  ipcMain.on("vectora:browser-destroy-view", (_event, viewId: number) => {
-    getBrowserViewManager().destroyView(viewId);
+  ipcMain.handle("vectora:browser-create-view", (event, options: unknown) => {
+    if (!isTrustedBrowserSender(event)) throw new Error("origem IPC inválida");
+    if (!options || typeof options !== "object")
+      throw new Error("opções inválidas");
+    const { profileId, kind, allowPopups, zoomPercent } = options as Partial<{
+      profileId: string;
+      kind: BrowserViewKind;
+      allowPopups: boolean;
+      zoomPercent: number;
+    }>;
+    if (typeof profileId !== "string" || !isValidProfileId(profileId)) {
+      throw new Error("profileId inválido");
+    }
+    if (!isValidBrowserViewKind(kind)) throw new Error("kind inválido");
+    if (allowPopups !== undefined && typeof allowPopups !== "boolean") {
+      throw new Error("allowPopups inválido");
+    }
+    if (
+      zoomPercent !== undefined &&
+      (typeof zoomPercent !== "number" || !Number.isFinite(zoomPercent))
+    ) {
+      throw new Error("zoomPercent inválido");
+    }
+    return getBrowserViewManager().createView(
+      profileId,
+      kind,
+      browserOwnerId(event),
+      { allowPopups, zoomPercent },
+    );
+  });
+  ipcMain.on("vectora:browser-destroy-view", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().destroyView(viewId, browserOwnerId(event));
   });
   ipcMain.handle(
     "vectora:browser-navigate",
-    (_event, viewId: number, url: string) =>
-      getBrowserViewManager().navigate(viewId, url),
+    (event, viewId: number, url: string) => {
+      if (!isTrustedBrowserSender(event))
+        return { ok: false, error: "origem IPC inválida" };
+      if (!isValidViewId(viewId) || !isValidBrowserUrl(url)) {
+        return { ok: false, error: "argumentos inválidos" };
+      }
+      return getBrowserViewManager().navigate(
+        viewId,
+        url,
+        browserOwnerId(event),
+      );
+    },
   );
-  ipcMain.on("vectora:browser-go-back", (_event, viewId: number) => {
-    getBrowserViewManager().goBack(viewId);
+  ipcMain.on("vectora:browser-go-back", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().goBack(viewId, browserOwnerId(event));
   });
-  ipcMain.on("vectora:browser-go-forward", (_event, viewId: number) => {
-    getBrowserViewManager().goForward(viewId);
+  ipcMain.on("vectora:browser-go-forward", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().goForward(viewId, browserOwnerId(event));
   });
-  ipcMain.on("vectora:browser-reload", (_event, viewId: number) => {
-    getBrowserViewManager().reload(viewId);
+  ipcMain.on("vectora:browser-reload", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().reload(viewId, browserOwnerId(event));
   });
-  ipcMain.on("vectora:browser-stop", (_event, viewId: number) => {
-    getBrowserViewManager().stop(viewId);
+  ipcMain.on("vectora:browser-stop", (event, viewId: number) => {
+    if (!isTrustedBrowserSender(event)) return;
+    if (!isValidViewId(viewId)) return;
+    getBrowserViewManager().stop(viewId, browserOwnerId(event));
   });
   ipcMain.on(
     "vectora:browser-set-bounds",
-    (_event, viewId: number, bounds: ViewBounds) => {
-      getBrowserViewManager().setBounds(viewId, bounds);
+    (event, viewId: number, bounds: ViewBounds) => {
+      if (!isTrustedBrowserSender(event)) return;
+      if (!isValidViewId(viewId) || !isValidViewBounds(bounds)) return;
+      getBrowserViewManager().setBounds(viewId, bounds, browserOwnerId(event));
     },
   );
   ipcMain.handle(
     "vectora:browser-clear-profile-data",
-    (_event, profileId?: string) =>
-      getBrowserViewManager().clearData(profileId),
+    (event, profileId?: string) => {
+      if (!isTrustedBrowserSender(event))
+        throw new Error("origem IPC inválida");
+      if (profileId !== undefined && !isValidProfileId(profileId)) {
+        throw new Error("profileId inválido");
+      }
+      return getBrowserViewManager().clearData(profileId);
+    },
   );
   ipcMain.on(
     "vectora:browser-set-visible",
-    (_event, viewId: number, visible: boolean) => {
-      getBrowserViewManager().setVisible(viewId, visible);
+    (event, viewId: number, visible: boolean) => {
+      if (!isTrustedBrowserSender(event)) return;
+      if (!isValidViewId(viewId) || typeof visible !== "boolean") return;
+      getBrowserViewManager().setVisible(
+        viewId,
+        visible,
+        browserOwnerId(event),
+      );
     },
   );
+  ipcMain.on(
+    "vectora:browser-set-zoom",
+    (event, viewId: number, percent: number) => {
+      if (!isTrustedBrowserSender(event)) return;
+      if (
+        !isValidViewId(viewId) ||
+        typeof percent !== "number" ||
+        !Number.isFinite(percent)
+      )
+        return;
+      getBrowserViewManager().setZoomPercent(
+        viewId,
+        percent,
+        browserOwnerId(event),
+      );
+    },
+  );
+  ipcMain.on(
+    "vectora:browser-set-allow-popups",
+    (event, viewId: number, allowPopups: boolean) => {
+      if (!isTrustedBrowserSender(event)) return;
+      if (!isValidViewId(viewId) || typeof allowPopups !== "boolean") return;
+      getBrowserViewManager().setAllowPopups(
+        viewId,
+        allowPopups,
+        browserOwnerId(event),
+      );
+    },
+  );
+
+  // Docker Model Runner: o renderer só recebe contratos tipados; o CLI fica
+  // exclusivamente no processo principal e exige a origem IPC da janela.
+  ipcMain.handle("vectora:dmr-detect", (event) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().detect();
+  });
+  ipcMain.handle("vectora:dmr-list", (event) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().list();
+  });
+  ipcMain.handle("vectora:dmr-prepare", (event, reference: string) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().prepare(reference);
+  });
+  ipcMain.handle(
+    "vectora:dmr-start",
+    (event, reference: string, contextSize?: number) => {
+      assertTrustedRenderer(event);
+      return getDmrOperations().start(reference, contextSize);
+    },
+  );
+  ipcMain.handle("vectora:dmr-stop", (event, reference: string) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().stop(reference);
+  });
+  ipcMain.handle(
+    "vectora:dmr-remove",
+    (event, reference: string, confirmed: boolean) => {
+      assertTrustedRenderer(event);
+      return getDmrOperations().remove(reference, confirmed);
+    },
+  );
+  ipcMain.handle("vectora:dmr-operation", (event, id: string) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().getOperation(id) ?? null;
+  });
+  ipcMain.handle("vectora:dmr-operations", (event) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().listOperations();
+  });
+  ipcMain.handle("vectora:dmr-cancel", (event, id: string) => {
+    assertTrustedRenderer(event);
+    return getDmrOperations().cancel(id);
+  });
 
   // Instalação de temas do VS Code Marketplace (Preferências → Aparência) —
   // download + extração rodam aqui (fora do sandbox do renderer); erros
@@ -1077,7 +1370,11 @@ function registerIpc(): void {
 // Single instance lock — necessário para deep-link no Windows/Linux
 // ---------------------------------------------------------------------------
 
-const gotLock = app.requestSingleInstanceLock();
+// O modo web é um sidecar do backend, não uma sessão interativa do app. Ele
+// pode coexistir com uma instância desktop antiga sem herdar o lock global do
+// Electron e encerrar o servidor HTTP por engano.
+const webSidecarMode = process.env.VECTORA_WEB_MODE === "1";
+const gotLock = webSidecarMode || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 }
@@ -1091,7 +1388,7 @@ app.on("second-instance", (_event, argv) => {
     mainWindow.show();
     mainWindow.focus();
   } else {
-    createWindow();
+    createWindow({ visible: process.env.VECTORA_WEB_MODE !== "1" });
   }
 });
 
@@ -1124,8 +1421,11 @@ app.whenReady().then(async () => {
     await startBackend();
     await waitForBackend();
     await clearPendingUpdate();
-    createWindow();
-    createTray();
+    const webMode = process.env.VECTORA_WEB_MODE === "1";
+    // In `vectora web`, keep a hidden renderer alive so BrowserViews/CDP use
+    // the bundled Chromium, but leave the visible UI to the user's browser.
+    createWindow({ visible: !webMode });
+    if (!webMode) createTray();
     setupAutoUpdater();
     if (await isAutoUpdateEnabled()) {
       scheduleAutoUpdateChecks();
@@ -1147,6 +1447,10 @@ app.on("window-all-closed", () => {
   // Mantém app vivo no tray em todas plataformas — usuário usa "Sair" no
   // menu ou Cmd+Q (macOS).
   if (process.platform !== "darwin") {
+    // `vectora web` usa o Electron apenas como sidecar oculto para Chromium,
+    // Node e CDP. Não há tray nem janela visível nesse modo, portanto fechar
+    // a janela oculta não pode encerrar o backend web.
+    if (process.env.VECTORA_WEB_MODE === "1") return;
     // No Windows/Linux, sem tray seria zumbi; com tray, fica disponível.
     if (!tray) app.quit();
   }
@@ -1154,6 +1458,9 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   (app as unknown as { isQuitting: boolean }).isQuitting = true;
+  dmrOperations?.dispose();
+  electronCdpProxy?.close();
+  electronCdpProxy = null;
   if (backend?.pid) {
     const pid = backend.pid;
     backend = null;

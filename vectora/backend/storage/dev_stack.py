@@ -125,6 +125,7 @@ class StackResult:
 
 
 def _run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """Executa a operação run."""
     return subprocess.run(  # noqa: S603 — comandos docker montados internamente  # nosec B603
         cmd, capture_output=True, text=True, timeout=60, check=False
     )
@@ -148,6 +149,7 @@ def _run_detached(cmd: list[str]) -> int:
 
 
 def _docker_available() -> bool:
+    """Executa a operação docker available."""
     try:
         return (
             _run(["docker", "version", "--format", "{{.Server.Version}}"]).returncode
@@ -158,6 +160,7 @@ def _docker_available() -> bool:
 
 
 def _existing_containers() -> set[str]:
+    """Executa a operação existing containers."""
     proc = _run(["docker", "ps", "-a", "--format", "{{.Names}}"])
     if proc.returncode != 0:
         return set()
@@ -165,26 +168,56 @@ def _existing_containers() -> set[str]:
 
 
 def _container_matches_spec(name: str, spec: ServiceSpec) -> bool:
-    """True se o container existente foi criado com o ``command`` do spec atual.
+    """Return whether an existing container satisfies the complete spec.
 
-    Compara o ``Config.Cmd`` do container com ``spec.command``. Quando o spec
-    muda (ex.: adição de ``--requirepass``), um container antigo roda com a
-    config anterior — reiniciá-lo via ``docker start`` propaga a divergência
-    (no caso do Redis, AUTH falha porque o servidor subiu sem senha). Specs sem
-    ``command`` (Postgres/Qdrant configuram via env) não têm o que comparar e
-    sempre batem. Falha do ``docker inspect`` é tratada como divergência para
-    forçar recriação por segurança.
+    A container can be running while still being unusable by the host, for
+    example an old Qdrant container without a published REST port. Compare
+    command, required environment values and every expected host port so
+    ``stack_up`` recreates stale containers while preserving their volumes.
     """
-    if not spec.command:
-        return True
-    proc = _run(["docker", "inspect", "--format", "{{json .Config.Cmd}}", name])
+    proc = _run(["docker", "inspect", "--format", "{{json .}}", name])
     if proc.returncode != 0:
         return False
     try:
-        actual = json.loads(proc.stdout.strip()) or []
-    except (json.JSONDecodeError, ValueError):
+        payload = json.loads(proc.stdout.strip())
+        config = payload["Config"]
+        network_settings = payload["NetworkSettings"]
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError):
         return False
-    return list(actual) == list(spec.command)
+
+    if spec.command and list(config.get("Cmd") or []) != list(spec.command):
+        return False
+    actual_env = {
+        entry for entry in (config.get("Env") or []) if isinstance(entry, str)
+    }
+    if any(required not in actual_env for required in spec.env):
+        return False
+    # HostConfig records the requested mapping, while NetworkSettings.Ports
+    # records what Docker actually published for the running container.  The
+    # latter is authoritative: old containers can retain HostConfig bindings
+    # after being started without a host publication.
+    actual_bindings = network_settings.get("Ports") or {}
+    for expected in spec.ports:
+        host, host_port, container_port = _parse_port_spec(expected)
+        bindings = actual_bindings.get(f"{container_port}/tcp") or []
+        if not any(
+            str(binding.get("HostPort", "")) == host_port
+            # Docker reports an omitted host address as 0.0.0.0; accept it
+            # only for the explicitly requested port mapping.
+            and str(binding.get("HostIp", "")) in {host, "0.0.0.0"}  # noqa: S104  # nosec B104
+            for binding in bindings
+            if isinstance(binding, dict)
+        ):
+            return False
+    return True
+
+
+def _parse_port_spec(value: str) -> tuple[str, str, str]:
+    """Parse ``host:host_port:container_port`` without accepting ambiguity."""
+    parts = value.rsplit(":", 2)
+    if len(parts) != 3 or not all(parts):
+        raise ValueError(f"port mapping inválido: {value!r}")
+    return parts[0], parts[1], parts[2]
 
 
 def stack_up() -> StackResult:
@@ -200,7 +233,14 @@ def stack_up() -> StackResult:
         return result
 
     compose = compose_file()
-    if compose is not None:
+    existing = _existing_containers()
+    # Instalações anteriores do Vectora usavam containers nomeados
+    # ``vectora-*``. Não tente misturar esses containers com os nomes gerados
+    # pelo Compose: as portas entram em conflito e um Redis antigo sem senha
+    # parece saudável, mas não aceita a URL autenticada do Vectora. Reutilize
+    # o caminho ``docker run`` abaixo para validar/recriar a configuração.
+    legacy_stack_present = bool(existing.intersection({s.name for s in SERVICES}))
+    if compose is not None and not legacy_stack_present:
         rc = _run_detached(["docker", "compose", "-f", str(compose), "up", "-d"])
         if rc == 0:
             result.messages.append(f"docker compose up -d ({compose})")
@@ -219,7 +259,6 @@ def stack_up() -> StackResult:
             result.messages.append("docker compose up -d falhou")
         return result
 
-    existing = _existing_containers()
     for spec in SERVICES:
         # Container existente cujo command divergiu do spec (ex.: legado sem
         # --requirepass) é removido para ser recriado com a config atual. O
@@ -286,6 +325,7 @@ def stack_down() -> StackResult:
 
 
 def _running_containers() -> set[str]:
+    """Executa a operação running containers."""
     proc = _run(["docker", "ps", "--format", "{{.Names}}"])
     if proc.returncode != 0:
         return set()

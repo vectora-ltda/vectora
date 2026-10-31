@@ -3,7 +3,7 @@
 vectora                 imprime o help (descobre a CLI de configuração)
 vectora start           sobe backend + SPA (fullstack)
 vectora start --headless  sobe sem janela (bandeja + backend)
-vectora web             sobe só como webapp — sem Electron, sem bandeja
+vectora web             sobe o webapp com Electron/Chromium, sem bandeja Python
 vectora run --task "..."  roda uma tarefa uma vez e sai — sem servidor (CI)
 
 Configuração (operacional, para VPS via SSH):
@@ -71,6 +71,11 @@ _project_root = Path(__file__).parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
+from backend.runtime_profile import (
+    normalize_runtime_home,
+    runtime_home_for_profile,
+    sanitize_runtime_profile,
+)
 from backend.services.log_setup import setup_logging
 
 setup_logging()
@@ -129,10 +134,14 @@ def _install_terminal_signals(server: Any, icon_ref: list[Any]) -> None:
     shutdown_started = False
 
     def _shutdown(_signum: int, _frame: Any) -> None:
+        """Executa a operação shutdown."""
         nonlocal shutdown_started
         if shutdown_started:
             return
         shutdown_started = True
+        from backend.services.log_setup import mark_shutdown_requested
+
+        mark_shutdown_requested()
         logger.info(
             "Vectora: sinal recebido (signal=%s, pid=%s) — iniciando shutdown",
             _signum,
@@ -168,6 +177,7 @@ def _disable_uvicorn_signal_capture(server: Any) -> None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Executa a operação build parser."""
     from backend.version import __version__
 
     parser = argparse.ArgumentParser(
@@ -178,7 +188,7 @@ def _build_parser() -> argparse.ArgumentParser:
   vectora start                        sobe backend + SPA (fullstack)
   vectora start --headless             servidor headless (VPS/systemd)
   vectora start --port 9000            porta customizada
-  vectora web                          webapp puro — sem Electron, sem bandeja
+  vectora web                          webapp com Electron/Chromium, sem bandeja
 
   vectora config                       mostra configuração completa
   vectora config keys                  wizard: API keys + LLM provider
@@ -209,6 +219,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", metavar="subcommand")
 
     def add_marketplace_parser(resource: str, help_text: str) -> None:
+        """Executa a operação add marketplace parser."""
         resource_parser = sub.add_parser(resource, help=help_text)
         resource_parser.set_defaults(command=resource, resource=resource)
         resource_sub = resource_parser.add_subparsers(dest="action", required=True)
@@ -303,15 +314,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Chave privada TLS correspondente. Também via env SSL_KEYFILE.",
     )
 
-    # ── web — força modo webapp puro (sem Electron, sem bandeja) ──────────────
+    # ── web — HTTP + Electron/Chromium, sem bandeja Python ───────────────────
     web_p = sub.add_parser(
         "web",
-        help="Sobe o Vectora como webapp puro (sem Electron, sem bandeja)",
+        help="Sobe o webapp com Electron/Chromium (sem bandeja Python)",
         description=(
             "Sobe o backend completo (FastAPI) servindo a SPA via uvicorn,\n"
-            "acessível só pelo browser — nunca abre janela Electron nem ícone de\n"
-            "bandeja, mesmo numa máquina com display. Equivalente ao modo\n"
-            "servidor/VPS, mas utilizável em qualquer máquina."
+            "mantém o Electron/Chromium como sidecar e não sobe a bandeja\n"
+            "Python. O backend continua acessível pela porta HTTP informada."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -333,7 +343,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Chave privada TLS correspondente. Também via env SSL_KEYFILE.",
     )
 
-    # ── run — one-shot, sem servidor (CI, Vectora Bot for GHA) ────────────────
+    # ── run — one-shot, sem servidor (CI) ────────────────
     run_p = sub.add_parser(
         "run",
         help="Roda uma tarefa uma única vez e sai — sem servidor (CI)",
@@ -534,6 +544,27 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Ação de autenticação.",
     )
 
+    # ── eval ──────────────────────────────────────────────────────────────────
+    eval_p = sub.add_parser(
+        "eval",
+        help="Evaluation Lab para benchmark e replay de decisões",
+        description="Comandos do Evaluation Lab:\n  run [--suite FILE]\n  compare BASELINE CANDIDATE",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    eval_sub = eval_p.add_subparsers(dest="action", required=True)
+    eval_run = eval_sub.add_parser("run", help="Executa benchmark ou suite de cassetes")
+    eval_run.add_argument(
+        "--suite", default=None, help="Caminho para arquivo de cassete/suite"
+    )
+    eval_run.add_argument("--output", choices=("human", "json"), default="human")
+
+    eval_compare = eval_sub.add_parser(
+        "compare", help="Compara duas cassetes (baseline vs candidate)"
+    )
+    eval_compare.add_argument("baseline", help="Caminho para cassete baseline")
+    eval_compare.add_argument("candidate", help="Caminho para cassete candidata")
+    eval_compare.add_argument("--output", choices=("human", "json"), default="human")
+
     return parser
 
 
@@ -548,22 +579,25 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     Em ``--headless`` registra ``VECTORA_HEADLESS=1`` para a bandeja/Electron
     decidirem não abrir janela; o servidor em si é idêntico.
 
-    ``force_web=True`` (``vectora web``) vai além de ``--headless``: nem a
-    bandeja do sistema sobe — só o servidor ASGI, para uso via browser em
-    qualquer máquina, com ou sem display.
+    ``force_web=True`` (``vectora web``) não sobe a bandeja Python, mas mantém
+    o Electron como sidecar quando o binário e um display estiverem disponíveis.
+    O servidor continua em TCP para uso pelo browser e por clientes externos.
     """
     import uvicorn
 
-    from backend.api.server import create_app
-
-    # `vectora web` is an explicit browser-only mode. Clear desktop flags that
-    # could have been inherited from a launcher and never auto-start Electron,
-    # including when the installed Electron binary is discoverable.
     if force_web:
+        # `vectora web` always exposes TCP, even when launched from an Electron
+        # parent that left the desktop transport marker in the environment.
         os.environ.pop("VECTORA_DESKTOP", None)
-        os.environ.pop("VECTORA_SPAWN_ELECTRON", None)
+        # Electron remains available as a hidden Chromium/Node sidecar for
+        # browser workbench and CDP, but must never present the desktop app
+        # window when the operator explicitly selected the web command.
+        os.environ["VECTORA_WEB_MODE"] = "1"
 
-    headless = force_web or getattr(args, "headless", False)
+    # `vectora web` keeps the HTTP server and omits only the Python tray. The
+    # Electron sidecar remains enabled so its bundled Chromium is the single
+    # browser runtime used by the Browser Workbench and the CDP client.
+    headless = getattr(args, "headless", False)
     if headless:
         os.environ["VECTORA_HEADLESS"] = "1"
 
@@ -584,12 +618,37 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     # sozinho, no seu próprio startup, se faz sentido subir uma janela.
     from backend.services.electron_sidecar import should_spawn_electron
 
-    if not force_web and should_spawn_electron():
-        os.environ["VECTORA_DESKTOP"] = "1"
+    dev_electron = should_spawn_electron()
+    if dev_electron:
+        # A development desktop must never reuse the installed app's
+        # databases, sockets, PID file or NATS JetStream store. Keep an
+        # explicit VECTORA_HOME untouched so callers can choose another
+        # profile for automated runs.
+        os.environ.setdefault("VECTORA_RUNTIME_PROFILE", "dev")
+        # `vectora start` uses desktop IPC. `vectora web` must keep TCP
+        # reachable for web clients while Electron attaches as a sidecar.
+        if not force_web:
+            os.environ["VECTORA_DESKTOP"] = "1"
         os.environ["VECTORA_SPAWN_ELECTRON"] = "1"
         logger.info(
             "Electron (dev) resolvido — sobe como sidecar no startup do FastAPI"
         )
+
+    # Fixe o perfil e a home antes de importar módulos que podem construir o
+    # singleton de settings. Assim o backend iniciado diretamente usa a mesma
+    # home isolada que o Electron, inclusive para perfis nomeados.
+    runtime_profile = sanitize_runtime_profile(
+        os.environ.get("VECTORA_RUNTIME_PROFILE"),
+        "dev" if dev_electron else "stable",
+    )
+    os.environ["VECTORA_RUNTIME_PROFILE"] = runtime_profile
+    configured_home = os.environ.get("VECTORA_HOME")
+    if configured_home:
+        os.environ["VECTORA_HOME"] = str(normalize_runtime_home(configured_home))
+    else:
+        os.environ["VECTORA_HOME"] = str(runtime_home_for_profile(runtime_profile))
+
+    from backend.api.server import create_app
 
     # TLS opcional — CLI tem prioridade; settings (env SSL_CERTFILE/SSL_KEYFILE
     # ou ~/.vectora/.env) é o fallback. Com cert+key o uvicorn serve https://,
@@ -650,7 +709,7 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
             scheme,
             args.host,
             port,
-            "web" if force_web else ("headless" if headless else "fullstack"),
+            "web+electron" if force_web else ("headless" if headless else "fullstack"),
         )
         config = uvicorn.Config(
             app,
@@ -677,6 +736,7 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
         from backend.services.electron_sidecar import set_backend_shutdown_callback
 
         def _shutdown_from_electron() -> None:
+            """Executa a operação shutdown from electron."""
             logger.info("Vectora: Electron encerrou — iniciando shutdown coordenado")
             server.should_exit = True
             shutdown_event = _SHUTDOWN_EVENTS.get(id(server))
@@ -697,6 +757,7 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
         print(f"{PIPE_ENV_VAR}={_pipe}", flush=True)
 
         async def _run_win() -> None:
+            """Executa a operação run win."""
             shutdown_event = asyncio.Event()
             _SHUTDOWN_EVENTS[id(server)] = shutdown_event
             pipe_task = asyncio.create_task(serve_pipe(_pipe, "127.0.0.1", port))
@@ -706,6 +767,7 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
                 # Se ele continuar aceitando clientes depois do Ctrl+C, o
                 # Electron mantém tentativas TCP vivas enquanto o uvicorn já
                 # está fechando, atrasando o retorno ao terminal.
+                """Executa a operação stop pipe on shutdown."""
                 await shutdown_event.wait()
                 pipe_task.cancel()
 
@@ -732,11 +794,11 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
         return  # pragma: no cover - os._exit não retorna fora de teste
 
     if force_web:
-        # vectora web: nem a bandeja sobe — só o servidor ASGI puro, igual ao
-        # fallback "sem display" de run_server_with_tray, mas explícito
-        # mesmo em máquina com display (Ctrl+C encerra via os sinais acima).
+        # `vectora web`: sem bandeja Python, mas com Electron sidecar quando
+        # disponível. O backend continua em TCP para clientes web externos.
         logger.warning(
-            "\n\n  ✨  Vectora rodando em %s://localhost:%d — acesse pelo browser.\n",
+            "\n\n  ✨  Vectora rodando em %s://localhost:%d com Electron/Chromium — "
+            "acesse pelo app Electron ou pelo browser.\n",
             scheme,
             port,
         )
@@ -770,48 +832,56 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
 
 
 def _run_config_command(args: argparse.Namespace) -> None:
+    """Executa a operação run config command."""
     from backend.cli.config import run_config
 
     run_config(args)
 
 
 def _run_sessions_command(_args: argparse.Namespace) -> None:
+    """Executa a operação run sessions command."""
     from backend.cli.sessions import run_sessions
 
     run_sessions()
 
 
 def _run_storage_command(args: argparse.Namespace) -> None:
+    """Executa a operação run storage command."""
     from backend.cli.storage import run_storage
 
     run_storage(args)
 
 
 def _run_doctor_command(args: argparse.Namespace) -> None:
+    """Executa a operação run doctor command."""
     from backend.cli.doctor import run_doctor
 
     run_doctor(args)
 
 
 def _run_run_task_command(args: argparse.Namespace) -> None:
+    """Executa a operação run run task command."""
     from backend.cli.run_task import run_run_task
 
     run_run_task(args)
 
 
 def _run_marketplace_command(args: argparse.Namespace) -> None:
+    """Executa a operação run marketplace command."""
     from backend.cli.marketplace import run_marketplace
 
     run_marketplace(args)
 
 
 def _run_media_command(args: argparse.Namespace) -> None:
+    """Executa a operação run media command."""
     from backend.cli.media import run_media
 
     run_media(args)
 
 
 def _run_auth_command(args: argparse.Namespace) -> None:
+    """Executa a operação run auth command."""
     from backend.auth import (
         cmd_login,
         cmd_logout,
@@ -839,6 +909,13 @@ def _run_auth_command(args: argparse.Namespace) -> None:
     sys.exit(handler(args))
 
 
+def _run_eval_command(args: argparse.Namespace) -> None:
+    """Executa a operação run eval command."""
+    from backend.cli.eval import handle_eval
+
+    sys.exit(handle_eval(args))
+
+
 # Subcomandos que só precisam de "importa o módulo, chama o handler com
 # args" — start/web (têm variantes force_web) e auth (tratado à parte
 # acima, mas despachado pela mesma tabela) ficam fora por clareza no
@@ -853,6 +930,7 @@ _COMMAND_HANDLERS: dict[str, Any] = {
     "mcp": _run_marketplace_command,
     "skills": _run_marketplace_command,
     "media": _run_media_command,
+    "eval": _run_eval_command,
 }
 
 

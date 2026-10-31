@@ -70,7 +70,7 @@ class LanceDBConnectionCache:
             resolved.mkdir(parents=True, exist_ok=True)
             db = await lancedb.connect_async(str(resolved))
             self._cache[resolved] = db
-            logger.debug("storage/lancedb/connection: nova conexão → %s", resolved)
+            logger.info("lancedb: nova conexão → %s", resolved)
             return db
 
     def _resolve_path(self, path: str | Path | None) -> Path:

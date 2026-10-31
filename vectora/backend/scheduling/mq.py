@@ -93,6 +93,7 @@ class NatsMQ:
         self._url = url
         self._nc: Any = None
         self._js: Any = None
+        self._closing = False
         self._failed: bool = (
             False  # True após esgotar reconexões — força reset do singleton
         )
@@ -122,7 +123,10 @@ class NatsMQ:
                 logger.warning("mq: NATS erro de conexão: %s", exc)
 
             async def _disconnected_cb() -> None:
-                logger.warning("mq: NATS desconectado do sidecar")
+                if self._closing:
+                    logger.info("mq: NATS desconectado durante shutdown")
+                else:
+                    logger.warning("mq: NATS desconectado do sidecar")
 
             async def _reconnected_cb() -> None:
                 logger.info("mq: NATS reconectado ao sidecar")
@@ -130,9 +134,12 @@ class NatsMQ:
             async def _closed_cb() -> None:
                 # Chamado quando os retries se esgotam — marcamos como falho
                 # para que a próxima operação force reset do singleton em get_mq().
-                logger.warning(
-                    "mq: NATS conexão encerrada após retries esgotados — fallback para memória"
-                )
+                if self._closing:
+                    logger.info("mq: NATS encerrado durante shutdown")
+                else:
+                    logger.warning(
+                        "mq: NATS conexão encerrada após retries esgotados — fallback para memória"
+                    )
                 self._failed = True
                 self._js = None
                 reset_mq()
@@ -210,6 +217,7 @@ class NatsMQ:
     async def close(self) -> None:
         import contextlib
 
+        self._closing = True
         if self._nc is not None:
             with contextlib.suppress(Exception):
                 await self._nc.close()

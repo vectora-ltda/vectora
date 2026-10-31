@@ -1,7 +1,7 @@
 name: PR Checks
 
-# Roda em todo PR contra uma linha de desenvolvimento suportada: aplica labels automáticas por conventional
-# commit/path (.github/labeler.yml) e valida que o TÍTULO do PR segue
+# Roda em todo PR contra uma linha de desenvolvimento suportada e valida que
+# o TÍTULO do PR segue
 # Conventional Commits — o título vira o commit de squash-merge, que
 # release-please.yml lê pra decidir o bump de versão e a seção do
 # CHANGELOG.md. Um título malformado quebra essa automação em silêncio, daí
@@ -49,16 +49,6 @@ jobs:
           utils/test_rotate_release_lines.py
           utils/test_prepare_release_line_config.py
           utils/test_select_release_line.py
-
-  labeler:
-    name: Label PR
-    runs-on: ubuntu-24.04
-    permissions:
-      pull-requests: write
-    steps:
-      - uses: srvaroa/labeler@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   commitlint:
     name: Verify PR title (Conventional Commits)
@@ -142,7 +132,7 @@ jobs:
         run: echo "${{ github.event.pull_request.number }}" > pr-number.txt
       - name: Upload do número do PR (consumido pelo job trusted)
         if: failure() && steps.check.conclusion == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: no-plan-metadata-failure
           path: pr-number.txt
