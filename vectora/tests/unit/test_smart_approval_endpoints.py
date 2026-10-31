@@ -169,7 +169,7 @@ async def test_adicao_retorna_503_quando_persistencia_falha(
 
     monkeypatch.setattr(
         _runtime_settings_isolado,
-        "_persist",
+        "update_list",
         lambda *_args: (_ for _ in ()).throw(OSError("disco")),
     )
     body = _grant_request(workspace_id="ws-falha")
@@ -195,7 +195,7 @@ async def test_revogacao_retorna_503_quando_persistencia_falha(
     rule_id = antes[0]
     monkeypatch.setattr(
         _runtime_settings_isolado,
-        "_persist",
+        "update_list",
         lambda *_args: (_ for _ in ()).throw(OSError("disco")),
     )
     with pytest.raises(HTTPException) as exc_info:
