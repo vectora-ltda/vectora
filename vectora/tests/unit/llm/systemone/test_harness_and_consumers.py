@@ -1098,6 +1098,116 @@ def test_decision_model_requires_provenance_and_capability_flags(
     assert decision_model_enabled_for(ctx, applicable) is enabled
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "permission_mode", "extra", "background_task_id", "surfaces"),
+    [
+        (
+            "browser_navigate",
+            "auto",
+            {"subagent_execution": True},
+            "",
+            {"subagents": True, "browser": False},
+        ),
+        (
+            "browser_navigate",
+            "auto",
+            {"subagent_execution": True},
+            "",
+            {"subagents": False, "browser": True},
+        ),
+        (
+            "call_mcp_tool",
+            "auto",
+            {"connector_execution": True},
+            "",
+            {"connectors": False, "mcp": True},
+        ),
+        (
+            "write_terminal",
+            "auto",
+            {"subagent_execution": True},
+            "background-1",
+            {"subagents": True, "background": False, "terminal": True},
+        ),
+        (
+            "kanban_update_status",
+            "auto",
+            {"subagent_execution": True},
+            "",
+            {"subagents": False, "kanban": True},
+        ),
+        (
+            "browser_navigate",
+            "plan",
+            {},
+            "",
+            {"plan_mode": True, "browser": False},
+        ),
+        (
+            "http_request",
+            "auto",
+            {},
+            "",
+            {"network": False},
+        ),
+    ],
+)
+async def test_disabled_decision_surface_combination_never_probes_provider(
+    tool_name: str,
+    permission_mode: str,
+    extra: dict[str, object],
+    background_task_id: str,
+    surfaces: dict[str, bool],
+) -> None:
+    """Any disabled provenance/capability flag prevents a model call."""
+    from backend.engine.hitl import (
+        _risk_assessment_key,
+        precompute_tool_risk_assessment,
+    )
+
+    class MustNotProbeHarness:
+        async def is_ready(self) -> bool:
+            pytest.fail("disabled decision surface probed provider readiness")
+
+    ctx = ToolContext(
+        user_id="u1",
+        thread_id="surface-guard-thread",
+        workspace_id="surface-guard-workspace",
+        background_task_id=background_task_id,
+        permission_mode=permission_mode,
+        _extra={
+            **extra,
+            "decision_model_preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": surfaces,
+            },
+        },
+    )
+    args = {"target": "sensitive-resource"}
+    applicable_surfaces = decision_model_surfaces_for_tool(ctx, tool_name)
+    assert applicable_surfaces
+    assert not decision_model_enabled_for(ctx, applicable_surfaces)
+
+    elevated = await precompute_tool_risk_assessment(
+        cast("SystemOneHarness", MustNotProbeHarness()),
+        tool_name=tool_name,
+        ctx=ctx,
+        args=args,
+        surface=applicable_surfaces,
+    )
+
+    assert elevated is False
+    assert ctx._extra["systemone_decisions"][_risk_assessment_key(tool_name, args)] == {
+        "decision": "unavailable",
+        "reason": "decision_model_surface_disabled",
+        "provider": "clef-local",
+        "run_id": "",
+        "thread_id": "surface-guard-thread",
+    }
+
+
 def test_kanban_decisions_use_the_kanban_surface_flag() -> None:
     ctx = ToolContext(
         thread_id="kanban-thread",
