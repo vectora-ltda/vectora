@@ -38,6 +38,25 @@
           "description": "Indica se o gate foi aprovado",
           "title": "Passed",
           "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "passed",
+                "assertion_failed",
+                "timeout",
+                "dispatch_error"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Classificação explícita do resultado: passed, assertion_failed, timeout ou dispatch_error",
+          "title": "Reason"
         }
       },
       "required": [
