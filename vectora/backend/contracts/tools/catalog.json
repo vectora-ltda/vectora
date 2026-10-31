@@ -4707,7 +4707,7 @@
             }
           ],
           "default": null,
-          "description": "Dias até expiração; memórias expiradas deixam de ser retornadas",
+          "description": "Dias até expiração (informativo — store básico não garante TTL)",
           "title": "Ttl Days"
         }
       },

@@ -225,11 +225,6 @@
             "title": "Commands Run",
             "type": "array"
           },
-          "contract_version": {
-            "default": 1,
-            "title": "Contract Version",
-            "type": "integer"
-          },
           "correlation_id": {
             "anyOf": [
               {
@@ -240,6 +235,11 @@
               }
             ],
             "title": "Correlation Id"
+          },
+          "contract_version": {
+            "default": 1,
+            "title": "Contract Version",
+            "type": "integer"
           },
           "detail": {
             "anyOf": [
@@ -536,11 +536,6 @@
             "title": "Artifact Type",
             "type": "string"
           },
-          "byte_size": {
-            "default": 0,
-            "title": "Byte Size",
-            "type": "integer"
-          },
           "content": {
             "title": "Content",
             "type": "string"
@@ -549,18 +544,8 @@
             "title": "Created At",
             "type": "string"
           },
-          "retention_class": {
-            "default": "run",
-            "title": "Retention Class",
-            "type": "string"
-          },
           "session_id": {
             "title": "Session Id",
-            "type": "string"
-          },
-          "sha256": {
-            "default": "",
-            "title": "Sha256",
             "type": "string"
           },
           "slug": {
@@ -585,13 +570,6 @@
             "title": "Artifact Type",
             "type": "string"
           },
-          "byte_size": {
-            "default": 0,
-            "description": "Tamanho do payload em bytes.",
-            "minimum": 0.0,
-            "title": "Byte Size",
-            "type": "integer"
-          },
           "content_preview": {
             "anyOf": [
               {
@@ -614,21 +592,9 @@
             "title": "Path",
             "type": "string"
           },
-          "retention_class": {
-            "default": "run",
-            "description": "Política de retenção aplicada ao artifact.",
-            "title": "Retention Class",
-            "type": "string"
-          },
           "session_id": {
             "description": "ID da sessão que gerou o artifact.",
             "title": "Session Id",
-            "type": "string"
-          },
-          "sha256": {
-            "default": "",
-            "description": "Checksum SHA-256 do payload.",
-            "title": "Sha256",
             "type": "string"
           },
           "title": {
@@ -3654,18 +3620,6 @@
             ],
             "title": "Finish Reason"
           },
-          "is_error": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": false,
-            "title": "Is Error"
-          },
           "message_id": {
             "anyOf": [
               {
@@ -5641,76 +5595,6 @@
         "title": "ProviderCapabilities",
         "type": "object"
       },
-      "ProviderCapability": {
-        "description": "Resultado negociado de capacidade; readiness não implica capability.",
-        "properties": {
-          "checked_at": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Checked At"
-          },
-          "diagnostic": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Diagnostic"
-          },
-          "discovered": {
-            "default": false,
-            "title": "Discovered",
-            "type": "boolean"
-          },
-          "model": {
-            "minLength": 1,
-            "title": "Model",
-            "type": "string"
-          },
-          "provider": {
-            "minLength": 1,
-            "title": "Provider",
-            "type": "string"
-          },
-          "ready": {
-            "default": false,
-            "title": "Ready",
-            "type": "boolean"
-          },
-          "streaming": {
-            "default": false,
-            "title": "Streaming",
-            "type": "boolean"
-          },
-          "text_generation": {
-            "default": false,
-            "title": "Text Generation",
-            "type": "boolean"
-          },
-          "tool_calling": {
-            "default": false,
-            "title": "Tool Calling",
-            "type": "boolean"
-          },
-          "vision": {
-            "default": false,
-            "title": "Vision",
-            "type": "boolean"
-          }
-        },
-        "required": ["provider", "model"],
-        "title": "ProviderCapability",
-        "type": "object"
-      },
       "ProviderModel": {
         "description": "Modelo descoberto por um endpoint compatível com OpenAI.",
         "properties": {
@@ -5744,17 +5628,6 @@
           "name": {
             "title": "Name",
             "type": "string"
-          },
-          "workspace_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Workspace Id"
           }
         },
         "required": ["bucket_id", "name", "description", "license"],
@@ -7321,13 +7194,6 @@
                 "type": "null"
               }
             ]
-          },
-          "capability_matrix": {
-            "items": {
-              "$ref": "#/components/schemas/ProviderCapability"
-            },
-            "title": "Capability Matrix",
-            "type": "array"
           },
           "clef_account_id": {
             "title": "Clef Account Id",
@@ -9467,17 +9333,6 @@
           "bucket_id": {
             "title": "Bucket Id",
             "type": "string"
-          },
-          "workspace_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Workspace Id"
           }
         },
         "required": ["bucket_id"],
@@ -17262,7 +17117,7 @@
     },
     "/runs/{run_id}/timeline": {
       "get": {
-        "description": "Consulta o estado e uma página da timeline de eventos do AgentRun.",
+        "description": "Consulta o estado e a timeline de eventos correlacionados ao AgentRun.",
         "operationId": "get_agent_run_timeline_runs__run_id__timeline_get",
         "parameters": [
           {
