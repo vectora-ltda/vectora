@@ -74,11 +74,13 @@ chamada ao motor nativo termina (sucesso, pausa HITL, ou exceção)."""
 async def _spawn_save_partial(
     thread_id: str, content: str, background_tasks: set[asyncio.Task[None]]
 ) -> None:
+    """Executa a operação spawn save partial."""
     import asyncio
 
     from backend.persistence.kv import get_kv
 
     async def _save() -> None:
+        """Executa a operação save."""
         kv = await get_kv()
         await kv.set(f"partial:{thread_id}", content, ttl_s=300)
 
@@ -87,6 +89,7 @@ async def _spawn_save_partial(
         # só aparece como "Task exception was never retrieved" no logger
         # padrão do asyncio — nunca no logger estruturado da aplicação, nem
         # no .jsonl de logs (achado real da investigação de 2026-08-30).
+        """Executa a operação log if failed."""
         if not task.cancelled() and task.exception() is not None:
             logger.warning(
                 "native_stream: falha ao salvar preview parcial de %s no KV",
@@ -101,6 +104,7 @@ async def _spawn_save_partial(
 
 
 async def _clear_partial(thread_id: str) -> None:
+    """Executa a operação clear partial."""
     from backend.persistence.kv import get_kv
 
     kv = await get_kv()
@@ -113,6 +117,7 @@ async def _record_subagent(
     workspace_id: str | None,
     event: SubagentOutput,
 ) -> None:
+    """Executa a operação record subagent."""
     try:
         from backend.scheduling.background_tasks import record_subagent_delegation
 
@@ -158,6 +163,12 @@ async def _persist_terminal_outcome(
                 detail=detail,
                 partial_text="",
             )
+        if hasattr(store, "update_agent_run_status"):
+            await store.update_agent_run_status(
+                run_id,
+                status=status,  # type: ignore
+                detail=detail,
+            )
         turn_id = f"{run_id}:terminal"
         if await store.get_message_id_by_turn_id(thread_id, turn_id) is not None:
             return
@@ -198,6 +209,7 @@ async def _update_persisted_run(
     detail: str | None = None,
     partial_text: str | None = None,
 ) -> None:
+    """Executa a operação update persisted run."""
     if not run_id:
         return
     try:
@@ -210,6 +222,28 @@ async def _update_persisted_run(
                 status=status,
                 detail=detail,
                 partial_text=partial_text,
+            )
+        if hasattr(store, "update_agent_run_status"):
+            canonical_status = (
+                "passed"
+                if status == "completed"
+                else (
+                    status
+                    if status
+                    in (
+                        "running",
+                        "waiting_approval",
+                        "verifying",
+                        "failed",
+                        "cancelled",
+                    )
+                    else "running"
+                )
+            )
+            await store.update_agent_run_status(
+                run_id,
+                status=canonical_status,
+                detail=detail,
             )
     except Exception:
         logger.exception(
@@ -247,6 +281,7 @@ def stream_engine_events(
     import asyncio
 
     async def _gen() -> AsyncGenerator[str]:
+        """Executa a operação gen."""
         from backend.api.turn_files import (
             capture,
             finalize,
@@ -260,6 +295,7 @@ def stream_engine_events(
         lock_transferred = False
 
         def _release_workspace_lock() -> None:
+            """Executa a operação release workspace lock."""
             if run_lock is not None and run_lock.locked():
                 run_lock.release()
                 if workspace_id and _workspace_run_locks.get(workspace_id) is run_lock:
@@ -287,6 +323,22 @@ def stream_engine_events(
                             resolved_run_id,
                             detail="Provider ainda não iniciado.",
                             provider_model=provider_model,
+                        )
+                    if hasattr(store, "upsert_agent_run"):
+                        from backend.persistence.native.agent_run import AgentRun
+
+                        prov, _, mod = (provider_model or "").partition(":")
+                        await store.upsert_agent_run(
+                            AgentRun(
+                                run_id=resolved_run_id,
+                                thread_id=thread_id,
+                                user_id=user_id or "",
+                                workspace_id=workspace_id or None,
+                                provider=prov if mod else "",
+                                model=mod or prov,
+                                status="running",
+                                detail="Provider ainda não iniciado.",
+                            )
                         )
                 except Exception as exc:
                     logger.exception(
@@ -321,6 +373,7 @@ def stream_engine_events(
         background_tasks: set[asyncio.Task[None]] = set()
         run_error: BaseException | None = None
         stopped_reason = "stop"
+        empty_model_response = False
         turn_files_payload: list[dict[str, object]] = []
         event_count = 0
         message_chunk_count = 0
@@ -337,9 +390,14 @@ def stream_engine_events(
         )
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            nonlocal empty_model_response
+            if isinstance(event, ErrorSignal) and event.code == "EMPTY_MODEL_RESPONSE":
+                empty_model_response = True
             await queue.put(event)
 
         async def _runner() -> None:
+            """Executa a operação runner."""
             nonlocal run_error, stopped_reason
             try:
                 stopped_reason = await run(on_event)
@@ -381,17 +439,63 @@ def stream_engine_events(
                         status="cancelled",
                         detail="A execução foi cancelada antes de produzir uma resposta.",
                     )
-                elif stopped_reason == "stop":
-                    await _update_persisted_run(
+                elif stopped_reason == "loop_cap_exceeded":
+                    await _persist_terminal_outcome(
+                        thread_id,
                         resolved_run_id,
-                        status="completed",
-                        detail="Execução concluída.",
+                        status="failed",
+                        detail="A execução excedeu o limite de segurança do loop.",
                     )
+                elif stopped_reason == "stop":
+                    if empty_model_response:
+                        await _persist_terminal_outcome(
+                            thread_id,
+                            resolved_run_id,
+                            status="failed",
+                            detail="O provedor LLM encerrou o stream sem retornar texto ou ferramenta.",
+                        )
+                    else:
+                        await _update_persisted_run(
+                            resolved_run_id,
+                            status="completed",
+                            partial_text=accumulated_partial_content,
+                        )
+                        try:
+                            await _clear_partial(thread_id)
+                        except Exception:
+                            logger.warning(
+                                "native_stream: falha ao limpar rascunho parcial",
+                                exc_info=True,
+                            )
+                        if workspace_id:
+                            try:
+                                await _record_turn_checkpoint(
+                                    workspace_id,
+                                    thread_id,
+                                    {"run_id": str(uuid.uuid4())},
+                                )
+                            except Exception:
+                                logger.warning(
+                                    "native_stream: falha ao registrar checkpoint",
+                                    exc_info=True,
+                                )
+                        from backend.services.remember_trigger import (
+                            maybe_trigger_remember,
+                        )
+
+                        try:
+                            await maybe_trigger_remember(thread_id, user_id or "local")
+                        except Exception:
+                            logger.warning(
+                                "native_stream: falha ao disparar remember",
+                                exc_info=True,
+                            )
                 await queue.put(_SENTINEL)
 
         term_queue: asyncio.Queue[str] = asyncio.Queue()
 
         def _on_terminal_line(line: str) -> None:
+            """Executa a operação on terminal line."""
             with contextlib.suppress(Exception):
                 term_queue.put_nowait(line)
 
@@ -433,19 +537,59 @@ def stream_engine_events(
                             continue
 
                         async def _consume_remainder(
-                            pending: asyncio.Task[Any], q: asyncio.Queue[Any]
+                            pending: asyncio.Task[Any],
+                            q: asyncio.Queue[Any],
+                            *,
+                            empty_model_response: bool = empty_model_response,
                         ) -> None:
+                            """Executa a operação consume remainder."""
+                            nonlocal accumulated_partial_content
                             try:
                                 first_item: object | None = None
                                 with contextlib.suppress(Exception):
                                     first_item = await pending
-                                if first_item is _SENTINEL:
-                                    return
-                                with contextlib.suppress(Exception):
-                                    while True:
-                                        item = await q.get()
-                                        if item is _SENTINEL:
-                                            break
+                                item = first_item
+                                while item is not _SENTINEL:
+                                    if isinstance(item, MessageChunk):
+                                        accumulated_partial_content += item.content
+                                        await _spawn_save_partial(
+                                            thread_id,
+                                            accumulated_partial_content,
+                                            background_tasks,
+                                        )
+                                        await _update_persisted_run(
+                                            resolved_run_id,
+                                            status="streaming",
+                                            partial_text=accumulated_partial_content,
+                                        )
+                                    item = await q.get()
+                                if (
+                                    stopped_reason == "stop"
+                                    and run_error is None
+                                    and not empty_model_response
+                                ):
+                                    await _update_persisted_run(
+                                        resolved_run_id,
+                                        status="completed",
+                                        partial_text=accumulated_partial_content,
+                                    )
+                                    with contextlib.suppress(Exception):
+                                        await _clear_partial(thread_id)
+                                    if workspace_id:
+                                        with contextlib.suppress(Exception):
+                                            await _record_turn_checkpoint(
+                                                workspace_id,
+                                                thread_id,
+                                                {"run_id": str(uuid.uuid4())},
+                                            )
+                                    from backend.services.remember_trigger import (
+                                        maybe_trigger_remember,
+                                    )
+
+                                    with contextlib.suppress(Exception):
+                                        await maybe_trigger_remember(
+                                            thread_id, user_id or "local"
+                                        )
                             finally:
                                 _release_workspace_lock()
 
@@ -513,6 +657,8 @@ def stream_engine_events(
                     event = replace(event, pre_approved=pre)
 
                 if isinstance(event, ErrorSignal):
+                    if event.code == "EMPTY_MODEL_RESPONSE":
+                        empty_model_response = True
                     logger.warning(
                         "native_stream_event_error",
                         extra={
@@ -549,43 +695,7 @@ def stream_engine_events(
                     exc_info=run_error,
                 )
                 code, friendly = classify_stream_error(run_error)
-                await _persist_terminal_outcome(
-                    thread_id,
-                    resolved_run_id,
-                    status="failed",
-                    detail=f"{code}: {friendly}",
-                )
                 yield encode_event(ErrorEvent(message=friendly, code=code))
-            elif stopped_reason in {"cancelled", "canceled", "aborted"}:
-                await _persist_terminal_outcome(
-                    thread_id,
-                    resolved_run_id,
-                    status="cancelled",
-                    detail="A execução foi cancelada antes de produzir uma resposta.",
-                )
-            elif stopped_reason == "stop":
-                await _update_persisted_run(
-                    resolved_run_id,
-                    status="completed",
-                    detail="Execução concluída.",
-                    partial_text=accumulated_partial_content,
-                )
-                t = asyncio.ensure_future(_clear_partial(thread_id))
-                background_tasks.add(t)
-                t.add_done_callback(background_tasks.discard)
-
-                if workspace_id:
-                    await _record_turn_checkpoint(
-                        workspace_id, thread_id, {"run_id": str(uuid.uuid4())}
-                    )
-
-                from backend.services.remember_trigger import maybe_trigger_remember
-
-                t2 = asyncio.ensure_future(
-                    maybe_trigger_remember(thread_id, user_id or "local")
-                )
-                background_tasks.add(t2)
-                t2.add_done_callback(background_tasks.discard)
 
         except Exception as exc:
             logger.exception("native_stream: erro no stream nativo")

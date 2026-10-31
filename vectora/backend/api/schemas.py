@@ -171,6 +171,7 @@ _ATTACHMENT_SUPPORTED_EXTENSIONS = {
 
 
 def _attachment_max_size_bytes(name: str, mime_type: str) -> int:
+    """Executa a operação  attachment max size bytes."""
     lowered = name.lower()
     if lowered.endswith(".har"):
         return _ATTACHMENT_MAX_SIZE_HAR_BYTES
@@ -196,6 +197,7 @@ class Attachment(BaseModel):
 
     @model_validator(mode="after")
     def _validate_content(self) -> Attachment:
+        """Executa a operação  validate content."""
         lowered_name = self.name.lower()
         has_valid_mimetype = self.mime_type in _ATTACHMENT_SUPPORTED_MIME_TYPES
         has_valid_extension = any(
@@ -375,6 +377,7 @@ class NodeEvent(BaseModel):
 
     @model_validator(mode="after")
     def _fill_node_label(self) -> NodeEvent:
+        """Executa a operação  fill node label."""
         if not self.node_label and self.node:
             from backend.api.node_labels import get_node_label
 
@@ -547,6 +550,8 @@ class TodoItem(BaseModel):
 
     content: str
     status: Literal["pending", "in_progress", "completed"]
+    step_id: str | None = None
+    quality_gate: str | None = None
 
 
 class TodosUpdatedEvent(BaseModel):
@@ -632,6 +637,13 @@ class RemoteActivity(BaseModel):
     last_active_at: str
 
 
+class ThreadLastMessagePreview(BaseModel):
+    role: str
+    preview: str
+    message_id: int
+    created_at: str
+
+
 class Thread(BaseModel):
     id: str
     created_at: str
@@ -642,12 +654,20 @@ class Thread(BaseModel):
     pinned: bool = False
     unread_count: int = 0
     remote_activity: RemoteActivity | None = None
+    last_message: ThreadLastMessagePreview | None = None
+    status: Literal["running", "awaiting_approval", "failed", "idle"] = "idle"
+    last_seq: int = 0
+    read_seq: int = 0
 
 
 class HistoryMessage(BaseModel):
     role: str
     content: str
     message_id: int | None = None
+    seq: int | None = None
+    turn_id: str | None = None
+    run_id: str | None = None
+    finish_reason: str | None = None
     created_at: str = ""
     # Checkpoint pai (estado do thread imediatamente antes desta mensagem
     # existir) — alvo de fork pra "editar e reenviar"/"regenerar". Vazio
@@ -668,12 +688,16 @@ class GetHistoryResponse(BaseModel):
     # seção "Tasks" do Plan tab num reload de página. Vazio quando a thread
     # nunca chamou write_todos.
     todos: list[TodoItem] = Field(default_factory=list)
+    run_status: Literal["running", "awaiting_approval", "failed", "idle"] = "idle"
+    last_seq: int = 0
 
 
 class PagedHistoryResponse(BaseModel):
     messages: list[HistoryMessage]
     has_more: bool
     total_count: int
+    run_status: Literal["running", "awaiting_approval", "failed", "idle"] = "idle"
+    last_seq: int = 0
 
 
 class ConversationBranch(BaseModel):
@@ -774,7 +798,7 @@ class UsernameAvailableResponse(BaseModel):
     # Forma canônica do que foi consultado (minúsculas, sem acento).
     normalized: str
     available: bool
-    # Sugestão livre quando o consultado está em uso (ex.: "bruno#4821");
+    # Sugestão livre quando o consultado está em uso (ex.: "bruno-4821");
     # igual a `normalized` quando já está livre.
     suggestion: str
 
@@ -853,6 +877,7 @@ class UserResponse(BaseModel):
 
     @classmethod
     def from_user(cls, user: Any, token_expires_at: int | None = None) -> UserResponse:
+        """Executa a operação from user."""
         return cls(
             id=user.id,
             username=getattr(user, "username", "") or "",
@@ -915,3 +940,23 @@ class AuditEntry(BaseModel):
 class EnvOverrideRequest(BaseModel):
     key: str
     value: str
+
+
+# ---------------------------------------------------------------------------
+# Contratos persistentes de execução do agente.
+# ---------------------------------------------------------------------------
+from backend.persistence.native.agent_run import (
+    AgentRun,
+    AgentRunMetrics,
+    AgentRunStatus,
+    AgentRunTimelineEntry,
+    AgentRunTimelineResponse,
+)
+
+__all__ = [
+    "AgentRun",
+    "AgentRunMetrics",
+    "AgentRunStatus",
+    "AgentRunTimelineEntry",
+    "AgentRunTimelineResponse",
+]

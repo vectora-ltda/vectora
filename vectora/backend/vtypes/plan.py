@@ -37,3 +37,12 @@ class KanbanCard(TypedDict):
     block_reason: NotRequired[str | None]
     agent_profile_id: NotRequired[str | None]
     last_run_at: NotRequired[str | None]
+
+
+class TodoItem(TypedDict):
+    """Item executável de planejamento com suporte a step_id e quality gate."""
+
+    content: str
+    status: Literal["pending", "in_progress", "completed"]
+    step_id: NotRequired[str | None]
+    quality_gate: NotRequired[str | None]

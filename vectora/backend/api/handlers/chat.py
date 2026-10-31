@@ -71,7 +71,9 @@ router = APIRouter()
 class _SessionStore(Protocol):
     async def get_session(
         self, thread_id: str, *, user_id: str | None = None
-    ) -> dict[str, object] | None: ...
+    ) -> dict[str, object] | None:
+        """Recupera uma sessão pelo identificador e proprietário."""
+        ...
 
 
 _CHAT_PERSISTED_HEADER = "X-Vectora-Chat-Persisted"
@@ -853,6 +855,10 @@ async def stream_chat(
     configurable = _build_configurable(
         request.config, thread_id, user_id, user_name=user_name
     )
+    if hasattr(http_request.state, "correlation_id"):
+        configurable["correlation_id"] = http_request.state.correlation_id
+    if hasattr(http_request.state, "request_id"):
+        configurable["request_id"] = http_request.state.request_id
     if planning_mode:
         configurable["planning_mode"] = True
 
@@ -1123,6 +1129,7 @@ async def stream_chat(
     run_id = uuid.uuid4().hex
 
     async def run(on_event: EventSink) -> str:
+        """Executa a operação run."""
         chat_client = FallbackChatClient(primary_model_id=configurable.get("model", ""))
         run_ctx = ctx_from_config(config)
         run_ctx.store = await agent_factory.get_store()
@@ -1360,14 +1367,25 @@ async def resume_chat(
             "permission_mode": permission_mode,
             "workspace_id": selector_workspace_id or "",
             "model": selector_model,
+            "correlation_id": getattr(http_request.state, "correlation_id", ""),
+            "request_id": getattr(http_request.state, "request_id", ""),
         },
         "recursion_limit": 50,
     }
     run_id = uuid.uuid4().hex
 
     async def run(on_event: EventSink) -> str:
+        """Executa a operação run."""
         run_ctx = ctx_from_config(config)
         run_ctx.store = await agent_factory.get_store()
+        if hasattr(session_store, "list_agent_runs"):
+            runs = await session_store.list_agent_runs(request.thread_id, limit=5)
+            paused_run = next(
+                (r for r in runs if r.status == "waiting_approval"),
+                runs[0] if runs else None,
+            )
+            if paused_run and paused_run.untrusted_content:
+                run_ctx._extra["untrusted_content"] = True
         resumed = await resume_conversation(
             session_store=session_store,
             tool_registry=effective_tool_registry,

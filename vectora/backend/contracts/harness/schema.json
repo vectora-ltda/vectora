@@ -1,0 +1,376 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "ArtifactRef": {
+      "description": "Referência imutável a payload persistido fora do transcript quente.",
+      "properties": {
+        "artifact_id": {
+          "minLength": 1,
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "byte_size": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "encrypted": {
+          "default": false,
+          "title": "Encrypted",
+          "type": "boolean"
+        },
+        "media_type": {
+          "default": "application/octet-stream",
+          "minLength": 1,
+          "title": "Media Type",
+          "type": "string"
+        },
+        "retention_class": {
+          "default": "run",
+          "title": "Retention Class",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "storage_uri": {
+          "minLength": 1,
+          "title": "Storage Uri",
+          "type": "string"
+        }
+      },
+      "required": ["artifact_id", "sha256", "storage_uri"],
+      "title": "ArtifactRef",
+      "type": "object"
+    },
+    "CheckpointRef": {
+      "description": "Estado mínimo necessário para retomar um run sem reprocessar o transcript.",
+      "properties": {
+        "artifact_refs": {
+          "items": {
+            "$ref": "#/definitions/ArtifactRef"
+          },
+          "title": "Artifact Refs",
+          "type": "array"
+        },
+        "checkpoint_id": {
+          "minLength": 1,
+          "title": "Checkpoint Id",
+          "type": "string"
+        },
+        "last_sequence": {
+          "minimum": 0,
+          "title": "Last Sequence",
+          "type": "integer"
+        },
+        "run_id": {
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "minLength": 1,
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Hash",
+          "type": "string"
+        },
+        "thread_id": {
+          "minLength": 1,
+          "title": "Thread Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "checkpoint_id",
+        "run_id",
+        "thread_id",
+        "last_sequence",
+        "source_hash",
+        "schema_version"
+      ],
+      "title": "CheckpointRef",
+      "type": "object"
+    },
+    "ContextProjection": {
+      "description": "Projeção versionada do contexto; nunca substitui o transcript canônico.",
+      "properties": {
+        "covered_from_sequence": {
+          "minimum": 0,
+          "title": "Covered From Sequence",
+          "type": "integer"
+        },
+        "covered_to_sequence": {
+          "minimum": 0,
+          "title": "Covered To Sequence",
+          "type": "integer"
+        },
+        "omitted_sequences": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Omitted Sequences",
+          "type": "array"
+        },
+        "pending_tool_calls": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Pending Tool Calls",
+          "type": "array"
+        },
+        "preserved_approvals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Preserved Approvals",
+          "type": "array"
+        },
+        "preserved_decisions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Preserved Decisions",
+          "type": "array"
+        },
+        "preserved_errors": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Preserved Errors",
+          "type": "array"
+        },
+        "projection_id": {
+          "minLength": 1,
+          "title": "Projection Id",
+          "type": "string"
+        },
+        "run_id": {
+          "minLength": 1,
+          "title": "Run Id",
+          "type": "string"
+        },
+        "source_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Hash",
+          "type": "string"
+        },
+        "thread_id": {
+          "minLength": 1,
+          "title": "Thread Id",
+          "type": "string"
+        },
+        "tokens_after": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tokens After",
+          "type": "integer"
+        },
+        "tokens_before": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Tokens Before",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "projection_id",
+        "thread_id",
+        "run_id",
+        "source_hash",
+        "covered_from_sequence",
+        "covered_to_sequence"
+      ],
+      "title": "ContextProjection",
+      "type": "object"
+    },
+    "MemoryRecord": {
+      "description": "Fato recuperável com escopo e proveniência explícitos.",
+      "properties": {
+        "confidence": {
+          "default": 0.5,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "content": {
+          "minLength": 1,
+          "title": "Content",
+          "type": "string"
+        },
+        "importance": {
+          "default": 0.5,
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Importance",
+          "type": "number"
+        },
+        "invalidated_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invalidated At"
+        },
+        "memory_id": {
+          "minLength": 1,
+          "title": "Memory Id",
+          "type": "string"
+        },
+        "provenance_hash": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Provenance Hash",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "short_term",
+            "session",
+            "project",
+            "workspace",
+            "user",
+            "vector_rag"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "source_artifact_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Artifact Id"
+        },
+        "source_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Run Id"
+        },
+        "subject": {
+          "minLength": 1,
+          "title": "Subject",
+          "type": "string"
+        },
+        "valid_until": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Valid Until"
+        }
+      },
+      "required": [
+        "memory_id",
+        "scope",
+        "subject",
+        "content",
+        "provenance_hash"
+      ],
+      "title": "MemoryRecord",
+      "type": "object"
+    },
+    "ProviderCapability": {
+      "description": "Resultado negociado de capacidade; readiness não implica capability.",
+      "properties": {
+        "checked_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked At"
+        },
+        "diagnostic": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Diagnostic"
+        },
+        "discovered": {
+          "default": false,
+          "title": "Discovered",
+          "type": "boolean"
+        },
+        "model": {
+          "minLength": 1,
+          "title": "Model",
+          "type": "string"
+        },
+        "provider": {
+          "minLength": 1,
+          "title": "Provider",
+          "type": "string"
+        },
+        "ready": {
+          "default": false,
+          "title": "Ready",
+          "type": "boolean"
+        },
+        "streaming": {
+          "default": false,
+          "title": "Streaming",
+          "type": "boolean"
+        },
+        "text_generation": {
+          "default": false,
+          "title": "Text Generation",
+          "type": "boolean"
+        },
+        "tool_calling": {
+          "default": false,
+          "title": "Tool Calling",
+          "type": "boolean"
+        },
+        "vision": {
+          "default": false,
+          "title": "Vision",
+          "type": "boolean"
+        }
+      },
+      "required": ["provider", "model"],
+      "title": "ProviderCapability",
+      "type": "object"
+    }
+  },
+  "description": "Contratos canônicos de artifacts, checkpoints, projections, memória e providers.",
+  "title": "HarnessRuntimeContractBundle"
+}

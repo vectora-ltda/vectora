@@ -25,8 +25,10 @@ import asyncio
 import logging
 import os
 import sys
+import threading
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
+from typing import Literal
 
 import httpx
 from fastapi import FastAPI, Request
@@ -34,6 +36,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.responses import Response as FastAPIResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 from starlette.middleware.base import RequestResponseEndpoint
 
 from backend.api.handlers.admin import router as admin_router
@@ -368,6 +371,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
         )
 
         async def _consolidation_loop() -> None:
+            """Executa a operação  consolidation loop."""
             while True:
                 await asyncio.sleep(6 * 3600)
                 await run_consolidation_for_all_users()
@@ -384,6 +388,8 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
     # sidebar por muito mais de 1h, seja qual for a causa da divergência.
     thread_cleanup_task: asyncio.Task[None] | None = None
     reconcile_runs_task: asyncio.Task[None] | None = None
+    storage_maintenance_task: asyncio.Task[None] | None = None
+    storage_maintenance_stop = threading.Event()
     try:
         from backend.api.handlers.threads import (
             cleanup_empty_threads,
@@ -396,12 +402,14 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             # (ex.: app headless sem motor nativo configurado) ou qualquer
             # outra falha, a reconciliação não pode derrubar a task e
             # impedir cleanup_empty_threads de rodar.
+            """Executa a operação  reconcile safe."""
             try:
                 await reconcile_vectora_sessions()
             except Exception as exc:
                 logger.warning("api/server: falha ao reconciliar threads: %s", exc)
 
         async def _reconcile_runs_safe() -> None:
+            """Executa a operação  reconcile runs safe."""
             try:
                 from backend.services import agent_factory
 
@@ -418,18 +426,21 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
                 logger.warning("api/server: falha ao reconciliar runs: %s", exc)
 
         async def _cleanup_safe() -> None:
+            """Executa a operação  cleanup safe."""
             try:
                 await cleanup_empty_threads()
             except Exception as exc:
                 logger.warning("api/server: falha ao limpar threads vazias: %s", exc)
 
         async def _activity_cleanup_safe() -> None:
+            """Executa a operação  activity cleanup safe."""
             try:
                 await prune_thread_activity()
             except Exception as exc:
                 logger.warning("api/server: falha ao limpar atividade remota: %s", exc)
 
         async def _thread_cleanup_loop() -> None:
+            """Executa a operação  thread cleanup loop."""
             nonlocal reconcile_runs_task
             # Reconcilia ANTES de limpar: uma thread real com message_count
             # zerado por alguma falha (upsert perdido) e mais velha que o
@@ -458,6 +469,44 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
         thread_cleanup_task = asyncio.create_task(_thread_cleanup_loop())
     except Exception as exc:
         logger.warning("api/server: falha ao iniciar cleanup de threads: %s", exc)
+
+    # Maintenance is deliberately outside the request path.  It uses the
+    # shared storage gate coordinates maintenance with backup/restore and
+    # state-file operations; artifact collection remains dry-run until an
+    # explicit retention policy opts into deletion.
+    try:
+        from backend.services.storage_maintenance import run_storage_maintenance
+
+        async def _storage_maintenance_loop() -> None:
+            """Executa a operação  storage maintenance loop."""
+            from backend.settings import get_settings as _get_settings
+
+            settings = _get_settings()
+            while True:
+                try:
+                    result = await run_storage_maintenance(
+                        settings.vectora_home / "sessions.db",
+                        artifact_root=settings.vectora_home / "artifacts",
+                        stop_event=storage_maintenance_stop,
+                    )
+                    logger.info(
+                        "api/server: storage maintenance concluída wal=%s "
+                        "artifacts=%s bytes=%s",
+                        result.wal_checkpoint,
+                        result.artifact_gc.scanned,
+                        result.artifact_gc.bytes_freed,
+                    )
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        "api/server: falha na manutenção de storage: %s", exc
+                    )
+                await asyncio.sleep(6 * 3600)
+
+        storage_maintenance_task = asyncio.create_task(_storage_maintenance_loop())
+    except Exception as exc:
+        logger.warning("api/server: falha ao iniciar manutenção de storage: %s", exc)
 
     # Gateway client (ex-relay) — WebSocket persistente para receber webhooks
     # e callbacks OAuth. Só inicia quando GATEWAY_ENABLED=true (padrão);
@@ -500,7 +549,15 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
             thread_cleanup_task.cancel()
         if reconcile_runs_task is not None:
             reconcile_runs_task.cancel()
-        for task in (thread_cleanup_task, reconcile_runs_task, consolidation_task):
+        if storage_maintenance_task is not None:
+            storage_maintenance_stop.set()
+            storage_maintenance_task.cancel()
+        for task in (
+            thread_cleanup_task,
+            reconcile_runs_task,
+            consolidation_task,
+            storage_maintenance_task,
+        ):
             if task is not None:
                 with suppress(asyncio.CancelledError):
                     await task
@@ -661,7 +718,8 @@ def create_app(serve_static: bool = True) -> FastAPI:
 
         # The restore endpoint owns the maintenance window itself; counting
         # that request would make it wait for its own operation to finish.
-        if request.url.path == "/storage/backup/restore":
+        # Sonda de liveness não deve travar em operações/janelas de manutenção.
+        if request.url.path in ("/storage/backup/restore", "/health/live"):
             return await call_next(request)
         async with storage_operation():
             return await call_next(request)
@@ -678,6 +736,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
     async def _log_unhandled_exception(
         request: Request, exc: Exception
     ) -> FastAPIResponse:
+        """Executa a operação  log unhandled exception."""
         logging.getLogger(__name__).error(
             "api/server: exceção não tratada em %s %s",
             request.method,
@@ -721,10 +780,30 @@ def create_app(serve_static: bool = True) -> FastAPI:
         CORSMiddleware,
         allow_origins=_cors_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["X-Vectora-Chat-Persisted"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=[
+            "Accept",
+            "Authorization",
+            "Content-Type",
+            "X-Correlation-ID",
+            "X-Request-ID",
+            "X-Vectora-Device-Id",
+        ],
+        expose_headers=[
+            "X-Vectora-Chat-Persisted",
+            "X-Correlation-ID",
+            "X-Request-ID",
+            "X-Vectora-Contract-Version",
+        ],
     )
+
+    # ── Correlation & Contract Version Middleware ─────────────────────────────
+    # Registrado por último para ser o middleware mais externo na pilha do Starlette,
+    # garantindo que cabeçalhos de correlação estejam presentes em qualquer resposta
+    # (inclusive 401, 429, preflight CORS e erros não tratados).
+    from backend.api.middleware.correlation import CorrelationMiddleware
+
+    app.add_middleware(CorrelationMiddleware)
 
     # ── Routers ───────────────────────────────────────────────────────────────
     app.include_router(flags_router)
@@ -765,6 +844,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
     # ── Discovery Layer — schema das tools ─────────────────────────────────
     @app.get("/api/tools/schema")
     async def tools_schema() -> dict:
+        """Executa a operação tools schema."""
         from backend.nodes.tools import ALL_TOOL_SPECS
 
         tools_data = []
@@ -783,10 +863,82 @@ def create_app(serve_static: bool = True) -> FastAPI:
         return {"version": "1", "tool_count": len(tools_data), "tools": tools_data}
 
     # ── Health + Metrics ──────────────────────────────────────────────────────
+    class HealthLiveResponse(BaseModel):
+        """Contrato de resposta da sonda de liveness."""
+
+        status: Literal["live"]
+        version: str
+
+    class HealthReadyChecks(BaseModel):
+        """Estado detalhado das dependências vitais."""
+
+        store: bool
+        lancedb: bool
+
+    class HealthReadyResponse(BaseModel):
+        """Contrato de resposta da sonda de readiness."""
+
+        status: Literal["ready", "not_ready"]
+        version: str
+        checks: HealthReadyChecks
 
     @app.get("/health")
     async def health() -> dict:
+        """Executa a operação health."""
         return {"status": "ok", "version": __version__}
+
+    @app.get("/health/live", response_model=HealthLiveResponse)
+    async def health_live() -> HealthLiveResponse:
+        """Liveness probe: processo está vivo e aceitando requisições."""
+        return HealthLiveResponse(status="live", version=__version__)
+
+    @app.get("/health/ready", response_model=HealthReadyResponse)
+    async def health_ready(response: FastAPIResponse) -> HealthReadyResponse:
+        """Readiness probe: verifica se os serviços de persistência e dependências vitais estão prontos."""
+        import asyncio
+
+        from backend.services import agent_factory
+        from backend.storage.lancedb.connection import get_lancedb
+
+        async def _check_dependencies() -> tuple[bool, bool]:
+            """Executa a operação  check dependencies."""
+            s_ok = False
+            l_ok = False
+            try:
+                ss = await agent_factory.get_session_store()
+                st = await agent_factory.get_store()
+                s_ok = bool(ss is not None and st is not None)
+            except Exception:
+                s_ok = False
+
+            try:
+                db = await get_lancedb()
+                _ = (await db.list_tables()).tables
+                l_ok = True
+            except Exception:
+                l_ok = False
+
+            return s_ok, l_ok
+
+        try:
+            store_ok, lancedb_ok = await asyncio.wait_for(
+                _check_dependencies(), timeout=3.0
+            )
+        except Exception:
+            store_ok = False
+            lancedb_ok = False
+
+        is_ready = bool(store_ok and lancedb_ok)
+        response.status_code = 200 if is_ready else 503
+
+        return HealthReadyResponse(
+            status="ready" if is_ready else "not_ready",
+            version=__version__,
+            checks=HealthReadyChecks(
+                store=store_ok,
+                lancedb=lancedb_ok,
+            ),
+        )
 
     @app.get("/api/updates/changelog")
     async def update_changelog() -> dict[str, str]:
@@ -799,6 +951,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
         )
 
         def read_latest() -> str:
+            """Executa a operação read latest."""
             changelog_path = next(
                 (candidate for candidate in candidates if candidate.is_file()),
                 None,
@@ -821,6 +974,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
 
     @app.get("/metrics")
     async def metrics() -> list:
+        """Executa a operação metrics."""
         try:
             from backend.persistence.tracer import tracer
 
@@ -851,6 +1005,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
         @app.get("/{filename:path}", include_in_schema=False)
         async def _spa_or_static(request: Request, filename: str) -> FastAPIResponse:
             # Se for arquivo real na raiz do bundle, serve direto.
+            """Executa a operação  spa or static."""
             candidate = (chat_static / filename).resolve()
             try:
                 candidate.relative_to(chat_static.resolve())

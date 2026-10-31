@@ -4,7 +4,9 @@ from backend.vtypes.agents import MemoryEntry, UIMetrics
 from backend.vtypes.browser import (
     BrowserConsoleEntry,
     BrowserNetworkEntry,
+    BrowserProfileKind,
     BrowserTab,
+    BrowserTarget,
     NetworkProfile,
     NetworkProfileName,
 )
@@ -55,6 +57,14 @@ from backend.vtypes.safe_root import SafeRoot
 from backend.vtypes.session import SessionMetadata
 from backend.vtypes.shell import ShellState, TerminalCommand, TerminalResult
 from backend.vtypes.storage import HealthResult, QueueTask
+from backend.vtypes.web import (
+    CrawlRequest,
+    FetchedDocument,
+    MapRequest,
+    SearchDiagnostic,
+    SearchResponse,
+    SearchResult,
+)
 from backend.vtypes.workspace import Workspace
 
 __all__ = [
@@ -63,11 +73,15 @@ __all__ = [
     "BlockKind",
     "BrowserConsoleEntry",
     "BrowserNetworkEntry",
+    "BrowserProfileKind",
     "BrowserTab",
+    "BrowserTarget",
     "ChangedFile",
     "ContentBlock",
+    "CrawlRequest",
     "DecompositionNode",
     "Document",
+    "FetchedDocument",
     "GitCommitSnapshot",
     "GitContract",
     "GitDiffSnapshot",
@@ -86,6 +100,7 @@ __all__ = [
     "JsonValue",
     "KanbanCard",
     "KanbanStatus",
+    "MapRequest",
     "MemoryEntry",
     "MessageRole",
     "NetworkProfile",
@@ -96,6 +111,9 @@ __all__ = [
     "QuestionStatus",
     "QueueTask",
     "SafeRoot",
+    "SearchDiagnostic",
+    "SearchResponse",
+    "SearchResult",
     "SessionMetadata",
     "ShellState",
     "StructuredQuestionRecord",

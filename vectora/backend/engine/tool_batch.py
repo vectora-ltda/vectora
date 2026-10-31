@@ -12,16 +12,20 @@ uma das chamadas é a arriscada.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from backend.engine.guardrails import TurnBudget
     from backend.engine.stream_events import EventSink
+    from backend.services.policy_compiler import PolicySnapshot
     from backend.tools.context import ToolContext
     from backend.tools.registry import ToolRegistry
     from backend.vtypes.message import ToolCall
@@ -43,9 +47,43 @@ def _is_tool_error(text: str) -> bool:
 
 
 def _redact_secrets(texto: str) -> str:
+    """Executa a operação redact secrets."""
     for pattern in _SECRET_PATTERNS:
         texto = pattern.sub("[REDACTED]", texto)
     return texto
+
+
+def _check_policy_snapshot_pre_execute(
+    tool_call: ToolCall,
+    ctx: ToolContext,
+    policy_snapshot: PolicySnapshot | None,
+) -> tuple[bool, str]:
+    """Executa a operação check policy snapshot pre execute."""
+    if policy_snapshot is None:
+        from backend.services.policy_compiler import compile_policy_snapshot
+
+        policy_snapshot = compile_policy_snapshot(ctx)
+
+    return policy_snapshot.validate_call(tool_call.name, tool_call.args)
+
+
+#: Callbacks aplicados, em ordem, antes da execução de qualquer tool.
+_PRE_EXECUTE: tuple[
+    Callable[[ToolCall, ToolContext, PolicySnapshot | None], tuple[bool, str]], ...
+] = (_check_policy_snapshot_pre_execute,)
+
+
+def _apply_pre_execute(
+    tool_call: ToolCall,
+    ctx: ToolContext,
+    policy_snapshot: PolicySnapshot | None,
+) -> tuple[bool, str]:
+    """Executa a operação apply pre execute."""
+    for hook in _PRE_EXECUTE:
+        ok, reason = hook(tool_call, ctx, policy_snapshot)
+        if not ok:
+            return False, reason
+    return True, ""
 
 
 #: Callbacks aplicados, em ordem, ao texto de resultado de toda tool antes
@@ -57,6 +95,7 @@ _POST_EXECUTE: tuple[Callable[[str], str], ...] = (_redact_secrets,)
 
 
 def _apply_post_execute(texto: str) -> str:
+    """Executa a operação apply post execute."""
     for hook in _POST_EXECUTE:
         texto = hook(texto)
     return texto
@@ -69,8 +108,25 @@ async def _run_one(
     ctx: ToolContext,
     turn_budget: TurnBudget | None,
     on_event: EventSink | None,
+    policy_snapshot: PolicySnapshot | None = None,
+    on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> VMessage:
     """Executa uma chamada do lote com contexto correlacionado à própria tool."""
+    allowed, deny_reason = _apply_pre_execute(tool_call, ctx, policy_snapshot)
+    if not allowed:
+        return VMessage(
+            role=MessageRole.TOOL,
+            content=[
+                ContentBlock(
+                    kind="text",
+                    text=f"Error: policy_denied: {deny_reason}",
+                )
+            ],
+            tool_call_id=tool_call.id,
+            name=tool_call.name,
+            is_error=True,
+        )
+
     spec = tool_registry.get(tool_call.name)
 
     if turn_budget is not None:
@@ -92,6 +148,14 @@ async def _run_one(
                 is_error=True,
             )
 
+    if on_tool_started is not None:
+        try:
+            await on_tool_started(tool_call)
+        except Exception:
+            logger.exception(
+                "Falha ao publicar TOOL_STARTED para tool_call %s", tool_call.id
+            )
+
     if spec is None:
         texto = f"Error: tool '{tool_call.name}' não encontrada no registry"
         is_error = True
@@ -103,7 +167,11 @@ async def _run_one(
         call_context = replace(
             ctx,
             tool_call_id=tool_call.id,
-            _extra={**ctx._extra, "event_sink": on_event},
+            _extra={
+                **ctx._extra,
+                "event_sink": on_event,
+                "policy_snapshot": policy_snapshot,
+            },
         )
         if spec.extras.category == "media":
             call_context = await apply_media_billing_source(call_context)
@@ -134,6 +202,8 @@ async def execute_tool_batch(
     ctx: ToolContext,
     turn_budget: TurnBudget | None = None,
     on_event: EventSink | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
+    on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> list[VMessage]:
     """Executa todas as `tool_calls` do turno, na ordem em que aparecem no
     resultado — paralelo se nenhuma é destrutiva, sequencial (mas ainda
@@ -144,6 +214,11 @@ async def execute_tool_batch(
     primeira chamada que estourar o teto vira erro sem executar a tool, e
     `turn_budget.exceeded` fica setado (travado) pro chamador checar depois
     do lote inteiro e decidir parar o loop."""
+    if policy_snapshot is None:
+        from backend.services.policy_compiler import compile_policy_snapshot
+
+        policy_snapshot = compile_policy_snapshot(ctx)
+
     algum_destrutivo = any(
         (spec := tool_registry.get(tc.name)) is not None and spec.extras.destructive
         for tc in tool_calls
@@ -157,6 +232,8 @@ async def execute_tool_batch(
                 ctx=ctx,
                 turn_budget=turn_budget,
                 on_event=on_event,
+                policy_snapshot=policy_snapshot,
+                on_tool_started=on_tool_started,
             )
             for tc in tool_calls
         ]
@@ -170,6 +247,8 @@ async def execute_tool_batch(
                     ctx=ctx,
                     turn_budget=turn_budget,
                     on_event=on_event,
+                    policy_snapshot=policy_snapshot,
+                    on_tool_started=on_tool_started,
                 )
                 for tc in tool_calls
             )

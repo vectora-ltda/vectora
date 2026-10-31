@@ -223,6 +223,8 @@ ignore = [
 # S105 é falso positivo do nome da variável); muitos returns é inerente a um
 # parser de sintaxe com vários formatos de token (campo/índice/wildcard/seleção).
 "backend/persistence/native/store.py" = ["S105", "PLR0911"]
+# Contratos de schema JSON e TypeScript de settings.json usam camelCase canônico.
+"backend/contracts/models.py" = ["N815"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -389,6 +391,7 @@ markers = [
     "live: testes sem mock que chamam LLM/Tavily reais — custam API real, só via 'scons tests-live'",
     "local_llm: teste de integração contra um llama.cpp real iniciado pelo workflow local-llm",
     "real_lancedb: testes que chamam lancedb.connect_async() real (sem mock) — travam de forma determinística no Linux CI, rodam em step isolado do workflow (ver comentário do timeout acima)",
+    "benchmark: benchmarks locais opt-in de persistência, sem APIs externas",
 ]
 
 [dependency-groups]
