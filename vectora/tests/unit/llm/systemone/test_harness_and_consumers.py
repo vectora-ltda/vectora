@@ -1005,6 +1005,18 @@ async def test_plan_mode_uses_its_own_flag_without_bypassing_approval() -> None:
             {"subagents": True, "background": True, "terminal": False},
             False,
         ),
+        (
+            "kanban_update_status",
+            "",
+            {"subagents": True, "kanban": False},
+            False,
+        ),
+        (
+            "kanban_update_status",
+            "",
+            {"subagents": True, "kanban": True},
+            True,
+        ),
     ],
 )
 def test_decision_model_requires_provenance_and_capability_flags(
@@ -1025,6 +1037,28 @@ def test_decision_model_requires_provenance_and_capability_flags(
     applicable = decision_model_surfaces_for_tool(ctx, tool_name)
     assert applicable[0] == "subagents"
     assert decision_model_enabled_for(ctx, applicable) is enabled
+
+
+def test_kanban_decisions_use_the_kanban_surface_flag() -> None:
+    ctx = ToolContext(
+        thread_id="kanban-thread",
+        workspace_id="ws-1",
+        _extra={
+            "decision_model_preferences": {
+                "enabled": True,
+                "surfaces": {"kanban": True, "hitl": False},
+            }
+        },
+    )
+
+    assert decision_model_surfaces_for_tool(ctx, "kanban_update_status") == ("kanban",)
+    assert decision_model_surfaces_for_tool(ctx, "kanban_create") == ("kanban",)
+    assert (
+        decision_model_enabled_for(
+            ctx, decision_model_surfaces_for_tool(ctx, "kanban_update_status")
+        )
+        is True
+    )
 
 
 def test_connector_decisions_require_the_connector_surface_flag() -> None:

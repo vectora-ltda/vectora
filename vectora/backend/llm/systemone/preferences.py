@@ -91,6 +91,8 @@ def decision_model_surfaces_for_tool(ctx: object, tool_name: str) -> tuple[str, 
         surface = "network"
     elif name.startswith("browser") or name in {"web_search", "browser_search"}:
         surface = "browser"
+    elif name.startswith("kanban_"):
+        surface = "kanban"
     else:
         surface = "hitl"
     provenance = []
