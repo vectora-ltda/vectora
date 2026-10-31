@@ -138,6 +138,7 @@ export interface QualityGateRunResult {
   exit_code: number;
   output?: string;
   duration_ms?: number;
+  reason?: "passed" | "assertion_failed" | "timeout" | "dispatch_error" | null;
   artifacts_collected?: string[];
 }
 
@@ -145,28 +146,9 @@ export interface QualityGateRunResult {
 // Execution runtime contracts (vectora/backend/contracts/harness/schema.json)
 // ============================================================================
 
-export type HarnessRunStatus =
-  | "planned"
-  | "admitted"
-  | "running"
-  | "waiting_approval"
-  | "waiting_provider"
-  | "tool_running"
-  | "verifying"
-  | "passed"
-  | "degraded"
-  | "failed"
-  | "cancelled"
-  | "recovery_required";
+export type HarnessRunStatus = "planned" | "admitted" | "running" | "waiting_approval" | "waiting_provider" | "tool_running" | "verifying" | "passed" | "degraded" | "failed" | "cancelled" | "recovery_required";
 
-export type VerificationOutcome =
-  | "passed"
-  | "failed"
-  | "infra_error"
-  | "not_run"
-  | "blocked"
-  | "degraded"
-  | "unverified";
+export type VerificationOutcome = "passed" | "failed" | "infra_error" | "not_run" | "blocked" | "degraded" | "unverified";
 
 export interface ArtifactRef {
   artifact_id: string;
@@ -206,8 +188,7 @@ export interface ContextProjection {
 
 export interface MemoryRecord {
   memory_id: string;
-  scope:
-    "short_term" | "session" | "project" | "workspace" | "user" | "vector_rag";
+  scope: "short_term" | "session" | "project" | "workspace" | "user" | "vector_rag";
   subject: string;
   content: string;
   source_run_id?: string | null;

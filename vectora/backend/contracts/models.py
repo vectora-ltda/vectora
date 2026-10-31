@@ -164,6 +164,7 @@ class UserSettingsV1(BaseModel):
 # ============================================================================
 
 QualityGatePolicy = Literal["block", "degrade", "inform"]
+QualityGateReason = Literal["passed", "assertion_failed", "timeout", "dispatch_error"]
 
 # ============================================================================
 # Contratos canônicos do runtime de execução
@@ -333,6 +334,13 @@ class QualityGateRunResult(BaseModel):
     )
     duration_ms: int = Field(
         default=0, description="Tempo de execução do gate em milissegundos"
+    )
+    reason: QualityGateReason | None = Field(
+        default=None,
+        description=(
+            "Classificação explícita do resultado: passed, assertion_failed, "
+            "timeout ou dispatch_error"
+        ),
     )
     artifacts_collected: list[str] = Field(
         default_factory=list, description="Caminhos de artefatos gerados"

@@ -55,7 +55,11 @@
             "type": "integer"
           }
         },
-        "required": ["files_touched", "tool_call_counts", "turn_count"],
+        "required": [
+          "files_touched",
+          "tool_call_counts",
+          "turn_count"
+        ],
         "title": "ActivityResponse",
         "type": "object"
       },
@@ -71,7 +75,9 @@
             "type": "string"
           }
         },
-        "required": ["node_query"],
+        "required": [
+          "node_query"
+        ],
         "title": "AffectedRequest",
         "type": "object"
       },
@@ -225,6 +231,11 @@
             "title": "Commands Run",
             "type": "array"
           },
+          "contract_version": {
+            "default": 1,
+            "title": "Contract Version",
+            "type": "integer"
+          },
           "correlation_id": {
             "anyOf": [
               {
@@ -235,11 +246,6 @@
               }
             ],
             "title": "Correlation Id"
-          },
-          "contract_version": {
-            "default": 1,
-            "title": "Contract Version",
-            "type": "integer"
           },
           "detail": {
             "anyOf": [
@@ -421,7 +427,10 @@
             "title": "Workspace Id"
           }
         },
-        "required": ["run_id", "thread_id"],
+        "required": [
+          "run_id",
+          "thread_id"
+        ],
         "title": "AgentRun",
         "type": "object"
       },
@@ -496,7 +505,9 @@
             "type": "string"
           }
         },
-        "required": ["type"],
+        "required": [
+          "type"
+        ],
         "title": "AgentRunTimelineEntry",
         "type": "object"
       },
@@ -514,7 +525,9 @@
             "type": "array"
           }
         },
-        "required": ["run"],
+        "required": [
+          "run"
+        ],
         "title": "AgentRunTimelineResponse",
         "type": "object"
       },
@@ -525,7 +538,9 @@
             "type": "string"
           }
         },
-        "required": ["workspace_id"],
+        "required": [
+          "workspace_id"
+        ],
         "title": "ApproveHooksRequest",
         "type": "object"
       },
@@ -536,6 +551,11 @@
             "title": "Artifact Type",
             "type": "string"
           },
+          "byte_size": {
+            "default": 0,
+            "title": "Byte Size",
+            "type": "integer"
+          },
           "content": {
             "title": "Content",
             "type": "string"
@@ -544,8 +564,18 @@
             "title": "Created At",
             "type": "string"
           },
+          "retention_class": {
+            "default": "run",
+            "title": "Retention Class",
+            "type": "string"
+          },
           "session_id": {
             "title": "Session Id",
+            "type": "string"
+          },
+          "sha256": {
+            "default": "",
+            "title": "Sha256",
             "type": "string"
           },
           "slug": {
@@ -557,7 +587,13 @@
             "type": "string"
           }
         },
-        "required": ["title", "slug", "session_id", "created_at", "content"],
+        "required": [
+          "title",
+          "slug",
+          "session_id",
+          "created_at",
+          "content"
+        ],
         "title": "ArtifactContent",
         "type": "object"
       },
@@ -569,6 +605,13 @@
             "description": "Tipo do artifact (plan/spec/task_list/...); 'other' para artifacts legados sem o sidecar de tipo.",
             "title": "Artifact Type",
             "type": "string"
+          },
+          "byte_size": {
+            "default": 0,
+            "description": "Tamanho do payload em bytes.",
+            "minimum": 0.0,
+            "title": "Byte Size",
+            "type": "integer"
           },
           "content_preview": {
             "anyOf": [
@@ -592,9 +635,21 @@
             "title": "Path",
             "type": "string"
           },
+          "retention_class": {
+            "default": "run",
+            "description": "Política de retenção aplicada ao artifact.",
+            "title": "Retention Class",
+            "type": "string"
+          },
           "session_id": {
             "description": "ID da sessão que gerou o artifact.",
             "title": "Session Id",
+            "type": "string"
+          },
+          "sha256": {
+            "default": "",
+            "description": "Checksum SHA-256 do payload.",
+            "title": "Sha256",
             "type": "string"
           },
           "title": {
@@ -603,7 +658,12 @@
             "type": "string"
           }
         },
-        "required": ["title", "path", "session_id", "created_at"],
+        "required": [
+          "title",
+          "path",
+          "session_id",
+          "created_at"
+        ],
         "title": "ArtifactMetadata",
         "type": "object"
       },
@@ -626,13 +686,24 @@
             "type": "string"
           }
         },
-        "required": ["kind", "name", "mime_type", "base64_data"],
+        "required": [
+          "kind",
+          "name",
+          "mime_type",
+          "base64_data"
+        ],
         "title": "Attachment",
         "type": "object"
       },
       "AttachmentKind": {
         "description": "Tipo semântico do attachment — determina como o backend o injeta na mensagem.",
-        "enum": ["image", "pdf", "code", "text", "audio"],
+        "enum": [
+          "image",
+          "pdf",
+          "code",
+          "text",
+          "audio"
+        ],
         "title": "AttachmentKind",
         "type": "string"
       },
@@ -699,7 +770,11 @@
             "title": "User Id"
           }
         },
-        "required": ["id", "action", "timestamp"],
+        "required": [
+          "id",
+          "action",
+          "timestamp"
+        ],
         "title": "AuditEntry",
         "type": "object"
       },
@@ -717,7 +792,10 @@
             "type": "array"
           }
         },
-        "required": ["status", "tasks"],
+        "required": [
+          "status",
+          "tasks"
+        ],
         "title": "BoardColumnOut",
         "type": "object"
       },
@@ -773,7 +851,10 @@
             "title": "Safe Root Id"
           }
         },
-        "required": ["path", "entries"],
+        "required": [
+          "path",
+          "entries"
+        ],
         "title": "BrowseResponse",
         "type": "object"
       },
@@ -787,7 +868,9 @@
             "type": "array"
           }
         },
-        "required": ["lines"],
+        "required": [
+          "lines"
+        ],
         "title": "BrowserLogsResponse",
         "type": "object"
       },
@@ -817,7 +900,11 @@
             "type": "boolean"
           }
         },
-        "required": ["name", "port", "running"],
+        "required": [
+          "name",
+          "port",
+          "running"
+        ],
         "title": "BrowserServerStatus",
         "type": "object"
       },
@@ -828,7 +915,9 @@
             "type": "string"
           }
         },
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "title": "BrowserStartRequest",
         "type": "object"
       },
@@ -842,7 +931,9 @@
             "type": "array"
           }
         },
-        "required": ["servers"],
+        "required": [
+          "servers"
+        ],
         "title": "BrowserStatusResponse",
         "type": "object"
       },
@@ -853,7 +944,9 @@
             "type": "string"
           }
         },
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "title": "BrowserStopRequest",
         "type": "object"
       },
@@ -902,7 +995,10 @@
             "type": "string"
           }
         },
-        "required": ["status", "message"],
+        "required": [
+          "status",
+          "message"
+        ],
         "title": "BuildResponse",
         "type": "object"
       },
@@ -920,7 +1016,10 @@
             "type": "array"
           }
         },
-        "required": ["task_ids", "action"],
+        "required": [
+          "task_ids",
+          "action"
+        ],
         "title": "BulkTaskActionRequest",
         "type": "object"
       },
@@ -946,7 +1045,10 @@
             "type": "string"
           }
         },
-        "required": ["task_id", "ok"],
+        "required": [
+          "task_id",
+          "ok"
+        ],
         "title": "BulkTaskResult",
         "type": "object"
       },
@@ -960,7 +1062,12 @@
           },
           "scope": {
             "default": "user",
-            "enum": ["user", "workspace", "project", "runtime"],
+            "enum": [
+              "user",
+              "workspace",
+              "project",
+              "runtime"
+            ],
             "title": "Scope",
             "type": "string"
           },
@@ -992,7 +1099,9 @@
             "title": "Workspace Id"
           }
         },
-        "required": ["skill_id"],
+        "required": [
+          "skill_id"
+        ],
         "title": "CatalogSkillInstallRequest",
         "type": "object"
       },
@@ -1007,7 +1116,10 @@
             "type": "string"
           }
         },
-        "required": ["old_password", "new_password"],
+        "required": [
+          "old_password",
+          "new_password"
+        ],
         "title": "ChangePasswordRequest",
         "type": "object"
       },
@@ -1173,7 +1285,9 @@
             "type": "array"
           }
         },
-        "required": ["checkpoints"],
+        "required": [
+          "checkpoints"
+        ],
         "title": "CheckpointsResponse",
         "type": "object"
       },
@@ -1192,7 +1306,11 @@
             "type": "string"
           }
         },
-        "required": ["terminal_id", "thread_id", "workspace_id"],
+        "required": [
+          "terminal_id",
+          "thread_id",
+          "workspace_id"
+        ],
         "title": "CloseBody",
         "type": "object"
       },
@@ -1225,7 +1343,9 @@
             "type": "string"
           }
         },
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "title": "CodespaceInfo",
         "type": "object"
       },
@@ -1252,7 +1372,13 @@
             "type": "string"
           }
         },
-        "required": ["id", "task_id", "user_id", "body", "created_at"],
+        "required": [
+          "id",
+          "task_id",
+          "user_id",
+          "body",
+          "created_at"
+        ],
         "title": "CommentOut",
         "type": "object"
       },
@@ -1272,7 +1398,10 @@
             "type": "boolean"
           }
         },
-        "required": ["sha", "diff"],
+        "required": [
+          "sha",
+          "diff"
+        ],
         "title": "CommitDiffResponse",
         "type": "object"
       },
@@ -1297,7 +1426,10 @@
             "type": "string"
           }
         },
-        "required": ["path", "status"],
+        "required": [
+          "path",
+          "status"
+        ],
         "title": "CompareFile",
         "type": "object"
       },
@@ -1316,7 +1448,9 @@
             "type": "string"
           }
         },
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "title": "CompareFileDiffResponse",
         "type": "object"
       },
@@ -1354,7 +1488,10 @@
             "type": "boolean"
           }
         },
-        "required": ["base", "head"],
+        "required": [
+          "base",
+          "head"
+        ],
         "title": "CompareRefsResponse",
         "type": "object"
       },
@@ -1397,7 +1534,11 @@
             "type": "string"
           }
         },
-        "required": ["tag", "model_path", "runtime_id"],
+        "required": [
+          "tag",
+          "model_path",
+          "runtime_id"
+        ],
         "title": "ConfirmLlamaCppModelRequest",
         "type": "object"
       },
@@ -1413,7 +1554,9 @@
             "type": "string"
           }
         },
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "title": "ConflictFile",
         "type": "object"
       },
@@ -1427,7 +1570,9 @@
             "type": "array"
           }
         },
-        "required": ["files"],
+        "required": [
+          "files"
+        ],
         "title": "ConflictListResponse",
         "type": "object"
       },
@@ -1443,7 +1588,10 @@
             "type": "string"
           }
         },
-        "required": ["email", "password"],
+        "required": [
+          "email",
+          "password"
+        ],
         "title": "ConnectBody",
         "type": "object"
       },
@@ -1544,7 +1692,9 @@
             "type": "array"
           }
         },
-        "required": ["branches"],
+        "required": [
+          "branches"
+        ],
         "title": "ConversationBranchesResponse",
         "type": "object"
       },
@@ -1616,7 +1766,9 @@
             "type": "array"
           }
         },
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "title": "CreateAgentProfileRequest",
         "type": "object"
       },
@@ -1638,7 +1790,9 @@
             "title": "Workspace Id"
           }
         },
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "title": "CreateBoardRequest",
         "type": "object"
       },
@@ -1649,7 +1803,9 @@
             "type": "string"
           }
         },
-        "required": ["body"],
+        "required": [
+          "body"
+        ],
         "title": "CreateCommentRequest",
         "type": "object"
       },
@@ -1665,7 +1821,9 @@
             "type": "string"
           }
         },
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "title": "CreateFsNodeRequest",
         "type": "object"
       },
@@ -1703,7 +1861,9 @@
             "type": "string"
           }
         },
-        "required": ["parent_id"],
+        "required": [
+          "parent_id"
+        ],
         "title": "CreateLinkRequest",
         "type": "object"
       },
@@ -1724,7 +1884,10 @@
             "type": "object"
           }
         },
-        "required": ["key", "content"],
+        "required": [
+          "key",
+          "content"
+        ],
         "title": "CreateMemoryRequest",
         "type": "object"
       },
@@ -1739,7 +1902,10 @@
             "type": "string"
           }
         },
-        "required": ["status", "key"],
+        "required": [
+          "status",
+          "key"
+        ],
         "title": "CreateMemoryResponse",
         "type": "object"
       },
@@ -1795,12 +1961,17 @@
             "title": "Ssh Key Id"
           },
           "transport": {
-            "enum": ["ssh", "codespace"],
+            "enum": [
+              "ssh",
+              "codespace"
+            ],
             "title": "Transport",
             "type": "string"
           }
         },
-        "required": ["transport"],
+        "required": [
+          "transport"
+        ],
         "title": "CreateRemoteWorkspaceRequest",
         "type": "object"
       },
@@ -1816,7 +1987,9 @@
             "type": "string"
           }
         },
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "title": "CreateSafeRootBody",
         "type": "object"
       },
@@ -1835,7 +2008,9 @@
             "type": "array"
           }
         },
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "title": "CreateServiceTokenBody",
         "type": "object"
       },
@@ -1857,7 +2032,9 @@
             "type": "integer"
           }
         },
-        "required": ["thread_id"],
+        "required": [
+          "thread_id"
+        ],
         "title": "CreateShareRequest",
         "type": "object"
       },
@@ -1882,7 +2059,11 @@
             "type": "string"
           }
         },
-        "required": ["token", "url", "expires_at"],
+        "required": [
+          "token",
+          "url",
+          "expires_at"
+        ],
         "title": "CreateShareResponse",
         "type": "object"
       },
@@ -1949,7 +2130,12 @@
             "title": "Workspace Id"
           }
         },
-        "required": ["kind", "name", "instruction", "trigger_type"],
+        "required": [
+          "kind",
+          "name",
+          "instruction",
+          "trigger_type"
+        ],
         "title": "CreateTaskRequest",
         "type": "object"
       },
@@ -1987,7 +2173,9 @@
             "type": "boolean"
           }
         },
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "title": "CreateWorkspaceRequest",
         "type": "object"
       },
@@ -2013,7 +2201,10 @@
             "type": "string"
           }
         },
-        "required": ["workspace_id", "name"],
+        "required": [
+          "workspace_id",
+          "name"
+        ],
         "title": "CreateWorktreeRequest",
         "type": "object"
       },
@@ -2046,7 +2237,9 @@
             "type": "string"
           }
         },
-        "required": ["status"],
+        "required": [
+          "status"
+        ],
         "title": "DeleteMemoryResponse",
         "type": "object"
       },
@@ -2057,7 +2250,9 @@
             "type": "string"
           }
         },
-        "required": ["thread_id"],
+        "required": [
+          "thread_id"
+        ],
         "title": "DeleteThreadRequest",
         "type": "object"
       },
@@ -2071,7 +2266,9 @@
             "type": "array"
           }
         },
-        "required": ["configurations"],
+        "required": [
+          "configurations"
+        ],
         "title": "DetectResponse",
         "type": "object"
       },
@@ -2097,7 +2294,12 @@
             "type": "string"
           }
         },
-        "required": ["name", "runtimeExecutable", "runtimeArgs", "port"],
+        "required": [
+          "name",
+          "runtimeExecutable",
+          "runtimeArgs",
+          "port"
+        ],
         "title": "DetectedServer",
         "type": "object"
       },
@@ -2112,7 +2314,10 @@
             "type": "string"
           }
         },
-        "required": ["type", "text"],
+        "required": [
+          "type",
+          "text"
+        ],
         "title": "DevtoolsConsoleMessage",
         "type": "object"
       },
@@ -2126,7 +2331,9 @@
             "type": "array"
           }
         },
-        "required": ["messages"],
+        "required": [
+          "messages"
+        ],
         "title": "DevtoolsConsoleResponse",
         "type": "object"
       },
@@ -2148,7 +2355,9 @@
             "title": "Tab Id"
           }
         },
-        "required": ["script"],
+        "required": [
+          "script"
+        ],
         "title": "DevtoolsEvaluateRequest",
         "type": "object"
       },
@@ -2173,7 +2382,9 @@
             "type": "string"
           }
         },
-        "required": ["status"],
+        "required": [
+          "status"
+        ],
         "title": "DevtoolsEvaluateResponse",
         "type": "object"
       },
@@ -2221,7 +2432,12 @@
             "type": "string"
           }
         },
-        "required": ["request_id", "url", "method", "resource_type"],
+        "required": [
+          "request_id",
+          "url",
+          "method",
+          "resource_type"
+        ],
         "title": "DevtoolsNetworkRequest",
         "type": "object"
       },
@@ -2235,7 +2451,9 @@
             "type": "array"
           }
         },
-        "required": ["requests"],
+        "required": [
+          "requests"
+        ],
         "title": "DevtoolsNetworkResponse",
         "type": "object"
       },
@@ -2254,7 +2472,11 @@
             "type": "string"
           }
         },
-        "required": ["tab_id", "url", "active"],
+        "required": [
+          "tab_id",
+          "url",
+          "active"
+        ],
         "title": "DevtoolsTab",
         "type": "object"
       },
@@ -2268,7 +2490,9 @@
             "type": "array"
           }
         },
-        "required": ["tabs"],
+        "required": [
+          "tabs"
+        ],
         "title": "DevtoolsTabsResponse",
         "type": "object"
       },
@@ -2321,7 +2545,10 @@
             "type": "boolean"
           }
         },
-        "required": ["path", "status"],
+        "required": [
+          "path",
+          "status"
+        ],
         "title": "DiffFile",
         "type": "object"
       },
@@ -2339,7 +2566,10 @@
             "type": "string"
           }
         },
-        "required": ["path", "hunks"],
+        "required": [
+          "path",
+          "hunks"
+        ],
         "title": "DiffFileResponse",
         "type": "object"
       },
@@ -2378,12 +2608,19 @@
             "type": "string"
           },
           "type": {
-            "enum": ["context", "add", "delete"],
+            "enum": [
+              "context",
+              "add",
+              "delete"
+            ],
             "title": "Type",
             "type": "string"
           }
         },
-        "required": ["text", "type"],
+        "required": [
+          "text",
+          "type"
+        ],
         "title": "DiffLine",
         "type": "object"
       },
@@ -2411,7 +2648,10 @@
             "type": "integer"
           }
         },
-        "required": ["is_git_repo", "files"],
+        "required": [
+          "is_git_repo",
+          "files"
+        ],
         "title": "DiffSummary",
         "type": "object"
       },
@@ -2440,7 +2680,11 @@
             "type": "string"
           }
         },
-        "required": ["name", "path", "is_dir"],
+        "required": [
+          "name",
+          "path",
+          "is_dir"
+        ],
         "title": "DirEntry",
         "type": "object"
       },
@@ -2479,7 +2723,10 @@
           },
           "operation": {
             "default": "start",
-            "enum": ["prepare", "start"],
+            "enum": [
+              "prepare",
+              "start"
+            ],
             "title": "Operation",
             "type": "string"
           },
@@ -2488,7 +2735,9 @@
             "type": "string"
           }
         },
-        "required": ["reference"],
+        "required": [
+          "reference"
+        ],
         "title": "DmrJobRequest",
         "type": "object"
       },
@@ -2513,7 +2762,9 @@
             "type": "string"
           }
         },
-        "required": ["reference"],
+        "required": [
+          "reference"
+        ],
         "title": "DmrModelRequest",
         "type": "object"
       },
@@ -2528,7 +2779,10 @@
             "type": "string"
           }
         },
-        "required": ["key", "value"],
+        "required": [
+          "key",
+          "value"
+        ],
         "title": "EnvOverrideRequest",
         "type": "object"
       },
@@ -2544,7 +2798,9 @@
             "type": "string"
           }
         },
-        "required": ["node_id"],
+        "required": [
+          "node_id"
+        ],
         "title": "ExplainRequest",
         "type": "object"
       },
@@ -2563,7 +2819,11 @@
         "type": "object"
       },
       "FeedbackContextKey": {
-        "enum": ["app_version", "platform", "route"],
+        "enum": [
+          "app_version",
+          "platform",
+          "route"
+        ],
         "type": "string"
       },
       "FeedbackRequest": {
@@ -2591,12 +2851,18 @@
             "type": "boolean"
           },
           "kind": {
-            "enum": ["bug", "suggestion"],
+            "enum": [
+              "bug",
+              "suggestion"
+            ],
             "title": "Kind",
             "type": "string"
           }
         },
-        "required": ["kind", "description"],
+        "required": [
+          "kind",
+          "description"
+        ],
         "title": "FeedbackRequest",
         "type": "object"
       },
@@ -2613,7 +2879,9 @@
             "type": "string"
           }
         },
-        "required": ["id"],
+        "required": [
+          "id"
+        ],
         "title": "FeedbackResponse",
         "type": "object"
       },
@@ -2640,7 +2908,13 @@
             "type": "string"
           }
         },
-        "required": ["sha", "sha_short", "author", "date", "message"],
+        "required": [
+          "sha",
+          "sha_short",
+          "author",
+          "date",
+          "message"
+        ],
         "title": "FileLogEntry",
         "type": "object"
       },
@@ -2658,7 +2932,10 @@
             "type": "string"
           }
         },
-        "required": ["path", "entries"],
+        "required": [
+          "path",
+          "entries"
+        ],
         "title": "FileLogResponse",
         "type": "object"
       },
@@ -2705,7 +2982,10 @@
             "type": "boolean"
           }
         },
-        "required": ["path", "kind"],
+        "required": [
+          "path",
+          "kind"
+        ],
         "title": "FileResponse",
         "type": "object"
       },
@@ -2732,7 +3012,9 @@
             "type": "string"
           }
         },
-        "required": ["status"],
+        "required": [
+          "status"
+        ],
         "title": "FileWriteResponse",
         "type": "object"
       },
@@ -2743,7 +3025,9 @@
             "type": "string"
           }
         },
-        "required": ["thread_id"],
+        "required": [
+          "thread_id"
+        ],
         "title": "GenerateTitleRequest",
         "type": "object"
       },
@@ -2754,7 +3038,9 @@
             "type": "string"
           }
         },
-        "required": ["title"],
+        "required": [
+          "title"
+        ],
         "title": "GenerateTitleResponse",
         "type": "object"
       },
@@ -2765,7 +3051,9 @@
             "type": "string"
           }
         },
-        "required": ["thread_id"],
+        "required": [
+          "thread_id"
+        ],
         "title": "GetHistoryRequest",
         "type": "object"
       },
@@ -2785,7 +3073,12 @@
           },
           "run_status": {
             "default": "idle",
-            "enum": ["running", "awaiting_approval", "failed", "idle"],
+            "enum": [
+              "running",
+              "awaiting_approval",
+              "failed",
+              "idle"
+            ],
             "title": "Run Status",
             "type": "string"
           },
@@ -2797,7 +3090,9 @@
             "type": "array"
           }
         },
-        "required": ["messages"],
+        "required": [
+          "messages"
+        ],
         "title": "GetHistoryResponse",
         "type": "object"
       },
@@ -2808,7 +3103,9 @@
             "type": "string"
           }
         },
-        "required": ["thread_id"],
+        "required": [
+          "thread_id"
+        ],
         "title": "GetThreadPinsRequest",
         "type": "object"
       },
@@ -2819,7 +3116,9 @@
             "type": "string"
           }
         },
-        "required": ["thread_id"],
+        "required": [
+          "thread_id"
+        ],
         "title": "GetThreadRequest",
         "type": "object"
       },
@@ -2833,7 +3132,9 @@
             "type": "array"
           }
         },
-        "required": ["tools"],
+        "required": [
+          "tools"
+        ],
         "title": "GetToolsResponse",
         "type": "object"
       },
@@ -2876,7 +3177,9 @@
             "type": "string"
           }
         },
-        "required": ["ref"],
+        "required": [
+          "ref"
+        ],
         "title": "GitCheckoutRequest",
         "type": "object"
       },
@@ -2892,7 +3195,9 @@
             "type": "string"
           }
         },
-        "required": ["sha"],
+        "required": [
+          "sha"
+        ],
         "title": "GitCherryPickRequest",
         "type": "object"
       },
@@ -2944,7 +3249,9 @@
             "type": "boolean"
           }
         },
-        "required": ["message"],
+        "required": [
+          "message"
+        ],
         "title": "GitCommitRequest",
         "type": "object"
       },
@@ -2960,7 +3267,10 @@
             "type": "string"
           }
         },
-        "required": ["title", "description"],
+        "required": [
+          "title",
+          "description"
+        ],
         "title": "GitCommitSuggestion",
         "type": "object"
       },
@@ -2971,7 +3281,9 @@
             "type": "string"
           }
         },
-        "required": ["workspace_id"],
+        "required": [
+          "workspace_id"
+        ],
         "title": "GitInitRequest",
         "type": "object"
       },
@@ -3011,7 +3323,13 @@
             "type": "string"
           }
         },
-        "required": ["sha", "sha_short", "author", "date", "message"],
+        "required": [
+          "sha",
+          "sha_short",
+          "author",
+          "date",
+          "message"
+        ],
         "title": "GitLogCommit",
         "type": "object"
       },
@@ -3034,7 +3352,10 @@
             "type": "boolean"
           }
         },
-        "required": ["branch", "commits"],
+        "required": [
+          "branch",
+          "commits"
+        ],
         "title": "GitLogResponse",
         "type": "object"
       },
@@ -3068,7 +3389,9 @@
             "title": "Username"
           }
         },
-        "required": ["id"],
+        "required": [
+          "id"
+        ],
         "title": "GitMentionUser",
         "type": "object"
       },
@@ -3079,7 +3402,9 @@
             "type": "string"
           }
         },
-        "required": ["branch"],
+        "required": [
+          "branch"
+        ],
         "title": "GitMergeRequest",
         "type": "object"
       },
@@ -3103,7 +3428,9 @@
             "type": "string"
           }
         },
-        "required": ["status"],
+        "required": [
+          "status"
+        ],
         "title": "GitMergeResponse",
         "type": "object"
       },
@@ -3201,7 +3528,12 @@
             "type": "integer"
           },
           "state": {
-            "enum": ["queued", "running", "succeeded", "failed"],
+            "enum": [
+              "queued",
+              "running",
+              "succeeded",
+              "failed"
+            ],
             "title": "State",
             "type": "string"
           },
@@ -3229,7 +3561,9 @@
             "type": "string"
           }
         },
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "title": "GitPathRequest",
         "type": "object"
       },
@@ -3243,7 +3577,9 @@
             "type": "array"
           }
         },
-        "required": ["commits"],
+        "required": [
+          "commits"
+        ],
         "title": "GitReorderRequest",
         "type": "object"
       },
@@ -3269,7 +3605,10 @@
             "type": "string"
           }
         },
-        "required": ["base_ref", "message"],
+        "required": [
+          "base_ref",
+          "message"
+        ],
         "title": "GitSquashRequest",
         "type": "object"
       },
@@ -3357,7 +3696,9 @@
             "type": "string"
           }
         },
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "title": "GitignoreAppendRequest",
         "type": "object"
       },
@@ -3379,7 +3720,11 @@
             "type": "integer"
           }
         },
-        "required": ["pattern", "matched", "total"],
+        "required": [
+          "pattern",
+          "matched",
+          "total"
+        ],
         "title": "GitignorePreviewResponse",
         "type": "object"
       },
@@ -3393,7 +3738,9 @@
             "type": "array"
           }
         },
-        "required": ["lines"],
+        "required": [
+          "lines"
+        ],
         "title": "GitignoreUpdateRequest",
         "type": "object"
       },
@@ -3422,7 +3769,9 @@
             "type": "array"
           }
         },
-        "required": ["answer"],
+        "required": [
+          "answer"
+        ],
         "title": "GraphQueryResponse",
         "type": "object"
       },
@@ -3497,7 +3846,11 @@
             "type": "string"
           }
         },
-        "required": ["tool_name", "args_json", "interrupt_id"],
+        "required": [
+          "tool_name",
+          "args_json",
+          "interrupt_id"
+        ],
         "title": "HITLEvent",
         "type": "object"
       },
@@ -3521,7 +3874,9 @@
             "type": "boolean"
           }
         },
-        "required": ["exists"],
+        "required": [
+          "exists"
+        ],
         "title": "HasUsersResponse",
         "type": "object"
       },
@@ -3538,7 +3893,10 @@
             "type": "string"
           }
         },
-        "required": ["status", "version"],
+        "required": [
+          "status",
+          "version"
+        ],
         "title": "HealthLiveResponse",
         "type": "object"
       },
@@ -3554,7 +3912,10 @@
             "type": "boolean"
           }
         },
-        "required": ["store", "lancedb"],
+        "required": [
+          "store",
+          "lancedb"
+        ],
         "title": "HealthReadyChecks",
         "type": "object"
       },
@@ -3565,7 +3926,10 @@
             "$ref": "#/components/schemas/HealthReadyChecks"
           },
           "status": {
-            "enum": ["ready", "not_ready"],
+            "enum": [
+              "ready",
+              "not_ready"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -3574,7 +3938,11 @@
             "type": "string"
           }
         },
-        "required": ["status", "version", "checks"],
+        "required": [
+          "status",
+          "version",
+          "checks"
+        ],
         "title": "HealthReadyResponse",
         "type": "object"
       },
@@ -3619,6 +3987,18 @@
               }
             ],
             "title": "Finish Reason"
+          },
+          "is_error": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": false,
+            "title": "Is Error"
           },
           "message_id": {
             "anyOf": [
@@ -3669,7 +4049,10 @@
             "title": "Turn Id"
           }
         },
-        "required": ["role", "content"],
+        "required": [
+          "role",
+          "content"
+        ],
         "title": "HistoryMessage",
         "type": "object"
       },
@@ -3705,7 +4088,10 @@
             "title": "Sha256"
           }
         },
-        "required": ["repo_id", "filename"],
+        "required": [
+          "repo_id",
+          "filename"
+        ],
         "title": "HuggingFaceDownloadRequest",
         "type": "object"
       },
@@ -3810,7 +4196,10 @@
           },
           "provider": {
             "default": "llamacpp",
-            "enum": ["ollama", "llamacpp"],
+            "enum": [
+              "ollama",
+              "llamacpp"
+            ],
             "title": "Provider",
             "type": "string"
           },
@@ -3835,7 +4224,10 @@
             "type": "string"
           }
         },
-        "required": ["repo_id", "filename"],
+        "required": [
+          "repo_id",
+          "filename"
+        ],
         "title": "HuggingFaceInstallRequest",
         "type": "object"
       },
@@ -3928,7 +4320,9 @@
             "title": "Threads"
           }
         },
-        "required": ["repo_id"],
+        "required": [
+          "repo_id"
+        ],
         "title": "HuggingFaceStartRequest",
         "type": "object"
       },
@@ -3951,7 +4345,9 @@
             "type": "string"
           }
         },
-        "required": ["archive_path"],
+        "required": [
+          "archive_path"
+        ],
         "title": "InspectBackupRequest",
         "type": "object"
       },
@@ -3984,7 +4380,9 @@
             "type": "boolean"
           }
         },
-        "required": ["valid"],
+        "required": [
+          "valid"
+        ],
         "title": "InviteValidationResponse",
         "type": "object"
       },
@@ -4009,7 +4407,10 @@
             "type": "string"
           }
         },
-        "required": ["key", "content"],
+        "required": [
+          "key",
+          "content"
+        ],
         "title": "JourneyFact",
         "type": "object"
       },
@@ -4030,7 +4431,10 @@
             "type": "array"
           }
         },
-        "required": ["facts", "skills"],
+        "required": [
+          "facts",
+          "skills"
+        ],
         "title": "JourneyResponse",
         "type": "object"
       },
@@ -4054,7 +4458,11 @@
             "type": "string"
           }
         },
-        "required": ["id", "name", "description"],
+        "required": [
+          "id",
+          "name",
+          "description"
+        ],
         "title": "JourneySkill",
         "type": "object"
       },
@@ -4090,7 +4498,11 @@
             "type": "string"
           }
         },
-        "required": ["name", "runtimeExecutable", "port"],
+        "required": [
+          "name",
+          "runtimeExecutable",
+          "port"
+        ],
         "title": "LaunchConfigModel",
         "type": "object"
       },
@@ -4123,7 +4535,9 @@
             "type": "array"
           }
         },
-        "required": ["artifacts"],
+        "required": [
+          "artifacts"
+        ],
         "title": "ListArtifactsResponse",
         "type": "object"
       },
@@ -4147,7 +4561,9 @@
             "type": "string"
           }
         },
-        "required": ["codespaces"],
+        "required": [
+          "codespaces"
+        ],
         "title": "ListCodespacesResponse",
         "type": "object"
       },
@@ -4165,7 +4581,10 @@
             "type": "integer"
           }
         },
-        "required": ["memories", "total"],
+        "required": [
+          "memories",
+          "total"
+        ],
         "title": "ListMemoriesResponse",
         "type": "object"
       },
@@ -4179,7 +4598,9 @@
             "type": "array"
           }
         },
-        "required": ["roots"],
+        "required": [
+          "roots"
+        ],
         "title": "ListSafeRootsResponse",
         "type": "object"
       },
@@ -4209,7 +4630,9 @@
             "type": "array"
           }
         },
-        "required": ["threads"],
+        "required": [
+          "threads"
+        ],
         "title": "ListThreadsResponse",
         "type": "object"
       },
@@ -4234,7 +4657,9 @@
             "type": "array"
           }
         },
-        "required": ["workspaces"],
+        "required": [
+          "workspaces"
+        ],
         "title": "ListWorkspacesResponse",
         "type": "object"
       },
@@ -4248,7 +4673,9 @@
             "type": "array"
           }
         },
-        "required": ["worktrees"],
+        "required": [
+          "worktrees"
+        ],
         "title": "ListWorktreesResponse",
         "type": "object"
       },
@@ -4269,7 +4696,9 @@
             "type": "string"
           }
         },
-        "required": ["base_url"],
+        "required": [
+          "base_url"
+        ],
         "title": "LlamaCppConfigRequest",
         "type": "object"
       },
@@ -4299,7 +4728,9 @@
             "type": "string"
           }
         },
-        "required": ["status"],
+        "required": [
+          "status"
+        ],
         "title": "LlamaCppConnectionTestResponse",
         "type": "object"
       },
@@ -4321,19 +4752,26 @@
             "title": "Sha256"
           }
         },
-        "required": ["asset_url"],
+        "required": [
+          "asset_url"
+        ],
         "title": "LlamaCppInstallRequest",
         "type": "object"
       },
       "LlamaCppModeRequest": {
         "properties": {
           "mode": {
-            "enum": ["managed", "external"],
+            "enum": [
+              "managed",
+              "external"
+            ],
             "title": "Mode",
             "type": "string"
           }
         },
-        "required": ["mode"],
+        "required": [
+          "mode"
+        ],
         "title": "LlamaCppModeRequest",
         "type": "object"
       },
@@ -4418,7 +4856,9 @@
             "type": "string"
           }
         },
-        "required": ["runtime_id"],
+        "required": [
+          "runtime_id"
+        ],
         "title": "LlamaCppRollbackRequest",
         "type": "object"
       },
@@ -4429,7 +4869,9 @@
             "type": "string"
           }
         },
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "title": "LlamaCppRuntimeRequest",
         "type": "object"
       },
@@ -4525,7 +4967,10 @@
             "title": "Threads"
           }
         },
-        "required": ["executable", "model"],
+        "required": [
+          "executable",
+          "model"
+        ],
         "title": "LlamaCppSidecarRequest",
         "type": "object"
       },
@@ -4544,7 +4989,10 @@
             "type": "string"
           },
           "mode": {
-            "enum": ["managed", "external"],
+            "enum": [
+              "managed",
+              "external"
+            ],
             "title": "Mode",
             "type": "string"
           },
@@ -4553,7 +5001,13 @@
             "type": "string"
           }
         },
-        "required": ["configured", "base_url", "model", "masked", "mode"],
+        "required": [
+          "configured",
+          "base_url",
+          "model",
+          "masked",
+          "mode"
+        ],
         "title": "LlamaCppStatus",
         "type": "object"
       },
@@ -4673,7 +5127,11 @@
           },
           "transport": {
             "default": "stdio",
-            "enum": ["stdio", "http", "sse"],
+            "enum": [
+              "stdio",
+              "http",
+              "sse"
+            ],
             "title": "Transport",
             "type": "string"
           },
@@ -4701,7 +5159,11 @@
             "type": "boolean"
           }
         },
-        "required": ["id", "name", "description"],
+        "required": [
+          "id",
+          "name",
+          "description"
+        ],
         "title": "MCPConnector",
         "type": "object"
       },
@@ -4809,7 +5271,9 @@
             "type": "string"
           }
         },
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "title": "McpServer",
         "type": "object"
       },
@@ -4905,7 +5369,12 @@
             "type": "integer"
           }
         },
-        "required": ["period", "used", "limit", "remaining"],
+        "required": [
+          "period",
+          "used",
+          "limit",
+          "remaining"
+        ],
         "title": "MediaQuotaResponse",
         "type": "object"
       },
@@ -4939,7 +5408,12 @@
             "type": "string"
           }
         },
-        "required": ["type", "id", "title", "snippet"],
+        "required": [
+          "type",
+          "id",
+          "title",
+          "snippet"
+        ],
         "title": "MemoryIndexHitResponse",
         "type": "object"
       },
@@ -4965,7 +5439,10 @@
             "type": "string"
           }
         },
-        "required": ["key", "content"],
+        "required": [
+          "key",
+          "content"
+        ],
         "title": "MemoryItem",
         "type": "object"
       },
@@ -4979,7 +5456,9 @@
             "type": "array"
           }
         },
-        "required": ["hits"],
+        "required": [
+          "hits"
+        ],
         "title": "MemorySearchResponse",
         "type": "object"
       },
@@ -4994,7 +5473,10 @@
             "type": "string"
           }
         },
-        "required": ["path", "name"],
+        "required": [
+          "path",
+          "name"
+        ],
         "title": "MkdirRequest",
         "type": "object"
       },
@@ -5010,7 +5492,10 @@
             "type": "string"
           }
         },
-        "required": ["from_path", "to_path"],
+        "required": [
+          "from_path",
+          "to_path"
+        ],
         "title": "MoveFsNodeRequest",
         "type": "object"
       },
@@ -5028,7 +5513,10 @@
             "type": "boolean"
           }
         },
-        "required": ["reachable", "models"],
+        "required": [
+          "reachable",
+          "models"
+        ],
         "title": "NineRouterCatalogResponse",
         "type": "object"
       },
@@ -5043,7 +5531,10 @@
             "type": "string"
           }
         },
-        "required": ["base_url", "api_key"],
+        "required": [
+          "base_url",
+          "api_key"
+        ],
         "title": "NineRouterConfigRequest",
         "type": "object"
       },
@@ -5066,7 +5557,10 @@
             "type": "string"
           }
         },
-        "required": ["id", "name"],
+        "required": [
+          "id",
+          "name"
+        ],
         "title": "NineRouterModelInfo",
         "type": "object"
       },
@@ -5092,7 +5586,10 @@
             "type": "string"
           }
         },
-        "required": ["configured", "masked"],
+        "required": [
+          "configured",
+          "masked"
+        ],
         "title": "NineRouterStatus",
         "type": "object"
       },
@@ -5110,7 +5607,10 @@
             "type": "boolean"
           }
         },
-        "required": ["reachable", "models"],
+        "required": [
+          "reachable",
+          "models"
+        ],
         "title": "OllamaDiscoveryResponse",
         "type": "object"
       },
@@ -5143,7 +5643,9 @@
             "title": "Size"
           }
         },
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "title": "OllamaModelInfo",
         "type": "object"
       },
@@ -5208,7 +5710,13 @@
             "type": "boolean"
           },
           "state": {
-            "enum": ["missing", "installing", "installed", "running", "error"],
+            "enum": [
+              "missing",
+              "installing",
+              "installed",
+              "running",
+              "error"
+            ],
             "title": "State",
             "type": "string"
           },
@@ -5224,7 +5732,11 @@
             "title": "Version"
           }
         },
-        "required": ["installed", "reachable", "state"],
+        "required": [
+          "installed",
+          "reachable",
+          "state"
+        ],
         "title": "OllamaRuntimeStatus",
         "type": "object"
       },
@@ -5242,7 +5754,10 @@
             "type": "boolean"
           }
         },
-        "required": ["reachable", "models"],
+        "required": [
+          "reachable",
+          "models"
+        ],
         "title": "OpenAICompatibleDiscoveryResponse",
         "type": "object"
       },
@@ -5256,7 +5771,9 @@
             "type": "array"
           }
         },
-        "required": ["models"],
+        "required": [
+          "models"
+        ],
         "title": "OpenRouterCatalogResponse",
         "type": "object"
       },
@@ -5267,7 +5784,9 @@
             "type": "string"
           }
         },
-        "required": ["api_key"],
+        "required": [
+          "api_key"
+        ],
         "title": "OpenRouterKeyRequest",
         "type": "object"
       },
@@ -5301,7 +5820,10 @@
             "type": "string"
           }
         },
-        "required": ["id", "name"],
+        "required": [
+          "id",
+          "name"
+        ],
         "title": "OpenRouterModelInfo",
         "type": "object"
       },
@@ -5316,7 +5838,10 @@
             "type": "string"
           }
         },
-        "required": ["configured", "masked"],
+        "required": [
+          "configured",
+          "masked"
+        ],
         "title": "OpenRouterStatus",
         "type": "object"
       },
@@ -5340,7 +5865,12 @@
           },
           "run_status": {
             "default": "idle",
-            "enum": ["running", "awaiting_approval", "failed", "idle"],
+            "enum": [
+              "running",
+              "awaiting_approval",
+              "failed",
+              "idle"
+            ],
             "title": "Run Status",
             "type": "string"
           },
@@ -5349,7 +5879,11 @@
             "type": "integer"
           }
         },
-        "required": ["messages", "has_more", "total_count"],
+        "required": [
+          "messages",
+          "has_more",
+          "total_count"
+        ],
         "title": "PagedHistoryResponse",
         "type": "object"
       },
@@ -5364,7 +5898,10 @@
             "type": "string"
           }
         },
-        "required": ["token", "new_password"],
+        "required": [
+          "token",
+          "new_password"
+        ],
         "title": "PasswordResetConfirmBody",
         "type": "object"
       },
@@ -5375,7 +5912,9 @@
             "type": "string"
           }
         },
-        "required": ["email"],
+        "required": [
+          "email"
+        ],
         "title": "PasswordResetRequestBody",
         "type": "object"
       },
@@ -5479,7 +6018,10 @@
             "type": "string"
           }
         },
-        "required": ["source", "target"],
+        "required": [
+          "source",
+          "target"
+        ],
         "title": "PathRequest",
         "type": "object"
       },
@@ -5500,7 +6042,13 @@
         "type": "object"
       },
       "PermissionMode": {
-        "enum": ["ask", "accept_edits", "plan", "auto", "bypass"],
+        "enum": [
+          "ask",
+          "accept_edits",
+          "plan",
+          "auto",
+          "bypass"
+        ],
         "type": "string"
       },
       "PolicyRequest": {
@@ -5514,7 +6062,10 @@
             "type": "array"
           },
           "scope": {
-            "enum": ["instance", "workspace"],
+            "enum": [
+              "instance",
+              "workspace"
+            ],
             "title": "Scope",
             "type": "string"
           },
@@ -5530,7 +6081,9 @@
             "title": "Workspace Id"
           }
         },
-        "required": ["scope"],
+        "required": [
+          "scope"
+        ],
         "title": "PolicyRequest",
         "type": "object"
       },
@@ -5545,7 +6098,10 @@
             "type": "integer"
           }
         },
-        "required": ["done", "total"],
+        "required": [
+          "done",
+          "total"
+        ],
         "title": "ProgressOut",
         "type": "object"
       },
@@ -5555,7 +6111,11 @@
           "evidence": {
             "default": "documented",
             "description": "Nível de evidência declarado para este provedor e runtime.",
-            "enum": ["documented", "observed", "unverified"],
+            "enum": [
+              "documented",
+              "observed",
+              "unverified"
+            ],
             "title": "Evidence",
             "type": "string"
           },
@@ -5595,6 +6155,79 @@
         "title": "ProviderCapabilities",
         "type": "object"
       },
+      "ProviderCapability": {
+        "description": "Resultado negociado de capacidade; readiness não implica capability.",
+        "properties": {
+          "checked_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Checked At"
+          },
+          "diagnostic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic"
+          },
+          "discovered": {
+            "default": false,
+            "title": "Discovered",
+            "type": "boolean"
+          },
+          "model": {
+            "minLength": 1,
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "minLength": 1,
+            "title": "Provider",
+            "type": "string"
+          },
+          "ready": {
+            "default": false,
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "streaming": {
+            "default": false,
+            "title": "Streaming",
+            "type": "boolean"
+          },
+          "text_generation": {
+            "default": false,
+            "title": "Text Generation",
+            "type": "boolean"
+          },
+          "tool_calling": {
+            "default": false,
+            "title": "Tool Calling",
+            "type": "boolean"
+          },
+          "vision": {
+            "default": false,
+            "title": "Vision",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "provider",
+          "model"
+        ],
+        "title": "ProviderCapability",
+        "type": "object"
+      },
       "ProviderModel": {
         "description": "Modelo descoberto por um endpoint compatível com OpenAI.",
         "properties": {
@@ -5607,7 +6240,9 @@
             "type": "string"
           }
         },
-        "required": ["id"],
+        "required": [
+          "id"
+        ],
         "title": "ProviderModel",
         "type": "object"
       },
@@ -5628,9 +6263,25 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
           }
         },
-        "required": ["bucket_id", "name", "description", "license"],
+        "required": [
+          "bucket_id",
+          "name",
+          "description",
+          "license"
+        ],
         "title": "PublishRequest",
         "type": "object"
       },
@@ -5656,7 +6307,9 @@
             "type": "string"
           }
         },
-        "required": ["title"],
+        "required": [
+          "title"
+        ],
         "title": "PullRequestCreateRequest",
         "type": "object"
       },
@@ -5691,7 +6344,10 @@
             "type": "string"
           }
         },
-        "required": ["number", "title"],
+        "required": [
+          "number",
+          "title"
+        ],
         "title": "PullRequestInfo",
         "type": "object"
       },
@@ -5731,7 +6387,9 @@
             "type": "integer"
           }
         },
-        "required": ["question"],
+        "required": [
+          "question"
+        ],
         "title": "QueryRequest",
         "type": "object"
       },
@@ -5787,7 +6445,9 @@
             "type": "boolean"
           }
         },
-        "required": ["active"],
+        "required": [
+          "active"
+        ],
         "title": "RagBucketToggleRequest",
         "type": "object"
       },
@@ -5805,7 +6465,10 @@
             "type": "integer"
           }
         },
-        "required": ["total", "files"],
+        "required": [
+          "total",
+          "files"
+        ],
         "title": "RagIngestPreviewResponse",
         "type": "object"
       },
@@ -5877,7 +6540,9 @@
             "type": "string"
           }
         },
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "title": "RagIngestRequest",
         "type": "object"
       },
@@ -5997,7 +6662,9 @@
             "title": "Workspace Id"
           }
         },
-        "required": ["query"],
+        "required": [
+          "query"
+        ],
         "title": "RagSearchBody",
         "type": "object"
       },
@@ -6094,7 +6761,9 @@
             "type": "string"
           }
         },
-        "required": ["tag"],
+        "required": [
+          "tag"
+        ],
         "title": "RegisterModelRequest",
         "type": "object"
       },
@@ -6113,7 +6782,11 @@
             "type": "string"
           }
         },
-        "required": ["id", "tag", "created_at"],
+        "required": [
+          "id",
+          "tag",
+          "created_at"
+        ],
         "title": "RegisteredModel",
         "type": "object"
       },
@@ -6143,17 +6816,28 @@
             "title": "Last Synced At"
           },
           "source": {
-            "enum": ["mcp", "skills"],
+            "enum": [
+              "mcp",
+              "skills"
+            ],
             "title": "Source",
             "type": "string"
           },
           "status": {
-            "enum": ["ready", "unavailable", "disabled", "never"],
+            "enum": [
+              "ready",
+              "unavailable",
+              "disabled",
+              "never"
+            ],
             "title": "Status",
             "type": "string"
           }
         },
-        "required": ["source", "status"],
+        "required": [
+          "source",
+          "status"
+        ],
         "title": "RegistryStatus",
         "type": "object"
       },
@@ -6165,7 +6849,9 @@
             "type": "string"
           }
         },
-        "required": ["last_active_at"],
+        "required": [
+          "last_active_at"
+        ],
         "title": "RemoteActivity",
         "type": "object"
       },
@@ -6180,7 +6866,10 @@
             "type": "string"
           }
         },
-        "required": ["status", "id"],
+        "required": [
+          "status",
+          "id"
+        ],
         "title": "RemovalResponse",
         "type": "object"
       },
@@ -6206,7 +6895,10 @@
             "type": "string"
           }
         },
-        "required": ["path", "resolution"],
+        "required": [
+          "path",
+          "resolution"
+        ],
         "title": "ResolveConflictRequest",
         "type": "object"
       },
@@ -6237,7 +6929,9 @@
             "type": "boolean"
           }
         },
-        "required": ["archive_path"],
+        "required": [
+          "archive_path"
+        ],
         "title": "RestoreBackupRequest",
         "type": "object"
       },
@@ -6290,7 +6984,11 @@
             "title": "Turn Id"
           }
         },
-        "required": ["thread_id", "interrupt_id", "decision"],
+        "required": [
+          "thread_id",
+          "interrupt_id",
+          "decision"
+        ],
         "title": "ResumeChatRequest",
         "type": "object"
       },
@@ -6317,7 +7015,9 @@
             "type": "string"
           }
         },
-        "required": ["sha"],
+        "required": [
+          "sha"
+        ],
         "title": "RevertCommitRequest",
         "type": "object"
       },
@@ -6333,7 +7033,9 @@
             "type": "string"
           }
         },
-        "required": ["checkpoint_id"],
+        "required": [
+          "checkpoint_id"
+        ],
         "title": "RewindRequest",
         "type": "object"
       },
@@ -6349,7 +7051,9 @@
             "type": "string"
           }
         },
-        "required": ["status"],
+        "required": [
+          "status"
+        ],
         "title": "RewindResponse",
         "type": "object"
       },
@@ -6469,7 +7173,13 @@
             "type": "string"
           }
         },
-        "required": ["id", "path", "label", "created_at", "created_by"],
+        "required": [
+          "id",
+          "path",
+          "label",
+          "created_at",
+          "created_by"
+        ],
         "title": "SafeRoot",
         "type": "object"
       },
@@ -6484,7 +7194,10 @@
             "type": "string"
           }
         },
-        "required": ["status", "root"],
+        "required": [
+          "status",
+          "root"
+        ],
         "title": "SafeRootActionResponse",
         "type": "object"
       },
@@ -6518,7 +7231,12 @@
             "type": "string"
           }
         },
-        "required": ["id", "path", "label", "builtin"],
+        "required": [
+          "id",
+          "path",
+          "label",
+          "builtin"
+        ],
         "title": "SafeRootInfo",
         "type": "object"
       },
@@ -6529,7 +7247,9 @@
             "type": "boolean"
           }
         },
-        "required": ["ok"],
+        "required": [
+          "ok"
+        ],
         "title": "SandboxInitResponse",
         "type": "object"
       },
@@ -6551,7 +7271,9 @@
             "type": "boolean"
           }
         },
-        "required": ["enabled"],
+        "required": [
+          "enabled"
+        ],
         "title": "SandboxStatusResponse",
         "type": "object"
       },
@@ -6570,7 +7292,11 @@
             "type": "string"
           }
         },
-        "required": ["path", "line_number", "line_text"],
+        "required": [
+          "path",
+          "line_number",
+          "line_text"
+        ],
         "title": "SearchHit",
         "type": "object"
       },
@@ -6589,7 +7315,9 @@
             "type": "boolean"
           }
         },
-        "required": ["hits"],
+        "required": [
+          "hits"
+        ],
         "title": "SearchResponse",
         "type": "object"
       },
@@ -6600,7 +7328,9 @@
             "type": "integer"
           }
         },
-        "required": ["head_message_id"],
+        "required": [
+          "head_message_id"
+        ],
         "title": "SelectConversationBranchRequest",
         "type": "object"
       },
@@ -6611,7 +7341,9 @@
             "type": "string"
           }
         },
-        "required": ["workspace_id"],
+        "required": [
+          "workspace_id"
+        ],
         "title": "SetActiveRequest",
         "type": "object"
       },
@@ -6622,7 +7354,9 @@
             "type": "boolean"
           }
         },
-        "required": ["enabled"],
+        "required": [
+          "enabled"
+        ],
         "title": "SetEnabledRequest",
         "type": "object"
       },
@@ -6640,7 +7374,9 @@
             "type": "string"
           }
         },
-        "required": ["thread_id"],
+        "required": [
+          "thread_id"
+        ],
         "title": "SetThreadPinsRequest",
         "type": "object"
       },
@@ -6661,7 +7397,9 @@
             "type": "string"
           }
         },
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "title": "SetupLocalRequest",
         "type": "object"
       },
@@ -6672,7 +7410,9 @@
             "type": "boolean"
           }
         },
-        "required": ["ok"],
+        "required": [
+          "ok"
+        ],
         "title": "SetupLocalResponse",
         "type": "object"
       },
@@ -6710,7 +7450,11 @@
             "type": "string"
           }
         },
-        "required": ["thread_id", "messages", "created_at"],
+        "required": [
+          "thread_id",
+          "messages",
+          "created_at"
+        ],
         "title": "SharedThread",
         "type": "object"
       },
@@ -6746,7 +7490,10 @@
             "type": "boolean"
           }
         },
-        "required": ["path", "sha"],
+        "required": [
+          "path",
+          "sha"
+        ],
         "title": "ShowFileAtRevResponse",
         "type": "object"
       },
@@ -6761,7 +7508,10 @@
             "type": "string"
           }
         },
-        "required": ["email", "password"],
+        "required": [
+          "email",
+          "password"
+        ],
         "title": "SigninRequest",
         "type": "object"
       },
@@ -6802,7 +7552,10 @@
             "type": "string"
           }
         },
-        "required": ["email", "password"],
+        "required": [
+          "email",
+          "password"
+        ],
         "title": "SignupRequest",
         "type": "object"
       },
@@ -6885,7 +7638,12 @@
             "title": "Verified"
           }
         },
-        "required": ["id", "name", "source", "catalog_source"],
+        "required": [
+          "id",
+          "name",
+          "source",
+          "catalog_source"
+        ],
         "title": "SkillCatalogEntry",
         "type": "object"
       },
@@ -6905,12 +7663,19 @@
             "type": "integer"
           }
         },
-        "required": ["entries", "total"],
+        "required": [
+          "entries",
+          "total"
+        ],
         "title": "SkillCatalogResponse",
         "type": "object"
       },
       "SkillCatalogSource": {
-        "enum": ["remote", "enterprise", "local"],
+        "enum": [
+          "remote",
+          "enterprise",
+          "local"
+        ],
         "type": "string"
       },
       "SkillResponse": {
@@ -6925,7 +7690,10 @@
             "type": "string"
           }
         },
-        "required": ["status", "skill"],
+        "required": [
+          "status",
+          "skill"
+        ],
         "title": "SkillResponse",
         "type": "object"
       },
@@ -6944,7 +7712,10 @@
             "type": "integer"
           }
         },
-        "required": ["skills", "total"],
+        "required": [
+          "skills",
+          "total"
+        ],
         "title": "SkillsListResponse",
         "type": "object"
       },
@@ -6959,7 +7730,10 @@
             "type": "string"
           }
         },
-        "required": ["id", "label"],
+        "required": [
+          "id",
+          "label"
+        ],
         "title": "SmartApprovalAllowlistItem",
         "type": "object"
       },
@@ -6974,7 +7748,10 @@
             "type": "string"
           }
         },
-        "required": ["workspace_id", "rule_id"],
+        "required": [
+          "workspace_id",
+          "rule_id"
+        ],
         "title": "SmartApprovalAllowlistRemoveRequest",
         "type": "object"
       },
@@ -6995,7 +7772,10 @@
             "type": "string"
           }
         },
-        "required": ["workspace_id", "tool_name"],
+        "required": [
+          "workspace_id",
+          "tool_name"
+        ],
         "title": "SmartApprovalAllowlistRequest",
         "type": "object"
       },
@@ -7009,7 +7789,9 @@
             "type": "array"
           }
         },
-        "required": ["allowlist"],
+        "required": [
+          "allowlist"
+        ],
         "title": "SmartApprovalAllowlistResponse",
         "type": "object"
       },
@@ -7020,7 +7802,9 @@
             "type": "string"
           }
         },
-        "required": ["stack"],
+        "required": [
+          "stack"
+        ],
         "title": "StackHintResponse",
         "type": "object"
       },
@@ -7035,7 +7819,10 @@
             "type": "string"
           }
         },
-        "required": ["index", "label"],
+        "required": [
+          "index",
+          "label"
+        ],
         "title": "StashEntry",
         "type": "object"
       },
@@ -7068,7 +7855,9 @@
             "title": "Name"
           }
         },
-        "required": ["action"],
+        "required": [
+          "action"
+        ],
         "title": "StashRequest",
         "type": "object"
       },
@@ -7092,7 +7881,9 @@
             "type": "string"
           }
         },
-        "required": ["action"],
+        "required": [
+          "action"
+        ],
         "title": "StashResponse",
         "type": "object"
       },
@@ -7122,7 +7913,9 @@
             "type": "string"
           }
         },
-        "required": ["content"],
+        "required": [
+          "content"
+        ],
         "title": "StreamChatRequest",
         "type": "object"
       },
@@ -7149,7 +7942,9 @@
             "type": "string"
           }
         },
-        "required": ["question_id"],
+        "required": [
+          "question_id"
+        ],
         "title": "StructuredQuestionAnswerRequest",
         "type": "object"
       },
@@ -7175,7 +7970,10 @@
             "type": "string"
           }
         },
-        "required": ["question_id", "status"],
+        "required": [
+          "question_id",
+          "status"
+        ],
         "title": "StructuredQuestionResponse",
         "type": "object"
       },
@@ -7194,6 +7992,13 @@
                 "type": "null"
               }
             ]
+          },
+          "capability_matrix": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderCapability"
+            },
+            "title": "Capability Matrix",
+            "type": "array"
           },
           "clef_account_id": {
             "title": "Clef Account Id",
@@ -7279,7 +8084,12 @@
             "type": "string"
           },
           "provider": {
-            "enum": ["clef-local", "laya-local", "clef-api", "jev-api"],
+            "enum": [
+              "clef-local",
+              "laya-local",
+              "clef-api",
+              "jev-api"
+            ],
             "title": "Provider",
             "type": "string"
           }
@@ -7322,7 +8132,11 @@
             "type": "string"
           }
         },
-        "required": ["id", "name", "status"],
+        "required": [
+          "id",
+          "name",
+          "status"
+        ],
         "title": "TaskDependencyOut",
         "type": "object"
       },
@@ -7574,7 +8388,10 @@
             "type": "string"
           }
         },
-        "required": ["provider", "api_key"],
+        "required": [
+          "provider",
+          "api_key"
+        ],
         "title": "TestApiKeyBody",
         "type": "object"
       },
@@ -7596,7 +8413,9 @@
             "title": "Key Id"
           }
         },
-        "required": ["host"],
+        "required": [
+          "host"
+        ],
         "title": "TestSshRequest",
         "type": "object"
       },
@@ -7612,7 +8431,9 @@
             "type": "boolean"
           }
         },
-        "required": ["ok"],
+        "required": [
+          "ok"
+        ],
         "title": "TestSshResponse",
         "type": "object"
       },
@@ -7668,7 +8489,12 @@
           },
           "status": {
             "default": "idle",
-            "enum": ["running", "awaiting_approval", "failed", "idle"],
+            "enum": [
+              "running",
+              "awaiting_approval",
+              "failed",
+              "idle"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -7692,7 +8518,11 @@
             "type": "string"
           }
         },
-        "required": ["id", "created_at", "updated_at"],
+        "required": [
+          "id",
+          "created_at",
+          "updated_at"
+        ],
         "title": "Thread",
         "type": "object"
       },
@@ -7715,7 +8545,12 @@
             "type": "string"
           }
         },
-        "required": ["role", "preview", "message_id", "created_at"],
+        "required": [
+          "role",
+          "preview",
+          "message_id",
+          "created_at"
+        ],
         "title": "ThreadLastMessagePreview",
         "type": "object"
       },
@@ -7733,7 +8568,9 @@
             "type": "string"
           }
         },
-        "required": ["thread_id"],
+        "required": [
+          "thread_id"
+        ],
         "title": "ThreadPinsResponse",
         "type": "object"
       },
@@ -7767,7 +8604,11 @@
             "title": "Quality Gate"
           },
           "status": {
-            "enum": ["pending", "in_progress", "completed"],
+            "enum": [
+              "pending",
+              "in_progress",
+              "completed"
+            ],
             "title": "Status",
             "type": "string"
           },
@@ -7783,7 +8624,10 @@
             "title": "Step Id"
           }
         },
-        "required": ["content", "status"],
+        "required": [
+          "content",
+          "status"
+        ],
         "title": "TodoItem",
         "type": "object"
       },
@@ -7806,7 +8650,11 @@
             "$ref": "#/components/schemas/UserResponse"
           }
         },
-        "required": ["access_token", "refresh_token", "user"],
+        "required": [
+          "access_token",
+          "refresh_token",
+          "user"
+        ],
         "title": "TokenResponse",
         "type": "object"
       },
@@ -7822,7 +8670,10 @@
             "type": "string"
           }
         },
-        "required": ["label", "value"],
+        "required": [
+          "label",
+          "value"
+        ],
         "title": "ToolOption",
         "type": "object"
       },
@@ -7890,7 +8741,10 @@
             "type": "string"
           }
         },
-        "required": ["name", "description"],
+        "required": [
+          "name",
+          "description"
+        ],
         "title": "ToolSchema",
         "type": "object"
       },
@@ -7901,7 +8755,9 @@
             "type": "boolean"
           }
         },
-        "required": ["enabled"],
+        "required": [
+          "enabled"
+        ],
         "title": "ToolToggleBody",
         "type": "object"
       },
@@ -7922,7 +8778,10 @@
             "type": "string"
           }
         },
-        "required": ["audio_base64", "mime_type"],
+        "required": [
+          "audio_base64",
+          "mime_type"
+        ],
         "title": "TranscribeAudioRequest",
         "type": "object"
       },
@@ -7933,7 +8792,9 @@
             "type": "string"
           }
         },
-        "required": ["text"],
+        "required": [
+          "text"
+        ],
         "title": "TranscribeAudioResponse",
         "type": "object"
       },
@@ -7963,7 +8824,11 @@
             "title": "Size"
           }
         },
-        "required": ["name", "path", "kind"],
+        "required": [
+          "name",
+          "path",
+          "kind"
+        ],
         "title": "TreeEntry",
         "type": "object"
       },
@@ -7981,7 +8846,10 @@
             "type": "string"
           }
         },
-        "required": ["path", "entries"],
+        "required": [
+          "path",
+          "entries"
+        ],
         "title": "TreeResponse",
         "type": "object"
       },
@@ -8019,7 +8887,12 @@
           },
           "signature_status": {
             "default": "missing",
-            "enum": ["valid", "invalid", "missing", "unavailable"],
+            "enum": [
+              "valid",
+              "invalid",
+              "missing",
+              "unavailable"
+            ],
             "title": "Signature Status",
             "type": "string"
           },
@@ -8063,7 +8936,9 @@
             "type": "string"
           }
         },
-        "required": ["workspace_id"],
+        "required": [
+          "workspace_id"
+        ],
         "title": "TrustRequest",
         "type": "object"
       },
@@ -8097,7 +8972,9 @@
             "type": "string"
           }
         },
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "title": "TurnFileChange",
         "type": "object"
       },
@@ -8131,7 +9008,9 @@
             "type": "string"
           }
         },
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "title": "TurnFileChangeResponse",
         "type": "object"
       },
@@ -8156,7 +9035,9 @@
             "type": "string"
           }
         },
-        "required": ["files"],
+        "required": [
+          "files"
+        ],
         "title": "TurnFilesChangedResponse",
         "type": "object"
       },
@@ -8168,7 +9049,12 @@
           },
           "scope": {
             "default": "user",
-            "enum": ["user", "workspace", "project", "runtime"],
+            "enum": [
+              "user",
+              "workspace",
+              "project",
+              "runtime"
+            ],
             "title": "Scope",
             "type": "string"
           },
@@ -8195,7 +9081,9 @@
             "title": "Workspace Id"
           }
         },
-        "required": ["mcp_id"],
+        "required": [
+          "mcp_id"
+        ],
         "title": "UninstallRequest",
         "type": "object"
       },
@@ -8353,7 +9241,9 @@
             "title": "Expected Sha256"
           }
         },
-        "required": ["content"],
+        "required": [
+          "content"
+        ],
         "title": "UpdateFsFileRequest",
         "type": "object"
       },
@@ -8370,7 +9260,9 @@
             "type": "object"
           }
         },
-        "required": ["content"],
+        "required": [
+          "content"
+        ],
         "title": "UpdateMemoryRequest",
         "type": "object"
       },
@@ -8385,7 +9277,10 @@
             "type": "string"
           }
         },
-        "required": ["status", "key"],
+        "required": [
+          "status",
+          "key"
+        ],
         "title": "UpdateMemoryResponse",
         "type": "object"
       },
@@ -8414,7 +9309,9 @@
             "type": "string"
           }
         },
-        "required": ["role"],
+        "required": [
+          "role"
+        ],
         "title": "UpdateRoleBody",
         "type": "object"
       },
@@ -8425,7 +9322,9 @@
             "type": "string"
           }
         },
-        "required": ["role"],
+        "required": [
+          "role"
+        ],
         "title": "UpdateRoleRequest",
         "type": "object"
       },
@@ -8436,7 +9335,9 @@
             "type": "string"
           }
         },
-        "required": ["label"],
+        "required": [
+          "label"
+        ],
         "title": "UpdateSafeRootBody",
         "type": "object"
       },
@@ -8612,7 +9513,12 @@
           "provider": {
             "anyOf": [
               {
-                "enum": ["clef-local", "laya-local", "clef-api", "jev-api"],
+                "enum": [
+                  "clef-local",
+                  "laya-local",
+                  "clef-api",
+                  "jev-api"
+                ],
                 "type": "string"
               },
               {
@@ -8738,7 +9644,9 @@
             "title": "Title"
           }
         },
-        "required": ["thread_id"],
+        "required": [
+          "thread_id"
+        ],
         "title": "UpdateThreadRequest",
         "type": "object"
       },
@@ -8752,7 +9660,9 @@
             "type": "array"
           }
         },
-        "required": ["users"],
+        "required": [
+          "users"
+        ],
         "title": "UserListResponse",
         "type": "object"
       },
@@ -8808,7 +9718,11 @@
             "type": "string"
           }
         },
-        "required": ["id", "role", "created_at"],
+        "required": [
+          "id",
+          "role",
+          "created_at"
+        ],
         "title": "UserResponse",
         "type": "object"
       },
@@ -8828,7 +9742,11 @@
             "type": "string"
           }
         },
-        "required": ["normalized", "available", "suggestion"],
+        "required": [
+          "normalized",
+          "available",
+          "suggestion"
+        ],
         "title": "UsernameAvailableResponse",
         "type": "object"
       },
@@ -8839,7 +9757,9 @@
             "type": "string"
           }
         },
-        "required": ["token"],
+        "required": [
+          "token"
+        ],
         "title": "ValidateTokenBody",
         "type": "object"
       },
@@ -8875,7 +9795,11 @@
             "type": "string"
           }
         },
-        "required": ["loc", "msg", "type"],
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
         "title": "ValidationError",
         "type": "object"
       },
@@ -8894,7 +9818,11 @@
             "type": "string"
           }
         },
-        "required": ["strategy", "label", "url"],
+        "required": [
+          "strategy",
+          "label",
+          "url"
+        ],
         "title": "VscodeOption",
         "type": "object"
       },
@@ -8908,7 +9836,9 @@
             "type": "array"
           }
         },
-        "required": ["options"],
+        "required": [
+          "options"
+        ],
         "title": "VscodeOptionsResponse",
         "type": "object"
       },
@@ -9013,7 +9943,11 @@
             "type": "boolean"
           }
         },
-        "required": ["id", "name", "cwd"],
+        "required": [
+          "id",
+          "name",
+          "cwd"
+        ],
         "title": "WorkspaceInfo",
         "type": "object"
       },
@@ -9046,7 +9980,9 @@
             "type": "string"
           }
         },
-        "required": ["path"],
+        "required": [
+          "path"
+        ],
         "title": "WorktreeInfo",
         "type": "object"
       },
@@ -9075,7 +10011,11 @@
             "type": "array"
           }
         },
-        "required": ["columns", "tenants", "assignees"],
+        "required": [
+          "columns",
+          "tenants",
+          "assignees"
+        ],
         "title": "BoardOut",
         "type": "object"
       },
@@ -9268,7 +10208,9 @@
             "title": "Step Total"
           }
         },
-        "required": ["status"],
+        "required": [
+          "status"
+        ],
         "title": "StatusResponse",
         "type": "object"
       },
@@ -9280,7 +10222,9 @@
             "type": "object"
           }
         },
-        "required": ["payload"],
+        "required": [
+          "payload"
+        ],
         "title": "ImportPreviewRequest",
         "type": "object"
       },
@@ -9297,7 +10241,12 @@
           },
           "scope": {
             "default": "user",
-            "enum": ["user", "workspace", "project", "runtime"],
+            "enum": [
+              "user",
+              "workspace",
+              "project",
+              "runtime"
+            ],
             "title": "Scope",
             "type": "string"
           },
@@ -9324,7 +10273,9 @@
             "title": "Workspace Id"
           }
         },
-        "required": ["mcp_id"],
+        "required": [
+          "mcp_id"
+        ],
         "title": "InstallRequest",
         "type": "object"
       },
@@ -9333,9 +10284,22 @@
           "bucket_id": {
             "title": "Bucket Id",
             "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
           }
         },
-        "required": ["bucket_id"],
+        "required": [
+          "bucket_id"
+        ],
         "title": "InstallRequest",
         "type": "object"
       },
@@ -9345,7 +10309,9 @@
             "title": "Payload"
           }
         },
-        "required": ["payload"],
+        "required": [
+          "payload"
+        ],
         "title": "ImportPreviewRequest",
         "type": "object"
       },
@@ -9363,7 +10329,10 @@
             "type": "array"
           }
         },
-        "required": ["header", "lines"],
+        "required": [
+          "header",
+          "lines"
+        ],
         "title": "DiffHunk",
         "type": "object"
       },
@@ -9389,7 +10358,9 @@
             ]
           }
         },
-        "required": ["status"],
+        "required": [
+          "status"
+        ],
         "title": "StatusResponse",
         "type": "object"
       },
@@ -9482,7 +10453,9 @@
           }
         },
         "summary": "Resolve Agent",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/api-keys": {
@@ -9504,7 +10477,9 @@
           }
         },
         "summary": "Get Api Keys",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       },
       "patch": {
         "description": "Salva API keys em ~/.vectora/.env e atualiza os.environ em runtime.",
@@ -9544,7 +10519,9 @@
           }
         },
         "summary": "Patch Api Keys",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/api-keys/test": {
@@ -9586,7 +10563,9 @@
           }
         },
         "summary": "Test Api Key",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/config": {
@@ -9608,7 +10587,9 @@
           }
         },
         "summary": "Get Server Config",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       },
       "patch": {
         "description": "Atualiza configurações globais do servidor em runtime.",
@@ -9648,7 +10629,9 @@
           }
         },
         "summary": "Patch Server Config",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/invites": {
@@ -9670,7 +10653,9 @@
           }
         },
         "summary": "List Invites",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       },
       "post": {
         "description": "Gera um link de convite de signup com token expirável.\n\nConvidar membro adicional (2º+ usuário) é feature de time — exige plano\nPro. O primeiro usuário (root) não passa por aqui: nasce direto no\nsignup inicial (``backend/services/auth.py::signup``), sempre livre.",
@@ -9710,7 +10695,9 @@
           }
         },
         "summary": "Create Invite",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/invites/{token_hash}": {
@@ -9753,7 +10740,9 @@
           }
         },
         "summary": "Revoke Invite",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/media-models": {
@@ -9775,7 +10764,9 @@
           }
         },
         "summary": "Get Media Models",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       },
       "patch": {
         "description": "Grava a escolha de modelo por provider+capacidade.",
@@ -9815,7 +10806,9 @@
           }
         },
         "summary": "Patch Media Models",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/model/fallback-order": {
@@ -9837,7 +10830,9 @@
           }
         },
         "summary": "Get Fallback Order",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       },
       "patch": {
         "description": "Define a ordem de fallback de LLM; devolve a lista normalizada persistida.",
@@ -9877,7 +10872,9 @@
           }
         },
         "summary": "Patch Fallback Order",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/model/image-fallback": {
@@ -9899,7 +10896,9 @@
           }
         },
         "summary": "Get Image Fallback Model",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       },
       "patch": {
         "description": "Define (ou limpa, com string vazia) o modelo de fallback de imagem.",
@@ -9939,7 +10938,9 @@
           }
         },
         "summary": "Patch Image Fallback Model",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/safe-roots": {
@@ -9961,7 +10962,9 @@
           }
         },
         "summary": "List Safe Roots Admin",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       },
       "post": {
         "description": "Adiciona uma nova raiz confiável. Idempotente por path.",
@@ -10001,7 +11004,9 @@
           }
         },
         "summary": "Create Safe Root",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/safe-roots/{root_id}": {
@@ -10044,7 +11049,9 @@
           }
         },
         "summary": "Delete Safe Root",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       },
       "patch": {
         "description": "Renomeia uma raiz confiável (label). Builtin aceita rename.",
@@ -10095,7 +11102,9 @@
           }
         },
         "summary": "Update Safe Root",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/safe-roots/{root_id}/restore": {
@@ -10136,7 +11145,9 @@
           }
         },
         "summary": "Restore Safe Root",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/service-tokens": {
@@ -10158,7 +11169,9 @@
           }
         },
         "summary": "List Service Tokens Endpoint",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       },
       "post": {
         "description": "Cria um token de serviço. Apenas root — credencial de máquina tem o\nmesmo peso de criar um usuário novo. O token cru só aparece nesta\nresposta, nunca mais é recuperável.",
@@ -10198,7 +11211,9 @@
           }
         },
         "summary": "Create Service Token Endpoint",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/service-tokens/{token_id}": {
@@ -10241,7 +11256,9 @@
           }
         },
         "summary": "Revoke Service Token Endpoint",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/storage": {
@@ -10263,7 +11280,9 @@
           }
         },
         "summary": "Get Storage Status",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       },
       "patch": {
         "description": "Atualiza configurações de storage em runtime.\n\nBody (JSON) — campos opcionais:\n    ``storage_mode``: ``\"lite\"`` | ``\"complete\"``\n    ``postgres_dsn``: DSN asyncpg\n    ``redis_url``:    URL de conexão Redis\n    ``qdrant_url``:   URL do cluster Qdrant\n    ``qdrant_api_key``: API key Qdrant\n    ``services``: ``{\"postgres\"|\"redis\"|\"qdrant\": {\"self_hosted\": bool,\n    \"start_command\": str | null}}`` — config de auto-start usada por\n    ``POST /admin/storage/test`` (apenas serviços self-hosted).\n\nNota: alterações são aplicadas ao runtime_settings; persistem via\n``~/.vectora/settings.json`` se o ``RuntimeSettings`` suportar save.\n\nReturns:\n    ``{\"status\": \"updated\", \"storage_mode\": \"complete\"}``",
@@ -10283,7 +11302,9 @@
           }
         },
         "summary": "Update Storage Config",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/storage/defaults": {
@@ -10305,7 +11326,9 @@
           }
         },
         "summary": "Get Storage Defaults",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/storage/test": {
@@ -10327,7 +11350,9 @@
           }
         },
         "summary": "Test Storage Connection",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/system": {
@@ -10349,7 +11374,9 @@
           }
         },
         "summary": "System Info",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/timezone": {
@@ -10371,7 +11398,9 @@
           }
         },
         "summary": "Get Timezone",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       },
       "patch": {
         "description": "Define o timezone do usuário.\n\nTimezone inválido é rejeitado com 422 em vez de aceito e degradado: aqui o\nusuário escolheu explicitamente, então salvar outra coisa faria os\nagendamentos dispararem num fuso que ele não pediu, sem aviso.",
@@ -10411,7 +11440,9 @@
           }
         },
         "summary": "Patch Timezone",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/tools": {
@@ -10433,7 +11464,9 @@
           }
         },
         "summary": "List Tools Admin",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/tools/{tool_name}/toggle": {
@@ -10486,7 +11519,9 @@
           }
         },
         "summary": "Toggle Tool",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/users": {
@@ -10508,7 +11543,9 @@
           }
         },
         "summary": "List Users",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/users/{user_id}": {
@@ -10551,7 +11588,9 @@
           }
         },
         "summary": "Delete User",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       },
       "get": {
         "description": "Detalhes de um usuário específico.",
@@ -10592,7 +11631,9 @@
           }
         },
         "summary": "Get User Detail",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/users/{user_id}/role": {
@@ -10645,7 +11686,9 @@
           }
         },
         "summary": "Update User Role",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/admin/users/{user_id}/tools": {
@@ -10688,7 +11731,9 @@
           }
         },
         "summary": "Get User Tools",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       },
       "post": {
         "description": "Define as tools desabilitadas de um usuário (admin override).",
@@ -10739,7 +11784,9 @@
           }
         },
         "summary": "Set User Tools",
-        "tags": ["admin"]
+        "tags": [
+          "admin"
+        ]
       }
     },
     "/agent-profiles": {
@@ -10762,7 +11809,9 @@
           }
         },
         "summary": "Get Agent Profiles",
-        "tags": ["agent-profiles"]
+        "tags": [
+          "agent-profiles"
+        ]
       },
       "post": {
         "operationId": "post_agent_profile_agent_profiles_post",
@@ -10799,7 +11848,9 @@
           }
         },
         "summary": "Post Agent Profile",
-        "tags": ["agent-profiles"]
+        "tags": [
+          "agent-profiles"
+        ]
       }
     },
     "/agent-profiles/{profile_id}": {
@@ -10832,7 +11883,9 @@
           }
         },
         "summary": "Delete Agent Profile",
-        "tags": ["agent-profiles"]
+        "tags": [
+          "agent-profiles"
+        ]
       },
       "patch": {
         "operationId": "patch_agent_profile_agent_profiles__profile_id__patch",
@@ -10880,7 +11933,9 @@
           }
         },
         "summary": "Patch Agent Profile",
-        "tags": ["agent-profiles"]
+        "tags": [
+          "agent-profiles"
+        ]
       }
     },
     "/api/tools/schema": {
@@ -10966,7 +12021,9 @@
           }
         },
         "summary": "List Artifacts",
-        "tags": ["artifacts"]
+        "tags": [
+          "artifacts"
+        ]
       }
     },
     "/artifacts/{session_id}/media/{filename}": {
@@ -11014,7 +12071,9 @@
           }
         },
         "summary": "Get Media Artifact",
-        "tags": ["artifacts"]
+        "tags": [
+          "artifacts"
+        ]
       }
     },
     "/artifacts/{slug}": {
@@ -11064,7 +12123,9 @@
           }
         },
         "summary": "Get Artifact",
-        "tags": ["artifacts"]
+        "tags": [
+          "artifacts"
+        ]
       }
     },
     "/auth/audit": {
@@ -11141,7 +12202,9 @@
           }
         },
         "summary": "Get Audit Log",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/change-password": {
@@ -11182,7 +12245,9 @@
           }
         },
         "summary": "Change Password Endpoint",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/envs": {
@@ -11203,7 +12268,9 @@
           }
         },
         "summary": "Get Envs",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       },
       "post": {
         "operationId": "set_env_auth_envs_post",
@@ -11242,7 +12309,9 @@
           }
         },
         "summary": "Set Env",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/envs/{key}": {
@@ -11284,7 +12353,9 @@
           }
         },
         "summary": "Delete Env",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/github": {
@@ -11306,7 +12377,9 @@
           }
         },
         "summary": "Github Oauth Disconnect",
-        "tags": ["oauth"]
+        "tags": [
+          "oauth"
+        ]
       },
       "get": {
         "description": "Inicia o fluxo OAuth do GitHub — redireciona para github.com/login/oauth.",
@@ -11322,7 +12395,9 @@
           }
         },
         "summary": "Github Oauth Start",
-        "tags": ["oauth"]
+        "tags": [
+          "oauth"
+        ]
       }
     },
     "/auth/github/callback": {
@@ -11372,7 +12447,9 @@
           }
         },
         "summary": "Github Oauth Callback",
-        "tags": ["oauth"]
+        "tags": [
+          "oauth"
+        ]
       }
     },
     "/auth/github/status": {
@@ -11394,7 +12471,9 @@
           }
         },
         "summary": "Github Oauth Status",
-        "tags": ["oauth"]
+        "tags": [
+          "oauth"
+        ]
       }
     },
     "/auth/gitlab": {
@@ -11416,7 +12495,9 @@
           }
         },
         "summary": "Gitlab Oauth Disconnect",
-        "tags": ["oauth"]
+        "tags": [
+          "oauth"
+        ]
       },
       "get": {
         "description": "Executa a operação gitlab oauth start.",
@@ -11432,7 +12513,9 @@
           }
         },
         "summary": "Gitlab Oauth Start",
-        "tags": ["oauth"]
+        "tags": [
+          "oauth"
+        ]
       }
     },
     "/auth/gitlab/callback": {
@@ -11482,7 +12565,9 @@
           }
         },
         "summary": "Gitlab Oauth Callback",
-        "tags": ["oauth"]
+        "tags": [
+          "oauth"
+        ]
       }
     },
     "/auth/gitlab/status": {
@@ -11504,7 +12589,9 @@
           }
         },
         "summary": "Gitlab Oauth Status",
-        "tags": ["oauth"]
+        "tags": [
+          "oauth"
+        ]
       }
     },
     "/auth/google": {
@@ -11526,7 +12613,9 @@
           }
         },
         "summary": "Google Oauth Disconnect",
-        "tags": ["oauth"]
+        "tags": [
+          "oauth"
+        ]
       },
       "get": {
         "description": "Executa a operação google oauth start.",
@@ -11542,7 +12631,9 @@
           }
         },
         "summary": "Google Oauth Start",
-        "tags": ["oauth"]
+        "tags": [
+          "oauth"
+        ]
       }
     },
     "/auth/google/callback": {
@@ -11592,7 +12683,9 @@
           }
         },
         "summary": "Google Oauth Callback",
-        "tags": ["oauth"]
+        "tags": [
+          "oauth"
+        ]
       }
     },
     "/auth/google/status": {
@@ -11614,7 +12707,9 @@
           }
         },
         "summary": "Google Oauth Status",
-        "tags": ["oauth"]
+        "tags": [
+          "oauth"
+        ]
       }
     },
     "/auth/has-users": {
@@ -11634,7 +12729,9 @@
           }
         },
         "summary": "Has Users Endpoint",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/invite/{token}": {
@@ -11675,7 +12772,9 @@
           }
         },
         "summary": "Validate Invite Endpoint",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/me": {
@@ -11694,7 +12793,9 @@
           }
         },
         "summary": "Me Endpoint",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       },
       "patch": {
         "description": "Atualiza campos do próprio perfil. Atualmente: apenas ``name``.",
@@ -11732,7 +12833,9 @@
           }
         },
         "summary": "Update Me Endpoint",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/oidc/callback": {
@@ -11791,7 +12894,9 @@
           }
         },
         "summary": "Oidc Callback",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/oidc/login": {
@@ -11808,7 +12913,9 @@
           }
         },
         "summary": "Oidc Login",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/oidc/status": {
@@ -11829,7 +12936,9 @@
           }
         },
         "summary": "Oidc Status",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/password-reset/confirm": {
@@ -11870,7 +12979,9 @@
           }
         },
         "summary": "Password Reset Confirm Endpoint",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/password-reset/request": {
@@ -11912,7 +13023,9 @@
           }
         },
         "summary": "Password Reset Request Endpoint",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/refresh": {
@@ -11952,7 +13065,9 @@
           }
         },
         "summary": "Refresh Endpoint",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/setup-local": {
@@ -11992,7 +13107,9 @@
           }
         },
         "summary": "Setup Local Endpoint",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/signin": {
@@ -12031,7 +13148,9 @@
           }
         },
         "summary": "Signin Endpoint",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/signout": {
@@ -12072,7 +13191,9 @@
           }
         },
         "summary": "Signout Endpoint",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/signup": {
@@ -12112,7 +13233,9 @@
           }
         },
         "summary": "Signup Endpoint",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/ssh-keys": {
@@ -12134,7 +13257,9 @@
           }
         },
         "summary": "List User Ssh Keys",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       },
       "post": {
         "description": "Faz upload de uma chave privada SSH (multipart/form-data).\n\nO ID retornado é determinístico (sha256[:12] do conteúdo); subir\na mesma chave duas vezes é idempotente.",
@@ -12154,7 +13279,9 @@
           }
         },
         "summary": "Upload User Ssh Key",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/ssh-keys/{key_id}": {
@@ -12197,7 +13324,9 @@
           }
         },
         "summary": "Delete User Ssh Key",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/usage": {
@@ -12219,7 +13348,9 @@
           }
         },
         "summary": "Get Usage",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/username-available": {
@@ -12260,7 +13391,9 @@
           }
         },
         "summary": "Username Available Endpoint",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/users": {
@@ -12279,7 +13412,9 @@
           }
         },
         "summary": "List Users",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/users/{user_id}/role": {
@@ -12331,7 +13466,9 @@
           }
         },
         "summary": "Update Role",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/auth/ws-token": {
@@ -12353,7 +13490,9 @@
           }
         },
         "summary": "Get Ws Token",
-        "tags": ["auth"]
+        "tags": [
+          "auth"
+        ]
       }
     },
     "/boards": {
@@ -12377,7 +13516,9 @@
           }
         },
         "summary": "Get Boards",
-        "tags": ["boards"]
+        "tags": [
+          "boards"
+        ]
       },
       "post": {
         "description": "Executa a operação post board.",
@@ -12415,7 +13556,9 @@
           }
         },
         "summary": "Post Board",
-        "tags": ["boards"]
+        "tags": [
+          "boards"
+        ]
       }
     },
     "/boards/{board_id}": {
@@ -12449,7 +13592,9 @@
           }
         },
         "summary": "Delete Board Endpoint",
-        "tags": ["boards"]
+        "tags": [
+          "boards"
+        ]
       },
       "patch": {
         "description": "Executa a operação patch board.",
@@ -12498,7 +13643,9 @@
           }
         },
         "summary": "Patch Board",
-        "tags": ["boards"]
+        "tags": [
+          "boards"
+        ]
       }
     },
     "/boards/{board_id}/board": {
@@ -12539,7 +13686,9 @@
           }
         },
         "summary": "Get Board View",
-        "tags": ["boards"]
+        "tags": [
+          "boards"
+        ]
       }
     },
     "/connect/status": {
@@ -12560,7 +13709,9 @@
           }
         },
         "summary": "Get Status",
-        "tags": ["connect"]
+        "tags": [
+          "connect"
+        ]
       }
     },
     "/connect/{platform}/enabled": {
@@ -12612,7 +13763,9 @@
           }
         },
         "summary": "Set Platform Enabled",
-        "tags": ["connect"]
+        "tags": [
+          "connect"
+        ]
       }
     },
     "/feedback": {
@@ -12652,7 +13805,9 @@
           }
         },
         "summary": "Submit Feedback",
-        "tags": ["feedback"]
+        "tags": [
+          "feedback"
+        ]
       }
     },
     "/gateway/revoke": {
@@ -12673,7 +13828,9 @@
           }
         },
         "summary": "Gateway Revoke",
-        "tags": ["gateway"]
+        "tags": [
+          "gateway"
+        ]
       }
     },
     "/gateway/status": {
@@ -12695,7 +13852,9 @@
           }
         },
         "summary": "Gateway Status",
-        "tags": ["gateway"]
+        "tags": [
+          "gateway"
+        ]
       }
     },
     "/health": {
@@ -12776,7 +13935,9 @@
           }
         },
         "summary": "List Integrations",
-        "tags": ["oauth"]
+        "tags": [
+          "oauth"
+        ]
       }
     },
     "/integrations/{integration_id}/verify": {
@@ -12819,7 +13980,9 @@
           }
         },
         "summary": "Verify Integration",
-        "tags": ["oauth"]
+        "tags": [
+          "oauth"
+        ]
       }
     },
     "/license/connect": {
@@ -12861,7 +14024,9 @@
           }
         },
         "summary": "License Connect",
-        "tags": ["license"]
+        "tags": [
+          "license"
+        ]
       }
     },
     "/license/oauth/init": {
@@ -12883,7 +14048,9 @@
           }
         },
         "summary": "License Oauth Init",
-        "tags": ["license"]
+        "tags": [
+          "license"
+        ]
       }
     },
     "/license/oauth/poll": {
@@ -12926,7 +14093,9 @@
           }
         },
         "summary": "License Oauth Poll",
-        "tags": ["license"]
+        "tags": [
+          "license"
+        ]
       }
     },
     "/license/portal": {
@@ -12948,7 +14117,9 @@
           }
         },
         "summary": "License Portal",
-        "tags": ["license"]
+        "tags": [
+          "license"
+        ]
       }
     },
     "/license/status": {
@@ -12970,7 +14141,9 @@
           }
         },
         "summary": "License Status",
-        "tags": ["license"]
+        "tags": [
+          "license"
+        ]
       }
     },
     "/license/validate": {
@@ -12992,7 +14165,9 @@
           }
         },
         "summary": "License Validate",
-        "tags": ["license"]
+        "tags": [
+          "license"
+        ]
       }
     },
     "/license/validate-token": {
@@ -13034,7 +14209,9 @@
           }
         },
         "summary": "License Validate Token",
-        "tags": ["license"]
+        "tags": [
+          "license"
+        ]
       }
     },
     "/mcp/import/preview": {
@@ -13076,7 +14253,9 @@
           }
         },
         "summary": "Preview Import",
-        "tags": ["mcp-marketplace"]
+        "tags": [
+          "mcp-marketplace"
+        ]
       }
     },
     "/mcp/install": {
@@ -13117,7 +14296,9 @@
           }
         },
         "summary": "Post Install",
-        "tags": ["mcp-marketplace"]
+        "tags": [
+          "mcp-marketplace"
+        ]
       }
     },
     "/mcp/policy": {
@@ -13158,7 +14339,9 @@
           }
         },
         "summary": "Delete Policy",
-        "tags": ["mcp-marketplace"]
+        "tags": [
+          "mcp-marketplace"
+        ]
       },
       "get": {
         "operationId": "get_policy_mcp_policy_get",
@@ -13177,7 +14360,9 @@
           }
         },
         "summary": "Get Policy",
-        "tags": ["mcp-marketplace"]
+        "tags": [
+          "mcp-marketplace"
+        ]
       },
       "put": {
         "operationId": "put_policy_mcp_policy_put",
@@ -13216,7 +14401,9 @@
           }
         },
         "summary": "Put Policy",
-        "tags": ["mcp-marketplace"]
+        "tags": [
+          "mcp-marketplace"
+        ]
       }
     },
     "/mcp/registry": {
@@ -13283,7 +14470,9 @@
           }
         },
         "summary": "Get Registry",
-        "tags": ["mcp-marketplace"]
+        "tags": [
+          "mcp-marketplace"
+        ]
       }
     },
     "/mcp/registry/status": {
@@ -13303,7 +14492,9 @@
           }
         },
         "summary": "Get Registry Status",
-        "tags": ["mcp-marketplace"]
+        "tags": [
+          "mcp-marketplace"
+        ]
       }
     },
     "/mcp/uninstall": {
@@ -13344,7 +14535,9 @@
           }
         },
         "summary": "Post Uninstall",
-        "tags": ["mcp-marketplace"]
+        "tags": [
+          "mcp-marketplace"
+        ]
       }
     },
     "/memory": {
@@ -13364,7 +14557,9 @@
           }
         },
         "summary": "Clear All Memories",
-        "tags": ["memory"]
+        "tags": [
+          "memory"
+        ]
       },
       "get": {
         "description": "Lista memórias do usuário autenticado, ordenadas por data de atualização.",
@@ -13417,7 +14612,9 @@
           }
         },
         "summary": "List Memories",
-        "tags": ["memory"]
+        "tags": [
+          "memory"
+        ]
       },
       "post": {
         "description": "Cria uma nova memória manualmente (pelo painel de configurações).",
@@ -13455,7 +14652,9 @@
           }
         },
         "summary": "Create Memory",
-        "tags": ["memory"]
+        "tags": [
+          "memory"
+        ]
       }
     },
     "/memory-buckets/catalog": {
@@ -13507,7 +14706,9 @@
           }
         },
         "summary": "Get Catalog",
-        "tags": ["memory-buckets"]
+        "tags": [
+          "memory-buckets"
+        ]
       }
     },
     "/memory-buckets/install": {
@@ -13548,7 +14749,9 @@
           }
         },
         "summary": "Post Install",
-        "tags": ["memory-buckets"]
+        "tags": [
+          "memory-buckets"
+        ]
       }
     },
     "/memory-buckets/publish": {
@@ -13589,7 +14792,9 @@
           }
         },
         "summary": "Post Publish",
-        "tags": ["memory-buckets"]
+        "tags": [
+          "memory-buckets"
+        ]
       }
     },
     "/memory/journey": {
@@ -13609,7 +14814,9 @@
           }
         },
         "summary": "Get Journey",
-        "tags": ["memory"]
+        "tags": [
+          "memory"
+        ]
       }
     },
     "/memory/{key}": {
@@ -13650,7 +14857,9 @@
           }
         },
         "summary": "Delete Memory By Key",
-        "tags": ["memory"]
+        "tags": [
+          "memory"
+        ]
       },
       "get": {
         "description": "Retorna uma memória específica pelo key.",
@@ -13689,7 +14898,9 @@
           }
         },
         "summary": "Get Memory By Key",
-        "tags": ["memory"]
+        "tags": [
+          "memory"
+        ]
       },
       "put": {
         "description": "Edita o conteúdo de uma memória existente.",
@@ -13738,7 +14949,9 @@
           }
         },
         "summary": "Update Memory",
-        "tags": ["memory"]
+        "tags": [
+          "memory"
+        ]
       }
     },
     "/metrics": {
@@ -13781,7 +14994,9 @@
           }
         },
         "summary": "Get Configured Providers",
-        "tags": ["models"]
+        "tags": [
+          "models"
+        ]
       }
     },
     "/plugins": {
@@ -13803,7 +15018,9 @@
           }
         },
         "summary": "List Plugins",
-        "tags": ["plugins"]
+        "tags": [
+          "plugins"
+        ]
       },
       "post": {
         "description": "Adiciona ou atualiza (por nome) um servidor MCP do usuário.",
@@ -13843,7 +15060,9 @@
           }
         },
         "summary": "Add Plugin",
-        "tags": ["plugins"]
+        "tags": [
+          "plugins"
+        ]
       }
     },
     "/plugins/{name}": {
@@ -13886,7 +15105,9 @@
           }
         },
         "summary": "Delete Plugin",
-        "tags": ["plugins"]
+        "tags": [
+          "plugins"
+        ]
       }
     },
     "/plugins/{name}/verify": {
@@ -13929,7 +15150,9 @@
           }
         },
         "summary": "Verify Plugin",
-        "tags": ["plugins"]
+        "tags": [
+          "plugins"
+        ]
       }
     },
     "/provider-routing/decision-models/config": {
@@ -13969,7 +15192,9 @@
           }
         },
         "summary": "Update Decision Models Config",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/decision-models/status": {
@@ -13989,7 +15214,9 @@
           }
         },
         "summary": "Get Decision Models Status",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/dmr/config": {
@@ -14031,7 +15258,9 @@
           }
         },
         "summary": "Set Dmr Config",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/dmr/http-status": {
@@ -14081,7 +15310,9 @@
           }
         },
         "summary": "Get Dmr Http Status",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/dmr/models": {
@@ -14131,7 +15362,9 @@
           }
         },
         "summary": "List Dmr Models",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/dmr/models/jobs": {
@@ -14181,7 +15414,9 @@
           }
         },
         "summary": "List Dmr Model Jobs",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       },
       "post": {
         "description": "Agenda pull/run e devolve um identificador para progresso e cancelamento.",
@@ -14239,7 +15474,9 @@
           }
         },
         "summary": "Create Dmr Model Job",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/dmr/models/jobs/{job_id}": {
@@ -14298,7 +15535,9 @@
           }
         },
         "summary": "Cancel Dmr Model Job",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       },
       "get": {
         "description": "Consulta o estado de um job sem expor saída ilimitada do Docker.",
@@ -14355,7 +15594,9 @@
           }
         },
         "summary": "Get Dmr Model Job",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/dmr/models/jobs/{job_id}/retry": {
@@ -14414,7 +15655,9 @@
           }
         },
         "summary": "Retry Dmr Model Job",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/dmr/models/prepare": {
@@ -14474,7 +15717,9 @@
           }
         },
         "summary": "Prepare Dmr Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/dmr/models/start": {
@@ -14534,7 +15779,9 @@
           }
         },
         "summary": "Start Dmr Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/dmr/models/stop": {
@@ -14594,7 +15841,9 @@
           }
         },
         "summary": "Stop Dmr Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/dmr/models/{reference}": {
@@ -14663,7 +15912,9 @@
           }
         },
         "summary": "Remove Dmr Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/dmr/status": {
@@ -14713,7 +15964,9 @@
           }
         },
         "summary": "Get Dmr Status",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/dmr/test": {
@@ -14763,7 +16016,9 @@
           }
         },
         "summary": "Test Dmr Connection",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/huggingface/download": {
@@ -14850,7 +16105,9 @@
           }
         },
         "summary": "Cancel Huggingface Download",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       },
       "post": {
         "description": "Baixa um arquivo diretamente da Hugging Face para o armazenamento local.",
@@ -14908,7 +16165,9 @@
           }
         },
         "summary": "Download Huggingface Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/huggingface/download/progress": {
@@ -14982,7 +16241,9 @@
           }
         },
         "summary": "Get Huggingface Download Progress",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/huggingface/install": {
@@ -15042,7 +16303,9 @@
           }
         },
         "summary": "Install Huggingface Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/huggingface/installed": {
@@ -15070,7 +16333,9 @@
           }
         },
         "summary": "List Installed Huggingface Models",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/huggingface/models": {
@@ -15132,7 +16397,9 @@
           }
         },
         "summary": "Search Huggingface Models",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/huggingface/models/{repo_id}": {
@@ -15175,7 +16442,9 @@
           }
         },
         "summary": "Get Huggingface Model Metadata",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/huggingface/start": {
@@ -15250,7 +16519,9 @@
           }
         },
         "summary": "Start Installed Huggingface Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/config": {
@@ -15270,7 +16541,9 @@
           }
         },
         "summary": "Clear Llamacpp Config",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       },
       "post": {
         "description": "Executa a operação set llamacpp config.",
@@ -15308,7 +16581,9 @@
           }
         },
         "summary": "Set Llamacpp Config",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/install": {
@@ -15368,7 +16643,9 @@
           }
         },
         "summary": "Install Llamacpp Runtime",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/mode": {
@@ -15426,7 +16703,9 @@
           }
         },
         "summary": "Set Llamacpp Mode",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/models": {
@@ -15446,7 +16725,9 @@
           }
         },
         "summary": "Discover Llamacpp Models",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/models/confirm": {
@@ -15486,7 +16767,9 @@
           }
         },
         "summary": "Confirm Llamacpp Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/models/confirmations": {
@@ -15510,7 +16793,9 @@
           }
         },
         "summary": "List Llamacpp Model Confirmations",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/registered": {
@@ -15534,7 +16819,9 @@
           }
         },
         "summary": "Get Registered Llamacpp Models",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       },
       "post": {
         "description": "Executa a operação register llamacpp model.",
@@ -15572,7 +16859,9 @@
           }
         },
         "summary": "Register Llamacpp Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/registered/{model_id}": {
@@ -15617,7 +16906,9 @@
           }
         },
         "summary": "Unregister Llamacpp Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/releases": {
@@ -15645,7 +16936,9 @@
           }
         },
         "summary": "List Llamacpp Releases",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/runtime": {
@@ -15697,7 +16990,9 @@
           }
         },
         "summary": "Remove Llamacpp Runtime",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/runtime/cleanup": {
@@ -15757,7 +17052,9 @@
           }
         },
         "summary": "Cleanup Llamacpp Runtime Versions",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/runtime/rollback": {
@@ -15817,7 +17114,9 @@
           }
         },
         "summary": "Rollback Llamacpp Runtime",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/runtime/status": {
@@ -15839,7 +17138,9 @@
           }
         },
         "summary": "Llamacpp Runtime Status",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/runtime/test": {
@@ -15899,7 +17200,9 @@
           }
         },
         "summary": "Check Llamacpp Runtime",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/runtime/update": {
@@ -15959,7 +17262,9 @@
           }
         },
         "summary": "Update Llamacpp Runtime",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/runtime/{runtime_id}": {
@@ -16020,7 +17325,9 @@
           }
         },
         "summary": "Remove Llamacpp Runtime Version",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/sidecar/start": {
@@ -16095,7 +17402,9 @@
           }
         },
         "summary": "Start Llamacpp Sidecar",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/sidecar/status": {
@@ -16132,7 +17441,9 @@
           }
         },
         "summary": "Get Llamacpp Sidecar Status",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/sidecar/stop": {
@@ -16197,7 +17508,9 @@
           }
         },
         "summary": "Stop Llamacpp Sidecar",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/status": {
@@ -16217,7 +17530,9 @@
           }
         },
         "summary": "Get Llamacpp Status",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/llamacpp/test": {
@@ -16237,7 +17552,9 @@
           }
         },
         "summary": "Test Llamacpp Connection",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/nine-router/config": {
@@ -16257,7 +17574,9 @@
           }
         },
         "summary": "Clear Nine Router Config",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       },
       "post": {
         "description": "Salva endpoint + key juntos — os dois são obrigatórios e\ninterdependentes (diferente da key isolada do OpenRouter).",
@@ -16295,7 +17614,9 @@
           }
         },
         "summary": "Set Nine Router Config",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/nine-router/models": {
@@ -16315,7 +17636,9 @@
           }
         },
         "summary": "Discover Nine Router Models",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/nine-router/registered": {
@@ -16339,7 +17662,9 @@
           }
         },
         "summary": "List Registered Nine Router Models",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       },
       "post": {
         "description": "Executa a operação register nine router model.",
@@ -16377,7 +17702,9 @@
           }
         },
         "summary": "Register Nine Router Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/nine-router/registered/{model_id}": {
@@ -16422,7 +17749,9 @@
           }
         },
         "summary": "Unregister Nine Router Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/nine-router/status": {
@@ -16442,7 +17771,9 @@
           }
         },
         "summary": "Get Nine Router Status",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/ollama/models": {
@@ -16462,7 +17793,9 @@
           }
         },
         "summary": "Discover Ollama Models",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/ollama/registered": {
@@ -16486,7 +17819,9 @@
           }
         },
         "summary": "List Registered Ollama Models",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       },
       "post": {
         "description": "Executa a operação register ollama model.",
@@ -16524,7 +17859,9 @@
           }
         },
         "summary": "Register Ollama Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/ollama/registered/{model_id}": {
@@ -16569,7 +17906,9 @@
           }
         },
         "summary": "Unregister Ollama Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/ollama/runtime/install": {
@@ -16617,7 +17956,9 @@
           }
         },
         "summary": "Install Ollama Runtime",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/ollama/runtime/status": {
@@ -16637,7 +17978,9 @@
           }
         },
         "summary": "Ollama Runtime Status",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/openrouter/key": {
@@ -16657,7 +18000,9 @@
           }
         },
         "summary": "Clear Openrouter Key",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       },
       "post": {
         "description": "Valida a key contra GET /auth/key antes de persistir — nunca salva uma\nkey que a própria OpenRouter rejeita.",
@@ -16695,7 +18040,9 @@
           }
         },
         "summary": "Set Openrouter Key",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/openrouter/models": {
@@ -16737,7 +18084,9 @@
           }
         },
         "summary": "Discover Openrouter Models",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/openrouter/registered": {
@@ -16761,7 +18110,9 @@
           }
         },
         "summary": "List Registered Openrouter Models",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       },
       "post": {
         "description": "Executa a operação register openrouter model.",
@@ -16799,7 +18150,9 @@
           }
         },
         "summary": "Register Openrouter Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/openrouter/registered/{model_id}": {
@@ -16844,7 +18197,9 @@
           }
         },
         "summary": "Unregister Openrouter Model",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/provider-routing/openrouter/status": {
@@ -16864,7 +18219,9 @@
           }
         },
         "summary": "Get Openrouter Status",
-        "tags": ["provider-routing"]
+        "tags": [
+          "provider-routing"
+        ]
       }
     },
     "/rag/collections": {
@@ -16885,7 +18242,9 @@
           }
         },
         "summary": "List Collections",
-        "tags": ["rag"]
+        "tags": [
+          "rag"
+        ]
       }
     },
     "/rag/collections/{name}": {
@@ -16927,7 +18286,9 @@
           }
         },
         "summary": "Delete Collection",
-        "tags": ["rag"]
+        "tags": [
+          "rag"
+        ]
       }
     },
     "/rag/search": {
@@ -16969,7 +18330,9 @@
           }
         },
         "summary": "Search Rag",
-        "tags": ["rag"]
+        "tags": [
+          "rag"
+        ]
       }
     },
     "/rag/settings": {
@@ -16990,7 +18353,9 @@
           }
         },
         "summary": "Get Rag Settings",
-        "tags": ["rag"]
+        "tags": [
+          "rag"
+        ]
       },
       "patch": {
         "operationId": "patch_rag_settings_rag_settings_patch",
@@ -17029,7 +18394,9 @@
           }
         },
         "summary": "Patch Rag Settings",
-        "tags": ["rag"]
+        "tags": [
+          "rag"
+        ]
       }
     },
     "/rag/workspace-summary": {
@@ -17072,7 +18439,9 @@
           }
         },
         "summary": "Get Workspace Rag Summary",
-        "tags": ["rag"]
+        "tags": [
+          "rag"
+        ]
       }
     },
     "/runs/{run_id}": {
@@ -17117,7 +18486,7 @@
     },
     "/runs/{run_id}/timeline": {
       "get": {
-        "description": "Consulta o estado e a timeline de eventos correlacionados ao AgentRun.",
+        "description": "Consulta o estado e uma página da timeline de eventos do AgentRun.",
         "operationId": "get_agent_run_timeline_runs__run_id__timeline_get",
         "parameters": [
           {
@@ -17216,7 +18585,9 @@
           }
         },
         "summary": "Get Board",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       }
     },
     "/sessions/{thread_id}/background/runs": {
@@ -17260,7 +18631,9 @@
           }
         },
         "summary": "Get Runs",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       }
     },
     "/sessions/{thread_id}/background/runs/{run_id}/resume": {
@@ -17324,7 +18697,9 @@
           }
         },
         "summary": "Resume Run Endpoint",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       }
     },
     "/sessions/{thread_id}/background/tasks": {
@@ -17368,7 +18743,9 @@
           }
         },
         "summary": "Get Tasks",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       },
       "post": {
         "operationId": "post_task_sessions__thread_id__background_tasks_post",
@@ -17416,7 +18793,9 @@
           }
         },
         "summary": "Post Task",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       }
     },
     "/sessions/{thread_id}/background/tasks/bulk": {
@@ -17471,7 +18850,9 @@
           }
         },
         "summary": "Bulk Tasks Endpoint",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       }
     },
     "/sessions/{thread_id}/background/tasks/{task_id}": {
@@ -17513,7 +18894,9 @@
           }
         },
         "summary": "Delete Task Endpoint",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       },
       "patch": {
         "operationId": "patch_task_sessions__thread_id__background_tasks__task_id__patch",
@@ -17570,7 +18953,9 @@
           }
         },
         "summary": "Patch Task",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       }
     },
     "/sessions/{thread_id}/background/tasks/{task_id}/comments": {
@@ -17623,7 +19008,9 @@
           }
         },
         "summary": "Get Comments Endpoint",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       },
       "post": {
         "operationId": "post_comment_endpoint_sessions__thread_id__background_tasks__task_id__comments_post",
@@ -17680,7 +19067,9 @@
           }
         },
         "summary": "Post Comment Endpoint",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       }
     },
     "/sessions/{thread_id}/background/tasks/{task_id}/events": {
@@ -17734,7 +19123,9 @@
           }
         },
         "summary": "Get Events Endpoint",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       }
     },
     "/sessions/{thread_id}/background/tasks/{task_id}/links": {
@@ -17794,7 +19185,9 @@
           }
         },
         "summary": "Add Link Endpoint",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       }
     },
     "/sessions/{thread_id}/background/tasks/{task_id}/links/{parent_id}": {
@@ -17852,7 +19245,9 @@
           }
         },
         "summary": "Remove Link Endpoint",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       }
     },
     "/sessions/{thread_id}/background/tasks/{task_id}/review/approve": {
@@ -17902,7 +19297,9 @@
           }
         },
         "summary": "Approve Review Endpoint",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       }
     },
     "/sessions/{thread_id}/background/tasks/{task_id}/run": {
@@ -17955,7 +19352,9 @@
           }
         },
         "summary": "Run Task Endpoint",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       }
     },
     "/sessions/{thread_id}/background/tasks/{task_id}/runs": {
@@ -18009,7 +19408,9 @@
           }
         },
         "summary": "Get Task Runs",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       }
     },
     "/sessions/{thread_id}/background/tasks/{task_id}/unblock": {
@@ -18059,7 +19460,9 @@
           }
         },
         "summary": "Unblock Task Endpoint",
-        "tags": ["background"]
+        "tags": [
+          "background"
+        ]
       }
     },
     "/settings/flags": {
@@ -18080,7 +19483,9 @@
           }
         },
         "summary": "Get Flags",
-        "tags": ["flags"]
+        "tags": [
+          "flags"
+        ]
       }
     },
     "/settings/prefs": {
@@ -18102,7 +19507,9 @@
           }
         },
         "summary": "Get Prefs",
-        "tags": ["flags"]
+        "tags": [
+          "flags"
+        ]
       },
       "patch": {
         "description": "Mescla preferências enviadas pelo frontend e devolve o estado final.\n\nCampos não reconhecidos são ignorados (ver\n``runtime_settings._ALLOWED_FRONTEND_PREF_KEYS``) — forward-compat com um\nfrontend mais novo que o backend.",
@@ -18122,7 +19529,9 @@
           }
         },
         "summary": "Update Prefs",
-        "tags": ["flags"]
+        "tags": [
+          "flags"
+        ]
       }
     },
     "/skills": {
@@ -18136,7 +19545,12 @@
             "required": false,
             "schema": {
               "default": "user",
-              "enum": ["user", "workspace", "project", "runtime"],
+              "enum": [
+                "user",
+                "workspace",
+                "project",
+                "runtime"
+              ],
               "title": "Scope",
               "type": "string"
             }
@@ -18197,7 +19611,9 @@
           }
         },
         "summary": "List User Skills",
-        "tags": ["skills"]
+        "tags": [
+          "skills"
+        ]
       },
       "post": {
         "description": "Instala uma skill referenciada por um item validado do catálogo.",
@@ -18235,7 +19651,9 @@
           }
         },
         "summary": "Install User Skill",
-        "tags": ["skills"]
+        "tags": [
+          "skills"
+        ]
       }
     },
     "/skills/catalog": {
@@ -18315,7 +19733,9 @@
           }
         },
         "summary": "Get Skills Catalog",
-        "tags": ["skills"]
+        "tags": [
+          "skills"
+        ]
       }
     },
     "/skills/catalog/status": {
@@ -18335,7 +19755,9 @@
           }
         },
         "summary": "Get Skills Catalog Status",
-        "tags": ["skills"]
+        "tags": [
+          "skills"
+        ]
       }
     },
     "/skills/import/preview": {
@@ -18377,7 +19799,9 @@
           }
         },
         "summary": "Preview Skill Import",
-        "tags": ["skills"]
+        "tags": [
+          "skills"
+        ]
       }
     },
     "/skills/{skill_id}": {
@@ -18400,7 +19824,12 @@
             "required": false,
             "schema": {
               "default": "user",
-              "enum": ["user", "workspace", "project", "runtime"],
+              "enum": [
+                "user",
+                "workspace",
+                "project",
+                "runtime"
+              ],
               "title": "Scope",
               "type": "string"
             }
@@ -18461,7 +19890,9 @@
           }
         },
         "summary": "Delete User Skill",
-        "tags": ["skills"]
+        "tags": [
+          "skills"
+        ]
       }
     },
     "/skills/{skill_id}/verify": {
@@ -18484,7 +19915,12 @@
             "required": false,
             "schema": {
               "default": "user",
-              "enum": ["user", "workspace", "project", "runtime"],
+              "enum": [
+                "user",
+                "workspace",
+                "project",
+                "runtime"
+              ],
               "title": "Scope",
               "type": "string"
             }
@@ -18547,7 +19983,9 @@
           }
         },
         "summary": "Verify User Skill",
-        "tags": ["skills"]
+        "tags": [
+          "skills"
+        ]
       }
     },
     "/smart-approval/allowlist": {
@@ -18721,7 +20159,9 @@
           }
         },
         "summary": "Inspect Local Backup",
-        "tags": ["backup"]
+        "tags": [
+          "backup"
+        ]
       }
     },
     "/storage/backup/restore": {
@@ -18781,7 +20221,9 @@
           }
         },
         "summary": "Restore Local Backup",
-        "tags": ["backup"]
+        "tags": [
+          "backup"
+        ]
       }
     },
     "/threads/device/revoke": {
@@ -18871,7 +20313,9 @@
           }
         },
         "summary": "Create Share",
-        "tags": ["share"]
+        "tags": [
+          "share"
+        ]
       }
     },
     "/threads/share/{token}": {
@@ -18913,7 +20357,9 @@
           }
         },
         "summary": "Delete Share",
-        "tags": ["share"]
+        "tags": [
+          "share"
+        ]
       },
       "get": {
         "operationId": "get_shared_thread_threads_share__token__get",
@@ -18951,7 +20397,9 @@
           }
         },
         "summary": "Get Shared Thread",
-        "tags": ["share"]
+        "tags": [
+          "share"
+        ]
       }
     },
     "/threads/{thread_id}/activity": {
@@ -19774,7 +21222,9 @@
           }
         },
         "summary": "Get Policy",
-        "tags": ["tools"]
+        "tags": [
+          "tools"
+        ]
       },
       "put": {
         "description": "Define as tools desabilitadas do usuário atual.",
@@ -19814,7 +21264,9 @@
           }
         },
         "summary": "Put Policy",
-        "tags": ["tools"]
+        "tags": [
+          "tools"
+        ]
       }
     },
     "/tools/usage": {
@@ -19836,7 +21288,9 @@
           }
         },
         "summary": "Get Usage",
-        "tags": ["tools"]
+        "tags": [
+          "tools"
+        ]
       }
     },
     "/url-preview": {
@@ -19889,7 +21343,9 @@
           }
         },
         "summary": "Preview Url",
-        "tags": ["url-preview"]
+        "tags": [
+          "url-preview"
+        ]
       }
     },
     "/usage/insights/weekly": {
@@ -19933,7 +21389,9 @@
           }
         },
         "summary": "Get Weekly Insight",
-        "tags": ["usage"]
+        "tags": [
+          "usage"
+        ]
       }
     },
     "/usage/media": {
@@ -19953,7 +21411,9 @@
           }
         },
         "summary": "Get Media Quota",
-        "tags": ["usage"]
+        "tags": [
+          "usage"
+        ]
       }
     },
     "/usage/providers": {
@@ -19975,7 +21435,9 @@
           }
         },
         "summary": "Get Provider Usage",
-        "tags": ["usage"]
+        "tags": [
+          "usage"
+        ]
       }
     },
     "/vectora.chat.v1.ChatService/GetTools": {
@@ -20501,7 +21963,9 @@
           }
         },
         "summary": "Close Terminal",
-        "tags": ["terminal"]
+        "tags": [
+          "terminal"
+        ]
       }
     },
     "/vectora.terminal.v1/list": {
@@ -20553,7 +22017,9 @@
           }
         },
         "summary": "List Terminals",
-        "tags": ["terminal"]
+        "tags": [
+          "terminal"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/ApproveHooks": {
@@ -20593,7 +22059,9 @@
           }
         },
         "summary": "Approve Hooks",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/BrowseDir": {
@@ -20635,7 +22103,9 @@
           }
         },
         "summary": "Browse Dir",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/Codespaces": {
@@ -20655,7 +22125,9 @@
           }
         },
         "summary": "List Codespaces Endpoint",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/CreateRemoteWorkspace": {
@@ -20695,7 +22167,9 @@
           }
         },
         "summary": "Create Remote Workspace",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/CreateWorkspace": {
@@ -20735,7 +22209,9 @@
           }
         },
         "summary": "Create Workspace",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/CreateWorktree": {
@@ -20775,7 +22251,9 @@
           }
         },
         "summary": "Create Worktree",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/GetActiveWorkspace": {
@@ -20795,7 +22273,9 @@
           }
         },
         "summary": "Get Active Workspace",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/GitInitWorkspace": {
@@ -20835,7 +22315,9 @@
           }
         },
         "summary": "Git Init Workspace",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/ListSafeRoots": {
@@ -20855,7 +22337,9 @@
           }
         },
         "summary": "List Safe Roots",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/ListWorkspaces": {
@@ -20875,7 +22359,9 @@
           }
         },
         "summary": "List Workspaces",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/ListWorktrees": {
@@ -20917,7 +22403,9 @@
           }
         },
         "summary": "List Worktrees",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/Mkdir": {
@@ -20957,7 +22445,9 @@
           }
         },
         "summary": "Mkdir Dir",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/SetActiveWorkspace": {
@@ -20997,7 +22487,9 @@
           }
         },
         "summary": "Set Active Workspace",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/TestSsh": {
@@ -21037,7 +22529,9 @@
           }
         },
         "summary": "Test Ssh",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/vectora.workspace.v1.WorkspaceService/TrustWorkspace": {
@@ -21077,7 +22571,9 @@
           }
         },
         "summary": "Trust Workspace",
-        "tags": ["workspaces"]
+        "tags": [
+          "workspaces"
+        ]
       }
     },
     "/webhook/events": {
@@ -21097,7 +22593,9 @@
           }
         },
         "summary": "Webhook Events Stream",
-        "tags": ["webhooks"]
+        "tags": [
+          "webhooks"
+        ]
       }
     },
     "/webhook/observability": {
@@ -21115,7 +22613,9 @@
           }
         },
         "summary": "Receive Observability Webhook",
-        "tags": ["webhooks"]
+        "tags": [
+          "webhooks"
+        ]
       }
     },
     "/webhook/{provider}": {
@@ -21154,7 +22654,9 @@
           }
         },
         "summary": "Receive Webhook",
-        "tags": ["webhooks"]
+        "tags": [
+          "webhooks"
+        ]
       }
     },
     "/workspaces": {
@@ -21173,7 +22675,9 @@
           }
         },
         "summary": "List Workspaces Rest",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/active": {
@@ -21192,7 +22696,9 @@
           }
         },
         "summary": "Get Active Workspace Rest",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/approve-hooks": {
@@ -21231,7 +22737,9 @@
           }
         },
         "summary": "Approve Hooks Rest",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/browse": {
@@ -21273,7 +22781,9 @@
           }
         },
         "summary": "Browse View",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/browse/mkdir": {
@@ -21313,7 +22823,9 @@
           }
         },
         "summary": "Mkdir View",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/codespaces": {
@@ -21332,7 +22844,9 @@
           }
         },
         "summary": "List Codespaces Rest",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/create": {
@@ -21371,7 +22885,9 @@
           }
         },
         "summary": "Create Workspace Rest",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/create-remote": {
@@ -21410,7 +22926,9 @@
           }
         },
         "summary": "Create Remote Workspace Rest",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/git-init": {
@@ -21449,7 +22967,9 @@
           }
         },
         "summary": "Git Init Workspace Rest",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/safe-roots": {
@@ -21468,7 +22988,9 @@
           }
         },
         "summary": "List Safe Roots Rest",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/set-active": {
@@ -21507,7 +23029,9 @@
           }
         },
         "summary": "Set Active Workspace Rest",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/test-ssh": {
@@ -21546,7 +23070,9 @@
           }
         },
         "summary": "Test Ssh Rest",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/trust": {
@@ -21585,7 +23111,9 @@
           }
         },
         "summary": "Trust Workspace Rest",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/browser/detect": {
@@ -21626,7 +23154,9 @@
           }
         },
         "summary": "Browser Detect",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/browser/devtools/console": {
@@ -21683,7 +23213,9 @@
           }
         },
         "summary": "Devtools Clear Console",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       },
       "get": {
         "description": "Mensagens de console capturadas ao vivo da aba do agente.",
@@ -21748,7 +23280,9 @@
           }
         },
         "summary": "Devtools Console",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/browser/devtools/evaluate": {
@@ -21799,7 +23333,9 @@
           }
         },
         "summary": "Devtools Evaluate",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/browser/devtools/network": {
@@ -21882,7 +23418,9 @@
           }
         },
         "summary": "Devtools Network",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/browser/devtools/tabs": {
@@ -21923,7 +23461,9 @@
           }
         },
         "summary": "Devtools Tabs",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/browser/launch": {
@@ -21964,7 +23504,9 @@
           }
         },
         "summary": "Get Launch Json",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       },
       "post": {
         "description": "Grava .vectora/launch.json no workspace.",
@@ -22013,7 +23555,9 @@
           }
         },
         "summary": "Save Launch Json",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/browser/logs": {
@@ -22063,7 +23607,9 @@
           }
         },
         "summary": "Browser Logs",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/browser/start": {
@@ -22114,7 +23660,9 @@
           }
         },
         "summary": "Browser Start",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/browser/status": {
@@ -22155,7 +23703,9 @@
           }
         },
         "summary": "Browser Status",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/browser/stop": {
@@ -22206,7 +23756,9 @@
           }
         },
         "summary": "Browser Stop",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/context-graph": {
@@ -22248,7 +23800,9 @@
           }
         },
         "summary": "Get Graph",
-        "tags": ["context-graph"]
+        "tags": [
+          "context-graph"
+        ]
       }
     },
     "/workspaces/{workspace_id}/context-graph/affected": {
@@ -22298,7 +23852,9 @@
           }
         },
         "summary": "Post Affected",
-        "tags": ["context-graph"]
+        "tags": [
+          "context-graph"
+        ]
       }
     },
     "/workspaces/{workspace_id}/context-graph/build": {
@@ -22331,7 +23887,9 @@
           }
         },
         "summary": "Delete Build",
-        "tags": ["context-graph"]
+        "tags": [
+          "context-graph"
+        ]
       },
       "post": {
         "operationId": "post_build_workspaces__workspace_id__context_graph_build_post",
@@ -22379,7 +23937,9 @@
           }
         },
         "summary": "Post Build",
-        "tags": ["context-graph"]
+        "tags": [
+          "context-graph"
+        ]
       }
     },
     "/workspaces/{workspace_id}/context-graph/explain": {
@@ -22429,7 +23989,9 @@
           }
         },
         "summary": "Post Explain",
-        "tags": ["context-graph"]
+        "tags": [
+          "context-graph"
+        ]
       }
     },
     "/workspaces/{workspace_id}/context-graph/html": {
@@ -22469,7 +24031,9 @@
           }
         },
         "summary": "Get Html",
-        "tags": ["context-graph"]
+        "tags": [
+          "context-graph"
+        ]
       }
     },
     "/workspaces/{workspace_id}/context-graph/path": {
@@ -22519,7 +24083,9 @@
           }
         },
         "summary": "Post Path",
-        "tags": ["context-graph"]
+        "tags": [
+          "context-graph"
+        ]
       }
     },
     "/workspaces/{workspace_id}/context-graph/query": {
@@ -22569,7 +24135,9 @@
           }
         },
         "summary": "Post Query",
-        "tags": ["context-graph"]
+        "tags": [
+          "context-graph"
+        ]
       }
     },
     "/workspaces/{workspace_id}/context-graph/report": {
@@ -22613,7 +24181,9 @@
           }
         },
         "summary": "Get Report",
-        "tags": ["context-graph"]
+        "tags": [
+          "context-graph"
+        ]
       }
     },
     "/workspaces/{workspace_id}/context-graph/status": {
@@ -22653,7 +24223,9 @@
           }
         },
         "summary": "Get Status",
-        "tags": ["context-graph"]
+        "tags": [
+          "context-graph"
+        ]
       }
     },
     "/workspaces/{workspace_id}/context/active": {
@@ -22704,7 +24276,9 @@
           }
         },
         "summary": "Set Active Context",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/events": {
@@ -22743,7 +24317,9 @@
           }
         },
         "summary": "Workspace Events",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/file": {
@@ -22793,7 +24369,9 @@
           }
         },
         "summary": "Workspace File",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/fs": {
@@ -22853,7 +24431,9 @@
           }
         },
         "summary": "Delete Fs Node",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/fs/dir": {
@@ -22904,7 +24484,9 @@
           }
         },
         "summary": "Create Fs Dir",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/fs/file": {
@@ -22955,7 +24537,9 @@
           }
         },
         "summary": "Create Fs File",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       },
       "put": {
         "description": "Sobrescreve o conteúdo de um arquivo de texto existente no workspace.\n\nControle de conflito otimista: quando `expected_sha256` é informado e não\nbate com o sha256 do conteúdo atual em disco, devolve 412 sem escrever\nnada — o frontend oferece recarregar antes de tentar de novo. Aceita\napenas texto utf-8/ascii até 2 MiB (acima disso, usar outras ferramentas).",
@@ -23013,7 +24597,9 @@
           }
         },
         "summary": "Update Fs File",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/fs/gitignore": {
@@ -23056,7 +24642,9 @@
           }
         },
         "summary": "Get Gitignore",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       },
       "put": {
         "description": "Sobrescreve o .gitignore raiz do workspace.",
@@ -23105,7 +24693,9 @@
           }
         },
         "summary": "Update Gitignore",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/fs/gitignore-preview": {
@@ -23156,7 +24746,9 @@
           }
         },
         "summary": "Gitignore Preview",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/fs/gitignore/append": {
@@ -23207,7 +24799,9 @@
           }
         },
         "summary": "Append Gitignore",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/fs/move": {
@@ -23258,7 +24852,9 @@
           }
         },
         "summary": "Move Fs Node",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/fs/raw": {
@@ -23306,7 +24902,9 @@
           }
         },
         "summary": "Workspace File Raw",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/fs/search": {
@@ -23368,7 +24966,9 @@
           }
         },
         "summary": "Search Workspace Files",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/branches": {
@@ -23409,7 +25009,9 @@
           }
         },
         "summary": "Git Branches",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/checkout": {
@@ -23460,7 +25062,9 @@
           }
         },
         "summary": "Git Checkout",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/cherry-pick": {
@@ -23511,7 +25115,9 @@
           }
         },
         "summary": "Git Cherry Pick Inline",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/commit": {
@@ -23562,7 +25168,9 @@
           }
         },
         "summary": "Git Commit Inline",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/commit/diff": {
@@ -23614,7 +25222,9 @@
           }
         },
         "summary": "Git Commit Diff",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/commit/suggestion": {
@@ -23655,7 +25265,9 @@
           }
         },
         "summary": "Git Commit Suggestion",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/compare": {
@@ -23716,7 +25328,9 @@
           }
         },
         "summary": "Git Compare Refs",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/compare/file": {
@@ -23786,7 +25400,9 @@
           }
         },
         "summary": "Git Compare File",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/conflicts": {
@@ -23827,7 +25443,9 @@
           }
         },
         "summary": "List Conflicts",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/diff": {
@@ -23868,7 +25486,9 @@
           }
         },
         "summary": "Workspace Git Diff",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/diff/file": {
@@ -23918,7 +25538,9 @@
           }
         },
         "summary": "Workspace Git Diff File",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/discard": {
@@ -23969,7 +25591,9 @@
           }
         },
         "summary": "Git Discard",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/fetch": {
@@ -24020,7 +25644,9 @@
           }
         },
         "summary": "Git Fetch",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/log": {
@@ -24094,7 +25720,9 @@
           }
         },
         "summary": "Git Log",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/log/file": {
@@ -24166,7 +25794,9 @@
           }
         },
         "summary": "Git Log File",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/members": {
@@ -24211,7 +25841,9 @@
           }
         },
         "summary": "Git Members",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/merge": {
@@ -24262,7 +25894,9 @@
           }
         },
         "summary": "Git Merge",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/operation": {
@@ -24303,7 +25937,9 @@
           }
         },
         "summary": "Git Operation",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/operations": {
@@ -24354,7 +25990,9 @@
           }
         },
         "summary": "Git Operations",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/pull": {
@@ -24405,7 +26043,9 @@
           }
         },
         "summary": "Git Pull",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/push": {
@@ -24456,7 +26096,9 @@
           }
         },
         "summary": "Git Push",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/reorder": {
@@ -24507,7 +26149,9 @@
           }
         },
         "summary": "Git Reorder Inline",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/resolve-conflict": {
@@ -24558,7 +26202,9 @@
           }
         },
         "summary": "Resolve Conflict",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/revert": {
@@ -24609,7 +26255,9 @@
           }
         },
         "summary": "Git Revert Commit",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/show": {
@@ -24670,7 +26318,9 @@
           }
         },
         "summary": "Git Show File",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/squash": {
@@ -24721,7 +26371,9 @@
           }
         },
         "summary": "Git Squash Inline",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/stage": {
@@ -24772,7 +26424,9 @@
           }
         },
         "summary": "Git Stage",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/stash": {
@@ -24823,7 +26477,9 @@
           }
         },
         "summary": "Git Stash",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/status": {
@@ -24864,7 +26520,9 @@
           }
         },
         "summary": "Git Status",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/git/unstage": {
@@ -24915,7 +26573,9 @@
           }
         },
         "summary": "Git Unstage",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/memory/search": {
@@ -24994,7 +26654,9 @@
           }
         },
         "summary": "Search Memory Unified",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/pr": {
@@ -25045,7 +26707,9 @@
           }
         },
         "summary": "Pr List",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       },
       "post": {
         "description": "Cria um PR da branch atual via ``gh pr create``.",
@@ -25094,7 +26758,9 @@
           }
         },
         "summary": "Pr Create",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/rag/buckets": {
@@ -25139,7 +26805,9 @@
           }
         },
         "summary": "List Rag Buckets",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/rag/buckets/{bucket_id}": {
@@ -25191,7 +26859,9 @@
           }
         },
         "summary": "Delete Rag Bucket",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       },
       "patch": {
         "description": "Ativa/desativa `bucket_id` na busca do workspace — reaproveita\n`rag_buckets.set_active`, sem lógica nova.",
@@ -25249,7 +26919,9 @@
           }
         },
         "summary": "Toggle Rag Bucket",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/rag/ingest": {
@@ -25300,7 +26972,9 @@
           }
         },
         "summary": "Rag Ingest",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/rag/ingest/preview": {
@@ -25392,7 +27066,9 @@
           }
         },
         "summary": "Rag Ingest Preview",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/rag/jobs": {
@@ -25437,7 +27113,9 @@
           }
         },
         "summary": "Rag Jobs",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/rag/jobs/{job_id}": {
@@ -25487,7 +27165,9 @@
           }
         },
         "summary": "Rag Job Status",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/sandbox/init": {
@@ -25528,7 +27208,9 @@
           }
         },
         "summary": "Workspace Sandbox Init",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/sandbox/status": {
@@ -25569,7 +27251,9 @@
           }
         },
         "summary": "Workspace Sandbox Status",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/stack-hint": {
@@ -25610,7 +27294,9 @@
           }
         },
         "summary": "Stack Hint",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/tree": {
@@ -25661,7 +27347,9 @@
           }
         },
         "summary": "Workspace Tree",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/vscode-options": {
@@ -25702,7 +27390,9 @@
           }
         },
         "summary": "Vscode Options",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     },
     "/workspaces/{workspace_id}/worktrees": {
@@ -25743,7 +27433,9 @@
           }
         },
         "summary": "List Workspace Worktrees",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       },
       "post": {
         "description": "Cria uma worktree no workspace.",
@@ -25792,7 +27484,9 @@
           }
         },
         "summary": "Create Workspace Worktree",
-        "tags": ["workspaces-view"]
+        "tags": [
+          "workspaces-view"
+        ]
       }
     }
   }
