@@ -12,8 +12,9 @@ Todos os endpoints exigem autenticação (injetada via middleware).
 O user_id é extraído de ``request.state.user.id``.
 
 Lê e escreve o mesmo store nativo usado pelas memory tools do agente
-(``backend/tools/memory.py``), no namespace ``("user", <user_id>, "memories")``
-— painel de configurações e agente compartilham as mesmas memórias.
+(``backend/tools/memory.py``), incluindo os escopos autenticados de
+organização e workspace quando o middleware os disponibiliza — painel de
+configurações e agente compartilham as mesmas memórias sem cruzar tenants.
 """
 
 from __future__ import annotations
@@ -119,7 +120,22 @@ def _user_id(request: Request) -> str:
 
 def _namespace(request: Request) -> tuple[str, ...]:
     """Namespace do store — idêntico ao usado pelas memory tools do agente."""
-    return ("user", _user_id(request), "memories")
+    namespace: list[str] = ["user", _user_id(request)]
+    org_id = str(getattr(request.state, "org_id", "") or "")
+    workspace_id = str(getattr(request.state, "workspace_id", "") or "")
+    if org_id:
+        namespace.extend(("org", org_id))
+    if workspace_id:
+        namespace.extend(("workspace", workspace_id))
+    namespace.append("memories")
+    return tuple(namespace)
+
+
+def _namespace_candidates(request: Request) -> list[tuple[str, ...]]:
+    """Read scoped records first and retain legacy user-memory compatibility."""
+    scoped = _namespace(request)
+    legacy = ("user", _user_id(request), "memories")
+    return [scoped] if scoped == legacy else [scoped, legacy]
 
 
 async def _store() -> Any:
@@ -177,9 +193,14 @@ async def list_memories(
 ) -> ListMemoriesResponse:
     """Lista memórias do usuário autenticado, ordenadas por data de atualização."""
     try:
-        ns = _namespace(request)
         store = await _store()
-        items = await store.asearch(ns, limit=_LIST_ALL_LIMIT)
+        items = []
+        seen: set[str] = set()
+        for ns in _namespace_candidates(request):
+            for item in await store.asearch(ns, limit=_LIST_ALL_LIMIT):
+                if item.key not in seen and not is_store_value_expired(item.value):
+                    seen.add(item.key)
+                    items.append(item)
 
         all_mems = [
             MemoryItem(
@@ -189,7 +210,6 @@ async def list_memories(
                 updated_at=item.value.get("updated_at", ""),
             )
             for item in items
-            if not is_store_value_expired(item.value)
         ]
         all_mems.sort(key=lambda m: m.updated_at, reverse=True)
 
@@ -218,11 +238,15 @@ async def get_journey(request: Request) -> JourneyResponse:
     skills: list[JourneySkill] = []
 
     try:
-        ns = _namespace(request)
         store = await _store()
-        for item in await store.asearch(ns, limit=_LIST_ALL_LIMIT):
-            if is_store_value_expired(item.value):
-                continue
+        items = []
+        seen: set[str] = set()
+        for ns in _namespace_candidates(request):
+            for item in await store.asearch(ns, limit=_LIST_ALL_LIMIT):
+                if item.key not in seen and not is_store_value_expired(item.value):
+                    seen.add(item.key)
+                    items.append(item)
+        for item in items:
             metadata = item.value.get("metadata") or {}
             if metadata.get("tag") != "user_model":
                 continue
@@ -262,14 +286,14 @@ async def get_journey(request: Request) -> JourneyResponse:
 async def get_memory_by_key(request: Request, key: str) -> MemoryItem:
     """Retorna uma memória específica pelo key."""
     try:
-        ns = _namespace(request)
         store = await _store()
-        item = await store.aget(ns, key)
+        item = None
+        for ns in _namespace_candidates(request):
+            candidate = await store.aget(ns, key)
+            if candidate is not None and not is_store_value_expired(candidate.value):
+                item = candidate
+                break
         if item is None:
-            raise HTTPException(
-                status_code=404, detail=f"Memória '{key}' não encontrada"
-            )
-        if is_store_value_expired(item.value):
             raise HTTPException(
                 status_code=404, detail=f"Memória '{key}' não encontrada"
             )
@@ -296,13 +320,19 @@ async def update_memory(
     try:
         ns = _namespace(request)
         store = await _store()
-
-        existing = await store.aget(ns, key)
+        existing = None
+        for candidate_ns in _namespace_candidates(request):
+            candidate = await store.aget(candidate_ns, key)
+            if candidate is not None and not is_store_value_expired(candidate.value):
+                existing = candidate
+                break
         if existing is None:
             raise HTTPException(
                 status_code=404, detail=f"Memória '{key}' não encontrada"
             )
 
+        # Promote a legacy fallback into this scope. Keep the legacy record so
+        # other workspaces that still rely on it retain their existing value.
         await store.aput(
             ns,
             key,
@@ -330,14 +360,18 @@ async def update_memory(
 async def delete_memory_by_key(request: Request, key: str) -> DeleteMemoryResponse:
     """Deleta uma memória específica pelo key."""
     try:
-        ns = _namespace(request)
         store = await _store()
-        existing = await store.aget(ns, key)
-        if existing is None:
+        namespaces = _namespace_candidates(request)
+        for ns in namespaces:
+            if await store.aget(ns, key) is not None:
+                break
+        else:
             raise HTTPException(
                 status_code=404, detail=f"Memória '{key}' não encontrada"
             )
-        await store.adelete(ns, key)
+        # Delete every candidate, including copies hidden by expiry filtering.
+        for ns in namespaces:
+            await store.adelete(ns, key)
         return DeleteMemoryResponse(status="deleted", key=key)
     except HTTPException:
         raise
@@ -350,17 +384,20 @@ async def delete_memory_by_key(request: Request, key: str) -> DeleteMemoryRespon
 async def clear_all_memories(request: Request) -> DeleteMemoryResponse:
     """Limpa todas as memórias do usuário autenticado."""
     try:
-        ns = _namespace(request)
         store = await _store()
-        try:
-            items = await store.asearch(ns, limit=_LIST_ALL_LIMIT, include_expired=True)
-        except TypeError:
-            items = await store.asearch(ns, limit=_LIST_ALL_LIMIT)
+        items = []
+        for ns in _namespace_candidates(request):
+            try:
+                items.extend(
+                    await store.asearch(ns, limit=_LIST_ALL_LIMIT, include_expired=True)
+                )
+            except TypeError:
+                items.extend(await store.asearch(ns, limit=_LIST_ALL_LIMIT))
         count = 0
         for item in items:
-            await store.adelete(ns, item.key)
+            await store.adelete(item.namespace, item.key)
             count += 1
-        logger.info("clear_all_memories: %d removidas (namespace=%s)", count, ns)
+        logger.info("clear_all_memories: %d removidas", count)
         return DeleteMemoryResponse(status="cleared", deleted=count)
     except Exception as exc:
         logger.exception("clear_all_memories failed")

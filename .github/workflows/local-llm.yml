@@ -137,11 +137,6 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install Laya server and download its selected checkpoint
-        id: laya
-        # Only the absence of the `laya-serve` entry point (the published
-        # `laya` wheel is a library) turns the Laya contracts into explicit
-        # skips. An install error or a server that never becomes ready still
-        # fails the job.
         working-directory: vectora
         env:
           LAYA_DEVICE: cpu
@@ -154,22 +149,14 @@ jobs:
         run: |
           runtime_python="$(uv run python -c 'import sys; print(sys.executable)')"
           uv pip install --python "$runtime_python" "laya[serve]==0.1.0"
-          if [ ! -x "$(dirname "$runtime_python")/laya-serve" ]; then
-            echo "::warning::laya==0.1.0 does not provide the laya-serve entry point; Laya live contracts will be skipped."
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           mkdir -p "$HF_HOME"
-          # laya is installed outside the lockfile; a syncing `uv run` would
-          # uninstall it before resolving the entry point.
           LAYA_DEVICE=cpu LAYA_HOST=127.0.0.1 LAYA_PORT=18000 \
             LAYA_MODELS=multilingual LAYA_DEFAULT_MODEL=multilingual LAYA_PRELOAD=1 \
-            uv run --no-sync laya-serve > "$RUNNER_TEMP/laya.log" 2>&1 &
+            uv run laya-serve > "$RUNNER_TEMP/laya.log" 2>&1 &
           echo $! > "$RUNNER_TEMP/laya.pid"
           for _ in {1..180}; do
             if curl --fail --silent http://127.0.0.1:18000/health >/dev/null || \
                curl --fail --silent http://127.0.0.1:18000/openapi.json >/dev/null; then
-              echo "available=true" >> "$GITHUB_OUTPUT"
               exit 0
             fi
             sleep 2
@@ -182,7 +169,7 @@ jobs:
           VECTORA_LOCAL_LLM_BASE_URL: http://127.0.0.1:18080/v1
           VECTORA_OLLAMA_BASE_URL: http://127.0.0.1:11434
           VECTORA_OLLAMA_MODEL: qwen2.5:0.5b
-          VECTORA_LAYA_BASE_URL: ${{ steps.laya.outputs.available == 'true' && 'http://127.0.0.1:18000' || '' }}
+          VECTORA_LAYA_BASE_URL: http://127.0.0.1:18000
           VECTORA_LAYA_MODEL: multilingual
         run: |
           uv run pytest tests/integration/test_local_llm_live.py tests/integration/test_systemone_local_live.py -m local_llm -v --timeout=300

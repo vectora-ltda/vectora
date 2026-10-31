@@ -51,6 +51,28 @@ def _total_tokens(usage: dict[str, int]) -> int:
     return inp + out
 
 
+def _tool_calls_equivalent(
+    baseline: list[JsonObject], candidate: list[JsonObject]
+) -> tuple[bool, bool]:
+    """Compare tool intent without trusting provider-generated call IDs.
+
+    The old comparator only compared names, which treated different
+    arguments as equivalent.  IDs are intentionally ignored because local
+    providers commonly omit or regenerate them; names and JSON arguments are
+    the observable contract of a call.
+    """
+
+    def normalize(calls: list[JsonObject]) -> list[tuple[str, object]]:
+        """Normalize tool calls into stable tuples for replay comparison."""
+        return [
+            (str(call.get("name", "")), call.get("args", call.get("arguments", {})))
+            for call in calls
+        ]
+
+    left, right = normalize(baseline), normalize(candidate)
+    return left == right, bool(left) == bool(right)
+
+
 def compare_cassettes(
     baseline_cassette: Cassette, candidate_cassette: Cassette
 ) -> EvalReport:
@@ -98,7 +120,14 @@ def compare_cassettes(
         if b_item is not None and c_item is not None:
             b_tools = [t.get("name") for t in b_item.tool_calls]
             c_tools = [t.get("name") for t in c_item.tool_calls]
-            is_match = b_tools == c_tools
+            tool_match, same_tool_presence = _tool_calls_equivalent(
+                b_item.tool_calls, c_item.tool_calls
+            )
+            response_match = b_item.response_text == c_item.response_text
+            # Accuracy represents observable execution equivalence, not only
+            # tool intent.  A matching tool plan with a divergent response is
+            # still a failed replay comparison.
+            is_match = tool_match and response_match
             if is_match:
                 matches += 1
 
@@ -114,6 +143,9 @@ def compare_cassettes(
                     "matched": is_match,
                     "baseline_tools": b_tools,
                     "candidate_tools": c_tools,
+                    "tool_arguments_match": tool_match,
+                    "tool_presence_match": same_tool_presence,
+                    "response_match": response_match,
                     "latency_delta_ms": c_lat - b_lat,
                     "tokens_delta": c_tok - b_tok,
                     "candidate_decision": c_item.systemone_decision,
@@ -136,6 +168,9 @@ def compare_cassettes(
                     "latency_delta_ms": -b_lat,
                     "tokens_delta": -b_tok,
                     "candidate_decision": None,
+                    "tool_arguments_match": False,
+                    "tool_presence_match": False,
+                    "response_match": False,
                 }
             )
         elif c_item is not None:
@@ -155,6 +190,9 @@ def compare_cassettes(
                     "latency_delta_ms": c_lat,
                     "tokens_delta": c_tok,
                     "candidate_decision": c_item.systemone_decision,
+                    "tool_arguments_match": False,
+                    "tool_presence_match": False,
+                    "response_match": False,
                 }
             )
 

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import hmac
 import json
 import uuid
 from collections.abc import AsyncGenerator, Sequence
@@ -158,10 +159,13 @@ class DAGStore:
     async def approve_plan(
         self, plan_id: str, *, plan_hash: str, approver: str
     ) -> None:
+        actor = approver.strip()
+        if not actor:
+            raise DAGValidationError("approver é obrigatório")
         cur = await self.db.execute(
             "UPDATE vectora_dag_plans SET status='approved', approved_by=?, approved_at=? "
             "WHERE plan_id=? AND plan_hash=? AND status='draft'",
-            (approver, _now(), plan_id, plan_hash),
+            (actor, _now(), plan_id, plan_hash),
         )
         await self.db.commit()
         if cur.rowcount != 1:
@@ -172,13 +176,44 @@ class DAGStore:
     async def start_execution(
         self, plan_id: str, *, run_id: str, idempotency_key: str
     ) -> DAGExecution:
+        """Start or recover the execution bound to an approved plan.
+
+        The plan's ``run_id`` and the idempotency key are checked before any
+        stage rows are created.  A concurrent insert is reconciled by loading
+        the already committed execution, so retries never create duplicate
+        effects.
+        """
         async with self.db.execute(
-            "SELECT stages_json,status FROM vectora_dag_plans WHERE plan_id=?",
+            "SELECT stages_json,plan_hash,status,run_id FROM vectora_dag_plans WHERE plan_id=?",
             (plan_id,),
         ) as cur:
             plan = await cur.fetchone()
         if plan is None or plan["status"] != "approved":
             raise DAGValidationError("execução exige plano aprovado")
+        if plan["run_id"] != run_id:
+            raise DAGValidationError("execução deve usar o run_id do plano")
+        # The approval is bound to the canonical stage hash.  Recompute it at
+        # execution time as a fail-closed guard against a storage/admin edit
+        # changing an approved plan after the human approval was recorded.
+        try:
+            persisted_stages = json.loads(plan["stages_json"])
+            canonical_stages = [
+                DAGStage(
+                    stage_id=str(stage["stage_id"]),
+                    name=str(stage["name"]),
+                    depends_on=tuple(str(dep) for dep in stage["depends_on"]),
+                )
+                for stage in persisted_stages
+            ]
+            validate_stages(canonical_stages)
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise DAGValidationError("plano aprovado está corrompido") from exc
+        if not hmac.compare_digest(
+            _hash_plan(canonical_stages), str(plan["plan_hash"])
+        ):
+            raise DAGValidationError(
+                "hash do plano aprovado não corresponde ao conteúdo"
+            )
         async with self.db.execute(
             "SELECT execution_id,plan_id,run_id,idempotency_key FROM vectora_dag_executions WHERE idempotency_key=?",
             (idempotency_key,),
@@ -189,9 +224,12 @@ class DAGStore:
                 raise DAGValidationError(
                     "idempotency_key já está vinculada a outro plano"
                 )
+            if existing["run_id"] != run_id:
+                raise DAGValidationError(
+                    "idempotency_key já está vinculada a outro run_id"
+                )
             return DAGExecution(*existing)
         execution_id = str(uuid.uuid4())
-        stages = json.loads(plan["stages_json"])
         try:
             await self.db.execute(
                 "INSERT INTO vectora_dag_executions(execution_id,plan_id,run_id,idempotency_key,created_at) VALUES(?,?,?,?,?)",
@@ -199,14 +237,17 @@ class DAGStore:
             )
             await self.db.executemany(
                 "INSERT INTO vectora_dag_stages(execution_id,stage_id,name,depends_on_json) VALUES(?,?,?,?)",
+                # The rows use the canonical stages that were validated and
+                # hashed, never the raw JSON: a stored value that coerces to
+                # the same canonical stage must not be persisted as-is.
                 [
                     (
                         execution_id,
-                        s["stage_id"],
-                        s["name"],
-                        json.dumps(s["depends_on"]),
+                        stage.stage_id,
+                        stage.name,
+                        json.dumps(list(stage.depends_on)),
                     )
-                    for s in stages
+                    for stage in canonical_stages
                 ],
             )
             await self._event(
@@ -227,6 +268,9 @@ class DAGStore:
         lease_seconds: int = 900,
         max_attempts: int = 3,
     ) -> tuple[str, str] | None:
+        """Atomically claim the next dependency-ready stage with a lease."""
+        if lease_seconds <= 0:
+            raise DAGValidationError("lease_seconds deve ser positivo")
         if max_attempts <= 0:
             raise DAGValidationError("max_attempts deve ser positivo")
         async with self.db.execute(
@@ -236,6 +280,12 @@ class DAGStore:
             execution = await execution_cur.fetchone()
         if execution is None or execution[0] != "running":
             return None
+        async with self.db.execute(
+            "SELECT 1 FROM vectora_dag_stages WHERE execution_id=? AND status='failed' LIMIT 1",
+            (execution_id,),
+        ) as failed_cur:
+            if await failed_cur.fetchone() is not None:
+                return None
         async with self.db.execute(
             "SELECT stage_id,depends_on_json,attempt FROM vectora_dag_stages WHERE execution_id=? AND status='pending' ORDER BY rowid",
             (execution_id,),
@@ -272,6 +322,52 @@ class DAGStore:
                 await self.db.commit()
                 return row["stage_id"], token
         return None
+
+    async def cancel_execution(
+        self,
+        execution_id: str,
+        *,
+        requested_by: str,
+        reason: str = "cancelamento solicitado",
+    ) -> bool:
+        """Cancela cooperativamente uma execução ainda não terminal.
+
+        A mutação é um CAS no estado da execução. Claims são invalidados antes
+        dos eventos, impedindo que um worker antigo finalize a etapa depois do
+        cancelamento. Workers já em execução devem observar o token perdido e
+        interromper seu trabalho; nenhuma etapa nova pode ser reivindicada.
+        """
+        actor = requested_by.strip()
+        if not actor:
+            raise DAGValidationError("requested_by é obrigatório")
+        message = reason.strip() or "cancelamento solicitado"
+        cur = await self.db.execute(
+            "UPDATE vectora_dag_executions SET status='cancelled' "
+            "WHERE execution_id=? AND status='running'",
+            (execution_id,),
+        )
+        if cur.rowcount != 1:
+            await self.db.rollback()
+            return False
+        await self.db.execute(
+            "UPDATE vectora_dag_stages SET status='cancelled',claim_token=NULL,"
+            "claim_expires_at=NULL,error=? WHERE execution_id=? AND status IN ('pending','running')",
+            (message, execution_id),
+        )
+        await self._event(
+            execution_id,
+            None,
+            "execution_cancelled",
+            {"requested_by": actor, "reason": message},
+        )
+        await self._event(
+            execution_id,
+            None,
+            "execution_finished",
+            {"status": "cancelled"},
+        )
+        await self.db.commit()
+        return True
 
     async def heartbeat_stage(
         self,
@@ -359,7 +455,8 @@ class DAGStore:
         status = "passed" if passed else "failed"
         cur = await self.db.execute(
             "UPDATE vectora_dag_stages SET status=?,claim_token=NULL,claim_expires_at=NULL,output_json=?,error=? "
-            "WHERE execution_id=? AND stage_id=? AND status='running' AND claim_token=?",
+            "WHERE execution_id=? AND stage_id=? AND status='running' "
+            "AND claim_token=? AND claim_expires_at > ?",
             (
                 status,
                 json.dumps(output, ensure_ascii=False) if output is not None else None,
@@ -367,6 +464,7 @@ class DAGStore:
                 execution_id,
                 stage_id,
                 claim_token,
+                _now(),
             ),
         )
         if cur.rowcount != 1:
@@ -393,7 +491,12 @@ class DAGStore:
         # forever and allow a later scheduler tick to claim work after the
         # failure.  Mark them explicitly as blocked before publishing the
         # execution terminal event.
-        if "failed" in statuses and "running" not in statuses:
+        if "failed" in statuses:
+            # A completed sibling must not erase a failure that already
+            # happened in the execution. Wait for active claims to settle,
+            # then publish the terminal failure exactly once.
+            if "running" in statuses:
+                return
             pending = [str(row[0]) for row in rows if row[1] == "pending"]
             for stage_id in pending:
                 await self.db.execute(
@@ -452,6 +555,7 @@ class DAGStore:
                 "stage_recovered",
                 {"attempt": int(row["attempt"])},
             )
+            await self._refresh_execution_status(row["execution_id"])
         async with self.db.execute(
             "SELECT execution_id,stage_id FROM vectora_dag_stages "
             "WHERE status='running' AND claim_expires_at IS NOT NULL AND claim_expires_at < ? "

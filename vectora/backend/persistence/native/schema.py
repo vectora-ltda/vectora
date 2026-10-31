@@ -37,7 +37,8 @@ CREATE TABLE IF NOT EXISTS messages (
     tool_calls_json TEXT,
     tool_call_id TEXT,
     name TEXT,
-    is_error INTEGER NOT NULL DEFAULT 0,
+    -- NULL is intentional: older messages may not have a known error state.
+    is_error INTEGER DEFAULT 0,
     turn_id TEXT,
     run_id TEXT,
     edited_files_json TEXT,
@@ -206,6 +207,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ix_agent_runs_thread_turn
     ON agent_runs(thread_id, turn_id) WHERE turn_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_agent_runs_thread_status
     ON agent_runs(thread_id, status, updated_at);
+CREATE TABLE IF NOT EXISTS tool_policy_versions (
+    scope TEXT PRIMARY KEY,
+    version INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -213,6 +218,18 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
     """Cria e migra todas as tabelas e índices necessários no SQLite (sessions.db)."""
     async with pool.acquire() as conn:
         await conn.executescript(SQLITE_SESSIONS_SCHEMA)
+        session_columns = {
+            str(column[1])
+            for column in await conn.execute_fetchall("PRAGMA table_info(sessions)")
+        }
+        for column_name, column_sql in (
+            ("workspace_id", "TEXT"),
+            ("parent_thread_id", "TEXT"),
+        ):
+            if column_name not in session_columns:
+                await conn.execute(
+                    f"ALTER TABLE sessions ADD COLUMN {column_name} {column_sql}"
+                )
         # The run is part of checkpoint identity: two runs may legitimately
         # checkpoint the same transcript sequence under different state.
         await conn.execute(
@@ -327,6 +344,105 @@ async def setup_sqlite_session_schema(pool: AsyncConnectionPool) -> None:
             if "duplicate column name" not in str(exc).lower():
                 raise
         columns = await conn.execute_fetchall("PRAGMA table_info(messages)")
+        is_error_column = next(
+            (column for column in columns if str(column[1]) == "is_error"),
+            None,
+        )
+        if is_error_column is not None and int(is_error_column[3] or 0) == 1:
+            # SQLite cannot drop NOT NULL from a column in place. Rebuild only
+            # the affected legacy table, preserving IDs and every message
+            # column so existing ledgers and foreign references remain stable.
+            await conn.execute("BEGIN IMMEDIATE")
+            try:
+                await conn.execute("DROP INDEX IF EXISTS ix_messages_thread")
+                await conn.execute("DROP INDEX IF EXISTS ix_messages_thread_parent")
+                await conn.execute("DROP INDEX IF EXISTS ix_messages_thread_turn")
+                await conn.execute("ALTER TABLE messages RENAME TO messages_legacy")
+                legacy_message_columns = {
+                    str(column[1])
+                    for column in await conn.execute_fetchall(
+                        "PRAGMA table_info(messages_legacy)"
+                    )
+                }
+                # Older databases predate the ledger linkage columns. Add
+                # nullable/defaulted columns to the staging table before the
+                # copy so migration preserves every legacy row.
+                for column_name, column_sql in (
+                    ("turn_id", "TEXT"),
+                    ("run_id", "TEXT"),
+                    ("edited_files_json", "TEXT"),
+                    ("is_branch_head", "INTEGER NOT NULL DEFAULT 1"),
+                ):
+                    if column_name not in legacy_message_columns:
+                        await conn.execute(
+                            f"ALTER TABLE messages_legacy ADD COLUMN "
+                            f"{column_name} {column_sql}"
+                        )
+                await conn.execute(
+                    """CREATE TABLE messages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        thread_id TEXT NOT NULL REFERENCES sessions(thread_id),
+                        parent_message_id INTEGER,
+                        role TEXT NOT NULL,
+                        content_json TEXT NOT NULL,
+                        tool_calls_json TEXT,
+                        tool_call_id TEXT,
+                        name TEXT,
+                        is_error INTEGER DEFAULT 0,
+                        turn_id TEXT,
+                        run_id TEXT,
+                        edited_files_json TEXT,
+                        is_branch_head INTEGER NOT NULL DEFAULT 1,
+                        created_at TEXT NOT NULL
+                    )"""
+                )
+                await conn.execute(
+                    """INSERT INTO messages (
+                        id, thread_id, parent_message_id, role, content_json,
+                        tool_calls_json, tool_call_id, name, is_error, turn_id,
+                        run_id, edited_files_json, is_branch_head, created_at
+                    ) SELECT id, thread_id, parent_message_id, role, content_json,
+                        tool_calls_json, tool_call_id, name, is_error, turn_id,
+                        run_id, edited_files_json, is_branch_head, created_at
+                        FROM messages_legacy"""
+                )
+                # RENAME moves the AUTOINCREMENT counter to messages_legacy and
+                # DROP deletes it. Carry it over so ids of deleted messages are
+                # never reissued to new rows.
+                legacy_sequence = list(
+                    await conn.execute_fetchall(
+                        "SELECT seq FROM sqlite_sequence WHERE name = 'messages_legacy'"
+                    )
+                )
+                if legacy_sequence:
+                    await conn.execute(
+                        "UPDATE sqlite_sequence SET seq = MAX(seq, ?) "
+                        "WHERE name = 'messages'",
+                        (int(legacy_sequence[0][0]),),
+                    )
+                    await conn.execute(
+                        "INSERT INTO sqlite_sequence (name, seq) SELECT 'messages', ? "
+                        "WHERE NOT EXISTS "
+                        "(SELECT 1 FROM sqlite_sequence WHERE name = 'messages')",
+                        (int(legacy_sequence[0][0]),),
+                    )
+                await conn.execute("DROP TABLE messages_legacy")
+                await conn.execute(
+                    "CREATE INDEX ix_messages_thread ON messages(thread_id, id)"
+                )
+                await conn.execute(
+                    "CREATE INDEX ix_messages_thread_parent "
+                    "ON messages(thread_id, parent_message_id)"
+                )
+                await conn.execute(
+                    "CREATE UNIQUE INDEX ix_messages_thread_turn "
+                    "ON messages(thread_id, turn_id) WHERE turn_id IS NOT NULL"
+                )
+                await conn.commit()
+            except Exception:
+                await conn.rollback()
+                raise
+            columns = await conn.execute_fetchall("PRAGMA table_info(messages)")
         if not any(str(column[1]) == "turn_id" for column in columns):
             await conn.execute("ALTER TABLE messages ADD COLUMN turn_id TEXT")
         if not any(str(column[1]) == "run_id" for column in columns):
@@ -389,6 +505,7 @@ CREATE TABLE IF NOT EXISTS vectora_native_messages (
     tool_calls_json TEXT,
     tool_call_id TEXT,
     name TEXT,
+    is_error BOOLEAN DEFAULT FALSE,
     turn_id TEXT,
     run_id TEXT,
     edited_files_json TEXT,
@@ -541,6 +658,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ix_vectora_native_agent_runs_thread_turn
     ON vectora_native_agent_runs(thread_id, turn_id) WHERE turn_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_vectora_native_agent_runs_thread_status
     ON vectora_native_agent_runs(thread_id, status, updated_at);
+CREATE TABLE IF NOT EXISTS vectora_tool_policy_versions (
+    scope TEXT PRIMARY KEY,
+    version BIGINT NOT NULL DEFAULT 0
+);
 """
 
 
@@ -582,6 +703,15 @@ async def setup_postgres_session_schema(pool: asyncpg.Pool) -> None:
             await conn.execute(statement)
         await conn.execute(
             "ALTER TABLE vectora_native_messages ADD COLUMN IF NOT EXISTS turn_id TEXT"
+        )
+        await conn.execute(
+            "ALTER TABLE vectora_native_messages "
+            "ADD COLUMN IF NOT EXISTS is_error BOOLEAN DEFAULT FALSE"
+        )
+        # ``None`` is a meaningful unknown value when rehydrating legacy
+        # messages. Keep PostgreSQL aligned with the native message contract.
+        await conn.execute(
+            "ALTER TABLE vectora_native_messages ALTER COLUMN is_error DROP NOT NULL"
         )
         await conn.execute(
             "ALTER TABLE vectora_native_messages ADD COLUMN IF NOT EXISTS run_id TEXT"

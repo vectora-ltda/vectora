@@ -46,7 +46,12 @@ def test_ignores_staged_submodule_gitlink(monkeypatch) -> None:
     def fake_git_output(*args: str) -> bytes:
         calls.append(args)
         if args == ("ls-files", "-s", "-z"):
-            return b"160000 abc123 0\tvendor/submodule\0100644 def456 0\tREADME.md\0"
+            return b"".join(
+                (
+                    b"160000 abc123 0\tvendor/submodule\0",
+                    b"100644 def456 0\tREADME.md\0",
+                )
+            )
         assert args == ("show", ":README.md")
         return b"README content\n"
 

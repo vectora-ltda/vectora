@@ -132,10 +132,14 @@ class LivenessConfig:
     max_stalled_heartbeats: int = 3
 
 
-_IN_FLIGHT_BY_CORRELATION: dict[CorrelationId, asyncio.Future[str]] = {}
-"""Delegações em andamento por `correlation_id` — chave só existe entre o
-início e o fim de `run_subagent`; usada pra reaproveitar (nunca duplicar)
-uma delegação concorrente com o mesmo id."""
+_IN_FLIGHT_BY_CORRELATION: dict[
+    tuple[str, str, CorrelationId], asyncio.Future[str]
+] = {}
+"""Delegações em andamento por (usuário, workspace, `correlation_id`) — chave
+só existe entre o início e o fim de `run_subagent`; usada pra reaproveitar
+(nunca duplicar) uma delegação concorrente com o mesmo id da mesma identidade.
+Sem a identidade na chave, um id repetido por outro usuário receberia o
+resultado alheio."""
 
 _ACTIVE_CONVERSATION_TASKS: dict[CorrelationId, asyncio.Task[Any]] = {}
 """`conversation_task` de cada subagente em execução com `correlation_id`
@@ -258,13 +262,17 @@ async def run_subagent(
             parent_policy_snapshot=parent_policy_snapshot,
         )
 
-    correlation_id = spec.correlation_id
-    existente = _IN_FLIGHT_BY_CORRELATION.get(correlation_id)
+    chave = (
+        ctx.user_id or "local",
+        ctx.workspace_id or "",
+        spec.correlation_id,
+    )
+    existente = _IN_FLIGHT_BY_CORRELATION.get(chave)
     if existente is not None:
         return await existente
 
     future: asyncio.Future[str] = asyncio.get_running_loop().create_future()
-    _IN_FLIGHT_BY_CORRELATION[correlation_id] = future
+    _IN_FLIGHT_BY_CORRELATION[chave] = future
     try:
         resultado = await _run_subagent_once(
             spec,
@@ -289,7 +297,7 @@ async def run_subagent(
             future.set_result(resultado)
         return resultado
     finally:
-        _IN_FLIGHT_BY_CORRELATION.pop(correlation_id, None)
+        _IN_FLIGHT_BY_CORRELATION.pop(chave, None)
 
 
 async def _run_subagent_once(
@@ -395,7 +403,20 @@ async def _run_subagent_once(
         else (ctx.correlation_id or None)
     )
 
-    base_policy = compile_policy_snapshot(ctx)
+    # Um subagente precisa executar sob o mesmo snapshot imutável do pai.
+    # Recompilar a política aqui pode observar uma alteração de RBAC/egress
+    # entre o despacho do pai e o início da tarefa filha, criando uma
+    # identidade de política diferente para a mesma execução. Quando o pai
+    # fornece o snapshot, ele é a fonte de verdade; a compilação local só é
+    # usada no caminho legado sem contexto de execução.
+    if parent_policy_snapshot is not None and (
+        parent_policy_snapshot.user_id != (ctx.user_id or "local")
+        or (parent_policy_snapshot.workspace_id or "") != (ctx.workspace_id or "")
+    ):
+        raise ValueError(
+            "snapshot de policy do pai não pertence ao usuário/workspace do contexto"
+        )
+    base_policy = parent_policy_snapshot or compile_policy_snapshot(ctx)
 
     child_disabled = set(base_policy.disabled_tools)
     is_untrusted = base_policy.untrusted_content

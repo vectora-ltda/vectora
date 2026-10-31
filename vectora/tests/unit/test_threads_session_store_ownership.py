@@ -23,6 +23,7 @@ import pytest
 from backend.api.handlers import threads as th
 from backend.api.schemas import (
     DeleteThreadRequest,
+    GetHistoryRequest,
     GetThreadRequest,
     ListThreadsRequest,
     UpdateThreadRequest,
@@ -108,6 +109,32 @@ class TestListThreadsReflectsSessionStore:
         assert [t.id for t in result.threads] == ["thread-alice"]
         assert result.threads[0].title == "Conversa da Alice"
 
+    async def test_get_history_rejeita_usuario_de_outra_thread_antes_de_ler(
+        self,
+        session_store: SessionStore,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """GetHistory aplica posse nativa antes de buscar mensagens ou anexos."""
+        await session_store.create_session("thread-alice", user_id="alice", mode="code")
+        await th._upsert_session("thread-alice", title="Privada")
+
+        from fastapi import HTTPException
+
+        from backend.services import agent_factory
+
+        monkeypatch.setattr(
+            agent_factory,
+            "aget_thread_messages_with_files",
+            MagicMock(side_effect=AssertionError("mensagens não deveriam ser lidas")),
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await th.get_history(
+                GetHistoryRequest(thread_id="thread-alice"),
+                _http_request("bob"),
+            )
+
+        assert exc_info.value.status_code == 404
+
     async def test_list_threads_serializa_atividade_remota(
         self, session_store: SessionStore, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -153,12 +180,11 @@ class TestListThreadsReflectsSessionStore:
 
         assert result.threads == []
 
-    async def test_thread_legada_sem_registro_no_session_store_ainda_aparece(
+    async def test_thread_legada_sem_registro_no_session_store_nao_aparece(
         self,
+        session_store: SessionStore,
     ) -> None:
-        """Compatibilidade: threads criadas antes da posse ser rastreada em
-        `SessionStore` (nenhum registro lá) continuam visíveis — ausência de
-        registro não é o mesmo que pertencer a outra pessoa."""
+        """Metadados legados não autorizam listagem nem reivindicam posse."""
         await th._upsert_session("thread-legada", title="Conversa antiga")
         await th._increment_message_count("thread-legada")
 
@@ -166,7 +192,63 @@ class TestListThreadsReflectsSessionStore:
             ListThreadsRequest(limit=50), _http_request("alice")
         )
 
-        assert [t.id for t in result.threads] == ["thread-legada"]
+        assert result.threads == []
+        assert await session_store.get_session("thread-legada") is None
+
+    async def test_thread_legada_aparece_so_sem_usuario_autenticado(
+        self,
+        session_store: SessionStore,
+    ) -> None:
+        """Launcher local sem usuário mantém threads legadas visíveis; para um
+        usuário autenticado a mesma thread continua oculta sem posse nativa."""
+        await th._upsert_session("thread-local-antiga", title="Conversa local")
+        await th._increment_message_count("thread-local-antiga")
+
+        sem_usuario = await th.list_threads(
+            ListThreadsRequest(limit=50), _http_request(None)
+        )
+        autenticado = await th.list_threads(
+            ListThreadsRequest(limit=50), _http_request("alice")
+        )
+
+        assert [t.id for t in sem_usuario.threads] == ["thread-local-antiga"]
+        assert autenticado.threads == []
+
+    async def test_metadados_legados_recentes_nao_escondem_thread_valida(
+        self,
+        session_store: SessionStore,
+    ) -> None:
+        """O limite vale para threads elegíveis: linhas legadas mais recentes
+        que o ``limit`` não deixam a listagem vazia."""
+        await session_store.create_session(
+            "thread-valida", user_id="alice", mode="code"
+        )
+        await th._upsert_session("thread-valida", title="Válida")
+        await th._increment_message_count("thread-valida")
+        legacy_ids = [f"thread-legada-{i}" for i in range(3)]
+        for legacy_id in legacy_ids:
+            await th._upsert_session(legacy_id, title="Antiga")
+            await th._increment_message_count(legacy_id)
+        db = await th._get_db()
+        await db.execute(
+            "UPDATE vectora_sessions SET last_activity = '2026-01-01T00:00:00' "
+            "WHERE thread_id = 'thread-valida'"
+        )
+        await db.executemany(
+            "UPDATE vectora_sessions SET last_activity = ? WHERE thread_id = ?",
+            [(f"2026-06-0{i + 1}T00:00:00", tid) for i, tid in enumerate(legacy_ids)],
+        )
+        await db.commit()
+
+        result = await th.list_threads(
+            ListThreadsRequest(limit=2), _http_request("alice")
+        )
+        assert [t.id for t in result.threads] == ["thread-valida"]
+
+        no_match = await th.list_threads(
+            ListThreadsRequest(limit=2), _http_request("bob")
+        )
+        assert no_match.threads == []
 
     async def test_subagent_interno_nao_aparece_na_listagem(
         self, session_store: SessionStore
@@ -278,6 +360,23 @@ class TestOwnershipEnforcement:
         thread = await th.get_thread(GetThreadRequest(thread_id="thread-bob"))
 
         assert thread.id == "thread-bob"
+
+    async def test_get_thread_rejeita_metadado_legado_sem_posse_nativa(
+        self, session_store: SessionStore
+    ) -> None:
+        """Metadado antigo não pode autorizar leitura HTTP autenticada."""
+        from fastapi import HTTPException
+
+        await th._upsert_session("thread-legacy-only", title="stale metadata")
+        assert await session_store.get_session("thread-legacy-only") is None
+
+        with pytest.raises(HTTPException) as exc_info:
+            await th.get_thread(
+                GetThreadRequest(thread_id="thread-legacy-only"),
+                _http_request("alice"),
+            )
+
+        assert exc_info.value.status_code == 404
 
     async def test_get_thread_reidrata_metadados_ausentes_do_store_nativo(
         self, session_store: SessionStore
@@ -608,3 +707,69 @@ class TestMarkThreadRead:
         ) as cursor:
             row = await cursor.fetchone()
         assert row == (3,)
+
+
+class TestHistoryHttpOwnership:
+    """As rotas HTTP de histórico aplicam posse com dois usuários reais."""
+
+    async def test_historico_de_outro_usuario_responde_404_sem_conteudo(
+        self,
+        session_store: SessionStore,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Alice lê a própria thread; Bob recebe 404 (nunca 500) nas duas rotas
+        de histórico e a resposta não carrega mensagens nem anexos."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from starlette.requests import Request as StarletteRequest
+        from starlette.types import ASGIApp, Receive, Scope, Send
+
+        from backend.services import agent_factory
+
+        async def _store() -> SessionStore:
+            return session_store
+
+        monkeypatch.setattr(agent_factory, "get_session_store", _store)
+        await session_store.create_session("thread-alice", user_id="alice", mode="code")
+        await th._upsert_session("thread-alice", title="Privada")
+        await session_store.append_message_recorded(
+            "thread-alice", text_message(MessageRole.USER, "segredo da alice")
+        )
+        await th._increment_message_count("thread-alice")
+
+        class _UserFromHeader:
+            def __init__(self, app: ASGIApp) -> None:
+                self.app = app
+
+            async def __call__(
+                self, scope: Scope, receive: Receive, send: Send
+            ) -> None:
+                if scope["type"] == "http":
+                    user_id = StarletteRequest(scope).headers.get("x-test-user")
+                    scope.setdefault("state", {})["user"] = (
+                        MagicMock(id=user_id) if user_id else None
+                    )
+                await self.app(scope, receive, send)
+
+        app = FastAPI()
+        app.include_router(th.router)
+        app.add_middleware(_UserFromHeader)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        for user, expected_status in (("alice", 200), ("bob", 404)):
+            headers = {"x-test-user": user}
+            for response in (
+                client.post(
+                    "/vectora.chat.v1.ThreadService/GetHistory",
+                    json={"thread_id": "thread-alice"},
+                    headers=headers,
+                ),
+                client.get("/threads/thread-alice/history", headers=headers),
+            ):
+                assert response.status_code == expected_status, response.text
+                if expected_status == 200:
+                    assert "segredo da alice" in response.text
+                    continue
+                assert "segredo da alice" not in response.text
+                assert "messages" not in response.json()
+                assert "attachments" not in response.text

@@ -2756,3 +2756,53 @@ class TestLlamaCppConfiguration:
 
         with pytest.raises(ValueError, match="não contém llama-server"):
             await _validate_runtime_executable(["/tmp/other-binary"])
+
+
+@pytest.mark.parametrize("capabilities_fail", [False, True])
+def test_decision_model_status_with_empty_local_model(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    capabilities_fail: bool,
+) -> None:
+    """A bad provider entry cannot make the status endpoint fail validation."""
+    from types import SimpleNamespace
+
+    from backend.api.handlers import provider_routing
+    from backend.llm.systemone.settings import SystemOneSettings
+    from backend.llm.systemone.types import ProviderCapabilities
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "systemone_local_model", "")
+    monkeypatch.setattr(settings, "systemone_provider", "clef-local")
+    monkeypatch.setattr(settings, "systemone_clef_account_id", "test-account")
+    healthy = SimpleNamespace(
+        capabilities=AsyncMock(return_value=ProviderCapabilities()),
+        health=AsyncMock(return_value=True),
+    )
+    broken = SimpleNamespace(
+        capabilities=AsyncMock(side_effect=RuntimeError("provider unavailable")),
+        health=AsyncMock(return_value=False),
+    )
+
+    def provider(sys_settings: SystemOneSettings, **kwargs: object) -> SimpleNamespace:
+        return (
+            broken
+            if sys_settings.provider == "clef-local" and capabilities_fail
+            else healthy
+        )
+
+    monkeypatch.setattr(provider_routing, "get_systemone_provider", provider)
+    response = client.get("/provider-routing/decision-models/status")
+    assert response.status_code == 200
+    entries = {
+        entry["provider"]: entry for entry in response.json()["capability_matrix"]
+    }
+    assert len(entries) == 4
+    assert entries["clef-local"]["model"] == "unconfigured"
+    assert entries["clef-local"]["discovered"] is (not capabilities_fail)
+    assert entries["clef-local"]["ready"] is (not capabilities_fail)
+    if capabilities_fail:
+        assert "RuntimeError" in entries["clef-local"]["diagnostic"]
+    assert all(
+        entry["discovered"] for name, entry in entries.items() if name != "clef-local"
+    )

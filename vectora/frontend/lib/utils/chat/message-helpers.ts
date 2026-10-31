@@ -106,6 +106,7 @@ export const historyMessageToMessage = (
     content: hist.content,
     timestamp: hist.created_at ? new Date(hist.created_at) : new Date(),
     checkpointId: hist.checkpoint_id,
+    ...(hist.is_error === true ? { isError: true } : {}),
     ...(images?.length ? { images } : {}),
     ...(hist.edited_files?.length
       ? {

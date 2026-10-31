@@ -208,6 +208,60 @@ def test_compare_cassettes_unequal_lengths():
     assert report.details[1].get("missing") == "candidate"
 
 
+def test_compare_cassettes_rejects_different_tool_arguments() -> None:
+    """Nomes iguais com argumentos diferentes não são a mesma execução."""
+    baseline = Cassette(
+        cassette_id="base",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="1",
+                messages=[],
+                tool_calls=[{"id": "a", "name": "read_file", "args": {"path": "a"}}],
+            )
+        ],
+    )
+    candidate = Cassette(
+        cassette_id="candidate",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="1",
+                messages=[],
+                tool_calls=[
+                    {"id": "different", "name": "read_file", "args": {"path": "b"}}
+                ],
+            )
+        ],
+    )
+
+    report = compare_cassettes(baseline, candidate)
+
+    assert report.matches == 0
+    assert report.details[0]["tool_presence_match"] is True
+    assert report.details[0]["tool_arguments_match"] is False
+
+
+def test_compare_cassettes_rejects_divergent_response_without_tools() -> None:
+    """A resposta divergente não pode produzir 100% de equivalência."""
+    baseline = Cassette(
+        cassette_id="base",
+        interactions=[
+            CassetteInteraction(interaction_id="1", messages=[], response_text="A")
+        ],
+    )
+    candidate = Cassette(
+        cassette_id="candidate",
+        interactions=[
+            CassetteInteraction(interaction_id="1", messages=[], response_text="B")
+        ],
+    )
+
+    report = compare_cassettes(baseline, candidate)
+
+    assert report.matches == 0
+    assert report.accuracy == 0.0
+    assert report.details[0]["response_match"] is False
+
+
 def test_compare_cassettes_rejects_duplicate_interaction_ids() -> None:
     """Duplicate IDs must not be silently aligned as separate cases."""
     cassette = Cassette(
@@ -229,7 +283,7 @@ def test_total_tokens_helper():
     assert _total_tokens({"input": 40, "output": 60}) == 100
 
 
-def test_cli_eval_compare(tmp_path: Path, capsys):
+def test_cli_eval_compare(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Verifica o comportamento de cli eval compare."""
     b_path = tmp_path / "base.json"
     c_path = tmp_path / "cand.json"
@@ -248,7 +302,7 @@ def test_cli_eval_compare(tmp_path: Path, capsys):
     assert "Relatório de Avaliação" in captured.out
 
 
-def test_cli_eval_run(tmp_path: Path, capsys):
+def test_cli_eval_run(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Verifica o comportamento de cli eval run."""
     suite_path = tmp_path / "suite.json"
     cassette = Cassette(
@@ -288,7 +342,7 @@ def test_cli_eval_run(tmp_path: Path, capsys):
     assert '"suite_id": "my-suite"' in captured_json.out
 
 
-def test_cli_eval_missing_suite(capsys):
+def test_cli_eval_missing_suite(capsys: pytest.CaptureFixture[str]) -> None:
     """Verifica o comportamento de cli eval missing suite."""
     args = argparse.Namespace(
         action="run",
@@ -301,7 +355,9 @@ def test_cli_eval_missing_suite(capsys):
     assert "obrigatório" in captured.err
 
 
-def test_cli_eval_corrupted_file(tmp_path: Path, capsys):
+def test_cli_eval_corrupted_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Verifica o comportamento de cli eval corrupted file."""
     corrupt = tmp_path / "corrupt.json"
     corrupt.write_text("{bad json", encoding="utf-8")
@@ -315,3 +371,80 @@ def test_cli_eval_corrupted_file(tmp_path: Path, capsys):
     assert code == 1
     captured = capsys.readouterr()
     assert "Erro ao carregar cassete" in captured.err
+
+
+@pytest.mark.parametrize(
+    "raw", ["[]", "null", "42", '{"cassette_id":"x","redaction_version":2}']
+)
+def test_cassette_load_rejects_invalid_shape_and_redaction_version(
+    tmp_path: Path, raw: str
+) -> None:
+    """Loading untrusted JSON must fail with a validation error, never AttributeError."""
+    source = tmp_path / "invalid.json"
+    source.write_text(raw, encoding="utf-8")
+    with pytest.raises(ValueError):
+        Cassette.load(source)
+
+
+@pytest.mark.parametrize("action", ["run", "compare"])
+@pytest.mark.parametrize("raw", ["[]", '{"cassette_id":"x","redaction_version":2}'])
+def test_cli_reports_invalid_cassette_without_traceback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    action: str,
+    raw: str,
+) -> None:
+    """Both CLI entry points explain invalid cassettes and return failure."""
+    source = tmp_path / "invalid.json"
+    source.write_text(raw, encoding="utf-8")
+    args = argparse.Namespace(
+        action=action,
+        suite=str(source),
+        baseline=str(source),
+        candidate=str(source),
+    )
+    assert handle_eval(args) == 1
+    output = capsys.readouterr()
+    assert "Erro ao carregar" in output.err
+    assert "Traceback" not in output.err
+    assert (
+        "objeto JSON" if raw == "[]" else "redaction_version não suportada"
+    ) in output.err
+
+
+def test_cli_compare_reports_incomparable_cassettes_without_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Loadable cassettes that cannot be compared fail with a clear message."""
+    interaction = CassetteInteraction(
+        interaction_id="1", messages=[], response_text="A", tool_calls=[]
+    )
+    valid = tmp_path / "valid.json"
+    duplicated = tmp_path / "duplicated.json"
+    valid.write_text(
+        Cassette(cassette_id="valid", interactions=[interaction]).model_dump_json(),
+        encoding="utf-8",
+    )
+    duplicated.write_text(
+        Cassette(
+            cassette_id="duplicated", interactions=[interaction, interaction]
+        ).model_dump_json(),
+        encoding="utf-8",
+    )
+
+    def _compare(candidate: Path) -> int:
+        return handle_eval(
+            argparse.Namespace(
+                action="compare", baseline=str(valid), candidate=str(candidate)
+            )
+        )
+
+    assert _compare(valid) == 0
+    capsys.readouterr()
+
+    assert _compare(duplicated) == 1
+    output = capsys.readouterr()
+    assert "Erro ao comparar cassetes" in output.err
+    assert "interaction_id duplicado" in output.err
+    assert "Traceback" not in output.err
+    assert output.out == ""

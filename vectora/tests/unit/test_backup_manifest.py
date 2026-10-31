@@ -146,6 +146,39 @@ def test_artifacts_root_symlink_is_rejected_before_reading(tmp_path: Path) -> No
         backup_module._artifact_entries(database)
 
 
+def test_create_backup_rejeita_destino_symlinkado(tmp_path: Path) -> None:
+    """Um destino de backup apontando para fora não pode ser sobrescrito."""
+    database = tmp_path / "vectora.db"
+    database.write_bytes(b"sqlite-placeholder")
+    outside = tmp_path / "outside.zip"
+    outside.write_bytes(b"preserve")
+    destination = tmp_path / "backup.zip"
+    try:
+        destination.symlink_to(outside)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink não disponível neste ambiente")
+
+    with pytest.raises(ValueError, match="symlink"):
+        create_backup(database, destination)
+    assert outside.read_bytes() == b"preserve"
+
+
+def test_inspect_backup_rejeita_arquivo_de_arquivo_symlinkado(tmp_path: Path) -> None:
+    """A inspeção não deve seguir um link para um ZIP fora do storage."""
+    database = tmp_path / "vectora.db"
+    database.write_bytes(b"sqlite-placeholder")
+    real_archive = tmp_path / "real.zip"
+    create_backup(database, real_archive)
+    linked_archive = tmp_path / "linked.zip"
+    try:
+        linked_archive.symlink_to(real_archive)
+    except (OSError, NotImplementedError):
+        pytest.skip("symlink não disponível neste ambiente")
+
+    with pytest.raises(ValueError, match="symlink"):
+        inspect_backup(linked_archive)
+
+
 def test_artifact_oversize_is_rejected_before_payload_read(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -357,3 +390,32 @@ def test_backup_restore_preserva_artifacts_e_sidecars(tmp_path: Path) -> None:
     restored = target_root / "artifacts" / "thread" / "plan.md"
     assert restored.read_text(encoding="utf-8") == "conteudo"
     assert restored.with_suffix(".artifact.json").exists()
+
+
+def test_create_backup_rejeita_temporario_substituido(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Se o temporário trocar de inode antes da publicação, o backup falha,
+    nada é publicado e o temporário é removido; sem troca, o backup publica."""
+    import os
+
+    database = tmp_path / "vectora.db"
+    sqlite3.connect(database).close()
+    published = tmp_path / "ok.zip"
+    create_backup(database, published)
+    assert published.is_file()
+
+    destination = tmp_path / "backup.zip"
+    real_fstat = os.fstat
+
+    def _fstat_de_outro_arquivo(fd: int) -> os.stat_result:
+        stat = real_fstat(fd)
+        fields = list(stat)
+        fields[1] = stat.st_ino + 1
+        return os.stat_result(fields)
+
+    monkeypatch.setattr(backup_module.os, "fstat", _fstat_de_outro_arquivo)
+    with pytest.raises(ValueError, match="substituído"):
+        create_backup(database, destination)
+    assert not destination.exists()
+    assert not list(tmp_path.glob("*.vbackup.tmp"))

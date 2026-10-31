@@ -239,6 +239,7 @@ class NatsKV:
         self._kv: Any = None
         self._subs: dict[str, list[Subscriber]] = {}
         self._reader: asyncio.Task | None = None
+        self._closing = False
         self._failed: bool = (
             False  # True após esgotar reconexões — força reset do singleton
         )
@@ -253,7 +254,10 @@ class NatsKV:
                 logger.warning("kv: NATS erro de conexão: %s", exc)
 
             async def _disconnected_cb() -> None:
-                logger.warning("kv: NATS desconectado do sidecar")
+                if self._closing:
+                    logger.info("kv: NATS desconectado durante shutdown")
+                else:
+                    logger.warning("kv: NATS desconectado do sidecar")
 
             async def _reconnected_cb() -> None:
                 logger.info("kv: NATS reconectado ao sidecar")
@@ -261,9 +265,12 @@ class NatsKV:
             async def _closed_cb() -> None:
                 # Chamado quando os retries se esgotam — marcamos como falho
                 # para que a próxima operação force reset do singleton em get_kv().
-                logger.warning(
-                    "kv: NATS conexão encerrada após retries esgotados — fallback para memória"
-                )
+                if self._closing:
+                    logger.info("kv: NATS encerrado durante shutdown")
+                else:
+                    logger.warning(
+                        "kv: NATS conexão encerrada após retries esgotados — fallback para memória"
+                    )
                 self._failed = True
                 self._kv = None
                 reset_kv()
@@ -330,6 +337,7 @@ class NatsKV:
             logger.warning("kv: reader NATS encerrou com erro: %s", exc)
 
     async def close(self) -> None:
+        self._closing = True
         if self._reader is not None:
             self._reader.cancel()
             with contextlib.suppress(asyncio.CancelledError):

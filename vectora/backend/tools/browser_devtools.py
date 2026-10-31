@@ -9,6 +9,7 @@ Lighthouse.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import uuid
@@ -24,6 +25,8 @@ from backend.browser.session import (
     select_tab,
     set_dialog_policy,
 )
+from backend.services.egress_policy import async_is_url_allowed, is_url_allowed
+from backend.services.policy_compiler import PolicySnapshot, compile_policy_snapshot
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 from backend.vtypes.browser import NetworkProfile
@@ -33,6 +36,14 @@ logger = logging.getLogger(__name__)
 
 def _workspace_id(ctx: ToolContext) -> str:
     return ctx.workspace_id or "default"
+
+
+def _policy_snapshot(ctx: ToolContext) -> PolicySnapshot:
+    """Return the policy snapshot attached to the current tool context."""
+    snapshot = ctx._extra.get("policy_snapshot")
+    if isinstance(snapshot, PolicySnapshot):
+        return snapshot
+    return compile_policy_snapshot(ctx)
 
 
 #: Perfis de `Network.emulateNetworkConditions` (CDP) — latência em ms,
@@ -107,8 +118,46 @@ async def browser_new_tab(ctx: ToolContext, url: str | None = None) -> str:
         JSON `{"status": "ok", "tab_id": "..."}` ou erro.
     """
     workspace_id = _workspace_id(ctx)
+    snapshot = _policy_snapshot(ctx)
+    tab_id: str | None = None
     try:
-        tab_id = await new_tab(workspace_id, url=url)
+        if url:
+            allowed, reason = await asyncio.to_thread(
+                snapshot.validate_call, "browser_new_tab", {"url": url}
+            )
+            if not allowed:
+                return json.dumps(
+                    {"status": "error", "error": f"egress policy: {reason}"}
+                )
+        tab_id = await new_tab(
+            workspace_id,
+            url=url,
+            url_validator=(
+                lambda destination: is_url_allowed(destination, snapshot.egress_policy)
+            )
+            if url
+            else None,
+        )
+        if url:
+            tab = next(
+                (
+                    item
+                    for item in await list_tabs(workspace_id)
+                    if item["tab_id"] == tab_id
+                ),
+                None,
+            )
+            final_url = str(tab.get("url", url)) if tab else url
+            allowed, reason = await asyncio.to_thread(
+                snapshot.validate_call, "browser_new_tab", {"url": final_url}
+            )
+            if not allowed:
+                with contextlib.suppress(Exception):
+                    await close_tab(workspace_id, tab_id)
+                tab_id = None
+                return json.dumps(
+                    {"status": "error", "error": f"redirect bloqueado: {reason}"}
+                )
         logger.info(
             "browser_new_tab completed",
             extra={
@@ -121,6 +170,9 @@ async def browser_new_tab(ctx: ToolContext, url: str | None = None) -> str:
         )
         return json.dumps({"status": "ok", "tab_id": tab_id})
     except Exception as exc:
+        if tab_id is not None:
+            with contextlib.suppress(Exception):
+                await close_tab(workspace_id, tab_id)
         logger.exception("browser_new_tab failed", extra={"url": url})
         return json.dumps({"status": "error", "error": str(exc)})
 

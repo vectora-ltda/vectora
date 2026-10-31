@@ -20,6 +20,23 @@ describe("historyMessageToMessage", () => {
     expect(msg.images).toBeUndefined();
   });
 
+  it("propaga is_error do histórico persistido para isError", () => {
+    const failed = historyMessageToMessage(
+      { role: "assistant", content: "[falha] provider", is_error: true },
+      "id-err",
+    );
+    expect(failed.isError).toBe(true);
+
+    // false e null (estado desconhecido) nunca marcam a mensagem como erro.
+    for (const is_error of [false, null, undefined]) {
+      const ok = historyMessageToMessage(
+        { role: "assistant", content: "ok", is_error },
+        "id-ok",
+      );
+      expect(ok.isError).toBeUndefined();
+    }
+  });
+
   it("mapeia role 'assistant' corretamente", () => {
     const hist: HistoryMessage = { role: "assistant", content: "olá!" };
 

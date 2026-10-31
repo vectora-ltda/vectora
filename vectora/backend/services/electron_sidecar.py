@@ -273,7 +273,7 @@ async def stop_electron_sidecar() -> None:
         proc, timeout_seconds=10.0, logger=logger, log_prefix="electron_sidecar"
     )
     logger.info(
-        "electron_sidecar: processo pid=%d encerrado (code=%s)",
+        "electron_sidecar: processo pid=%d encerrado durante shutdown (code=%s)",
         proc.pid,
         proc.returncode,
     )

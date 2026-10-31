@@ -84,6 +84,32 @@ class TestUserIdFromCtx:
         assert _user_id_from_ctx(ctx) == "user-99"
         assert _memory_namespace(ctx) == ("user", "user-99", "memories")
 
+    def test_memory_namespace_isolated_by_org_and_workspace(self) -> None:
+        """A mesma conta não pode cruzar escopos de tenant/workspace."""
+        from backend.tools.memory import _memory_namespace
+
+        first = _memory_namespace(
+            ToolContext(user_id="user-99", org_id="org-a", workspace_id="ws-a")
+        )
+        second = _memory_namespace(
+            ToolContext(user_id="user-99", org_id="org-a", workspace_id="ws-b")
+        )
+        other_org = _memory_namespace(
+            ToolContext(user_id="user-99", org_id="org-b", workspace_id="ws-a")
+        )
+
+        assert first == (
+            "user",
+            "user-99",
+            "org",
+            "org-a",
+            "workspace",
+            "ws-a",
+            "memories",
+        )
+        assert first != second
+        assert first != other_org
+
 
 # ---------------------------------------------------------------------------
 # handler REST de memória

@@ -647,6 +647,60 @@ async def test_get_decision_models_status_structure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_decision_models_status_exposes_complete_capability_matrix(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A matriz distingue capabilities declaradas de readiness do provider ativo."""
+
+    async def healthy(_: object) -> bool:
+        return True
+
+    # The matrix is a pure readiness contract; never probe a local service
+    # from a unit test.  Keep every adapter deterministic and assert the
+    # selected entry explicitly.
+    monkeypatch.setattr(ClefLocalAdapter, "health", healthy)
+    monkeypatch.setattr(LayaLocalAdapter, "health", healthy)
+    monkeypatch.setattr(BaseSystemOneApiAdapter, "health", healthy)
+    res = await get_decision_models_status()
+
+    assert {item.provider for item in res.capability_matrix} == {
+        "clef-local",
+        "laya-local",
+        "clef-api",
+        "jev-api",
+    }
+    selected = next(
+        item for item in res.capability_matrix if item.provider == res.provider
+    )
+    assert selected.ready is True
+    assert selected.discovered is True
+    assert selected.text_generation is True
+    inactive = [item for item in res.capability_matrix if item.provider != res.provider]
+    assert all(item.ready is False for item in inactive)
+    assert all(item.diagnostic for item in inactive)
+
+
+@pytest.mark.asyncio
+async def test_get_decision_models_status_reports_selected_health_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def unhealthy(_: object) -> bool:
+        return False
+
+    # Pin the selected provider: the patch below only affects the Clef local
+    # adapter, so another provider in the environment would stay ready.
+    monkeypatch.setattr(app_settings, "systemone_provider", "clef-local")
+    monkeypatch.setattr(ClefLocalAdapter, "health", unhealthy)
+    res = await get_decision_models_status()
+    assert res.provider == "clef-local"
+    selected = next(
+        item for item in res.capability_matrix if item.provider == res.provider
+    )
+    assert selected.ready is False
+    assert selected.diagnostic == "provider selecionado não está saudável"
+
+
+@pytest.mark.asyncio
 async def test_get_decision_models_status_rejects_invalid_runtime_configuration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
