@@ -37,6 +37,8 @@ _LOG_EXTRA_FIELDS: frozenset[str] = frozenset(
         "topic",
         "query",
         "error",
+        "correlation_id",
+        "request_id",
     }
 )
 _SECRET_KEY_RE = re.compile(
@@ -101,6 +103,7 @@ class JSONFormatter(logging.Formatter):
     """Format logs as JSON for structured logging."""
 
     def format(self, record: logging.LogRecord) -> str:
+        """Executa a operação format."""
         log_obj: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
@@ -134,6 +137,7 @@ class TextFormatter(logging.Formatter):
     """Format logs as readable text for development."""
 
     def format(self, record: logging.LogRecord) -> str:
+        """Executa a operação format."""
         prefix = f"[{record.levelname:8}] {record.name:20} | "
 
         if hasattr(record, "thread_id"):
@@ -181,6 +185,7 @@ class _BackgroundConsoleFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         # Deixa WARNING+ sempre passar (erros devem ser visíveis)
+        """Executa a operação filter."""
         if record.levelno >= logging.WARNING:
             return True
         return record.name not in self._CONSOLE_NOISY

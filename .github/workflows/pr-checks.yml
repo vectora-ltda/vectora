@@ -132,7 +132,7 @@ jobs:
         run: echo "${{ github.event.pull_request.number }}" > pr-number.txt
       - name: Upload do número do PR (consumido pelo job trusted)
         if: failure() && steps.check.conclusion == 'failure'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: no-plan-metadata-failure
           path: pr-number.txt

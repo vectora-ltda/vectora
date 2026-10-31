@@ -36,6 +36,7 @@ def headless_app():
 
 @pytest.fixture(scope="module")
 def client(headless_app):
+    """Executa a operação client."""
     return TestClient(headless_app, raise_server_exceptions=False)
 
 
@@ -51,18 +52,21 @@ class TestLifespan:
     """
 
     def test_lifespan_starts_embedding_worker(self, headless_app, monkeypatch):
+        """Verifica o comportamento de lifespan starts embedding worker."""
         import backend.embedding.background as bg
 
         started = {"value": False}
 
         class _FakeWorker:
             async def start(self) -> None:
+                """Executa a operação start."""
                 started["value"] = True
 
             async def stop(self, *_a, **_k) -> None:
-                pass
+                """Executa a operação stop."""
 
         async def _fake_get_worker() -> _FakeWorker:
+            """Executa a operação fake get worker."""
             return _FakeWorker()
 
         monkeypatch.setattr(bg, "get_background_worker", _fake_get_worker)
@@ -92,6 +96,7 @@ class TestLifespan:
         events: list[str] = []
 
         async def _fake_cleanup(*_a, **_k) -> int:
+            """Executa a operação fake cleanup."""
             call_count["value"] += 1
             events.append("cleanup")
             return 0
@@ -101,6 +106,7 @@ class TestLifespan:
             # nesse teste — reconcile_vectora_sessions roda ANTES dela no
             # loop real (ver server.py) e faz I/O de verdade (SessionStore),
             # o que atrasaria o assert abaixo além da janela do TestClient.
+            """Executa a operação fake reconcile."""
             events.append("reconcile")
             return 0
 
@@ -124,6 +130,7 @@ class TestLifespan:
         )
 
     def test_gateway_forwards_to_configured_backend_port(self, monkeypatch):
+        """Verifica o comportamento de gateway forwards to configured backend port."""
         from backend.api.server import _gateway_local_url
 
         monkeypatch.setenv("VECTORA_PORT", "49152")
@@ -140,6 +147,7 @@ class TestLifespan:
 
 class TestHealth:
     def test_health_ok(self, client):
+        """Verifica o comportamento de health ok."""
         response = client.get("/health")
         assert response.status_code == 200
         body = response.json()
@@ -147,12 +155,14 @@ class TestHealth:
         assert "version" in body
 
     def test_health_version_non_empty(self, client):
+        """Verifica o comportamento de health version non empty."""
         response = client.get("/health")
         assert response.json()["version"] != ""
 
 
 class TestUpdateChangelog:
     def test_returns_latest_packaged_release_notes(self, client):
+        """Verifica o comportamento de returns latest packaged release notes."""
         response = client.get("/api/updates/changelog")
         assert response.status_code == 200
         body = response.json()
@@ -167,6 +177,7 @@ class TestUpdateChangelog:
 
 class TestMetrics:
     def test_metrics_returns_list(self, client):
+        """Verifica o comportamento de metrics returns list."""
         response = client.get("/metrics")
         assert response.status_code == 200
         assert isinstance(response.json(), list)
@@ -193,29 +204,36 @@ def _collect_route_paths(routes) -> list[str]:
 
 class TestRoutes:
     def _route_paths(self, app) -> list[str]:
+        """Executa a operação route paths."""
         return _collect_route_paths(app.routes)
 
     def test_stream_chat_route_exists(self, headless_app):
+        """Verifica o comportamento de stream chat route exists."""
         paths = self._route_paths(headless_app)
         assert "/vectora.chat.v1.ChatService/StreamChat" in paths
 
     def test_resume_chat_route_exists(self, headless_app):
+        """Verifica o comportamento de resume chat route exists."""
         paths = self._route_paths(headless_app)
         assert "/vectora.chat.v1.ChatService/ResumeChat" in paths
 
     def test_get_tools_route_exists(self, headless_app):
+        """Verifica o comportamento de get tools route exists."""
         paths = self._route_paths(headless_app)
         assert "/vectora.chat.v1.ChatService/GetTools" in paths
 
     def test_cors_exposes_chat_persistence_header(self, headless_app: FastAPI) -> None:
+        """Verifica o comportamento de cors exposes chat persistence header."""
         from fastapi.middleware.cors import CORSMiddleware
 
         cors = next(
             mw for mw in headless_app.user_middleware if mw.cls is CORSMiddleware
         )
         assert "X-Vectora-Chat-Persisted" in cors.kwargs["expose_headers"]
+        assert "X-Vectora-Device-Id" in cors.kwargs["allow_headers"]
 
     def test_workspaces_active_route_exists(self, headless_app):
+        """Verifica o comportamento de workspaces active route exists."""
         paths = self._route_paths(headless_app)
         assert "/workspaces/active" in paths, (
             "GET /workspaces/active ausente — GitStatusBadge chama esse "
@@ -224,6 +242,7 @@ class TestRoutes:
         )
 
     def test_thread_routes_exist(self, headless_app):
+        """Verifica o comportamento de thread routes exist."""
         paths = self._route_paths(headless_app)
         for route in (
             "/vectora.chat.v1.ThreadService/CreateThread",
@@ -235,6 +254,7 @@ class TestRoutes:
             assert route in paths, f"Rota ausente: {route}"
 
     def test_share_routes_exist(self, headless_app):
+        """Verifica o comportamento de share routes exist."""
         paths = self._route_paths(headless_app)
         assert "/threads/share" in paths
         assert "/threads/share/{token}" in paths
@@ -247,10 +267,12 @@ class TestRoutes:
 
 class TestWorkspacesActive:
     def test_returns_200(self, client):
+        """Verifica o comportamento de returns 200."""
         res = client.get("/workspaces/active")
         assert res.status_code == 200
 
     def test_response_has_workspace_key(self, client):
+        """Verifica o comportamento de response has workspace key."""
         body = client.get("/workspaces/active").json()
         assert "workspace" in body, (
             "Resposta não tem campo 'workspace' — GitStatusBadge acessa "
@@ -258,6 +280,7 @@ class TestWorkspacesActive:
         )
 
     def test_workspace_is_none_or_object(self, client):
+        """Verifica o comportamento de workspace is none or object."""
         body = client.get("/workspaces/active").json()
         ws = body["workspace"]
         if ws is not None:
@@ -272,6 +295,7 @@ class TestWorkspacesActive:
 
 class TestApiToolsSchema:
     def test_api_tools_schema_route_exists(self, headless_app):
+        """Verifica o comportamento de api tools schema route exists."""
         paths = _collect_route_paths(headless_app.routes)
         assert "/api/tools/schema" in paths
 
@@ -283,16 +307,19 @@ class TestApiToolsSchema:
 
 class TestGetTools:
     def test_get_tools_returns_200(self, client):
+        """Verifica o comportamento de get tools returns 200."""
         response = client.get("/vectora.chat.v1.ChatService/GetTools")
         assert response.status_code == 200
 
     def test_get_tools_has_tools_key(self, client):
+        """Verifica o comportamento de get tools has tools key."""
         response = client.get("/vectora.chat.v1.ChatService/GetTools")
         body = response.json()
         assert "tools" in body
         assert isinstance(body["tools"], list)
 
     def test_get_tools_each_has_name(self, client):
+        """Verifica o comportamento de get tools each has name."""
         response = client.get("/vectora.chat.v1.ChatService/GetTools")
         tools = response.json()["tools"]
         if tools:  # pode ser vazia em ambiente de teste sem ALL_TOOLS

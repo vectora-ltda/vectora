@@ -52,6 +52,7 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 # `pytest_unconfigure` — `None` quando o processo não é o responsável por
 # essa limpeza (VECTORA_HOME já veio setado de fora, ver docstring).
 _isolated_vectora_home: str | None = None
+_previous_vectora_home: str | None = None
 
 
 def pytest_configure(config: Any) -> None:
@@ -77,14 +78,16 @@ def pytest_configure(config: Any) -> None:
     `backend.settings` em todo o processo já veja um `VECTORA_HOME`
     isolado, não importa qual teste dispara esse import primeiro.
 
-    Se `VECTORA_HOME` já vier setado no ambiente (CI com isolamento
-    próprio, ou alguém depurando contra um diretório específico de
-    propósito), respeitamos e não sobrescrevemos — só criamos um novo
-    quando a variável está ausente, que é exatamente o caso em que o
-    processo cairia no `Path.home()` real por default."""
-    global _isolated_vectora_home
-    if os.environ.get("VECTORA_HOME"):
+    Para depuração intencional contra um diretório externo, defina
+    `VECTORA_TEST_ALLOW_EXTERNAL_HOME=1`. Por padrão, mesmo que o shell já
+    tenha `VECTORA_HOME`, cada processo de pytest recebe um diretório novo;
+    isso mantém execuções paralelas e repetidas independentes e impede que
+    dados do runtime do desenvolvedor contaminem os testes.
+    """
+    global _isolated_vectora_home, _previous_vectora_home
+    if os.environ.get("VECTORA_TEST_ALLOW_EXTERNAL_HOME") == "1":
         return
+    _previous_vectora_home = os.environ.get("VECTORA_HOME")
     home_dir = tempfile.mkdtemp(prefix="vectora-test-home-")
     os.environ["VECTORA_HOME"] = home_dir
     _isolated_vectora_home = home_dir
@@ -106,6 +109,7 @@ _diag_test_count = 0
 
 
 def pytest_runtest_teardown(item: Any) -> None:
+    """Executa a operação pytest runtest teardown."""
     global _diag_test_count
     _diag_test_count += 1
     if _diag_test_count % 20 != 0:
@@ -151,6 +155,10 @@ def pytest_unconfigure(config: Any) -> None:
     # registrado via atexit.
     if _isolated_vectora_home is not None:
         shutil.rmtree(_isolated_vectora_home, ignore_errors=True)
+        if _previous_vectora_home is None:
+            os.environ.pop("VECTORA_HOME", None)
+        else:
+            os.environ["VECTORA_HOME"] = _previous_vectora_home
 
     # Em workers do pytest-xdist NÃO forçamos o exit: quebraria o protocolo de
     # coleta de resultados do processo controlador. Só o principal encerra.
@@ -170,12 +178,14 @@ def pytest_unconfigure(config: Any) -> None:
 
 
 def _free_port() -> int:
+    """Executa a operação free port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
 
 
 async def _wait_port_open(port: int, timeout_s: float) -> None:
+    """Executa a operação wait port open."""
     loop = asyncio.get_event_loop()
     deadline = loop.time() + timeout_s
     last_error: OSError | None = None
@@ -206,6 +216,7 @@ _background_tasks: set[asyncio.Task[None]] = set()
 
 
 def _track(task: asyncio.Task[None]) -> None:
+    """Executa a operação track."""
     _background_tasks.add(task)
     task.add_done_callback(_background_tasks.discard)
 

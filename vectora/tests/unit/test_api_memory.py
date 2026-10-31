@@ -35,6 +35,7 @@ def client(monkeypatch, store):
     os.environ["VECTORA_AUTH_REQUIRED"] = "false"
 
     async def _fake_get_store():
+        """Executa a operação  fake get store."""
         return store
 
     monkeypatch.setattr("backend.services.agent_factory.get_store", _fake_get_store)
@@ -49,7 +50,7 @@ def client(monkeypatch, store):
 
 
 class TestMemoryList:
-    def test_list_empty(self, client):
+    def test_list_empty(self, client) -> None:
         """GET /memory retorna lista vazia inicialmente."""
         resp = client.get("/memory")
         assert resp.status_code == 200
@@ -57,7 +58,7 @@ class TestMemoryList:
         assert data["memories"] == []
         assert data["total"] == 0
 
-    def test_list_with_items(self, client):
+    def test_list_with_items(self, client) -> None:
         """Lista retorna itens após POST."""
         client.post(
             "/memory",
@@ -69,9 +70,66 @@ class TestMemoryList:
         assert len(data["memories"]) >= 1
         assert any(m["key"] == "test1" for m in data["memories"])
 
+    def test_list_hides_expired_items(self, client, store) -> None:
+        """Verifica o comportamento de list hides expired items."""
+        import asyncio
+
+        asyncio.run(
+            store.aput(
+                ("user", "local", "memories"),
+                "old",
+                {"content": "expired", "valid_until": "2000-01-01T00:00:00"},
+            )
+        )
+        resp = client.get("/memory")
+        assert resp.status_code == 200
+        assert resp.json()["total"] == 0
+
+    def test_get_expired_item_returns_not_found(self, client, store) -> None:
+        """Verifica o comportamento de get expired item returns not found."""
+        import asyncio
+
+        asyncio.run(
+            store.aput(
+                ("user", "local", "memories"),
+                "old",
+                {"content": "expired", "valid_until": "2000-01-01T00:00:00"},
+            )
+        )
+        assert client.get("/memory/old").status_code == 404
+
+    def test_journey_hides_expired_fact(self, client, store) -> None:
+        """Verifica o comportamento de journey hides expired fact."""
+        import asyncio
+
+        asyncio.run(
+            store.aput(
+                ("user", "local", "memories"),
+                "old-fact",
+                {
+                    "content": "expired",
+                    "valid_until": "2000-01-01T00:00:00",
+                    "metadata": {"tag": "user_model"},
+                },
+            )
+        )
+        asyncio.run(
+            store.aput(
+                ("user", "local", "memories"),
+                "live-fact",
+                {
+                    "content": "vigente",
+                    "metadata": {"tag": "user_model", "source": "test"},
+                },
+            )
+        )
+        response = client.get("/memory/journey")
+        assert response.status_code == 200
+        assert [fact["key"] for fact in response.json()["facts"]] == ["live-fact"]
+
 
 class TestMemoryCreate:
-    def test_create_happy(self, client):
+    def test_create_happy(self, client) -> None:
         """POST /memory cria nova memória."""
         resp = client.post(
             "/memory",
@@ -91,7 +149,7 @@ class TestMemoryCreate:
         mem = get_resp.json()
         assert mem["content"] == "my content"
 
-    def test_create_duplicate_409(self, client):
+    def test_create_duplicate_409(self, client) -> None:
         """POST duplicada retorna 409 Conflict."""
         client.post("/memory", json={"key": "dup_key", "content": "first"})
         resp = client.post("/memory", json={"key": "dup_key", "content": "second"})
@@ -99,7 +157,7 @@ class TestMemoryCreate:
 
 
 class TestMemoryUpdate:
-    def test_update_happy(self, client):
+    def test_update_happy(self, client) -> None:
         """PUT /memory/{key} edita conteúdo."""
         client.post("/memory", json={"key": "edit_key", "content": "original"})
 
@@ -113,14 +171,14 @@ class TestMemoryUpdate:
         get_resp = client.get("/memory/edit_key")
         assert get_resp.json()["content"] == "updated"
 
-    def test_update_nonexistent_404(self, client):
+    def test_update_nonexistent_404(self, client) -> None:
         """PUT em chave inexistente retorna 404."""
         resp = client.put("/memory/nonexistent", json={"content": "should fail"})
         assert resp.status_code == 404
 
 
 class TestMemoryDelete:
-    def test_delete_happy(self, client):
+    def test_delete_happy(self, client) -> None:
         """DELETE /memory/{key} remove."""
         client.post("/memory", json={"key": "del_key", "content": "to delete"})
         resp = client.delete("/memory/del_key")
@@ -130,7 +188,7 @@ class TestMemoryDelete:
         get_resp = client.get("/memory/del_key")
         assert get_resp.status_code == 404
 
-    def test_delete_nonexistent_404(self, client):
+    def test_delete_nonexistent_404(self, client) -> None:
         """DELETE inexistente retorna 404."""
         resp = client.delete("/memory/nonexistent")
         assert resp.status_code == 404
@@ -152,6 +210,7 @@ class TestMemorySharedStoreWithAgent:
     async def test_memory_saved_via_agent_tool_appears_in_api(
         self, client, store, monkeypatch
     ):
+        """Verifica o comportamento de memory saved via agent tool appears in api."""
         from backend.tools.context import ToolContext
         from backend.tools.memory import save_memory
 
@@ -170,7 +229,8 @@ class TestMemorySharedStoreWithAgent:
     @pytest.mark.asyncio
     async def test_memory_created_via_api_is_visible_to_agent_tool(
         self, client, store, monkeypatch
-    ):
+    ) -> None:
+        """Verifica o comportamento de memory created via api is visible to agent tool."""
         from backend.tools.context import ToolContext
         from backend.tools.memory import get_memory
 
@@ -182,6 +242,27 @@ class TestMemorySharedStoreWithAgent:
         assert '"status": "found"' in out
         assert "salvo pelo painel" in out
 
+    @pytest.mark.asyncio
+    async def test_save_memory_untrusted_content_cannot_promote_trust(
+        self, store, monkeypatch
+    ) -> None:
+        """Conteúdo marcado como não confiável permanece não confiável."""
+        from backend.tools.context import ToolContext
+        from backend.tools.memory import save_memory
+
+        monkeypatch.setattr("backend.tools.memory._get_store", lambda ctx: store)
+        ctx = ToolContext(user_id="local", _extra={"untrusted_content": True})
+        result = await save_memory(
+            ctx=ctx,
+            key="untrusted",
+            content="conteúdo externo",
+            metadata={"trust_level": "trusted"},
+        )
+        assert '"status": "saved"' in result
+        saved = await store.aget(("user", "local", "memories"), "untrusted")
+        assert saved is not None
+        assert saved.value["metadata"]["trust_level"] == "untrusted"
+
 
 class TestJourney:
     """GET /memory/journey — o que o Remember aprendeu sobre o usuário."""
@@ -189,6 +270,7 @@ class TestJourney:
     def test_usuario_sem_nada_aprendido_retorna_listas_vazias(
         self, client, monkeypatch
     ):
+        """Verifica o comportamento de usuario sem nada aprendido retorna listas vazias."""
         monkeypatch.setattr("backend.workspace.skills.list_skills", lambda _u: [])
 
         resp = client.get("/memory/journey")
@@ -201,6 +283,7 @@ class TestJourney:
     def test_lista_fatos_user_model_e_skills_do_learning_loop(
         self, client, monkeypatch
     ):
+        """Verifica o comportamento de lista fatos user model e skills do learning loop."""
         from backend.vtypes.skill import Skill
 
         client.post(
@@ -249,8 +332,13 @@ class TestJourney:
         assert data["facts"][0]["source"] == "learn_from_session"
         assert [s["id"] for s in data["skills"]] == ["revisar-pr"]
 
-    def test_falha_ao_listar_skills_nao_derruba_o_painel(self, client, monkeypatch):
+    def test_falha_ao_listar_skills_nao_derruba_o_painel(
+        self, client, monkeypatch
+    ) -> None:
+        """Verifica o comportamento de falha ao listar skills nao derruba o painel."""
+
         def _explode(_u):
+            """Executa a operação  explode."""
             raise OSError("índice de skills corrompido")
 
         monkeypatch.setattr("backend.workspace.skills.list_skills", _explode)
@@ -270,7 +358,9 @@ class TestJourney:
         assert [f["key"] for f in resp.json()["facts"]] == ["learned-fact-2"]
         assert resp.json()["skills"] == []
 
-    def test_journey_nao_e_capturado_pela_rota_de_chave(self, client, monkeypatch):
+    def test_journey_nao_e_capturado_pela_rota_de_chave(
+        self, client, monkeypatch
+    ) -> None:
         """Regressão de ordem de rota: se `/{key}` for declarada antes,
         "journey" vira uma busca por chave e devolve 404."""
         monkeypatch.setattr("backend.workspace.skills.list_skills", lambda _u: [])

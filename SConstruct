@@ -638,10 +638,17 @@ def _run_vectora_suite(log, *, coverage: bool):
     _run(vitest_cmd, log=log)
 
     # ── vectora/backend ───────────────────────────────────────────────────────
-    # "-m not live" exclui os testes sem mock que chamam LLM/Tavily reais
-    # (marker `live`) — só rodam via `scons tests-live`, nunca aqui
-    # (custariam API real a cada `scons tests`/`scons coverage`).
-    pytest_cmd = ["uv", "run", "pytest", "tests", "-q", "--tb=short", "-m", "not live"]
+    # Testes live e benchmarks são opt-in; não entram no ciclo padrão.
+    pytest_cmd = [
+        "uv",
+        "run",
+        "pytest",
+        "tests",
+        "-q",
+        "--tb=short",
+        "-m",
+        "not live and not benchmark",
+    ]
     if coverage:
         pytest_cmd += [
             "--cov=backend",

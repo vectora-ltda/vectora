@@ -22,7 +22,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from check_no_plan_comments import _PATTERN  # noqa: E402
+from check_no_plan_comments import _PR_METADATA_PATTERN  # noqa: E402
 
 # Blocos que o próprio CodeRabbit insere no corpo do PR (resumo de review,
 # "Summary by CodeRabbit") — sempre delimitados por um comentário HTML de
@@ -38,18 +38,20 @@ _AUTO_GENERATED_BLOCK = re.compile(
 
 
 def _strip_bot_blocks(body: str) -> str:
+    """Executa a operação strip bot blocks."""
     return _AUTO_GENERATED_BLOCK.sub("", body)
 
 
 def main() -> int:
+    """Executa a operação main."""
     title = os.environ.get("PR_TITLE", "")
     body = _strip_bot_blocks(os.environ.get("PR_BODY", "") or "")
 
     violations: list[tuple[str, str]] = []
-    if _PATTERN.search(title):
+    if _PR_METADATA_PATTERN.search(title):
         violations.append(("título", title.strip()))
     for line in body.splitlines():
-        if _PATTERN.search(line):
+        if _PR_METADATA_PATTERN.search(line):
             violations.append(("descrição", line.strip()))
 
     if not violations:

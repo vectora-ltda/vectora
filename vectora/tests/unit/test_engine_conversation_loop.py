@@ -13,6 +13,8 @@ import pytest
 
 from backend.engine.conversation_loop import (
     LoopConfig,
+    _load_persistent_context_memories,
+    _preserve_latest_tool_result,
     resume_conversation,
     run_conversation,
 )
@@ -32,6 +34,8 @@ from backend.engine.stream_events import (
     WorkbenchInvalidate,
 )
 from backend.persistence.native.session_store import SessionStore
+from backend.services.context_planner import compute_transcript_hash
+from backend.services.policy_compiler import PolicySnapshot
 from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.tools import media as _media_module
 from backend.tools import planning as _planning_module
@@ -48,6 +52,7 @@ from backend.vtypes.message import (
 
 
 def _register(registry: ToolRegistry, nome: str) -> None:
+    """Executa a operação  register."""
     spec = TOOL_REGISTRY.get(nome)
     assert spec is not None
     registry.register(spec)
@@ -59,10 +64,12 @@ class _ScriptedChatClient:
     deve produzir."""
 
     def __init__(self, turnos: list[list[VMessageChunk]]) -> None:
+        """Inicializa o estado da instância."""
         self._turnos = turnos
         self.chamadas = 0
 
     async def astream(self, messages, *, tools=None, temperature=None, max_tokens=None):
+        """Executa a operação astream."""
         turno = self._turnos[self.chamadas]
         self.chamadas += 1
         for chunk in turno:
@@ -71,12 +78,14 @@ class _ScriptedChatClient:
     async def agenerate(
         self, messages, *, tools=None, temperature=None, max_tokens=None
     ):
+        """Executa a operação agenerate."""
         msg = "não usado pelo loop (astream-only)"
         raise NotImplementedError(msg)
 
 
 @pytest.fixture
 async def session_store(tmp_path):
+    """Executa a operação session store."""
     pool = AsyncConnectionPool(str(tmp_path / "loop.db"), min_size=1, max_size=2)
     await pool.open()
     store = SessionStore(pool)
@@ -90,14 +99,65 @@ async def session_store(tmp_path):
 
 @pytest.fixture
 def ctx() -> ToolContext:
+    """Executa a operação ctx."""
     return ToolContext(user_id="alice", thread_id="thread-1")
 
 
 def _texto_chunk(texto: str) -> VMessageChunk:
+    """Executa a operação  texto chunk."""
     return VMessageChunk(delta_text=texto)
 
 
+@pytest.mark.parametrize(
+    ("model_id", "expected"),
+    [
+        ("ollama:qwen3", True),
+        ("llamacpp:qwen2.5-0.5b", True),
+        ("dmr:hf.co/Qwen/Qwen3-0.6B", True),
+        ("openrouter:openai/gpt-4.1-mini", False),
+        ("", False),
+    ],
+)
+def test_local_models_preserve_latest_tool_result(
+    model_id: str, expected: bool
+) -> None:
+    """Providers locais preservam a saída causal mais recente da ferramenta."""
+    assert _preserve_latest_tool_result(model_id) is expected
+
+
+@pytest.mark.asyncio
+async def test_load_persistent_context_memories_uses_memory_tool_namespace() -> None:
+    """Verifica o comportamento de load persistent context memories uses memory tool namespace."""
+
+    class Store:
+        async def asearch(self, namespace, *, limit):
+            """Executa a operação asearch."""
+            assert namespace == ("user", "workspace_ws-1", "memories")
+            assert limit == 5
+            return [
+                type(
+                    "Item",
+                    (),
+                    {
+                        "key": "rule",
+                        "value": {
+                            "content": "Use testes determinísticos",
+                            "metadata": {"domain": "project"},
+                        },
+                    },
+                )()
+            ]
+
+    context = ToolContext(user_id="local", workspace_id="ws-1", store=Store())
+    records = await _load_persistent_context_memories(context)
+
+    assert [record.id for record in records] == ["rule"]
+    assert records[0].content == "Use testes determinísticos"
+    assert records[0].metadata == {"domain": "project"}
+
+
 def _tool_call_chunk(*, index: int, id: str, name: str, args: str) -> VMessageChunk:  # noqa: A002
+    """Executa a operação  tool call chunk."""
     return VMessageChunk(
         tool_call_chunks=[
             ToolCallChunk(index=index, id=id, name=name, args_fragment=args)
@@ -106,7 +166,101 @@ def _tool_call_chunk(*, index: int, id: str, name: str, args: str) -> VMessageCh
 
 
 class TestParadaNormal:
+    async def test_quality_gate_persiste_evidencia_antes_do_status_terminal(
+        self, session_store, ctx, monkeypatch
+    ):
+        """A evidência fica durável enquanto o run ainda está em verifying.
+
+        Isso evita que uma falha entre o upsert da evidência e a transição
+        terminal deixe o histórico com um status terminal sem o artefato que
+        explica a decisão do gate.
+        """
+        from backend.persistence.native.agent_run import AgentRun
+        from backend.services.verification import VerificationResult
+
+        await session_store.upsert_agent_run(
+            AgentRun(run_id="run-gate-order", thread_id="thread-1", status="running")
+        )
+        statuses_seen: list[str] = []
+        original_upsert = session_store.upsert_agent_run
+
+        async def record_upsert(run):
+            """Executa a operação record upsert."""
+            statuses_seen.append(run.status)
+            await original_upsert(run)
+
+        monkeypatch.setattr(session_store, "upsert_agent_run", record_upsert)
+
+        async def fake_verification(*_args, **_kwargs):
+            """Executa a operação fake verification."""
+            return VerificationResult(
+                passed=True,
+                status="passed",
+                outcome="passed",
+                snapshot_sha256="snapshot",
+            )
+
+        monkeypatch.setattr(
+            "backend.services.verification.run_verification", fake_verification
+        )
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=_ScriptedChatClient([[_texto_chunk("ok")]]),
+            tool_registry=ToolRegistry(),
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(run_id="run-gate-order"),
+        )
+
+        assert resultado.stopped_reason == "stop"
+        assert statuses_seen == ["verifying"]
+        stored = await session_store.get_agent_run("run-gate-order")
+        assert stored is not None
+        assert stored.status == "passed"
+        assert stored.evidence[-1]["snapshot_sha256"] == "snapshot"
+
+    async def test_checkpoint_de_tool_impede_reexecucao_cego(self, session_store, ctx):
+        """Verifica o comportamento de checkpoint de tool impede reexecucao cego."""
+        from backend.persistence.native.agent_run import AgentRun
+
+        await session_store.upsert_agent_run(
+            AgentRun(run_id="run-recovery", thread_id="thread-1", status="running")
+        )
+        await session_store.save_context_checkpoint(
+            "thread-1",
+            "run-recovery",
+            {
+                "checkpoint_id": "run-recovery:seq:0:tool_running",
+                "last_sequence": 0,
+                "source_hash": compute_transcript_hash([]),
+                "schema_version": "context.v1",
+                "state": {
+                    "phase": "tool_running",
+                    "pending_tool_call_ids": ["tool-1"],
+                },
+            },
+        )
+        client = _ScriptedChatClient([[_texto_chunk("não deveria chamar")]])
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=ToolRegistry(),
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(run_id="run-recovery"),
+        )
+
+        assert resultado.stopped_reason == "recovery_required"
+        assert client.chamadas == 0
+        stored = await session_store.get_agent_run("run-recovery")
+        assert stored is not None
+        assert stored.status == "recovery_required"
+        assert stored.error_code == "CHECKPOINT_TOOL_RECONCILIATION_REQUIRED"
+
     async def test_sem_tool_calls_para_no_primeiro_turno(self, session_store, ctx):
+        """Verifica o comportamento de sem tool calls para no primeiro turno."""
         client = _ScriptedChatClient([[_texto_chunk("olá!")]])
         resultado = await run_conversation(
             session_store=session_store,
@@ -131,10 +285,12 @@ class TestParadaNormal:
         ctx: ToolContext,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
+        """Verifica o comportamento de resposta vazia emite erro diagnosticavel."""
         client = _ScriptedChatClient([[]])
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         with caplog.at_level("INFO", logger="backend.engine.conversation_loop"):
@@ -165,11 +321,48 @@ class TestParadaNormal:
             for record in caplog.records
         )
 
+    async def test_provider_sem_id_usa_identidade_nova_em_turnos_consecutivos(
+        self, session_store: SessionStore, ctx: ToolContext
+    ) -> None:
+        """IDs derivados não podem colidir entre duas mensagens da mesma thread."""
+
+        @vtool(extras=ToolExtras())
+        async def lembrar(ctx: ToolContext) -> str:
+            """Tool sem efeitos usada para capturar a correlação do chamado."""
+            return "ok"
+
+        registry = ToolRegistry()
+        _register(registry, "lembrar")
+        turn = [_tool_call_chunk(index=0, id="", name="lembrar", args="{}")]
+
+        for _ in range(2):
+            client = _ScriptedChatClient([turn, [_texto_chunk("fim")]])
+            result = await run_conversation(
+                session_store=session_store,
+                chat_client=client,
+                tool_registry=registry,
+                ctx=ctx,
+                thread_id="thread-1",
+                config=LoopConfig(max_iterations=2),
+            )
+            assert result.stopped_reason == "stop"
+
+        calls = [
+            call.id
+            for message in await session_store.get_history("thread-1")
+            for call in message.tool_calls
+        ]
+        assert len(calls) == 2
+        assert all(calls)
+        assert len(set(calls)) == 2
+
 
 class TestMaxIterations:
     async def test_estoura_o_teto_sem_nunca_parar_naturalmente(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de estoura o teto sem nunca parar naturalmente."""
+
         @vtool(extras=ToolExtras())
         async def loop_tool(ctx: ToolContext) -> str:
             """tool que sempre é chamada de novo."""
@@ -183,6 +376,7 @@ class TestMaxIterations:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         resultado = await run_conversation(
@@ -205,6 +399,8 @@ class TestGuardrailDeRepeticao:
     async def test_chamadas_identicas_disparam_aviso_diferentes_nao(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de chamadas identicas disparam aviso diferentes nao."""
+
         @vtool(extras=ToolExtras())
         async def buscar(query: str, ctx: ToolContext) -> str:
             """busca algo.
@@ -226,6 +422,7 @@ class TestGuardrailDeRepeticao:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -265,6 +462,7 @@ class TestGuardrailDeRepeticao:
         eventos2: list[EngineEvent] = []
 
         async def on_event2(event: EngineEvent) -> None:
+            """Executa a operação on event2."""
             eventos2.append(event)
 
         await run_conversation(
@@ -282,6 +480,8 @@ class TestGuardrailDeRepeticao:
     async def test_loop_de_tool_repetida_e_interrompido_com_diagnostico(
         self, session_store: SessionStore, ctx: ToolContext
     ) -> None:
+        """Verifica o comportamento de loop de tool repetida e interrompido com diagnostico."""
+
         @vtool(extras=ToolExtras())
         async def buscar(query: str, ctx: ToolContext) -> str:
             """Busca usada para simular uma tool que não produz progresso."""
@@ -308,6 +508,7 @@ class TestGuardrailDeRepeticao:
         )
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         resultado = await run_conversation(
@@ -336,6 +537,8 @@ class TestGuardrailDeRepeticao:
 
 class TestToolCallsSequenciais:
     async def test_chama_tool_depois_para_no_turno_seguinte(self, session_store, ctx):
+        """Verifica o comportamento de chama tool depois para no turno seguinte."""
+
         @vtool(extras=ToolExtras())
         async def somar(a: int, b: int, ctx: ToolContext) -> str:
             """soma dois números.
@@ -384,6 +587,8 @@ class TestToolCallsParalelos:
     async def test_duas_tools_nao_destrutivas_executam_e_retornam(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de duas tools nao destrutivas executam e retornam."""
+
         @vtool(extras=ToolExtras(destructive=False))
         async def ler_a(ctx: ToolContext) -> str:
             """lê a."""
@@ -427,6 +632,8 @@ class TestHitl:
     async def test_lote_misto_com_uma_tool_sensivel_pausa_sem_executar_nenhuma(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de lote misto com uma tool sensivel pausa sem executar nenhuma."""
+
         @vtool(extras=ToolExtras(destructive=False))
         async def ler_arquivo(ctx: ToolContext) -> str:
             """lê um arquivo."""
@@ -455,6 +662,7 @@ class TestHitl:
         )
 
         def should_require_approval(nome, _ctx, _args, _history):
+            """Executa a operação should require approval."""
             return nome == "escrever_arquivo"
 
         resultado = await run_conversation(
@@ -475,6 +683,8 @@ class TestHitl:
         assert len(historico[0].tool_calls) == 2
 
     async def test_sem_should_require_approval_nunca_pausa(self, session_store, ctx):
+        """Verifica o comportamento de sem should require approval nunca pausa."""
+
         @vtool(extras=ToolExtras(destructive=True))
         async def deletar(ctx: ToolContext) -> str:
             """deleta algo."""
@@ -505,10 +715,12 @@ class TestHitl:
 
 class TestEmissaoDeEventos:
     async def test_token_e_message_break_emitidos_na_ordem(self, session_store, ctx):
+        """Verifica o comportamento de token e message break emitidos na ordem."""
         client = _ScriptedChatClient([[_texto_chunk("oi"), _texto_chunk(" tudo bem")]])
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -528,6 +740,8 @@ class TestEmissaoDeEventos:
         ]
 
     async def test_tool_result_emitido_apos_execucao(self, session_store, ctx):
+        """Verifica o comportamento de tool result emitido apos execucao."""
+
         @vtool(extras=ToolExtras())
         async def adicionar(a: int, b: int, ctx: ToolContext) -> str:
             """soma dois números.
@@ -553,6 +767,7 @@ class TestEmissaoDeEventos:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -573,6 +788,8 @@ class TestEmissaoDeEventos:
     async def test_hitl_requested_emitido_com_argumentos_da_tool(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de hitl requested emitido com argumentos da tool."""
+
         @vtool(extras=ToolExtras(destructive=True))
         async def escrever(ctx: ToolContext) -> str:
             """escreve algo."""
@@ -587,6 +804,7 @@ class TestEmissaoDeEventos:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -611,6 +829,7 @@ class TestEmissaoDeEventos:
     async def test_write_terminal_preserva_entrada_bruta_ao_aprovar(
         self, session_store, ctx, monkeypatch
     ) -> None:
+        """Verifica o comportamento de write terminal preserva entrada bruta ao aprovar."""
         import backend.tools.terminal_sessions
 
         registry = ToolRegistry()
@@ -662,7 +881,9 @@ class TestEmissaoDeEventos:
             tool_registry: ToolRegistry,
             ctx: ToolContext,
             on_event: EventSink | None = None,
+            policy_snapshot: PolicySnapshot | None = None,
         ) -> VMessage:
+            """Executa a operação fake execute."""
             chamadas.append(dict(tool_call.args))
             return VMessage(
                 role=MessageRole.TOOL,
@@ -693,6 +914,8 @@ class TestEmissaoDeEventos:
     async def test_tool_call_started_e_activity_emitidos_antes_e_depois(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de tool call started e activity emitidos antes e depois."""
+
         @vtool(extras=ToolExtras(category="general", icon="wrench"))
         async def somar3(a: int, b: int, ctx: ToolContext) -> str:
             """soma dois números.
@@ -718,6 +941,7 @@ class TestEmissaoDeEventos:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -754,6 +978,8 @@ class TestEmissaoDeEventos:
     async def test_tool_com_invalidates_emite_workbench_invalidate(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de tool com invalidates emite workbench invalidate."""
+
         @vtool(extras=ToolExtras(invalidates=["files", "git"]))
         async def escrever2(ctx: ToolContext) -> str:
             """escreve algo."""
@@ -771,6 +997,7 @@ class TestEmissaoDeEventos:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -793,6 +1020,8 @@ class TestArgsPreview:
     async def test_campo_semantico_vira_preview_no_inicio_e_no_fim(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de campo semantico vira preview no inicio e no fim."""
+
         @vtool(extras=ToolExtras())
         async def ler_arquivo(path: str, ctx: ToolContext) -> str:
             """lê um arquivo.
@@ -820,6 +1049,7 @@ class TestArgsPreview:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -838,6 +1068,8 @@ class TestArgsPreview:
         assert activities[1].args_preview == "backend/auth.py"
 
     async def test_preview_trunca_em_80_chars(self, session_store, ctx):
+        """Verifica o comportamento de preview trunca em 80 chars."""
+
         @vtool(extras=ToolExtras())
         async def buscar(query: str, ctx: ToolContext) -> str:
             """busca algo.
@@ -866,6 +1098,7 @@ class TestArgsPreview:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -883,6 +1116,8 @@ class TestArgsPreview:
         assert activities[0].args_preview == "x" * 80
 
     async def test_sem_campo_semantico_usa_fallback_k_igual_v(self, session_store, ctx):
+        """Verifica o comportamento de sem campo semantico usa fallback k igual v."""
+
         @vtool(extras=ToolExtras())
         async def somar4(a: int, b: int, ctx: ToolContext) -> str:
             """soma dois números.
@@ -908,6 +1143,7 @@ class TestArgsPreview:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -928,6 +1164,7 @@ class TestTodosUpdated:
     async def test_write_todos_emite_todos_updated_com_lista_completa(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de write todos emite todos updated com lista completa."""
         registry = ToolRegistry()
         _register(registry, "write_todos")
 
@@ -954,6 +1191,7 @@ class TestTodosUpdated:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -976,6 +1214,8 @@ class TestTodosUpdated:
     async def test_tool_diferente_de_write_todos_nunca_emite_todos_updated(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de tool diferente de write todos nunca emite todos updated."""
+
         @vtool(extras=ToolExtras())
         async def outra_tool(ctx: ToolContext) -> str:
             """não é write_todos."""
@@ -993,6 +1233,7 @@ class TestTodosUpdated:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -1034,6 +1275,7 @@ class TestTodosUpdated:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         await run_conversation(
@@ -1055,6 +1297,8 @@ class TestLoopCapGuardrail:
     async def test_estoura_teto_de_tool_calls_encerra_turno_sem_esgotar_max_iterations(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de estoura teto de tool calls encerra turno sem esgotar max iterations."""
+
         @vtool(extras=ToolExtras())
         async def contar(n: int, ctx: ToolContext) -> str:
             """conta.
@@ -1077,6 +1321,7 @@ class TestLoopCapGuardrail:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         resultado = await run_conversation(
@@ -1099,6 +1344,8 @@ class TestLoopCapGuardrail:
         assert any(e.code == "LOOP_CAP_EXCEEDED" for e in sinais)
 
     async def test_dentro_do_teto_nunca_dispara_o_guardrail(self, session_store, ctx):
+        """Verifica o comportamento de dentro do teto nunca dispara o guardrail."""
+
         @vtool(extras=ToolExtras())
         async def contar2(n: int, ctx: ToolContext) -> str:
             """conta.
@@ -1118,6 +1365,7 @@ class TestLoopCapGuardrail:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         resultado = await run_conversation(
@@ -1139,6 +1387,8 @@ class TestResumeConversation:
     async def test_aprovar_executa_a_tool_sinalizada_e_libera_a_pendencia(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de aprovar executa a tool sinalizada e libera a pendencia."""
+
         @vtool(extras=ToolExtras(destructive=True))
         async def escrever_arquivo2(ctx: ToolContext) -> str:
             """escreve um arquivo."""
@@ -1163,7 +1413,7 @@ class TestResumeConversation:
             tool_registry=registry,
             ctx=ctx,
             thread_id="thread-1",
-            config=LoopConfig(),
+            config=LoopConfig(run_id="run-hitl-1"),
             should_require_approval=lambda *_a: True,
             approval_gate=gate,
         )
@@ -1173,6 +1423,7 @@ class TestResumeConversation:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         resumiu = await resume_conversation(
@@ -1195,13 +1446,23 @@ class TestResumeConversation:
         assert resultados == [
             ToolResult(tool_call_id="call_1", content_json="escrito!", is_error=False)
         ]
+        ledger = await session_store.list_events("thread-1")
+        tool_events = [event for event in ledger if event.type.startswith("tool_")]
+        assert [event.type for event in tool_events] == [
+            "tool_started",
+            "tool_finished",
+        ]
+        assert {event.run_id for event in tool_events} == {"run-hitl-1"}
+        assert {event.tool_call_id for event in tool_events} == {"call_1"}
 
     async def test_aprovar_classifica_erro_mcp_localizado_e_registra_uso(
         self, session_store, ctx, monkeypatch
     ):
+        """Verifica o comportamento de aprovar classifica erro mcp localizado e registra uso."""
         chamadas: list[tuple[str, str, str]] = []
 
         async def registrar(user_id: str, tool_name: str, status: str) -> None:
+            """Executa a operação registrar."""
             chamadas.append((user_id, tool_name, status))
 
         monkeypatch.setattr("backend.services.tool_usage.record_tool_usage", registrar)
@@ -1231,6 +1492,7 @@ class TestResumeConversation:
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
             eventos.append(event)
 
         assert await resume_conversation(
@@ -1250,6 +1512,8 @@ class TestResumeConversation:
     async def test_rejeitar_nao_executa_a_tool_e_persiste_mensagem_de_erro(
         self, session_store, ctx
     ):
+        """Verifica o comportamento de rejeitar nao executa a tool e persiste mensagem de erro."""
+
         @vtool(extras=ToolExtras(destructive=True))
         async def deletar_tudo(ctx: ToolContext) -> str:
             """deleta tudo — nunca deveria rodar quando rejeitado."""
@@ -1289,6 +1553,7 @@ class TestResumeConversation:
         assert "rejeitou" in historico[-1].text().lower()
 
     async def test_sem_pendencia_nao_faz_nada_e_devolve_false(self, session_store, ctx):
+        """Verifica o comportamento de sem pendencia nao faz nada e devolve false."""
         resumiu = await resume_conversation(
             session_store=session_store,
             tool_registry=ToolRegistry(),
@@ -1324,12 +1589,15 @@ class TestResumeConversation:
         eventos_quota: list[tuple[str, dict[str, object]]] = []
 
         async def fake_summary(_user_id: str) -> dict[str, int]:
+            """Executa a operação fake summary."""
             return {"remaining": 100, "used": 0, "limit": 100}
 
         def record_quota(event: str, **fields: object) -> None:
+            """Executa a operação record quota."""
             eventos_quota.append((event, fields))
 
         async def fake_media_handler(**kwargs: object) -> str:
+            """Executa a operação fake media handler."""
             chamadas.append(kwargs)
             return "mídia gerada"
 
@@ -1435,9 +1703,11 @@ class TestResumeConversation:
         chamadas: list[dict[str, object]] = []
 
         async def fake_summary(_user_id: str) -> dict[str, int]:
+            """Executa a operação fake summary."""
             return {"remaining": 100, "used": 0, "limit": 100}
 
         async def fake_media_handler(**kwargs: object) -> str:
+            """Executa a operação fake media handler."""
             chamadas.append(kwargs)
             return "mídia gerada"
 
@@ -1481,3 +1751,35 @@ class TestResumeConversation:
         )
         assert chamadas == []
         assert await session_store.get_pending_approval("thread-1") is None
+
+    async def test_run_conversation_restores_untrusted_content_from_run(
+        self, session_store: SessionStore, ctx: ToolContext
+    ) -> None:
+        """Verifica o comportamento de run conversation restores untrusted content from run."""
+        from backend.persistence.native.agent_run import AgentRun
+
+        await session_store.upsert_agent_run(
+            AgentRun(
+                run_id="run-untrusted-ctx",
+                thread_id="thread-1",
+                status="waiting_approval",
+                untrusted_content=True,
+            )
+        )
+
+        client = _ScriptedChatClient([[_texto_chunk("olá")]])
+        registry = ToolRegistry()
+
+        assert "untrusted_content" not in ctx._extra
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+        )
+
+        assert resultado.stopped_reason == "stop"
+        assert ctx._extra.get("untrusted_content") is True

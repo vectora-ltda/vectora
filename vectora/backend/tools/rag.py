@@ -6,9 +6,10 @@ import asyncio
 import json
 import logging
 import time
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from backend.embedding.queue import get_embedding_queue
 from backend.services.text import text_service
@@ -16,6 +17,9 @@ from backend.settings import settings
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 from backend.vtypes.documents import Document
+
+if TYPE_CHECKING:
+    from backend.llm.systemone.harness import SystemOneHarness
 
 try:
     import lancedb
@@ -101,6 +105,110 @@ def _build_openrouter_reranker() -> Any:
         return None
 
 
+class SystemOneRerank:
+    """Reranker opcional baseado em Decision Models via `SystemOneHarness`.
+
+    Preserva metadados, IDs estáveis e permissões dos candidatos filtrados,
+    aplica desempate determinístico e degrada para o ranking original em falha.
+    """
+
+    def __init__(
+        self,
+        harness: SystemOneHarness,
+        *,
+        top_n: int = 5,
+        workspace_id: str = "default",
+    ) -> None:
+        """Inicializa o estado da instância."""
+        self.harness = harness
+        self.top_n = max(1, int(top_n))
+        self.workspace_id = workspace_id
+        self.last_status = "not_called"
+
+    async def acompress_documents(
+        self, documents: Sequence[Document], query: str, callbacks: object | None = None
+    ) -> list[Document]:
+        """Executa a operação acompress documents."""
+        docs = list(documents)
+        if not docs:
+            self.last_status = "not_called"
+            return []
+        self.last_status = "applied"
+        limit = min(self.top_n, len(docs))
+        candidates = [
+            {
+                "id": str(
+                    doc.metadata.get("id")
+                    or doc.metadata.get("chunk_id")
+                    or doc.metadata.get("source")
+                    or f"doc_{idx}"
+                ),
+                "snippet": doc.page_content[:2000],
+                "original_index": idx,
+                "doc": doc,
+            }
+            for idx, doc in enumerate(docs)
+        ]
+        try:
+            ranked = await self.harness.rerank_candidates(
+                workspace_id=self.workspace_id,
+                query=query,
+                candidates=candidates,
+                top_k=limit,
+            )
+            self.last_status = str(
+                getattr(self.harness, "last_rerank_status", "applied")
+            )
+            if not ranked:
+                self.last_status = "fallback"
+                return docs[:limit]
+            return [item["doc"] for item in ranked[:limit] if "doc" in item] or docs[
+                :limit
+            ]
+        except Exception:
+            self.last_status = "fallback"
+            logger.warning(
+                "rag: falha no reranking SystemOne — preservando ranking original",
+                exc_info=True,
+            )
+            return docs[:limit]
+
+    def compress_documents(
+        self, documents: Sequence[Document], query: str, callbacks: object | None = None
+    ) -> list[Document]:
+        """Executa a operação compress documents."""
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.acompress_documents(documents, query, callbacks))
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return cast(
+                "list[Document]",
+                pool.submit(
+                    asyncio.run, self.acompress_documents(documents, query, callbacks)
+                ).result(),
+            )
+
+
+def _build_systemone_reranker(
+    workspace_id: str = "default",
+) -> SystemOneRerank | None:
+    """Constrói `SystemOneRerank` se os Decision Models estiverem habilitados."""
+    try:
+        from backend.tools.systemone_tools import _build_default_harness
+
+        if not settings.systemone_enabled:
+            return None
+        harness = _build_default_harness()
+        top_k = int(_rag_runtime().get("reranker_top_k", settings.reranker_top_k))
+        return SystemOneRerank(harness, top_n=top_k, workspace_id=workspace_id)
+    except Exception:
+        logger.warning("rag: falha ao montar reranker SystemOne", exc_info=True)
+        return None
+
+
 def _rag_runtime() -> dict[str, Any]:
     """Settings de RAG configurados em runtime (aba de memória)."""
     from backend.workspace.runtime_settings import runtime_settings
@@ -108,7 +216,7 @@ def _rag_runtime() -> dict[str, Any]:
     return runtime_settings.rag_settings
 
 
-def _build_reranker() -> Any:
+def _build_reranker(workspace_id: str = "default") -> Any:
     """Reranker com fallback Cohere↔Voyage por quota.
 
     Honra os settings de runtime: ``reranker_enabled`` (off → None, sem rerank) e
@@ -122,8 +230,12 @@ def _build_reranker() -> Any:
         return None
     pref = str(rag.get("rerank_provider", "auto"))
     rtype = (
-        pref if pref in ("cohere", "voyage", "openrouter") else settings.reranker_type
+        pref
+        if pref in ("cohere", "voyage", "openrouter", "systemone")
+        else settings.reranker_type
     )
+    if rtype == "systemone":
+        return _build_systemone_reranker(workspace_id=workspace_id)
     if rtype == "openrouter":
         primary = _build_openrouter_reranker()
         if primary is None:
@@ -320,6 +432,28 @@ async def _search_one_collection_text(
     ]
 
 
+def _attach_retrieval_provenance(
+    results: list[dict[str, Any]],
+    *,
+    backend_name: str,
+    retrieval_method: str,
+) -> list[dict[str, Any]]:
+    """Anexa proveniência mínima e estável a cada resultado de retrieval."""
+    enriched: list[dict[str, Any]] = []
+    for rank, result in enumerate(results, start=1):
+        item = dict(result)
+        item["provenance"] = {
+            "source": "rag",
+            "backend": backend_name,
+            "collection": str(result.get("collection", "")),
+            "method": retrieval_method,
+            "rank": rank,
+            "score": result.get("score"),
+        }
+        enriched.append(item)
+    return enriched
+
+
 _RRF_K = 60
 
 
@@ -411,6 +545,7 @@ async def vector_search(
         from backend.storage.factory import get_vector_store_backend
 
         backend = await get_vector_store_backend()
+        backend_name = type(backend).__name__
 
         # embed_query usa input_type="search_query" (Cohere v3 é assimétrico:
         # os documentos são indexados com embed_documents → "search_document").
@@ -445,10 +580,23 @@ async def vector_search(
                 reverse=True,
             )
             results = _reciprocal_rank_fusion(vector_results, text_results, limit)
+            retrieval_method = "hybrid_rrf"
         else:
             results = vector_results[:limit]
+            retrieval_method = "vector"
 
         if not results:
+            try:
+                from backend.persistence.telemetry import telemetry
+
+                await telemetry.record_retrieval(
+                    query=query,
+                    collections=collections,
+                    result_count=0,
+                    retrieval_method=retrieval_method,
+                )
+            except Exception:
+                logger.debug("vector_search: telemetry unavailable", exc_info=True)
             return json.dumps(
                 {
                     "status": "no_results",
@@ -457,27 +605,75 @@ async def vector_search(
             )
 
         # Reranking opcional — melhora precisão (Cohere ou VoyageAI)
-        reranker = _build_reranker()
+        reranker_attempted: str | None = None
+        reranker_name: str | None = None
+        reranker_status = "not_configured"
+        reranker = _build_reranker(workspace_id=ctx.workspace_id or "default")
         if results and reranker is not None:
+            reranker_attempted = type(reranker).__name__
             try:
                 docs_to_rerank = [
-                    Document(page_content=str(r["content"]), metadata=r["metadata"])
+                    Document(
+                        page_content=str(r["content"]),
+                        metadata={
+                            **r["metadata"],
+                            "_retrieval_id": r["id"],
+                            "_retrieval_collection": r["collection"],
+                            "_retrieval_score": r["score"],
+                        },
+                    )
                     for r in results
                 ]
-                reranked_docs = reranker.compress_documents(docs_to_rerank, query)
+                acompress = getattr(reranker, "acompress_documents", None)
+                if callable(acompress):
+                    reranked_docs = await acompress(docs_to_rerank, query)
+                else:
+                    reranked_docs = await asyncio.to_thread(
+                        reranker.compress_documents, docs_to_rerank, query
+                    )
                 results = [
                     {
+                        "id": doc.metadata.get("_retrieval_id", ""),
                         "content": doc.page_content,
-                        "metadata": doc.metadata,
+                        "metadata": {
+                            key: value
+                            for key, value in doc.metadata.items()
+                            if not key.startswith("_retrieval_")
+                        },
+                        "collection": doc.metadata.get("_retrieval_collection", ""),
+                        "score": doc.metadata.get("_retrieval_score"),
                         "relevance_score": doc.metadata.get("relevance_score"),
                     }
                     for doc in reranked_docs
                 ]
+                reranker_status = str(getattr(reranker, "last_status", "applied"))
+                if reranker_status == "applied":
+                    reranker_name = reranker_attempted
                 logger.info("vector_search_reranked", extra={"top_k": len(results)})
             except Exception as rerank_err:
                 logger.warning(f"Reranking failed, using raw results: {rerank_err}")
+                reranker_status = "failed"
                 for r in results:
                     r["reranking_status"] = "unavailable"
+
+        results = _attach_retrieval_provenance(
+            results,
+            backend_name=backend_name,
+            retrieval_method=retrieval_method,
+        )
+        try:
+            from backend.persistence.telemetry import telemetry
+
+            await telemetry.record_retrieval(
+                query=query,
+                collections=collections,
+                result_count=len(results),
+                retrieval_method=retrieval_method,
+                reranker=reranker_name,
+                reranker_status=reranker_status,
+            )
+        except Exception:
+            logger.debug("vector_search: telemetry unavailable", exc_info=True)
 
         logger.info(
             "vector_search completed",
@@ -505,6 +701,14 @@ async def vector_search(
                 "results": results,
                 "query": query,
                 "collections": collections,
+                "retrieval": {
+                    "backend": backend_name,
+                    "method": retrieval_method,
+                    "reranker": reranker_name,
+                    "reranker_attempted": reranker_attempted,
+                    "reranker_status": reranker_status,
+                    "result_count": len(results),
+                },
             }
         )
 
@@ -832,6 +1036,7 @@ async def manage_retriever(
     needle = (source or "").lower()
 
     def _meta_matches(m: dict[str, Any]) -> bool:
+        """Executa a operação  meta matches."""
         return (
             needle in str(m.get("source", "")).lower()
             or needle in str(m.get("url", "")).lower()

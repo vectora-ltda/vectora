@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import get_type_hints
 
-from backend.vtypes.browser import BrowserTab, NetworkProfile
+from backend.vtypes.browser import BrowserTab, BrowserTarget, NetworkProfile
 from backend.vtypes.plan import DecompositionNode, KanbanCard
 from backend.vtypes.shell import TerminalCommand, TerminalResult
 from backend.vtypes.storage import HealthResult, QueueTask
@@ -24,6 +24,13 @@ def test_browser_contracts_describe_serializable_workbench_payloads() -> None:
         "latency",
         "downloadThroughput",
         "uploadThroughput",
+    }
+    assert set(get_type_hints(BrowserTarget)) == {
+        "workspace_id",
+        "profile_id",
+        "profile_kind",
+        "view_id",
+        "navigation_generation",
     }
 
 

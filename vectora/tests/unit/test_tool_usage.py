@@ -138,6 +138,7 @@ async def test_sqlite_pool_initialization_is_serialized_per_path(
 
     assert first_pool is second_pool
     assert FakePool.created == 1
+    assert str(usage_db) not in tool_usage._sqlite_locks
 
 
 @pytest.mark.asyncio
