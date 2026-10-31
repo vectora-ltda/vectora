@@ -60,6 +60,7 @@ from backend.engine.tool_batch import (
 from backend.persistence.native.agent_run import AgentRunMetrics
 from backend.persistence.native.ledger import (
     LedgerEventType,
+    LedgerEventTypeLiteral,
     ThreadLedgerEvent,
     make_agent_turn_started_key,
     make_decision_model_decision_key,
@@ -124,7 +125,7 @@ async def _bind_decision_model_snapshot(
     }
     runtime = {
         "provider_config_fingerprint": decision_model_runtime_fingerprint(provider),
-        "model": model_by_provider.get(provider),
+        "model": model_by_provider.get(provider) if isinstance(provider, str) else None,
         "systemone_enabled": settings.systemone_enabled,
         "allow_remote_fallback": settings.systemone_allow_remote_fallback,
         "risk_assessment_timeout_s": SystemOneSettings().risk_assessment_timeout_s,
@@ -794,7 +795,9 @@ async def run_conversation(  # noqa: PLR0911
                 thread_id, run_id=config.run_id
             )
             raw_state = checkpoint.get("state", {}) if checkpoint else {}
-            state = raw_state if isinstance(raw_state, dict) else {}
+            state = (
+                cast("dict[str, Any]", raw_state) if isinstance(raw_state, dict) else {}
+            )
             current_history = await session_store.get_history(thread_id)
             checkpoint_sequence = (
                 int(cast("int", checkpoint.get("last_sequence", 0)))
@@ -876,7 +879,9 @@ async def run_conversation(  # noqa: PLR0911
                     )
                     if hasattr(session_store, "save_context_projection"):
                         await session_store.save_context_projection(
-                            thread_id, config.run_id, dict(projection_entry)
+                            thread_id,
+                            config.run_id,
+                            cast("dict[str, Any]", projection_entry),
                         )
                     projection_recorded = True
             except Exception:
@@ -1142,7 +1147,10 @@ async def run_conversation(  # noqa: PLR0911
                             ThreadLedgerEvent(
                                 thread_id=thread_id,
                                 event_key=make_run_completed_key(config.run_id),
-                                type=LedgerEventType.RUN_COMPLETED,
+                                type=cast(
+                                    "LedgerEventTypeLiteral",
+                                    LedgerEventType.RUN_COMPLETED,
+                                ),
                                 run_id=config.run_id,
                                 payload={"stopped_reason": "stop"},
                             ),
@@ -1582,7 +1590,10 @@ async def run_conversation(  # noqa: PLR0911
                             ThreadLedgerEvent(
                                 thread_id=thread_id,
                                 event_key=make_tool_started_key(config.run_id, tc.id),
-                                type=LedgerEventType.TOOL_STARTED,
+                                type=cast(
+                                    "LedgerEventTypeLiteral",
+                                    LedgerEventType.TOOL_STARTED,
+                                ),
                                 run_id=config.run_id,
                                 tool_call_id=tc.id,
                                 payload={
@@ -1672,7 +1683,10 @@ async def run_conversation(  # noqa: PLR0911
                                 event_key=make_tool_finished_key(
                                     config.run_id, call_id
                                 ),
-                                type=LedgerEventType.TOOL_FINISHED,
+                                type=cast(
+                                    "LedgerEventTypeLiteral",
+                                    LedgerEventType.TOOL_FINISHED,
+                                ),
                                 run_id=config.run_id,
                                 tool_call_id=call_id,
                                 payload={
@@ -1884,7 +1898,9 @@ async def run_conversation(  # noqa: PLR0911
                             ThreadLedgerEvent(
                                 thread_id=thread_id,
                                 event_key=make_run_failed_key(config.run_id),
-                                type=LedgerEventType.RUN_FAILED,
+                                type=cast(
+                                    "LedgerEventTypeLiteral", LedgerEventType.RUN_FAILED
+                                ),
                                 run_id=config.run_id,
                                 payload={
                                     "error": f"loop_cap_exceeded: {turn_budget.exceeded}"
@@ -1938,7 +1954,7 @@ async def run_conversation(  # noqa: PLR0911
                     ThreadLedgerEvent(
                         thread_id=thread_id,
                         event_key=make_run_failed_key(config.run_id),
-                        type=LedgerEventType.RUN_FAILED,
+                        type=cast("LedgerEventTypeLiteral", LedgerEventType.RUN_FAILED),
                         run_id=config.run_id,
                         payload={"error": f"recursion_limit: {config.max_iterations}"},
                     ),
@@ -2169,7 +2185,7 @@ async def resume_conversation(
                             if event_type == "tool_started"
                             else make_tool_finished_key(resume_run_id, call_id)
                         ),
-                        event_type=event_type,
+                        event_type=cast("LedgerEventTypeLiteral", event_type),
                         run_id=resume_run_id,
                         tool_call_id=call_id,
                         payload=payload,
@@ -2184,7 +2200,7 @@ async def resume_conversation(
                                 if event_type == "tool_started"
                                 else make_tool_finished_key(resume_run_id, call_id)
                             ),
-                            type=event_type,
+                            type=cast("LedgerEventTypeLiteral", event_type),
                             run_id=resume_run_id,
                             tool_call_id=call_id,
                             payload=payload,

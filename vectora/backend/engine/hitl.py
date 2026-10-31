@@ -439,7 +439,9 @@ def _decision_snapshot_matches_runtime(ctx: ToolContext) -> bool:
             "clef-api": settings.systemone_clef_api_model,
             "jev-api": settings.systemone_jev_api_model,
         }
-        runtime["model"] = model_by_provider.get(provider)
+        runtime["model"] = (
+            model_by_provider.get(provider) if isinstance(provider, str) else None
+        )
         if any(
             key in snapshot and snapshot.get(key) != value
             for key, value in runtime.items()
