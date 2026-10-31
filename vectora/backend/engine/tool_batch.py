@@ -77,6 +77,36 @@ def _has_structured_result(spec: ToolSpec) -> bool:
     )
 
 
+def _decision_model_allow_block(
+    decision: dict[str, Any], ctx: ToolContext
+) -> str | None:
+    """Return a denial reason when an allow result no longer matches this run."""
+    extra = getattr(ctx, "_extra", None)
+    if decision.get("run_id") != getattr(ctx, "run_id", None) or decision.get(
+        "thread_id"
+    ) != getattr(ctx, "thread_id", None):
+        return "decision_model_identity_mismatch: execução bloqueada"
+
+    if not isinstance(extra, dict):
+        return "decision_model_snapshot_missing: execução bloqueada"
+    snapshot = extra.get("decision_model_snapshot")
+    if (
+        not isinstance(snapshot, dict)
+        or not getattr(ctx, "run_id", None)
+        or snapshot.get("run_id") != ctx.run_id
+    ):
+        return "decision_model_snapshot_missing: execução bloqueada"
+
+    from backend.engine.hitl import _decision_snapshot_matches_runtime
+
+    if extra.get(
+        "decision_model_revoked"
+    ) is True or not _decision_snapshot_matches_runtime(ctx):
+        extra["decision_model_revoked"] = True
+        return "decision_model_revoked: execução bloqueada"
+    return None
+
+
 def _redact_secrets(texto: str) -> str:
     """Executa a operação redact secrets."""
     for pattern in _SECRET_PATTERNS:
@@ -110,6 +140,10 @@ def _check_policy_snapshot_pre_execute(
                 return False, "decision_model_denied: ação bloqueada antes da execução"
             if decision.get("decision") == "requires_human":
                 return False, "decision_model_requires_human: aprovação pendente"
+            if decision.get("decision") == "allow":
+                reason = _decision_model_allow_block(decision, ctx)
+                if reason is not None:
+                    return False, reason
     except Exception:
         logger.exception("Não foi possível validar o veto do Decision Model")
         return False, "decision_model_policy_unavailable"

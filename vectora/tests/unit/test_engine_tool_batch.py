@@ -622,6 +622,106 @@ class TestDespachoParaleloSequencial:
         assert result[0].is_error is True
         assert "decision_model_denied" in result[0].text()
 
+    async def test_revogacao_apos_allow_bloqueia_handler(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A preferência atual é revalidada no gate imediatamente anterior à tool."""
+        from backend.engine.hitl import _risk_assessment_key
+        from backend.llm.systemone.preferences import decision_model_runtime_fingerprint
+        from backend.llm.systemone.settings import SystemOneSettings
+        from backend.services.policy_compiler import compile_policy_snapshot
+        from backend.settings import settings
+
+        current_preferences: dict[str, object] = {
+            "decisionModelsEnabled": True,
+            "decisionModelProvider": "clef-local",
+            "decisionModelSurfaces": {"hitl": True},
+        }
+
+        class PreferenceStore:
+            def get_frontend_prefs(
+                self, _user_id: str, _workspace_id: str | None
+            ) -> dict[str, object]:
+                return dict(current_preferences)
+
+        monkeypatch.setattr(
+            "backend.workspace.runtime_settings.runtime_settings", PreferenceStore()
+        )
+        monkeypatch.setenv("LLAMACPP_API_KEY", "credential-before-tool")
+        invoked = False
+
+        async def mutating_tool(value: str, call_ctx: ToolContext) -> str:
+            nonlocal invoked
+            invoked = True
+            return value
+
+        ctx = ToolContext(
+            user_id="u1",
+            thread_id="revoked-before-execute-thread",
+            workspace_id="revoked-before-execute-workspace",
+            run_id="revoked-before-execute-run",
+            permission_mode="auto",
+            _extra={
+                "decision_model_preferences": {
+                    "enabled": True,
+                    "provider": "clef-local",
+                    "surfaces": {"hitl": True},
+                }
+            },
+        )
+        snapshot = {
+            "run_id": ctx.run_id,
+            "preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": {"hitl": True},
+            },
+            "provider_config_fingerprint": decision_model_runtime_fingerprint(
+                "clef-local"
+            ),
+            "model": settings.systemone_local_model,
+            "systemone_enabled": settings.systemone_enabled,
+            "allow_remote_fallback": settings.systemone_allow_remote_fallback,
+            "risk_assessment_timeout_s": SystemOneSettings().risk_assessment_timeout_s,
+            "confidence_threshold_hitl": settings.systemone_confidence_threshold_hitl,
+            "policy_version": compile_policy_snapshot(ctx).version,
+        }
+        ctx._extra["decision_model_snapshot"] = snapshot
+        call = ToolCall(
+            id="revoked-before-execute-call", name="file_write", args={"value": "x"}
+        )
+        ctx._extra["systemone_decisions"] = {
+            _risk_assessment_key(call.name, call.args): {
+                "decision": "allow",
+                "reason": "risk_below_threshold",
+                "provider": "clef-local",
+                "model": "test-model",
+                "run_id": ctx.run_id,
+                "thread_id": ctx.thread_id,
+            }
+        }
+        registry = ToolRegistry()
+        registry.register(
+            ToolSpec(
+                name="file_write",
+                description="mutating",
+                args_model=create_model("RevokedBeforeExecuteArgs", value=(str, ...)),
+                handler=mutating_tool,
+                extras=ToolExtras(destructive=True),
+                needs_ctx=True,
+            )
+        )
+
+        # The model already allowed the call, but the user disables it before
+        # execution begins. The final policy hook must reject the stale result.
+        current_preferences["decisionModelsEnabled"] = False
+        result = await execute_tool_batch([call], tool_registry=registry, ctx=ctx)
+
+        assert invoked is False
+        assert result[0].is_error is True
+        assert "decision_model_revoked" in result[0].text()
+        assert ctx._extra["decision_model_revoked"] is True
+
     def test_json_recursivo_nao_classifica_resultado_como_erro(self) -> None:
         """JSON profundamente aninhado não pode quebrar a classificação da tool."""
         raw = "[" * 5000 + "0" + "]" * 5000
