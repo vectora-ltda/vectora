@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import cast
 
 import pytest
-from fastapi import HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
+from httpx import ASGITransport, AsyncClient
 
 from backend.api.handlers.threads import (
     SmartApprovalAllowlistRemoveRequest,
@@ -161,52 +163,77 @@ async def test_workspace_vazio_vira_400_nao_500(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_adicao_retorna_503_quando_persistencia_falha(
-    _runtime_settings_isolado, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("operation", ["add", "remove"])
+@pytest.mark.parametrize("failure", ["write", "commit"])
+async def test_persistence_failure_returns_503_and_rolls_back(
+    _runtime_settings_isolado,
+    monkeypatch: pytest.MonkeyPatch,
+    operation: str,
+    failure: str,
 ) -> None:
-    """Não confirma a adição quando o banco rejeita a gravação."""
-    from backend.services import smart_approval
-
-    monkeypatch.setattr(
-        _runtime_settings_isolado,
-        "update_list",
-        lambda *_args: (_ for _ in ()).throw(OSError("disco")),
-    )
-    body = _grant_request(workspace_id="ws-falha")
-    _install_pending(monkeypatch, body)
-    with pytest.raises(HTTPException) as exc_info:
-        await add_smart_approval_allowlist(
-            body,
-            _fake_request(),
-        )
-    assert exc_info.value.status_code == 503
-    assert smart_approval.get_allowlist("ws-falha") == []
-
-
-@pytest.mark.asyncio
-async def test_revogacao_retorna_503_quando_persistencia_falha(
-    _runtime_settings_isolado, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Não confirma a revogação quando o banco rejeita a gravação."""
+    """HTTP failures preserve grants in cache, SQLite and subsequent reloads."""
     from backend.services.smart_approval import add_to_allowlist, get_allowlist
+    from backend.workspace.runtime_settings import RuntimeSettings
 
-    add_to_allowlist("ws-falha-remove", "terminal", {"command": "pwd"}, run_id="run")
-    antes = get_allowlist("ws-falha-remove")
-    rule_id = antes[0]
-    monkeypatch.setattr(
-        _runtime_settings_isolado,
-        "update_list",
-        lambda *_args: (_ for _ in ()).throw(OSError("disco")),
-    )
-    with pytest.raises(HTTPException) as exc_info:
-        await remove_smart_approval_allowlist(
-            SmartApprovalAllowlistRemoveRequest(
-                workspace_id="ws-falha-remove", rule_id=rule_id
-            ),
-            _fake_request(),
+    settings = _runtime_settings_isolado
+    body = _grant_request(workspace_id="ws-failure")
+    _install_pending(monkeypatch, body)
+    if operation == "remove":
+        add_to_allowlist(
+            body.workspace_id, body.tool_name, body.args, run_id=body.run_id
         )
-    assert exc_info.value.status_code == 503
-    assert get_allowlist("ws-falha-remove") == antes
+    before = get_allowlist(body.workspace_id)
+    cached_before = dict(settings._data)
+    connection = settings._conn
+
+    class FailingConnection:
+        def execute(
+            self, sql: str, parameters: tuple[object, ...] = ()
+        ) -> sqlite3.Cursor:
+            if failure == "write" and sql.startswith("INSERT INTO app_settings"):
+                raise sqlite3.OperationalError("simulated write failure")
+            return connection.execute(sql, parameters)
+
+        def commit(self) -> None:
+            if failure == "commit":
+                raise sqlite3.OperationalError("simulated commit failure")
+            connection.commit()
+
+        def rollback(self) -> None:
+            connection.rollback()
+
+    app = FastAPI()
+    app.post("/grants")(add_smart_approval_allowlist)
+    app.delete("/grants")(remove_smart_approval_allowlist)
+    with monkeypatch.context() as patch:
+        patch.setattr(settings, "_conn", FailingConnection())
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            if operation == "add":
+                response = await client.post("/grants", json=body.model_dump())
+            else:
+                response = await client.request(
+                    "DELETE",
+                    "/grants",
+                    json={"workspace_id": body.workspace_id, "rule_id": before[0]},
+                )
+        assert response.status_code == 503
+        assert settings._data == cached_before
+        assert not connection.in_transaction
+        assert get_allowlist(body.workspace_id) == before
+
+    settings.reload()
+    assert get_allowlist(body.workspace_id) == before
+    other = RuntimeSettings(settings._path)
+    try:
+        assert other._data == settings._data
+    finally:
+        other._conn.close()
+    # The failed transaction must release its lock and allow a subsequent write.
+    settings.update_list("recovery", lambda values: [*values, "ok"])
+    settings.reload()
+    assert settings.get("recovery") == ["ok"]
 
 
 @pytest.mark.asyncio
