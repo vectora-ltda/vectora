@@ -26,9 +26,11 @@ import logging
 import os
 import uuid
 from collections import deque
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any, cast
+from urllib.parse import urlparse
 
 from backend.vtypes.browser import (
     BrowserConsoleEntry,
@@ -51,6 +53,103 @@ _sessions: dict[str, dict[str, Any]] = {}
 #: Referências às tasks de accept/dismiss de dialog em voo — sem isso o
 #: garbage collector pode coletar a task antes dela rodar (RUF006).
 _pending_dialog_tasks: set[asyncio.Task[Any]] = set()
+
+
+# --- Bloqueio de egress por salto de redirect (CDP) -------------------------
+# ``page.route`` do Playwright só é consultado para a requisição inicial: o
+# navegador segue os redirects seguintes sem chamar o handler, então um destino
+# privado atrás de um host permitido seria alcançado antes de qualquer checagem.
+# O domínio ``Fetch`` do CDP pausa cada requisição, inclusive as geradas por
+# redirects, antes de o navegador enviá-la; a guarda valida a URL de cada salto
+# e falha a requisição bloqueada com ``BlockedByClient``. O navegador resolve o
+# DNS por conta própria depois da validação, portanto a guarda não elimina DNS
+# rebinding.
+
+#: ``(url) -> (permitido, motivo)``.
+UrlCheck = Callable[[str], Awaitable[tuple[bool, str]]]
+
+_CHECKED_SCHEMES = frozenset({"http", "https"})
+
+
+async def install_redirect_guard(
+    page: Any, check_url: UrlCheck, blocked: dict[str, str]
+) -> Callable[[], Awaitable[None]] | None:
+    """Pausa toda requisição http(s) da página e bloqueia as não permitidas.
+
+    Devolve a função que desfaz a guarda, ou ``None`` quando a página não
+    expõe uma sessão CDP (adaptadores de teste), caso em que a validação do
+    URL final após ``goto`` continua sendo a única checagem de redirect.
+    ``blocked["reason"]`` recebe o motivo da última requisição recusada.
+    """
+    context = getattr(page, "context", None)
+    new_session: Any = getattr(context, "new_cdp_session", None)
+    if not callable(new_session):
+        return None
+    session = await new_session(page)
+    pending: set[asyncio.Task[None]] = set()
+
+    async def _resolve(event: dict[str, Any]) -> None:
+        request_id = event["requestId"]
+        url = str(event.get("request", {}).get("url", ""))
+        allowed = True
+        reason = ""
+        if urlparse(url).scheme.lower() in _CHECKED_SCHEMES:
+            try:
+                allowed, reason = await check_url(url)
+            except Exception:
+                logger.exception("redirect_guard: falha ao validar a URL")
+                allowed, reason = False, "falha ao validar a URL"
+        try:
+            if allowed:
+                await session.send("Fetch.continueRequest", {"requestId": request_id})
+            else:
+                blocked["reason"] = reason
+                await session.send(
+                    "Fetch.failRequest",
+                    {"requestId": request_id, "errorReason": "BlockedByClient"},
+                )
+        except Exception:
+            logger.debug("redirect_guard: requisição já encerrada", exc_info=True)
+
+    def _on_paused(event: dict[str, Any]) -> None:
+        task = asyncio.ensure_future(_resolve(event))
+        pending.add(task)
+        task.add_done_callback(pending.discard)
+
+    session.on("Fetch.requestPaused", _on_paused)
+    await session.send("Fetch.enable", {"patterns": [{"urlPattern": "*"}]})
+
+    async def release() -> None:
+        with suppress(Exception):
+            await session.send("Fetch.disable")
+        with suppress(Exception):
+            await session.detach()
+        for task in tuple(pending):
+            task.cancel()
+
+    return release
+
+
+async def _release_route_guard(page: Any) -> None:
+    """Remove a temporary new-tab guard when its page is explicitly closed."""
+    owner = getattr(page, "_vectora_route_owner", None)
+    handler = getattr(page, "_vectora_route_handler", None)
+    if owner is not None and handler is not None:
+        unroute = getattr(owner, "unroute", None)
+        if callable(unroute):
+            with suppress(Exception):
+                await unroute("**/*", handler)
+    release_redirect = getattr(page, "_vectora_redirect_release", None)
+    if release_redirect is not None:
+        with suppress(Exception):
+            await release_redirect()
+    for attr in (
+        "_vectora_route_owner",
+        "_vectora_route_handler",
+        "_vectora_redirect_release",
+    ):
+        with suppress(AttributeError):
+            delattr(page, attr)
 
 
 @dataclass
@@ -330,7 +429,12 @@ async def list_tabs(workspace_id: str) -> list[BrowserTab]:
     return tabs
 
 
-async def new_tab(workspace_id: str, url: str | None = None) -> str:
+async def new_tab(
+    workspace_id: str,
+    url: str | None = None,
+    *,
+    url_validator: Callable[[str], tuple[bool, str]] | None = None,
+) -> str:
     """Cria uma aba nova na sessão do workspace (lança o browser se ainda
     não existir sessão) e a torna a aba ativa. Retorna o `tab_id`."""
     if not has_browser_session(workspace_id):
@@ -350,8 +454,74 @@ async def new_tab(workspace_id: str, url: str | None = None) -> str:
             "O Browser Workbench não suporta criar uma nova aba via CDP; "
             "selecione uma aba existente ou abra uma nova aba no Electron."
         ) from exc
-    if url:
-        await page.goto(url, wait_until="domcontentloaded")
+    route_handler: Callable[[Any], Awaitable[None]] | None = None
+    route_owner: Any | None = None
+    blocked_reason: dict[str, str] = {}
+    # A page-level route can miss the first request of a newly-created popup.
+    # Prefer the context while the target is being initialized so redirects
+    # and the initial navigation are both checked before they leave the
+    # Browser Workbench.  Keep the page fallback for lightweight test doubles
+    # and adapters that do not expose context routing.
+    # Prefer page-level routing so the policy belongs to this workspace/tab
+    # and can remain active after the initial navigation.  Context routing is
+    # only a compatibility fallback for adapters that cannot route pages.
+    route_owner = page
+    route = getattr(route_owner, "route", None)
+    if not callable(route):
+        route_owner = session["context"]
+        route = getattr(route_owner, "route", None)
+    if url and url_validator is not None and callable(route):
+
+        async def _guard(route_obj: Any) -> None:
+            """Abort navigation requests rejected by the workspace policy."""
+            request = getattr(route_obj, "request", None)
+            request_url = str(getattr(request, "url", ""))
+            allowed, reason = await asyncio.to_thread(url_validator, request_url)
+            if allowed:
+                await route_obj.continue_()
+            else:
+                # Route callbacks must not raise after abort: Playwright may
+                # surface that exception as an unrelated navigation failure.
+                # Keep the reason for the caller to attach to goto's error.
+                blocked_reason["reason"] = reason
+                await route_obj.abort()
+
+        route_handler = _guard
+        await route("**/*", route_handler)
+
+        async def _check_redirect_hop(candidate: str) -> tuple[bool, str]:
+            return await asyncio.to_thread(url_validator, candidate)
+
+        # ``route`` is only consulted for the first request; the CDP guard
+        # validates every redirect hop before the browser sends it.
+        release_redirect = await install_redirect_guard(
+            page, _check_redirect_hop, blocked_reason
+        )
+        if release_redirect is not None:
+            page._vectora_redirect_release = release_redirect
+    navigation_succeeded = False
+    try:
+        if url:
+            await page.goto(url, wait_until="domcontentloaded")
+        navigation_succeeded = True
+        if route_handler is not None:
+            page._vectora_route_owner = route_owner
+            page._vectora_route_handler = route_handler
+    except Exception as exc:
+        await _release_route_guard(page)
+        with suppress(Exception):
+            await page.close()
+        if blocked_reason.get("reason"):
+            raise RuntimeError(f"egress policy: {blocked_reason['reason']}") from exc
+        raise
+    finally:
+        if (
+            not navigation_succeeded
+            and route_handler is not None
+            and callable(getattr(route_owner, "unroute", None))
+        ):
+            with suppress(Exception):
+                await route_owner.unroute("**/*", route_handler)
     tab = await _create_tab_state(page)
     _claim_page(page, workspace_id)
     tab_id = uuid.uuid4().hex[:12]
@@ -375,12 +545,22 @@ async def close_tab(workspace_id: str, tab_id: str) -> bool:
         # Keep the BrowserView target alive: closing the only Electron target
         # cannot be repaired through CDP because Target.createTarget is not
         # implemented. Reset it to a blank document and assign a fresh logical
-        # id instead.
+        # id instead. The page is reused, so its route and navigation guards
+        # are released once the reset succeeds, to keep them from applying to
+        # the next tab.
         try:
+            # about:blank issues no network request, so the active guards do not
+            # block it. They are released only after the reset succeeds: if
+            # ``goto`` fails the tab stays in the session and must keep its
+            # egress perimeter.
             await tab.page.goto("about:blank", wait_until="domcontentloaded")
         except Exception:
             logger.debug("browser_session: falha ao resetar última aba %s", tab_id)
             return False
+        await _release_route_guard(tab.page)
+        from backend.tools.browser import release_navigation_guard
+
+        await release_navigation_guard(tab.page)
         tab.console_log.clear()
         tab.network_log.clear()
         tab._request_entries.clear()
@@ -393,6 +573,10 @@ async def close_tab(workspace_id: str, tab_id: str) -> bool:
     session["tabs"].pop(tab_id, None)
     _page_owners.pop(_page_target_id(tab.page), None)
     try:
+        await _release_route_guard(tab.page)
+        from backend.tools.browser import release_navigation_guard
+
+        await release_navigation_guard(tab.page)
         await tab.page.close()
     except Exception:
         logger.debug("browser_session: falha ao fechar aba %s", tab_id)
@@ -507,6 +691,13 @@ async def close_browser_session(workspace_id: str) -> None:
         return
     for tab in session.get("tabs", {}).values():
         _page_owners.pop(_page_target_id(tab.page), None)
+        try:
+            await _release_route_guard(tab.page)
+            from backend.tools.browser import release_navigation_guard
+
+            await release_navigation_guard(tab.page)
+        except Exception:
+            logger.debug("browser_session: falha ao remover guard da aba")
     try:
         if session.get("owns_browser", False):
             await session["browser"].close()

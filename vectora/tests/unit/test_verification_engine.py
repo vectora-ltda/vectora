@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -156,9 +158,110 @@ async def test_run_verification_empty_command_fails(test_workspace: Path) -> Non
     res = await run_verification("test_ws", test_workspace, profile=profile)
     assert res.passed is False
     assert res.status == "failed"
-    assert res.outcome == "failed"
+    assert res.outcome == "infra_error"
     assert len(res.gate_results) == 1
     assert res.gate_results[0].passed is False
+
+
+@pytest.mark.asyncio
+async def test_run_verification_dispatch_error_is_not_approved(
+    test_workspace: Path,
+) -> None:
+    """Falha de infraestrutura não pode ser reportada como execução aprovada."""
+    gate = QualityGateSpec.model_construct(
+        id="missing_binary",
+        name="Missing binary",
+        command=[str(test_workspace / "does-not-exist")],
+        policy="degrade",
+        timeout_seconds=5,
+        file_patterns=[],
+    )
+    result = await run_verification(
+        "infra_ws",
+        test_workspace,
+        profile=WorkspaceVerificationProfile(
+            workspace_id="infra_ws", enabled=True, gates=[gate]
+        ),
+    )
+    assert result.outcome == "infra_error"
+    assert result.status == "failed"
+    assert result.passed is False
+
+
+@pytest.mark.asyncio
+async def test_run_verification_timeout_on_degrade_gate_is_not_approved(
+    test_workspace: Path,
+) -> None:
+    """Gate que excede o tempo limite não concluiu; não pode aprovar a execução."""
+    gate = QualityGateSpec(
+        id="slow_gate",
+        name="Slow gate",
+        command=[sys.executable, "-c", "import time; time.sleep(30)"],
+        policy="degrade",
+        timeout_seconds=5,
+    )
+    result = await run_verification(
+        "timeout_ws",
+        test_workspace,
+        profile=WorkspaceVerificationProfile(
+            workspace_id="timeout_ws", enabled=True, gates=[gate]
+        ),
+    )
+    assert result.gate_results[0].reason == "timeout"
+    assert result.outcome == "infra_error"
+    assert result.status == "failed"
+    assert result.passed is False
+
+
+async def _git(repo: Path, env: dict[str, str], *args: str) -> str:
+    """Executa git de forma assíncrona e devolve a saída padrão."""
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        *args,
+        cwd=str(repo),
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        msg = f"git {' '.join(args)} falhou: {stderr.decode(errors='replace')}"
+        raise RuntimeError(msg)
+    return stdout.decode().strip()
+
+
+async def _init_repo_with_commit(repo: Path) -> str:
+    """Cria um repositório com um commit e devolve o SHA do HEAD."""
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.com",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.com",
+    }
+    repo.mkdir(exist_ok=True)
+    await _git(repo, env, "init", "-q")
+    (repo / "f.txt").write_text("x\n", encoding="utf-8")
+    await _git(repo, env, "add", "f.txt")
+    await _git(repo, env, "commit", "-q", "-m", "init")
+    return await _git(repo, env, "rev-parse", "HEAD")
+
+
+@pytest.mark.asyncio
+async def test_run_verification_records_head_commit_sha(tmp_path: Path) -> None:
+    """O commit avaliado vem do HEAD real; sem repositório Git fica ausente."""
+    repo = tmp_path / "repo"
+    expected = await _init_repo_with_commit(repo)
+    profile = WorkspaceVerificationProfile(
+        workspace_id="sha_ws", enabled=True, gates=[]
+    )
+    res = await run_verification("sha_ws", repo, profile=profile)
+    assert res.commit_sha == expected
+
+    no_repo = tmp_path / "plain"
+    no_repo.mkdir()
+    res_plain = await run_verification("sha_ws", no_repo, profile=profile)
+    assert res_plain.commit_sha is None
 
 
 @pytest.mark.asyncio
@@ -182,11 +285,38 @@ async def test_run_verification_passing_gate(test_workspace: Path) -> None:
     assert len(res.gate_results) == 1
     assert res.gate_results[0].passed is True
     assert res.gate_results[0].exit_code == 0
+    assert res.gate_results[0].reason == "passed"
 
     evidence = res.to_evidence_entry()
     assert evidence["kind"] == "quality_gate_verification"
+    assert evidence["run_id"] is None
+    assert evidence["policy_snapshot_id"] is None
     assert evidence["passed"] is True
     assert evidence["snapshot_sha256"] == res.snapshot_sha256
+    assert evidence["file_hashes"] == dict(sorted(res.file_hashes.items()))
+    assert evidence["artifact_refs"] == []
+    assert evidence["commit_sha"] == res.commit_sha
+
+
+@pytest.mark.asyncio
+async def test_run_verification_preserves_run_and_policy_provenance(
+    test_workspace: Path,
+) -> None:
+    """A gate result cannot be detached from the run and policy that authorized it."""
+    profile = WorkspaceVerificationProfile(
+        workspace_id="provenance_ws", enabled=True, gates=[]
+    )
+    result = await run_verification(
+        "provenance_ws",
+        test_workspace,
+        profile=profile,
+        run_id="run-123",
+        policy_snapshot_id="policy-v7",
+    )
+    evidence = result.to_evidence_entry()
+    assert evidence["run_id"] == "run-123"
+    assert evidence["policy_snapshot_id"] == "policy-v7"
+    assert "commit_sha" in evidence
 
 
 @pytest.mark.asyncio
@@ -262,6 +392,7 @@ async def test_run_verification_blocking_failure(test_workspace: Path) -> None:
     assert res.outcome == "failed"
     assert len(res.gate_results) == 1
     assert res.gate_results[0].passed is False
+    assert res.gate_results[0].reason == "assertion_failed"
     assert "gate error" in (res.failure_feedback or "")
 
 

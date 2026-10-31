@@ -52,6 +52,7 @@ from backend.engine.stream_events import (
 from backend.engine.tool_batch import (
     _apply_post_execute,
     _apply_pre_execute,
+    _has_structured_result,
     _is_tool_error,
     execute_tool_batch,
 )
@@ -887,6 +888,10 @@ async def run_conversation(  # noqa: PLR0911
                             ws_id,
                             ws_dir,
                             files_touched=files_touched or None,
+                            run_id=config.run_id,
+                            policy_snapshot_id=getattr(
+                                policy_snapshot, "version", None
+                            ),
                         )
                     except Exception:
                         logger.exception(
@@ -913,7 +918,16 @@ async def run_conversation(  # noqa: PLR0911
                                     config.run_id
                                 )
                                 if agent_run is not None:
-                                    agent_run.evidence.append(v_res.to_evidence_entry())
+                                    v_entry = v_res.to_evidence_entry()
+                                    v_entry["artifact_refs"] = sorted(
+                                        {
+                                            str(artifact.get("artifact_id"))
+                                            for artifact in agent_run.artifacts
+                                            if isinstance(artifact, dict)
+                                            and artifact.get("artifact_id")
+                                        }
+                                    )
+                                    agent_run.evidence.append(v_entry)
                                     agent_run.metrics = iter_metrics
                                     agent_run.detail = (
                                         "Verificação concluída com sucesso."
@@ -1265,7 +1279,7 @@ async def run_conversation(  # noqa: PLR0911
                 ToolResult(
                     tool_call_id=call_id,
                     content_json=resultado.text(),
-                    is_error=resultado.is_error,
+                    is_error=bool(resultado.is_error),
                 )
             )
             started_at = tool_started_at.pop(call_id, None)
@@ -1348,8 +1362,20 @@ async def run_conversation(  # noqa: PLR0911
                                                 ws_id,
                                                 ws_dir,
                                                 target_gate_ids=[item.quality_gate],
+                                                run_id=config.run_id,
+                                                policy_snapshot_id=getattr(
+                                                    policy_snapshot, "version", None
+                                                ),
                                             )
                                             v_entry = v_res.to_evidence_entry()
+                                            v_entry["artifact_refs"] = sorted(
+                                                {
+                                                    str(artifact.get("artifact_id"))
+                                                    for artifact in agent_run.artifacts
+                                                    if isinstance(artifact, dict)
+                                                    and artifact.get("artifact_id")
+                                                }
+                                            )
                                             v_entry["step_id"] = step_key
                                             v_entry["quality_gate"] = gate_key
                                             agent_run.evidence.append(v_entry)
@@ -1371,7 +1397,13 @@ async def run_conversation(  # noqa: PLR0911
                                                     "kind": "quality_gate_verification",
                                                     "step_id": step_key,
                                                     "quality_gate": gate_key,
+                                                    "run_id": config.run_id,
+                                                    "policy_snapshot_id": getattr(
+                                                        policy_snapshot, "version", None
+                                                    ),
                                                     "passed": False,
+                                                    "status": "failed",
+                                                    "outcome": "infra_error",
                                                     "error": str(gate_exc),
                                                 }
                                             )
@@ -1534,7 +1566,9 @@ async def _execute_single_call(
     ``TurnBudget`` (o teto de volume é do turno que gerou o lote original,
     já contabilizado ou não antes da pausa — reaplicá-lo no resume duplicaria
     ou perderia contagem)."""
-    allowed, deny_reason = _apply_pre_execute(tool_call, ctx, policy_snapshot)
+    allowed, deny_reason = await asyncio.to_thread(
+        _apply_pre_execute, tool_call, ctx, policy_snapshot
+    )
     if not allowed:
         return VMessage(
             role=MessageRole.TOOL,
@@ -1571,7 +1605,7 @@ async def _execute_single_call(
             call_context,
         )
         texto = _apply_post_execute(texto)
-        is_error = _is_tool_error(texto)
+        is_error = _is_tool_error(texto, structured=_has_structured_result(spec))
         from backend.services.tool_usage import record_tool_usage
 
         await record_tool_usage(
@@ -1847,7 +1881,7 @@ async def resume_conversation(
             ToolResult(
                 tool_call_id=resultado.tool_call_id or "",
                 content_json=resultado.text(),
-                is_error=resultado.is_error,
+                is_error=bool(resultado.is_error),
             )
         )
         spec = tool_registry.get(resultado.name or "")

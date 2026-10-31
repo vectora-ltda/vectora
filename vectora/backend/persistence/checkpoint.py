@@ -15,6 +15,7 @@ Expõe duas estratégias:
 
 import logging
 import os
+import shutil
 import tarfile
 import tempfile
 import uuid
@@ -233,11 +234,19 @@ def create_snapshot_checkpoint(
          "files_touched": ["rel/path1", ...]}
         {"status": "error", "message": "..."}
     """
-    cwd_path = Path(cwd).resolve()
-    if not cwd_path.is_dir():
+    cwd_input = Path(cwd)
+    if cwd_input.is_symlink() or not cwd_input.is_dir():
         return {"status": "error", "message": f"cwd não é um diretório: {cwd}"}
+    cwd_path = cwd_input.resolve()
 
+    if snapshot_dir.exists() and snapshot_dir.is_symlink():
+        return {
+            "status": "error",
+            "message": "diretório de snapshots não pode ser symlink",
+        }
     snapshot_dir.mkdir(parents=True, exist_ok=True)
+    if not snapshot_dir.is_dir():
+        return {"status": "error", "message": "diretório de snapshots inválido"}
 
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
     uid = str(uuid.uuid4())[:8]
@@ -248,6 +257,24 @@ def create_snapshot_checkpoint(
     files_touched: list[str] = []
     total_bytes = 0
 
+    import json as _json
+
+    created_at = datetime.now(UTC).isoformat()
+    # O manifesto conta no cap: a base é medida com lista vazia e cada entrada
+    # soma seu JSON mais o separador. A medida é um teto, então nunca subestima
+    # o tamanho final gravado em seguida.
+    manifest_bytes = len(
+        _json.dumps(
+            {
+                "thread_id": thread_id,
+                "message": message,
+                "created_at": created_at,
+                "files": [],
+            },
+            ensure_ascii=False,
+        ).encode()
+    )
+
     try:
         with tarfile.open(archive_path, "w:gz") as tar:
             for fpath in files:
@@ -257,26 +284,31 @@ def create_snapshot_checkpoint(
                     continue
                 if size > _SNAPSHOT_MAX_FILE_BYTES:
                     continue
-                if total_bytes + size > _SNAPSHOT_MAX_TOTAL_BYTES:
-                    continue
                 arcname = str(fpath.relative_to(cwd_path))
+                entry_bytes = len(_json.dumps(arcname, ensure_ascii=False).encode()) + 2
+                if total_bytes + size + manifest_bytes + entry_bytes > (
+                    _SNAPSHOT_MAX_TOTAL_BYTES
+                ):
+                    continue
                 tar.add(str(fpath), arcname=arcname, recursive=False)
                 files_touched.append(arcname)
                 total_bytes += size
+                manifest_bytes += entry_bytes
 
             # Manifesto interno com metadados do checkpoint.
             import io
-            import json as _json
 
             manifest = _json.dumps(
                 {
                     "thread_id": thread_id,
                     "message": message,
-                    "created_at": datetime.now(UTC).isoformat(),
+                    "created_at": created_at,
                     "files": files_touched,
                 },
                 ensure_ascii=False,
             ).encode()
+            if total_bytes + len(manifest) > _SNAPSHOT_MAX_TOTAL_BYTES:
+                raise ValueError("snapshot excede o limite total com o manifesto")
             minfo = tarfile.TarInfo(name=".vectora-snapshot-manifest.json")
             minfo.size = len(manifest)
             tar.addfile(minfo, io.BytesIO(manifest))
@@ -303,19 +335,81 @@ def restore_snapshot_checkpoint(snapshot_path: str, cwd: str) -> dict[str, Any]:
     Retorna ``{"status": "ok"}`` ou ``{"status": "error", "message": ...}``.
     """
     snap = Path(snapshot_path)
-    if not snap.is_file():
+    if snap.is_symlink() or not snap.is_file():
         return {
             "status": "error",
             "message": f"Snapshot não encontrado: {snapshot_path}",
         }
-    cwd_path = Path(cwd).resolve()
+    cwd_input = Path(cwd)
+    if cwd_input.is_symlink() or not cwd_input.is_dir():
+        return {"status": "error", "message": f"cwd não é um diretório seguro: {cwd}"}
+    cwd_path = cwd_input.resolve()
+    total_bytes = 0
     try:
         with tarfile.open(str(snap), "r:gz") as tar:
-            tar.extractall(path=str(cwd_path), filter="data")  # type: ignore[call-arg]
-    except TypeError:
-        # Python < 3.12: filter= não suportado; extrai sem filtro
-        with tarfile.open(str(snap), "r:gz") as tar:
-            tar.extractall(path=str(cwd_path))  # noqa: S202  # nosec B202
+            members = tar.getmembers()
+            validated: list[tuple[tarfile.TarInfo, Path]] = []
+            for member in members:
+                # Check the archive name before touching the filesystem.  Do
+                # not rely on ``extractall(filter=...)``: older Python
+                # versions silently accept traversal and link entries.
+                member_path = Path(member.name)
+                if member_path.is_absolute() or ".." in member_path.parts:
+                    raise ValueError(f"membro fora do workspace: {member.name}")
+                if not member.isfile():
+                    raise ValueError(f"tipo de membro não permitido: {member.name}")
+                if member.size > _SNAPSHOT_MAX_FILE_BYTES:
+                    raise ValueError(f"membro excede o limite: {member.name}")
+                total_bytes += member.size
+                if total_bytes > _SNAPSHOT_MAX_TOTAL_BYTES:
+                    raise ValueError("snapshot excede o limite total")
+                # The unresolved path is checked first: ``resolve()`` follows a
+                # symlinked destination to its target, which would then pass
+                # every check below and be overwritten in place.
+                if (cwd_path / member_path).is_symlink():
+                    raise ValueError(f"destino é symlink: {member.name}")
+                destination = (cwd_path / member_path).resolve()
+                try:
+                    destination.relative_to(cwd_path)
+                except ValueError as exc:
+                    raise ValueError(
+                        f"membro fora do workspace: {member.name}"
+                    ) from exc
+                # Check every existing path component before any write.  A
+                # symlink nested below the workspace must never redirect a
+                # restore outside the selected root.
+                cursor = cwd_path
+                for component in member_path.parts[:-1]:
+                    cursor = cursor / component
+                    if cursor.is_symlink():
+                        raise ValueError(f"caminho pai é symlink: {member.name}")
+                validated.append((member, destination))
+
+            # Validate the complete archive before touching the workspace.
+            # Stage files in a private directory, then publish each file only
+            # after all reads have succeeded; a malformed later member cannot
+            # leave an earlier member partially written.
+            staging = Path(tempfile.mkdtemp(prefix=".vectora-restore-", dir=cwd_path))
+            try:
+                staged: list[tuple[Path, Path]] = []
+                for member, destination in validated:
+                    source = tar.extractfile(member)
+                    if source is None:
+                        raise ValueError(f"membro sem conteúdo: {member.name}")
+                    staged_path = staging / member.name
+                    staged_path.parent.mkdir(parents=True, exist_ok=True)
+                    with source, staged_path.open("wb") as output:
+                        shutil.copyfileobj(source, output)
+                    # Keep the executable bit recorded in the snapshot. Only
+                    # permission bits are applied: setuid/setgid/sticky stay
+                    # out of a restored workspace.
+                    staged_path.chmod(member.mode & 0o777)
+                    staged.append((staged_path, destination))
+                for staged_path, destination in staged:
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    staged_path.replace(destination)
+            finally:
+                shutil.rmtree(staging, ignore_errors=True)
     except Exception as exc:
         return {"status": "error", "message": str(exc)}
     return {"status": "ok", "snapshot_path": snapshot_path}
@@ -335,7 +429,7 @@ def gc_snapshots(
         return 0
 
     archives = sorted(
-        snapshot_dir.glob("*.tar.gz"),
+        (path for path in snapshot_dir.glob("*.tar.gz") if not path.is_symlink()),
         key=lambda p: p.stat().st_mtime,
     )
 

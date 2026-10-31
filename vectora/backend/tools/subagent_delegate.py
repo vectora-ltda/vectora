@@ -14,6 +14,7 @@ vez de ``KeyError``/``AttributeError`` crus (CLAUDE.md regra 11).
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -35,6 +36,43 @@ if TYPE_CHECKING:
     from backend.vtypes.message import VMessage
 
 logger = logging.getLogger(__name__)
+
+_DIRECT_ONLY_PHRASES = frozenset(
+    {
+        "oi",
+        "olá",
+        "ola",
+        "hello",
+        "hi",
+        "bom dia",
+        "boa tarde",
+        "boa noite",
+        "quem é você",
+        "quem e voce",
+        "se apresente",
+        "obrigado",
+        "obrigada",
+        "ok",
+        "sim",
+    }
+)
+
+
+def _delegation_is_actionable(prompt: str) -> bool:
+    """Evita gastar uma execução de SOUL em conversa ou confirmação vazia.
+
+    A decisão final continua pertencendo ao orchestrator. Esta salvaguarda só
+    bloqueia chamadas obviamente triviais, inclusive quando o modelo escolhe
+    ``delegate_to_subagent`` por engano.
+    """
+    normalized = re.sub(r"[^\w\s-]", " ", prompt.casefold())
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    if not normalized or normalized in _DIRECT_ONLY_PHRASES:
+        return False
+    return not any(
+        normalized.removeprefix(f"{phrase} ") in _DIRECT_ONLY_PHRASES
+        for phrase in _DIRECT_ONLY_PHRASES
+    )
 
 
 class SubagentDeps:
@@ -123,6 +161,15 @@ async def delegate_to_subagent(
         return (
             f"Error: subagent_type inválido: {subagent_type!r}. "
             f"Válidos: {sorted(deps.catalog)}."
+        )
+    if not _delegation_is_actionable(prompt):
+        logger.info(
+            "delegate_to_subagent: delegação ignorada por ser não acionável",
+            extra={"subagent_type": subagent_type},
+        )
+        return (
+            "Delegação não necessária para esta solicitação simples. "
+            "Responda diretamente ao usuário; não crie outro subagente."
         )
     if correlation_id:
         spec = replace(spec, correlation_id=CorrelationId(correlation_id))

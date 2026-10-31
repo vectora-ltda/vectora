@@ -94,9 +94,9 @@ class VMessage:
     finish_reason: str | None = None
     """`stop` | `length` | `content_filter` | `tool_calls` — decide se o
     loop de conversa continua ou para (backend/engine/conversation_loop.py)."""
-    is_error: bool = False
-    """Marca um resultado de tool como erro — vira `is_error` no evento
-    SSE `tool_result`."""
+    is_error: bool | None = False
+    """Marca um resultado de tool como erro — ``None`` preserva um estado
+    desconhecido ao reidratar dados antigos; vira `is_error` no evento SSE."""
 
     def text(self) -> str:
         """Concatena todos os blocos `text`, na ordem — equivalente ao
@@ -163,7 +163,11 @@ class VMessage:
                 tool_call_id=data.get("tool_call_id"),
                 name=data.get("name"),
                 finish_reason=data.get("finish_reason"),
-                is_error=bool(data.get("is_error", False)),
+                is_error=(
+                    None
+                    if "is_error" in data and data["is_error"] is None
+                    else bool(data.get("is_error", False))
+                ),
             )
         except (KeyError, ValueError) as exc:
             logger.exception("mensagem corrompida no histórico", extra={"data": data})

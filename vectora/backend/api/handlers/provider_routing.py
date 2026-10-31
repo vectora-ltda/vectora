@@ -4271,6 +4271,7 @@ async def unregister_nine_router_model(
 
 from pydantic import BaseModel, Field
 
+from backend.contracts import ProviderCapability
 from backend.llm.systemone.settings import (
     SystemOneSettings,
     get_systemone_provider,
@@ -4303,6 +4304,7 @@ class SystemOneStatusResponse(BaseModel):
     allow_remote_fallback: bool
     confidence_threshold_hitl: float
     capabilities: ProviderCapabilities | None = None
+    capability_matrix: list[ProviderCapability] = Field(default_factory=list)
     is_healthy: bool = False
 
 
@@ -4371,6 +4373,85 @@ async def get_decision_models_status(
             exc_info=True,
         )
 
+    # Capabilities are declared by each adapter and can be inspected without
+    # contacting every remote service.  Readiness is only authoritative for the
+    # selected provider, whose health probe ran above; non-selected providers
+    # stay explicitly non-ready instead of being presented as live.
+    capability_matrix: list[ProviderCapability] = []
+    for provider_name in ("clef-local", "laya-local", "clef-api", "jev-api"):
+        provider_settings = sys_settings.model_copy(update={"provider": provider_name})
+        model_name = {
+            "clef-local": sys_settings.local_model,
+            "laya-local": sys_settings.laya_model,
+            "clef-api": sys_settings.clef_api_model,
+            "jev-api": sys_settings.jev_api_model,
+        }[provider_name].strip() or "unconfigured"
+        try:
+            # Capabilities are declarative and must remain visible even when
+            # a remote provider cannot be constructed (for example, because
+            # its account id is not configured).  Readiness is handled below
+            # and remains false in that situation.
+            if provider_name == "clef-api" and not provider_settings.clef_account_id:
+                from backend.llm.systemone.api_adapters import ClefApiAdapter
+
+                provider = ClefApiAdapter(
+                    api_key=settings.clef_api_key or "",
+                    account_id="capability-probe",
+                    base_url=provider_settings.clef_api_base_url,
+                )
+                discovered = False
+            else:
+                provider = get_systemone_provider(
+                    provider_settings,
+                    clef_api_key=settings.clef_api_key,
+                    jev_api_key=settings.jev_api_key,
+                )
+                discovered = True
+            provider_caps = await provider.capabilities()
+            is_selected = provider_name == sys_settings.provider
+            capability_matrix.append(
+                ProviderCapability(
+                    provider=provider_name,
+                    model=model_name,
+                    discovered=discovered,
+                    ready=is_selected and is_healthy,
+                    text_generation=any(
+                        (
+                            provider_caps.supports_noul,
+                            provider_caps.supports_choice,
+                            provider_caps.supports_score,
+                        )
+                    ),
+                    streaming=False,
+                    tool_calling=False,
+                    vision=provider_caps.supports_image,
+                    checked_at=datetime.now(UTC).isoformat(),
+                    diagnostic=(
+                        "provider selecionado não está saudável"
+                        if is_selected and not is_healthy
+                        else None
+                        if is_selected
+                        else "provider não selecionado; readiness não foi sondada"
+                    ),
+                )
+            )
+        except Exception as exc:
+            logger.warning(
+                "provider_routing: falha ao descrever capability de %s",
+                provider_name,
+                exc_info=True,
+            )
+            capability_matrix.append(
+                ProviderCapability(
+                    provider=provider_name,
+                    model=model_name,
+                    discovered=False,
+                    ready=False,
+                    checked_at=datetime.now(UTC).isoformat(),
+                    diagnostic=f"capability indisponível: {type(exc).__name__}",
+                )
+            )
+
     return SystemOneStatusResponse(
         enabled=settings.systemone_enabled,
         provider=settings.systemone_provider,
@@ -4391,6 +4472,7 @@ async def get_decision_models_status(
         allow_remote_fallback=settings.systemone_allow_remote_fallback,
         confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
         capabilities=caps,
+        capability_matrix=capability_matrix,
         is_healthy=is_healthy,
     )
 

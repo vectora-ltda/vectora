@@ -10,6 +10,8 @@ Garante governança estrita de execução:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -25,6 +27,21 @@ logger = logging.getLogger(__name__)
 #: Conjunto canônico de ferramentas com potencial destrutivo (compatibilidade)
 DESTRUCTIVE_TOOLS: frozenset[str] = REQUIRE_APPROVAL
 
+# Navegação do Browser Workbench usa o mesmo perímetro de egress das tools
+# web.  Manter a lista aqui evita que uma URL bloqueada passe pelo caminho CDP
+# apenas porque não é uma chamada HTTP explícita.
+_URL_EGRESS_TOOLS: frozenset[str] = frozenset(
+    {
+        "http_request",
+        "web_fetch",
+        "fetch_url",
+        "web_crawl",
+        "web_map",
+        "browser_navigate",
+        "browser_new_tab",
+    }
+)
+
 
 @dataclass(frozen=True)
 class PolicySnapshot:
@@ -38,9 +55,52 @@ class PolicySnapshot:
     is_jailed: bool = False
     untrusted_content: bool = False
     allow_force_push: bool = False
+    #: Version counters are captured at compilation time so a kill-switch or
+    #: user policy change can revoke an already-running execution before its
+    #: next tool call.
+    user_policy_version: int | None = None
+    global_policy_version: int | None = None
+
+    @property
+    def version(self) -> str:
+        """Stable identity for the complete effective policy snapshot."""
+        payload = {
+            "workspace_id": self.workspace_id,
+            "user_id": self.user_id,
+            "permission_mode": self.permission_mode,
+            "disabled_tools": sorted(self.disabled_tools),
+            "egress_policy": self.egress_policy.model_dump(mode="json"),
+            "is_jailed": self.is_jailed,
+            "untrusted_content": self.untrusted_content,
+            "allow_force_push": self.allow_force_push,
+            "user_policy_version": self.user_policy_version,
+            "global_policy_version": self.global_policy_version,
+        }
+        encoded = json.dumps(
+            payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+        return f"policy:{hashlib.sha256(encoded).hexdigest()}"
+
+    def is_revoked(self) -> bool:
+        """Return whether the tool policy changed since this snapshot."""
+        if self.user_policy_version is None and self.global_policy_version is None:
+            return False
+        return (
+            self.user_policy_version is not None
+            and tool_policy.policy_version(self.user_id) != self.user_policy_version
+        ) or (
+            self.global_policy_version is not None
+            and tool_policy.policy_version(tool_policy.GLOBAL_SCOPE)
+            != self.global_policy_version
+        )
 
     def is_tool_allowed(self, tool_name: str) -> tuple[bool, str]:
         """Valida se a tool pode ser chamada com base nas restrições da política."""
+        if self.is_revoked():
+            return (
+                False,
+                "Política de tools revogada durante a execução; reconstrua o snapshot",
+            )
         if tool_name in self.disabled_tools:
             return False, f"Tool '{tool_name}' desabilitada pela política de permissões"
 
@@ -82,7 +142,7 @@ class PolicySnapshot:
                 )
 
         # Checagem unificada de saída de rede (egress)
-        if tool_name in ("http_request", "web_fetch", "web_crawl", "web_map"):
+        if tool_name in _URL_EGRESS_TOOLS:
             url = args.get("url")
             if isinstance(url, str):
                 ok, egress_reason = is_url_allowed(url, self.egress_policy)
@@ -161,4 +221,6 @@ def compile_policy_snapshot(
         is_jailed=is_jailed,
         untrusted_content=bool(is_untrusted),
         allow_force_push=allow_force_push,
+        user_policy_version=tool_policy.policy_version(user_id),
+        global_policy_version=tool_policy.policy_version(tool_policy.GLOBAL_SCOPE),
     )

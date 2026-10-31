@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from backend.contracts.models import (
     QualityGatePolicy,
+    QualityGateReason,
     QualityGateRunResult,
     QualityGateSpec,
     VerificationOutcome,
@@ -36,15 +37,27 @@ class VerificationResult:
     gate_results: list[QualityGateRunResult] = field(default_factory=list)
     failure_feedback: str | None = None
     outcome: VerificationOutcome = "unverified"
+    run_id: str | None = None
+    policy_snapshot_id: str | None = None
+    commit_sha: str | None = None
+    artifact_refs: list[str] = field(default_factory=list)
 
     def to_evidence_entry(self) -> dict[str, Any]:
         """Formata o resultado da verificação como evidência persistível no AgentRun."""
         return {
             "kind": "quality_gate_verification",
+            "run_id": self.run_id,
+            "policy_snapshot_id": self.policy_snapshot_id,
+            "commit_sha": self.commit_sha,
+            "artifact_refs": list(self.artifact_refs),
             "passed": self.passed,
             "status": self.status,
             "outcome": self.outcome,
             "snapshot_sha256": self.snapshot_sha256,
+            # Keep the per-file material used to derive the snapshot alongside
+            # the aggregate digest.  A digest alone cannot prove which files
+            # were observed after a replay or a later workspace mutation.
+            "file_hashes": dict(sorted(self.file_hashes.items())),
             "gates_evaluated": len(self.gate_results),
             "gate_results": [g.model_dump() for g in self.gate_results],
         }
@@ -90,10 +103,12 @@ async def _execute_single_gate(
             exit_code=1,
             output="No command specified for quality gate",
             duration_ms=0,
+            reason="dispatch_error",
         )
 
     max_output_bytes = 10000
     output_buffer = bytearray()
+    failure_reason: QualityGateReason | None = None
 
     async def _read_stream(stream: asyncio.StreamReader) -> None:
         """Executa a operação  read stream."""
@@ -140,6 +155,7 @@ async def _execute_single_gate(
                 await asyncio.wait_for(proc.wait(), timeout=5.0)
             exit_code = -1
             output = f"Tempo limite de execução ({gate.timeout_seconds}s) excedido para o gate '{gate.id}'"
+            failure_reason = "timeout"
         except asyncio.CancelledError:
             if os.name != "nt" and hasattr(os, "killpg"):
                 with contextlib.suppress(ProcessLookupError, Exception):
@@ -155,15 +171,20 @@ async def _execute_single_gate(
     except Exception as exc:
         exit_code = 1
         output = f"Falha ao despachar comando do gate '{gate.id}': {exc}"
+        failure_reason = "dispatch_error"
 
     duration_ms = int((time.perf_counter() - t0) * 1000)
     passed = exit_code == 0
+    reason: QualityGateReason = (
+        "passed" if passed else (failure_reason or "assertion_failed")
+    )
     return QualityGateRunResult(
         gate_id=gate.id,
         passed=passed,
         exit_code=exit_code,
         output=output[:max_output_bytes],
         duration_ms=duration_ms,
+        reason=reason,
     )
 
 
@@ -172,6 +193,7 @@ async def _is_git_working_tree_clean(root_dir: Path) -> tuple[bool, str]:
     git_dir = root_dir / ".git"
     if not git_dir.exists():
         return True, ""
+    proc: asyncio.subprocess.Process | None = None
     try:
         proc = await asyncio.create_subprocess_exec(
             "git",
@@ -186,8 +208,56 @@ async def _is_git_working_tree_clean(root_dir: Path) -> tuple[bool, str]:
         if proc.returncode == 0 and not status_output:
             return True, ""
         return False, status_output
+    except asyncio.CancelledError:
+        if proc is not None and proc.returncode is None:
+            proc.kill()
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.shield(proc.wait())
+        raise
+    except TimeoutError as exc:
+        if proc is not None and proc.returncode is None:
+            proc.kill()
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                await proc.wait()
+        return False, f"Falha ao checar status do Git: {exc}"
     except Exception as exc:
         return False, f"Falha ao checar status do Git: {exc}"
+
+
+async def _git_commit_sha(root_dir: Path) -> str | None:
+    """Retorna o commit avaliado, sem transformar falta de Git em falha do gate."""
+    proc: asyncio.subprocess.Process | None = None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "rev-parse",
+            "HEAD",
+            cwd=str(root_dir),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        if proc.returncode != 0:
+            return None
+        return stdout.decode("ascii", errors="ignore").strip() or None
+    except asyncio.CancelledError:
+        if proc is not None and proc.returncode is None:
+            proc.kill()
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.shield(proc.wait())
+        raise
+    except TimeoutError:
+        if proc is not None and proc.returncode is None:
+            proc.kill()
+        if proc is not None:
+            with contextlib.suppress(Exception):
+                await proc.wait()
+        return None
+    except OSError:
+        return None
 
 
 async def run_verification(
@@ -197,6 +267,8 @@ async def run_verification(
     files_touched: list[str] | None = None,
     profile: WorkspaceVerificationProfile | None = None,
     target_gate_ids: list[str] | set[str] | None = None,
+    run_id: str | None = None,
+    policy_snapshot_id: str | None = None,
 ) -> VerificationResult:
     """Executa o ciclo completo de verificação pós-execução.
 
@@ -204,6 +276,7 @@ async def run_verification(
     executa os comandos e determina se o status final é passed, degraded ou failed.
     """
     root_dir = Path(cwd) if cwd else Path.cwd()
+    commit_sha = await _git_commit_sha(root_dir)
     prof = profile or get_verification_profile(workspace_id)
 
     # 1. Checagem de require_clean_git quando habilitado na verificação final
@@ -230,6 +303,9 @@ async def run_verification(
                 file_hashes=file_hashes,
                 gate_results=[],
                 failure_feedback=f"Quality gates solicitados não existem no perfil: {sorted(missing_gate_ids)}",
+                run_id=run_id,
+                policy_snapshot_id=policy_snapshot_id,
+                commit_sha=commit_sha,
             )
 
     applicable_gates: list[QualityGateSpec] = (
@@ -282,12 +358,15 @@ async def run_verification(
             snapshot_sha256=snapshot_sha256,
             file_hashes=file_hashes,
             gate_results=[],
+            run_id=run_id,
+            policy_snapshot_id=policy_snapshot_id,
+            commit_sha=commit_sha,
         )
 
     has_infra_error = any(
-        result.exit_code < 0 or result.output.startswith("Falha ao despachar")
-        for result in gate_results
+        result.reason in ("dispatch_error", "timeout") for result in gate_results
     )
+    status: Literal["passed", "degraded", "failed"]
     if has_infra_error:
         outcome: VerificationOutcome = "infra_error"
     elif has_blocking_failure:
@@ -297,8 +376,15 @@ async def run_verification(
     else:
         outcome = "passed"
 
-    if has_blocking_failure:
-        status: Literal["passed", "degraded", "failed"] = "failed"
+    if has_infra_error:
+        # Um gate que não pôde ser despachado não aprovou o workspace. O
+        # ``outcome`` preserva a causa de infraestrutura, enquanto o status
+        # terminal permanece falho para impedir que a execução prossiga como
+        # se tivesse sido verificada.
+        status = "failed"
+        overall_passed = False
+    elif has_blocking_failure:
+        status = "failed"
         overall_passed = False
     elif has_degrading_failure:
         status = "degraded"
@@ -317,4 +403,7 @@ async def run_verification(
         file_hashes=file_hashes,
         gate_results=gate_results,
         failure_feedback=feedback,
+        run_id=run_id,
+        policy_snapshot_id=policy_snapshot_id,
+        commit_sha=commit_sha,
     )

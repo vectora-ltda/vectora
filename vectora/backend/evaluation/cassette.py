@@ -27,6 +27,12 @@ class CassetteInteraction(BaseModel):
     duration_ms: int = 0
     usage: dict[str, int] = Field(default_factory=dict)
     systemone_decision: str | None = None
+    # Provenance is optional for legacy cassettes, but new recordings should
+    # populate it so a replay can be tied to the execution that produced it.
+    run_id: str | None = None
+    policy_digest: str | None = None
+    environment_digest: str | None = None
+    reproducible: bool = False
 
 
 class Cassette(BaseModel):
@@ -37,13 +43,26 @@ class Cassette(BaseModel):
     created_at: str = Field(default_factory=_now_iso)
     model: str = ""
     description: str = ""
+    runtime_sha: str | None = None
+    source_run_id: str | None = None
+    provider: str | None = None
+    capability: str | None = None
+    redaction_version: int = Field(default=1, ge=1)
     interactions: list[CassetteInteraction] = Field(default_factory=list)
 
     def save(self, target_path: Path | str) -> None:
         """Salva a cassete no disco com redação estrita de dados sensíveis."""
         path = Path(target_path)
         path.parent.mkdir(parents=True, exist_ok=True)
+        if self.redaction_version != 1:
+            raise ValueError(
+                f"redaction_version não suportada: {self.redaction_version}"
+            )
         raw_dict = self.model_dump()
+        # A cassette without a source/run identity is still loadable for
+        # backwards compatibility, but is explicitly marked as legacy. This
+        # prevents replay output from being mistaken for live evidence.
+        raw_dict.setdefault("redaction_version", 1)
         for inter in raw_dict.get("interactions", []):
             saved_usage = inter.get("usage")
             inter["messages"] = redact_sensitive_data(inter.get("messages", []))
@@ -63,4 +82,9 @@ class Cassette(BaseModel):
         """Carrega e valida uma cassete gravada a partir do caminho indicado."""
         path = Path(source_path)
         raw = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            raise ValueError("A cassete deve ser um objeto JSON")
+        version = raw.get("redaction_version", 1)
+        if version != 1:
+            raise ValueError(f"redaction_version não suportada: {version}")
         return cls.model_validate(raw)

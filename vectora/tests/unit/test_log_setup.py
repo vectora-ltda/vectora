@@ -1,6 +1,9 @@
+import asyncio
 import json
 import logging
+import sys
 
+from backend.services import log_setup
 from backend.services.log_setup import JSONFormatter, TextFormatter
 
 
@@ -49,3 +52,36 @@ def test_json_formatter_emits_safe_context_without_raw_token() -> None:
     assert payload["repo"] == "r"
     assert "authorization" not in payload
     assert "secret" not in json.dumps(payload)
+
+
+def test_shutdown_filter_suprime_cancelled_error_so_apos_shutdown(
+    monkeypatch,
+) -> None:
+    filtro = log_setup._ShutdownCancellationFilter()
+    record = logging.LogRecord(
+        "uvicorn.error", logging.ERROR, __file__, 1, "cancelled", (), None
+    )
+    try:
+        raise asyncio.CancelledError
+    except asyncio.CancelledError:
+        record.exc_info = sys.exc_info()
+
+    monkeypatch.setattr(log_setup, "_shutdown_requested", False)
+    assert filtro.filter(record) is True
+
+    log_setup.mark_shutdown_requested()
+    assert filtro.filter(record) is False
+
+
+def test_shutdown_filter_preserva_excecao_real(monkeypatch) -> None:
+    filtro = log_setup._ShutdownCancellationFilter()
+    record = logging.LogRecord(
+        "uvicorn.error", logging.ERROR, __file__, 1, "failed", (), None
+    )
+    try:
+        raise RuntimeError("falha real")
+    except RuntimeError:
+        record.exc_info = sys.exc_info()
+
+    monkeypatch.setattr(log_setup, "_shutdown_requested", True)
+    assert filtro.filter(record) is True

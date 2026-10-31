@@ -80,5 +80,5 @@ async def put_policy(request: Request, body: ToolPolicyBody) -> dict:
         raise HTTPException(
             status_code=400, detail=f"Tools desconhecidas: {sorted(unknown)}"
         )
-    tool_policy.set_disabled(_user_id(request), body.disabled)
+    await tool_policy.set_disabled(_user_id(request), body.disabled)
     return {"status": "ok", "disabled": tool_policy.get_disabled(_user_id(request))}

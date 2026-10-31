@@ -17,6 +17,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from backend.api.schemas import Thread
+from backend.vtypes.history import ThreadHistoryEntry
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 
@@ -59,11 +60,18 @@ async def test_history_paginated_propaga_attachments(
             "url": "/threads/t1/attachments/abc123.png",
         }
     ]
-    fake_pairs = [("human", "veja isso", "cp1", attachments_meta)]
-
     monkeypatch.setattr(
-        "backend.services.agent_factory.aget_thread_messages",
-        AsyncMock(return_value=fake_pairs),
+        "backend.services.agent_factory.aget_thread_messages_with_files",
+        AsyncMock(
+            return_value=[
+                ThreadHistoryEntry(
+                    role="human",
+                    text="veja isso",
+                    checkpoint_id="cp1",
+                    attachments=attachments_meta,
+                )
+            ]
+        ),
     )
 
     resp = await threads_mod.get_thread_history_paginated("t1", _request())
@@ -83,8 +91,12 @@ async def test_history_paginated_mensagem_sem_attachments_fica_vazia(
 
     monkeypatch.setattr(threads_mod, "get_thread", _fake_get_thread)
     monkeypatch.setattr(
-        "backend.services.agent_factory.aget_thread_messages",
-        AsyncMock(return_value=[("human", "oi", "cp1", [])]),
+        "backend.services.agent_factory.aget_thread_messages_with_files",
+        AsyncMock(
+            return_value=[
+                ThreadHistoryEntry(role="human", text="oi", checkpoint_id="cp1")
+            ]
+        ),
     )
 
     resp = await threads_mod.get_thread_history_paginated("t1", _request())

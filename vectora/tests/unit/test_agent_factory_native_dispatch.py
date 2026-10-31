@@ -100,6 +100,85 @@ class TestGetNativeAgent:
 
 
 class TestNativeSubagentCatalogAbac:
+    def test_souls_expoem_matrizes_de_tools_sem_excesso_de_permissao(self) -> None:
+        """Cada Soul deve receber exatamente a superfície do seu contrato."""
+        from backend.agents.souls import SOUL_CATALOG
+
+        def names(soul_name: str) -> set[str]:
+            return {tool.name for tool in SOUL_CATALOG[soul_name].tools}
+
+        coder = names("coder")
+        assert "browser_navigate" not in coder
+        assert "gh_pr_merge" not in coder
+        assert "git_merge" not in coder
+        assert "git_revert" not in coder
+
+        reviewer = names("reviewer")
+        assert reviewer <= {
+            "git_status",
+            "git_operation",
+            "git_operations",
+            "git_commit_suggestion",
+            "git_log",
+            "git_diff",
+            "file_read",
+            "grep",
+            "list_dir",
+            "vector_search",
+            "ask_parent_agent",
+        }
+
+        writer = names("writer-docs")
+        assert "terminal" not in writer
+        assert "file_delete" not in writer
+        assert "file_move" not in writer
+        assert "git_commit" not in writer
+
+        planner = names("planner")
+        assert "file_write" not in planner
+        assert "terminal" not in planner
+        assert "git_commit" not in planner
+
+        search = names("search")
+        assert "vector_search" in search
+        assert "ingest_docs" not in search
+        assert "embedding" not in search
+        assert "manage_retriever" not in search
+
+        security = names("security-auditor")
+        assert "git_branch" not in security
+        assert "file_write" not in security
+        assert "manage_retriever" not in security
+
+        analyst = names("data-analyst")
+        assert "write_terminal" not in analyst
+        assert "terminal" not in analyst
+        assert "file_write" not in analyst
+
+        readonly_git = {
+            "git_status",
+            "git_operation",
+            "git_operations",
+            "git_commit_suggestion",
+            "git_log",
+            "git_diff",
+        }
+        for soul_name in SOUL_CATALOG:
+            assert readonly_git <= names(soul_name), soul_name
+
+    async def test_coder_nao_reescreve_historico_via_amend(self) -> None:
+        """O subagente Coder recebe git_commit sem amend: o handler recusa
+        ``amend=True`` antes de tocar no repositório."""
+        from unittest.mock import MagicMock
+
+        catalog = af._native_subagent_catalog(None)
+        commit = next(t for t in catalog["coder"].tools if t.name == "git_commit")
+
+        resultado = await commit.handler(ctx=MagicMock(), message="rewrite", amend=True)
+
+        assert resultado.startswith("Error:")
+        assert "amend" in resultado
+
     def test_disabled_tools_filtradas_do_catalogo(self, monkeypatch):
         """ABAC/kill-switch: tools desabilitadas saem das specs nativas de
         subagente (substitui a cobertura do antigo _subagent_specs legado)."""
@@ -482,3 +561,20 @@ class TestAgetThreadTodosNativo:
             todos = await af.aget_thread_todos("thread-todos-erro")
 
         assert todos == [{"content": "válido", "status": "pending"}]
+
+
+def test_soul_prompts_preserve_tool_boundaries() -> None:
+    """Prompts must agree with each SOUL's allowed tools."""
+    from backend.agents.souls import SOUL_CATALOG
+
+    coder = SOUL_CATALOG["coder"].system_prompt
+    assert "unrestricted" not in coder
+    assert "browser_navigate" not in coder
+    assert "The Coder Agent has no browser tools" in coder
+    assert "### Git and terminal boundary" in coder
+    assert "`file_read`, `file_edit`, `file_write`" in coder
+    assert "`save_memory`, `get_memory`, `delete_memory`" in coder
+    search = SOUL_CATALOG["search"].system_prompt
+    assert "manage_retriever" not in search
+    assert "cleanup to the Coder Agent" in search
+    assert "### Read-only RAG-first strategy" in search

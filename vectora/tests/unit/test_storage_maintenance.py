@@ -56,6 +56,14 @@ async def test_maintenance_runs_incremental_vacuum_when_enabled(tmp_path: Path) 
     result = await run_storage_maintenance(database)
 
     assert result.incremental_vacuum is True
+    assert result.context_records == {"projections": 0, "checkpoints": 0}
+    assert result.memory_expired == 0
+    assert result.memory_purged == 0
+
+
+async def test_maintenance_rejeita_retencao_invalida(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="context_retention_days"):
+        await run_storage_maintenance(tmp_path / "vectora.db", context_retention_days=0)
 
 
 async def test_maintenance_cancellation_stops_artifact_worker(
@@ -92,3 +100,32 @@ async def test_maintenance_cancellation_stops_artifact_worker(
         await task
     assert stop_event.is_set()
     assert stopped.wait(2)
+
+
+async def test_maintenance_so_cria_schema_de_sessoes_no_banco_de_sessoes(
+    tmp_path: Path,
+) -> None:
+    """Outro banco (``vectora.db``) não recebe as tabelas de sessão; o banco
+    ``sessions.db`` recebe o schema e tem os registros antigos de contexto purgados."""
+
+    async def tables(path: Path) -> set[str]:
+        async with aiosqlite.connect(path) as connection:
+            cursor = await connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+            return {str(row[0]) for row in await cursor.fetchall()}
+
+    other = tmp_path / "vectora.db"
+    async with aiosqlite.connect(other) as connection:
+        await connection.execute("CREATE TABLE sample (id INTEGER PRIMARY KEY)")
+        await connection.commit()
+    await run_storage_maintenance(other)
+    assert await tables(other) == {"sample"}
+
+    sessions = tmp_path / "sessions.db"
+    async with aiosqlite.connect(sessions) as connection:
+        await connection.execute("CREATE TABLE sample (id INTEGER PRIMARY KEY)")
+        await connection.commit()
+    result = await run_storage_maintenance(sessions)
+    assert {"sessions", "messages"} <= await tables(sessions)
+    assert result.context_records == {"projections": 0, "checkpoints": 0}

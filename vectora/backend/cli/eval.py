@@ -8,8 +8,6 @@ import json
 import sys
 from pathlib import Path
 
-from pydantic import ValidationError
-
 from backend.evaluation.cassette import Cassette
 from backend.evaluation.replay_client import ReplayChatClient
 from backend.evaluation.runner import compare_cassettes
@@ -65,14 +63,18 @@ def _handle_compare(args: argparse.Namespace) -> int:
     try:
         b_cassette = Cassette.load(baseline_path)
         c_cassette = Cassette.load(candidate_path)
-    except (OSError, json.JSONDecodeError, ValidationError) as exc:
+    except (OSError, ValueError) as exc:
         print(
             f"Erro ao carregar cassetes para comparação: {exc}",
             file=sys.stderr,
         )
         return 1
 
-    report = compare_cassettes(b_cassette, c_cassette)
+    try:
+        report = compare_cassettes(b_cassette, c_cassette)
+    except ValueError as exc:
+        print(f"Erro ao comparar cassetes: {exc}", file=sys.stderr)
+        return 1
 
     if getattr(args, "output", "human") == "json":
         print(json.dumps(report.model_dump(), indent=2, ensure_ascii=False))
@@ -101,7 +103,7 @@ def _handle_run(args: argparse.Namespace) -> int:
 
     try:
         cassette = Cassette.load(p)
-    except (OSError, json.JSONDecodeError, ValidationError) as exc:
+    except (OSError, ValueError) as exc:
         print(
             f"Erro ao carregar cassete '{suite_path}': {exc}",
             file=sys.stderr,

@@ -2,8 +2,8 @@
 local do workspace OU qualquer URL http/https navegada livremente) mais
 gestão dos dev servers declarados em `.vectora/launch.json`.
 
-`browser_navigate` é a porta de entrada pra navegação livre — nenhum
-guardrail de host/porta, só esquema (`http`/`https`). As demais tools de
+`browser_navigate` é a porta de entrada pra navegação livre, sujeita ao
+snapshot de egress do workspace além do esquema (`http`/`https`). As demais tools de
 automação (`browser_click`/`browser_fill`/etc.) operam sobre a página já
 carregada na sessão persistente do workspace conectada ao Electron via CDP
 (`backend.browser.session.get_browser_page`); se nada foi navegado ainda,
@@ -12,9 +12,12 @@ caem no dev server ativo do workspace (mesmo fallback de sempre).
 
 from __future__ import annotations
 
+import asyncio
 import base64
+import contextlib
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -24,9 +27,12 @@ from backend.browser.session import (
     get_browser_page,
     get_tab_state,
     has_browser_session,
+    install_redirect_guard,
     resolve_uid_center,
     set_value_by_uid,
 )
+from backend.services.egress_policy import async_is_url_allowed
+from backend.services.policy_compiler import PolicySnapshot, compile_policy_snapshot
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
@@ -39,6 +45,123 @@ _NO_PAGE_ERROR = (
 )
 
 _ALLOWED_SCHEMES = ("http", "https")
+
+# A navigation guard must outlive the initial ``goto``: pages can issue
+# redirects, fetches and subresource requests after the tool has returned.
+# Keep the handler attached until the page is explicitly cleaned up.
+_navigation_guards: dict[int, tuple[Any, Any, dict[str, Any]]] = {}
+
+
+def _policy_snapshot(ctx: ToolContext) -> PolicySnapshot:
+    """Retorna o snapshot compilado pelo lifecycle do turno, quando houver."""
+    snapshot = ctx._extra.get("policy_snapshot")
+    if isinstance(snapshot, PolicySnapshot):
+        return snapshot
+    return compile_policy_snapshot(ctx)
+
+
+async def _snapshot_com_dev_server(
+    ctx: ToolContext, snapshot: PolicySnapshot
+) -> PolicySnapshot:
+    """Libera a porta do dev server do workspace no snapshot de egress.
+
+    A porta só entra quando o servidor está de fato no ar
+    (``resolve_dev_server_url``); portas configuradas no snapshot são preservadas.
+    """
+    dev_url = await resolve_dev_server_url(ctx.workspace_id or "default")
+    if not dev_url:
+        return snapshot
+    porta = urlparse(dev_url).port
+    politica = snapshot.egress_policy
+    if porta is None or porta in politica.allow_localhost_dev_ports:
+        return snapshot
+    return replace(
+        snapshot,
+        egress_policy=politica.model_copy(
+            update={
+                "allow_localhost_dev_ports": [
+                    *politica.allow_localhost_dev_ports,
+                    porta,
+                ]
+            }
+        ),
+    )
+
+
+def _validate_browser_url(url: str, ctx: ToolContext) -> tuple[bool, str]:
+    """Aplica a mesma política de egress ao início e ao destino final."""
+    ok, reason = _policy_snapshot(ctx).validate_call("browser_navigate", {"url": url})
+    return ok, reason
+
+
+async def _install_navigation_guard(
+    page: Any, snapshot: PolicySnapshot
+) -> tuple[Any | None, dict[str, str]]:
+    """Bloqueia destinos antes da requisição, inclusive redirects.
+
+    O fallback de testes não implementa ``route``; nesse caso a validação do
+    URL final continua sendo executada após ``goto``.
+    """
+    route = getattr(page, "route", None)
+    if not callable(route):
+        return None, {}
+    existing = _navigation_guards.get(id(page))
+    if existing is not None and existing[0] is page:
+        existing[2]["snapshot"] = snapshot
+        return existing[1], existing[2]["blocked"]
+    blocked: dict[str, str] = {}
+    state: dict[str, Any] = {"snapshot": snapshot, "blocked": blocked}
+
+    async def handler(route_obj: Any) -> None:
+        """Enforce navigation policy before allowing the request to continue."""
+        request = getattr(route_obj, "request", None)
+        request_url = str(getattr(request, "url", ""))
+        current_snapshot = state["snapshot"]
+        allowed, reason, _ = await async_is_url_allowed(
+            request_url, current_snapshot.egress_policy
+        )
+        if allowed:
+            await route_obj.continue_()
+        else:
+            blocked["reason"] = reason
+            await route_obj.abort()
+
+    await route("**/*", handler)
+
+    async def check_url(url: str) -> tuple[bool, str]:
+        allowed, reason, _ = await async_is_url_allowed(
+            url, state["snapshot"].egress_policy
+        )
+        return allowed, reason
+
+    # ``route`` only sees the first request of a navigation; the redirect
+    # guard pauses every hop at the CDP layer before the browser sends it.
+    state["release_redirect"] = await install_redirect_guard(page, check_url, blocked)
+    _navigation_guards[id(page)] = (page, handler, state)
+    return handler, blocked
+
+
+async def _remove_navigation_guard(page: Any, handler: Any) -> None:
+    """Remove a previously registered navigation guard when supported."""
+    if handler is None:
+        return
+    entry = _navigation_guards.get(id(page))
+    release_redirect = entry[2].get("release_redirect") if entry is not None else None
+    if release_redirect is not None:
+        with contextlib.suppress(Exception):
+            await release_redirect()
+    unroute = getattr(page, "unroute", None)
+    if callable(unroute):
+        with contextlib.suppress(Exception):
+            await unroute("**/*", handler)
+    _navigation_guards.pop(id(page), None)
+
+
+async def release_navigation_guard(page: Any) -> None:
+    """Remove the guard when a Browser Workbench page is explicitly closed."""
+    entry = _navigation_guards.get(id(page))
+    if entry is not None and entry[0] is page:
+        await _remove_navigation_guard(page, entry[1])
 
 
 async def _resolve_page(ctx: ToolContext) -> tuple[Any, str]:
@@ -96,14 +219,35 @@ async def browser_navigate(url: str, ctx: ToolContext) -> str:
             f"Error: esquema {scheme!r} não permitido — só http:// e "
             "https:// são aceitos pra navegação."
         )
+    snapshot = await _snapshot_com_dev_server(ctx, _policy_snapshot(ctx))
+    allowed, reason = await asyncio.to_thread(
+        snapshot.validate_call, "browser_navigate", {"url": url}
+    )
+    if not allowed:
+        return f"Error: navegação bloqueada pela política de egress: {reason}"
+    guard = None
+    blocked: dict[str, str] = {}
     try:
         page = await get_browser_page(ctx.workspace_id or "default")
+        guard, blocked = await _install_navigation_guard(page, snapshot)
+        # Clear the shared guard's diagnostics before each new navigation.
+        blocked.clear()
         await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        final_url = str(getattr(page, "url", url) or url)
+        allowed, reason = await asyncio.to_thread(
+            snapshot.validate_call, "browser_navigate", {"url": final_url}
+        )
+        if not allowed:
+            # A navegação pode ter seguido um redirect; não deixe a página
+            # proibida permanecer como alvo ativo da sessão.
+            with contextlib.suppress(Exception):
+                await page.goto("about:blank", wait_until="domcontentloaded")
+            return f"Error: redirect bloqueado pela política de egress: {reason}"
         logger.info(
             "browser_navigate completed",
             extra={
                 "tool": "browser_navigate",
-                "url": page.url,
+                "url": final_url,
                 "workspace_id": ctx.workspace_id,
                 "status": "ok",
             },
@@ -121,10 +265,19 @@ async def browser_navigate(url: str, ctx: ToolContext) -> str:
                     "browser_navigate: não foi possível ler o título", exc_info=True
                 )
         title_suffix = f" (título: {title})" if title else ""
-        return f"[OK] Navegado para {page.url}{title_suffix}"
+        return f"[OK] Navegado para {final_url}{title_suffix}"
     except Exception:
         logger.exception("browser_navigate failed", extra={"url": url})
+        if blocked.get("reason"):
+            return (
+                "Error: navegação bloqueada pela política de egress: "
+                f"{blocked['reason']}"
+            )
         return f"Error: falha ao navegar para {url!r}. Veja logs."
+    finally:
+        # Keep the guard attached to the live page.  Removing it here would
+        # leave later redirects/fetches outside the egress perimeter.
+        del guard
 
 
 @vtool(

@@ -12,8 +12,11 @@ import pytest
 from backend.persistence.native.agent_run import AgentRun
 from backend.persistence.native.postgres_session_store import (
     PostgresSessionStore,
+    _message_to_row,
+    _row_to_message,
     _RunEvidenceLockRegistry,
 )
+from backend.vtypes.message import MessageRole, VMessage
 
 if TYPE_CHECKING:
     import asyncpg
@@ -65,6 +68,38 @@ def _store(connection: _Connection) -> PostgresSessionStore:
     return store
 
 
+@pytest.mark.parametrize(
+    ("stored", "expected"), [(True, True), (False, False), (None, None)]
+)
+def test_postgres_message_round_trip_preserves_error_flag(
+    stored: bool | None, expected: bool
+) -> None:
+    """A coluna PostgreSQL não pode rebaixar falhas persistidas para sucesso."""
+    message = _row_to_message(
+        {
+            "role": MessageRole.ASSISTANT,
+            "content_json": '[{"kind":"text","text":"falhou"}]',
+            "tool_calls_json": None,
+            "tool_call_id": None,
+            "name": None,
+            "is_error": stored,
+        }
+    )
+
+    assert isinstance(message, VMessage)
+    assert message.is_error is expected
+
+
+@pytest.mark.parametrize("is_error", [None, False, True])
+def test_postgres_message_write_preserves_error_tristate(is_error: bool | None) -> None:
+    """The write boundary must not collapse an unknown flag into success."""
+    message = VMessage(role=MessageRole.ASSISTANT, content=[], is_error=is_error)
+
+    row = _message_to_row(message)
+
+    assert row[-1] is is_error
+
+
 @pytest.mark.asyncio
 async def test_postgres_evidence_lock_keeps_entry_until_waiters_finish() -> None:
     """Um waiter não pode observar um lock removido e criar uma segunda fila."""
@@ -94,6 +129,38 @@ async def test_postgres_evidence_lock_keeps_entry_until_waiters_finish() -> None
     await asyncio.gather(first_task, second_task)
     assert waiter_entered.is_set()
     assert len(registry) == 0
+
+
+@pytest.mark.asyncio
+async def test_postgres_terminal_outcome_uses_one_transaction() -> None:
+    """A terminal failure must update the run before committing its message."""
+    connection = _Connection(fetchval_results=[None, 41, 0])
+    store = _store(connection)
+    message = VMessage(
+        role=MessageRole.ASSISTANT,
+        content=[],
+        finish_reason="failed",
+        is_error=True,
+    )
+
+    await store.append_terminal_outcome(
+        "thread-1",
+        message,
+        parent_message_id=None,
+        turn_id="run-1:terminal",
+        run_id="run-1",
+        status="failed",
+        detail="provider indisponível",
+    )
+
+    statements = [call.args[0] for call in connection.execute.call_args_list]
+    assert any(
+        "UPDATE vectora_native_agent_runs" in statement for statement in statements
+    )
+    assert any(
+        "INSERT INTO vectora_native_thread_events" in statement
+        for statement in statements
+    )
 
 
 @pytest.mark.asyncio

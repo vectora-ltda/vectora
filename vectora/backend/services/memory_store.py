@@ -7,7 +7,7 @@ import json
 import sqlite3
 import threading
 import time
-from collections.abc import Generator
+from collections.abc import Collection, Generator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -230,6 +230,7 @@ class MemoryStore:
         confidence: float = 1.0,
         valid_until: str | None = None,
         supersedes_id: str | None = None,
+        authorized_scope_ids: Collection[str] | None = None,
     ) -> MemoryRecord:
         """Grava uma memória de forma idempotente e detecta conflitos.
 
@@ -239,6 +240,10 @@ class MemoryStore:
         ``supersedes_id``. Isso evita sobrescritas silenciosas e mantém a
         auditoria da linha do tempo.
         """
+        if not scope_id:
+            raise ValueError("scope_id não pode ser vazio")
+        if authorized_scope_ids is not None and scope_id not in authorized_scope_ids:
+            raise PermissionError(f"escopo de memória não autorizado: {scope_id!r}")
         if not 0.0 <= importance <= 1.0:
             raise ValueError("importance deve estar entre 0 e 1")
         if not 0.0 <= confidence <= 1.0:
@@ -293,15 +298,51 @@ class MemoryStore:
                 supersedes_id=supersedes_id,
             )
             if self._path is not None:
-                with self._connect() as connection:
-                    connection.execute(
-                        """INSERT INTO context_memory_records
-                        (record_id, domain, scope_id, content, importance,
-                         trust_level, provenance, created_at, accessed_at,
-                         metadata_json, confidence, valid_until, invalidated_at,
-                         supersedes_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                        self._record_parameters(record),
-                    )
+                try:
+                    with self._connect() as connection:
+                        connection.execute(
+                            """INSERT INTO context_memory_records
+                            (record_id, domain, scope_id, content, importance,
+                             trust_level, provenance, created_at, accessed_at,
+                             metadata_json, confidence, valid_until, invalidated_at,
+                             supersedes_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                            self._record_parameters(record),
+                        )
+                except sqlite3.IntegrityError as exc:
+                    # Another process may have won the same-key race after the
+                    # cache lookup above. Resolve that race through the same
+                    # idempotency/conflict contract instead of leaking a raw
+                    # SQLite exception to callers.
+                    with self._connect() as connection:
+                        row = connection.execute(
+                            "SELECT * FROM context_memory_records WHERE record_id = ?",
+                            (record_id,),
+                        ).fetchone()
+                    concurrent = self._record_from_row(row) if row is not None else None
+                    if concurrent is None:
+                        raise MemoryConflictError(
+                            f"memória {record_id!r} não pôde ser conciliada após uma corrida de gravação"
+                        ) from exc
+                    self._records[record_id] = concurrent
+                    if self._same_record(
+                        concurrent,
+                        domain=domain,
+                        scope_id=scope_id,
+                        content=content,
+                        importance=importance,
+                        trust_level=trust_level,
+                        provenance=provenance,
+                        metadata=clean_metadata,
+                        confidence=confidence,
+                        valid_until=valid_until,
+                        supersedes_id=supersedes_id,
+                    ):
+                        self._metrics["idempotent_writes"] += 1
+                        return concurrent
+                    self._metrics["conflicts"] += 1
+                    raise MemoryConflictError(
+                        f"memória {record_id!r} já existe com conteúdo ou proveniência diferente"
+                    ) from exc
             self._records[record_id] = record
             return record
 
@@ -311,10 +352,19 @@ class MemoryStore:
         scope_id: str | None = None,
         query: str | None = None,
         limit: int = 10,
+        authorized_scope_ids: Collection[str] | None = None,
     ) -> MemoryRetrievalResult:
         """Executa a operação retrieve."""
         if limit < 0:
             raise ValueError("limit não pode ser negativo")
+        if scope_id is not None and not scope_id:
+            raise ValueError("scope_id não pode ser vazio")
+        if authorized_scope_ids is not None:
+            allowed = set(authorized_scope_ids)
+            if scope_id is not None and scope_id not in allowed:
+                raise PermissionError(f"escopo de memória não autorizado: {scope_id!r}")
+        else:
+            allowed = None
         t0 = time.perf_counter()
         with self._lock:
             self._metrics["retrievals"] += 1
@@ -328,6 +378,8 @@ class MemoryStore:
             if not rec.active:
                 continue
             if domain is not None and rec.domain != domain:
+                continue
+            if allowed is not None and rec.scope_id not in allowed:
                 continue
             if scope_id is not None and rec.scope_id not in (scope_id, "global"):
                 continue
@@ -439,6 +491,55 @@ class MemoryStore:
                     record.invalidated_at = cutoff
                     changed += 1
         return changed
+
+    def purge_invalidated(
+        self, *, before: str | None = None, batch_size: int = 500
+    ) -> int:
+        """Remove fisicamente memórias já invalidadas após retenção.
+
+        A invalidação mantém o histórico; este segundo passo é deliberado e
+        limitado por lote para que expurgo de retenção não bloqueie o store nem
+        apague registros ainda dentro da janela de auditoria.
+        """
+        if batch_size <= 0:
+            raise ValueError("batch_size deve ser positivo")
+        cutoff_dt = self._parse_datetime(before) if before else datetime.now(UTC)
+        cutoff = cutoff_dt.isoformat()
+        removed = 0
+        if self._path is not None:
+            while True:
+                with self._connect() as connection:
+                    rows = connection.execute(
+                        "SELECT record_id FROM context_memory_records "
+                        "WHERE invalidated_at IS NOT NULL AND invalidated_at <= ? "
+                        "ORDER BY invalidated_at, record_id LIMIT ?",
+                        (cutoff, batch_size),
+                    ).fetchall()
+                    if not rows:
+                        break
+                    ids = [str(row["record_id"]) for row in rows]
+                    marks = ",".join("?" for _ in ids)
+                    cursor = connection.execute(
+                        "DELETE FROM context_memory_records "  # noqa: S608
+                        f"WHERE record_id IN ({marks})",  # nosec B608
+                        ids,
+                    )
+                    removed += cursor.rowcount
+                with self._lock:
+                    for record_id in ids:
+                        self._records.pop(record_id, None)
+            return removed
+
+        with self._lock:
+            expired_ids = [
+                record_id
+                for record_id, record in self._records.items()
+                if record.invalidated_at is not None
+                and self._parse_datetime(record.invalidated_at) <= cutoff_dt
+            ][:batch_size]
+            for record_id in expired_ids:
+                self._records.pop(record_id, None)
+            return len(expired_ids)
 
     @staticmethod
     def _parse_datetime(value: str) -> datetime:

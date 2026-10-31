@@ -32,6 +32,7 @@ class LedgerEventType:
     APPROVAL_REQUESTED = "approval_requested"
     APPROVAL_RESOLVED = "approval_resolved"
     RUN_FAILED = "run_failed"
+    RUN_CANCELLED = "run_cancelled"
     RUN_COMPLETED = "run_completed"
 
 
@@ -44,6 +45,7 @@ type LedgerEventTypeLiteral = Literal[
     "approval_requested",
     "approval_resolved",
     "run_failed",
+    "run_cancelled",
     "run_completed",
 ]
 
@@ -154,6 +156,11 @@ def make_approval_resolved_key(interrupt_id: str) -> str:
 def make_run_failed_key(run_id: str) -> str:
     """Executa a operação make run failed key."""
     return f"run_failed:{run_id}"
+
+
+def make_run_cancelled_key(run_id: str) -> str:
+    """Executa a operação make run cancelled key."""
+    return f"run_cancelled:{run_id}"
 
 
 def make_run_completed_key(run_id: str) -> str:

@@ -306,6 +306,11 @@ def create_backup(
             for archive_name, data in entries
         ]
     destination = Path(output)
+    # Never overwrite a symlink (which could redirect a backup outside the
+    # selected storage directory) and publish the archive atomically.  The
+    # previous implementation opened the destination directly, leaving a
+    # partially-written ZIP visible after interruption.
+    _assert_safe_destination(destination, destination.parent)
     destination.parent.mkdir(parents=True, exist_ok=True)
     total_bytes = sum(len(data) for entries in sources.values() for _, data in entries)
     if any(
@@ -316,17 +321,57 @@ def create_backup(
         raise ValueError("entrada de backup excede o limite")
     if total_bytes > MAX_ARCHIVE_BYTES:
         raise ValueError("backup excede o limite de tamanho")
-    with zipfile.ZipFile(destination, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        archive.writestr(MANIFEST, json.dumps(manifest, ensure_ascii=False, indent=2))
-        for entries in sources.values():
-            for archive_name, data in entries:
-                archive.writestr(archive_name, data)
+    temporary: Path | None = None
+    temporary_inode: tuple[int, int] | None = None
+    try:
+        # Keep the original descriptor open while writing the ZIP.  Opening
+        # the temporary path a second time after closing it permits a local
+        # attacker to replace it with a symlink between writes and publish.
+        fd, temporary_name = tempfile.mkstemp(
+            dir=destination.parent, suffix=".vbackup.tmp"
+        )
+        temporary = Path(temporary_name)
+        temporary_inode = (os.fstat(fd).st_dev, os.fstat(fd).st_ino)
+        with os.fdopen(fd, "w+b") as handle:
+            with zipfile.ZipFile(
+                handle, "w", compression=zipfile.ZIP_DEFLATED
+            ) as archive:
+                archive.writestr(
+                    MANIFEST, json.dumps(manifest, ensure_ascii=False, indent=2)
+                )
+                for entries in sources.values():
+                    for archive_name, data in entries:
+                        archive.writestr(archive_name, data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        current = temporary.stat(follow_symlinks=False)
+        if (
+            temporary.is_symlink()
+            or (current.st_dev, current.st_ino) != temporary_inode
+        ):
+            raise ValueError("arquivo temporário de backup foi substituído")
+        temporary.replace(destination)
+        # The rename is durable only after the parent directory entry is
+        # flushed.  Without this fsync a power loss can lose the published
+        # backup even though the temporary file was synced.
+        directory_flag = getattr(os, "O_DIRECTORY", 0)
+        if directory_flag:
+            dir_fd = os.open(destination.parent, os.O_RDONLY | directory_flag)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+    except BaseException:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        raise
     return inspect_backup(destination)
 
 
 def inspect_backup(archive_path: str | Path) -> BackupPreview:
     """Valida manifesto, caminhos, tipos, limites, hashes e entradas extras."""
     archive_file = Path(archive_path)
+    _assert_safe_destination(archive_file, archive_file.parent)
     if archive_file.stat().st_size > MAX_ARCHIVE_BYTES:
         raise ValueError("backup excede o limite de tamanho")
     with zipfile.ZipFile(archive_file) as archive:
