@@ -207,6 +207,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ix_agent_runs_thread_turn
     ON agent_runs(thread_id, turn_id) WHERE turn_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_agent_runs_thread_status
     ON agent_runs(thread_id, status, updated_at);
+CREATE TABLE IF NOT EXISTS tool_policy_versions (
+    scope TEXT PRIMARY KEY,
+    version INTEGER NOT NULL DEFAULT 0
+);
 """
 
 
@@ -654,6 +658,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ix_vectora_native_agent_runs_thread_turn
     ON vectora_native_agent_runs(thread_id, turn_id) WHERE turn_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_vectora_native_agent_runs_thread_status
     ON vectora_native_agent_runs(thread_id, status, updated_at);
+CREATE TABLE IF NOT EXISTS vectora_tool_policy_versions (
+    scope TEXT PRIMARY KEY,
+    version BIGINT NOT NULL DEFAULT 0
+);
 """
 
 

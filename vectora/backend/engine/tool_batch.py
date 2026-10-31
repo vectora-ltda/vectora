@@ -42,6 +42,13 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 
+#: Estados de envelope que indicam operação não concluída: falha geral, conflito
+#: de merge e workspace sem repositório Git. Os valores são preservados no JSON.
+_FAILED_ENVELOPE_STATUSES = frozenset(
+    {"error", "conflict", "not_git", "remote_unsupported", "git_not_found"}
+)
+
+
 def _is_tool_error(text: str, *, structured: bool = False) -> bool:
     """Reconhece prefixos de erro emitidos pelas tools localizadas."""
     if text.lstrip().lower().startswith(("error:", "erro:", "erro ao ")):
@@ -53,13 +60,21 @@ def _is_tool_error(text: str, *, structured: bool = False) -> bool:
     except (TypeError, json.JSONDecodeError, RecursionError):
         return False
     return isinstance(payload, dict) and (
-        payload.get("is_error") is True or payload.get("status") == "error"
+        payload.get("is_error") is True
+        or payload.get("status") in _FAILED_ENVELOPE_STATUSES
     )
 
 
 def _has_structured_result(spec: ToolSpec) -> bool:
-    """Use structured error classification for envelopes and browser tools."""
-    return spec.extras.structured_envelope or spec.extras.category == "browser"
+    """Use structured error classification for envelopes, browser and git tools.
+
+    Tools de Git devolvem ``{"status": "error", ...}`` em falhas sem declarar
+    ``structured_envelope``; sem esta regra o lote grava ``is_error=False``.
+    """
+    return spec.extras.structured_envelope or spec.extras.category in (
+        "browser",
+        "git",
+    )
 
 
 def _redact_secrets(texto: str) -> str:
@@ -128,6 +143,12 @@ async def _run_one(
     on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> VMessage:
     """Executa uma chamada do lote com contexto correlacionado à própria tool."""
+    if policy_snapshot is not None:
+        # Revogação entre réplicas: a versão compartilhada é relida a cada tool
+        # call, então uma réplica que perdeu o pubsub ainda recusa a execução.
+        from backend.rbac import tool_policy
+
+        await tool_policy.sync_persisted_versions()
     # ``validate_call`` may resolve DNS synchronously for URL egress tools; a slow
     # resolver must not stall every other session sharing the event loop.
     allowed, deny_reason = await asyncio.to_thread(

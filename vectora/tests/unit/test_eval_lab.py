@@ -283,7 +283,7 @@ def test_total_tokens_helper():
     assert _total_tokens({"input": 40, "output": 60}) == 100
 
 
-def test_cli_eval_compare(tmp_path: Path, capsys):
+def test_cli_eval_compare(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Verifica o comportamento de cli eval compare."""
     b_path = tmp_path / "base.json"
     c_path = tmp_path / "cand.json"
@@ -302,7 +302,7 @@ def test_cli_eval_compare(tmp_path: Path, capsys):
     assert "Relatório de Avaliação" in captured.out
 
 
-def test_cli_eval_run(tmp_path: Path, capsys):
+def test_cli_eval_run(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Verifica o comportamento de cli eval run."""
     suite_path = tmp_path / "suite.json"
     cassette = Cassette(
@@ -342,7 +342,7 @@ def test_cli_eval_run(tmp_path: Path, capsys):
     assert '"suite_id": "my-suite"' in captured_json.out
 
 
-def test_cli_eval_missing_suite(capsys):
+def test_cli_eval_missing_suite(capsys: pytest.CaptureFixture[str]) -> None:
     """Verifica o comportamento de cli eval missing suite."""
     args = argparse.Namespace(
         action="run",
@@ -355,7 +355,9 @@ def test_cli_eval_missing_suite(capsys):
     assert "obrigatório" in captured.err
 
 
-def test_cli_eval_corrupted_file(tmp_path: Path, capsys):
+def test_cli_eval_corrupted_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Verifica o comportamento de cli eval corrupted file."""
     corrupt = tmp_path / "corrupt.json"
     corrupt.write_text("{bad json", encoding="utf-8")
@@ -375,7 +377,7 @@ def test_cli_eval_corrupted_file(tmp_path: Path, capsys):
     "raw", ["[]", "null", "42", '{"cassette_id":"x","redaction_version":2}']
 )
 def test_cassette_load_rejects_invalid_shape_and_redaction_version(
-    tmp_path, raw
+    tmp_path: Path, raw: str
 ) -> None:
     """Loading untrusted JSON must fail with a validation error, never AttributeError."""
     source = tmp_path / "invalid.json"
@@ -387,7 +389,10 @@ def test_cassette_load_rejects_invalid_shape_and_redaction_version(
 @pytest.mark.parametrize("action", ["run", "compare"])
 @pytest.mark.parametrize("raw", ["[]", '{"cassette_id":"x","redaction_version":2}'])
 def test_cli_reports_invalid_cassette_without_traceback(
-    tmp_path, capsys, action, raw
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    action: str,
+    raw: str,
 ) -> None:
     """Both CLI entry points explain invalid cassettes and return failure."""
     source = tmp_path / "invalid.json"

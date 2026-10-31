@@ -17,6 +17,7 @@ import base64
 import contextlib
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -57,6 +58,34 @@ def _policy_snapshot(ctx: ToolContext) -> PolicySnapshot:
     if isinstance(snapshot, PolicySnapshot):
         return snapshot
     return compile_policy_snapshot(ctx)
+
+
+async def _snapshot_com_dev_server(
+    ctx: ToolContext, snapshot: PolicySnapshot
+) -> PolicySnapshot:
+    """Libera a porta do dev server do workspace no snapshot de egress.
+
+    A porta só entra quando o servidor está de fato no ar
+    (``resolve_dev_server_url``); portas configuradas no snapshot são preservadas.
+    """
+    dev_url = await resolve_dev_server_url(ctx.workspace_id or "default")
+    if not dev_url:
+        return snapshot
+    porta = urlparse(dev_url).port
+    politica = snapshot.egress_policy
+    if porta is None or porta in politica.allow_localhost_dev_ports:
+        return snapshot
+    return replace(
+        snapshot,
+        egress_policy=politica.model_copy(
+            update={
+                "allow_localhost_dev_ports": [
+                    *politica.allow_localhost_dev_ports,
+                    porta,
+                ]
+            }
+        ),
+    )
 
 
 def _validate_browser_url(url: str, ctx: ToolContext) -> tuple[bool, str]:
@@ -190,7 +219,7 @@ async def browser_navigate(url: str, ctx: ToolContext) -> str:
             f"Error: esquema {scheme!r} não permitido — só http:// e "
             "https:// são aceitos pra navegação."
         )
-    snapshot = _policy_snapshot(ctx)
+    snapshot = await _snapshot_com_dev_server(ctx, _policy_snapshot(ctx))
     allowed, reason = await asyncio.to_thread(
         snapshot.validate_call, "browser_navigate", {"url": url}
     )

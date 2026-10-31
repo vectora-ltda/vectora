@@ -569,7 +569,10 @@ def redirect_target() -> Iterator[tuple[http.server.HTTPServer, _Counter]]:
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self) -> None:
-            counter.hits += 1
+            # Chromium also asks the same origin for /favicon.ico after the page
+            # loads; only navigation requests count as hits on the target.
+            if self.path != "/favicon.ico":
+                counter.hits += 1
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
             self.end_headers()

@@ -100,7 +100,7 @@ class TestGetNativeAgent:
 
 
 class TestNativeSubagentCatalogAbac:
-    def test_souls_expoem_matrizes_de_tools_sem_excesso_de_permissao(self):
+    def test_souls_expoem_matrizes_de_tools_sem_excesso_de_permissao(self) -> None:
         """Cada Soul deve receber exatamente a superfície do seu contrato."""
         from backend.agents.souls import SOUL_CATALOG
 
@@ -152,6 +152,7 @@ class TestNativeSubagentCatalogAbac:
 
         analyst = names("data-analyst")
         assert "write_terminal" not in analyst
+        assert "terminal" not in analyst
         assert "file_write" not in analyst
 
         readonly_git = {
@@ -164,6 +165,19 @@ class TestNativeSubagentCatalogAbac:
         }
         for soul_name in SOUL_CATALOG:
             assert readonly_git <= names(soul_name), soul_name
+
+    async def test_coder_nao_reescreve_historico_via_amend(self) -> None:
+        """O subagente Coder recebe git_commit sem amend: o handler recusa
+        ``amend=True`` antes de tocar no repositório."""
+        from unittest.mock import MagicMock
+
+        catalog = af._native_subagent_catalog(None)
+        commit = next(t for t in catalog["coder"].tools if t.name == "git_commit")
+
+        resultado = await commit.handler(ctx=MagicMock(), message="rewrite", amend=True)
+
+        assert resultado.startswith("Error:")
+        assert "amend" in resultado
 
     def test_disabled_tools_filtradas_do_catalogo(self, monkeypatch):
         """ABAC/kill-switch: tools desabilitadas saem das specs nativas de

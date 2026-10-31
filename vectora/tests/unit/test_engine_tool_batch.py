@@ -455,3 +455,15 @@ class TestRedacaoDeSegredosPosExecucao:
 
         assert results[0].text() == "ok"
         assert seen == [snapshot]
+
+
+@pytest.mark.parametrize(
+    "status", ["conflict", "not_git", "remote_unsupported", "git_not_found"]
+)
+def test_envelopes_git_sem_sucesso_contam_como_erro(status: str) -> None:
+    """Par de erro: conflito de merge e workspace sem Git não são resultados
+    bem-sucedidos; o lote precisa marcá-los como erro."""
+    from backend.engine.tool_batch import _is_tool_error
+
+    assert _is_tool_error(f'{{"status":"{status}"}}', structured=True) is True
+    assert _is_tool_error('{"status":"ok"}', structured=True) is False

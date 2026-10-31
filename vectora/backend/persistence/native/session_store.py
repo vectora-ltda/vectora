@@ -42,6 +42,7 @@ from backend.persistence.native.ledger import (
     make_approval_requested_key,
     make_approval_resolved_key,
     make_message_created_key,
+    make_run_cancelled_key,
     make_run_failed_key,
 )
 from backend.persistence.native.schema import setup_sqlite_session_schema
@@ -185,6 +186,28 @@ class SessionSummary(TypedDict):
     created_at: str
     updated_at: str
     message_count: int
+
+
+def _terminal_ledger_events(
+    thread_id: str, run_id: str, turn_id: str, status: str, detail: str
+) -> list[ThreadLedgerEvent] | None:
+    """Evento de ledger que fecha um run terminal; `None` para status sem evento."""
+    if status == "failed":
+        event_key, event_type = make_run_failed_key(run_id), "run_failed"
+    elif status == "cancelled":
+        event_key, event_type = make_run_cancelled_key(run_id), "run_cancelled"
+    else:
+        return None
+    return [
+        ThreadLedgerEvent(
+            thread_id=thread_id,
+            event_key=event_key,
+            type=event_type,
+            run_id=run_id,
+            turn_id=turn_id,
+            payload={"detail": detail} if detail else {},
+        )
+    ]
 
 
 class SessionStore:
@@ -1443,6 +1466,31 @@ class SessionStore:
                 raise
         return int(new_id), current_seq
 
+    async def bump_tool_policy_version(self, scope: str) -> int:
+        """Incrementa atomicamente a versão compartilhada da política do escopo."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "INSERT INTO tool_policy_versions (scope, version) VALUES (?, 1) "
+                "ON CONFLICT(scope) DO UPDATE SET version = version + 1 "
+                "RETURNING version",
+                (scope,),
+            )
+            row = await cur.fetchone()
+            await conn.commit()
+        if row is None:
+            msg = "tool_policy_versions não retornou a versão incrementada"
+            raise RuntimeError(msg)
+        return int(row[0])
+
+    async def get_tool_policy_versions(self) -> dict[str, int]:
+        """Versões persistidas de todos os escopos da política de tools."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute("SELECT scope, version FROM tool_policy_versions")
+            rows = await cur.fetchall()
+        return {str(row[0]): int(row[1]) for row in rows}
+
     async def append_terminal_outcome(
         self,
         thread_id: str,
@@ -1455,20 +1503,8 @@ class SessionStore:
         detail: str,
     ) -> tuple[int, int]:
         """Commit terminal run state, visible message and ledger event together."""
-        event_key = make_run_failed_key(run_id) if status == "failed" else None
-        extra_events = (
-            [
-                ThreadLedgerEvent(
-                    thread_id=thread_id,
-                    event_key=event_key,
-                    type="run_failed",
-                    run_id=run_id,
-                    turn_id=turn_id,
-                    payload={"detail": detail} if detail else {},
-                )
-            ]
-            if event_key is not None
-            else None
+        extra_events = _terminal_ledger_events(
+            thread_id, run_id, turn_id, status, detail
         )
         return await self.append_message_recorded(
             thread_id,
@@ -2524,6 +2560,7 @@ class SessionStore:
                 "run_completed",
                 "agent_turn_finished",
                 "run_failed",
+                "run_cancelled",
                 "approval_resolved",
                 "approval_requested",
                 "agent_turn_started",
@@ -2603,6 +2640,8 @@ class SessionStore:
                 event_type, payload_json = status_row
                 if event_type == "run_failed":
                     status = "failed"
+                elif event_type == "run_cancelled":
+                    status = "idle"
                 elif event_type == "approval_requested":
                     status = "awaiting_approval"
                 elif event_type == "agent_turn_started":
@@ -2687,7 +2726,7 @@ class SessionStore:
                 "AND NOT EXISTS ("
                 "  SELECT 1 FROM thread_events e2 "
                 "  WHERE e2.thread_id = e1.thread_id AND e2.run_id = e1.run_id "
-                "  AND e2.type IN ('run_completed', 'run_failed', 'agent_turn_finished')"
+                "  AND e2.type IN ('run_completed', 'run_failed', 'run_cancelled', 'agent_turn_finished')"
                 ")"
             )
             rows = await cur.fetchall()

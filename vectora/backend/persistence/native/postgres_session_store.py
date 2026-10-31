@@ -40,6 +40,7 @@ from backend.persistence.native.ledger import (
     make_approval_requested_key,
     make_approval_resolved_key,
     make_message_created_key,
+    make_run_cancelled_key,
     make_run_failed_key,
 )
 from backend.persistence.native.schema import setup_postgres_session_schema
@@ -150,6 +151,28 @@ def _row_to_message(row: Mapping[str, Any]) -> VMessage:
         "is_error": row.get("is_error", False),
     }
     return VMessage.from_dict(data)
+
+
+def _terminal_ledger_events(
+    thread_id: str, run_id: str, turn_id: str, status: str, detail: str
+) -> list[ThreadLedgerEvent] | None:
+    """Evento de ledger que fecha um run terminal; `None` para status sem evento."""
+    if status == "failed":
+        event_key, event_type = make_run_failed_key(run_id), "run_failed"
+    elif status == "cancelled":
+        event_key, event_type = make_run_cancelled_key(run_id), "run_cancelled"
+    else:
+        return None
+    return [
+        ThreadLedgerEvent(
+            thread_id=thread_id,
+            event_key=event_key,
+            type=event_type,
+            run_id=run_id,
+            turn_id=turn_id,
+            payload={"detail": detail} if detail else {},
+        )
+    ]
 
 
 class PostgresSessionStore:
@@ -417,6 +440,30 @@ class PostgresSessionStore:
 
         return int(new_id), current_seq
 
+    async def bump_tool_policy_version(self, scope: str) -> int:
+        """Incrementa atomicamente a versão compartilhada da política do escopo."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "INSERT INTO vectora_tool_policy_versions (scope, version) "
+                "VALUES ($1, 1) "
+                "ON CONFLICT (scope) DO UPDATE SET "
+                "version = vectora_tool_policy_versions.version + 1 "
+                "RETURNING version",
+                scope,
+            )
+        if row is None:
+            msg = "vectora_tool_policy_versions não retornou a versão incrementada"
+            raise RuntimeError(msg)
+        return int(row["version"])
+
+    async def get_tool_policy_versions(self) -> dict[str, int]:
+        """Versões persistidas de todos os escopos da política de tools."""
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT scope, version FROM vectora_tool_policy_versions"
+            )
+        return {str(r["scope"]): int(r["version"]) for r in rows}
+
     async def append_terminal_outcome(
         self,
         thread_id: str,
@@ -429,19 +476,8 @@ class PostgresSessionStore:
         detail: str,
     ) -> tuple[int, int]:
         """Commit terminal state, visible message and ledger event together."""
-        extra_events = (
-            [
-                ThreadLedgerEvent(
-                    thread_id=thread_id,
-                    event_key=make_run_failed_key(run_id),
-                    type="run_failed",
-                    run_id=run_id,
-                    turn_id=turn_id,
-                    payload={"detail": detail} if detail else {},
-                )
-            ]
-            if status == "failed"
-            else None
+        extra_events = _terminal_ledger_events(
+            thread_id, run_id, turn_id, status, detail
         )
         return await self.append_message_recorded(
             thread_id,
@@ -1314,6 +1350,7 @@ class PostgresSessionStore:
                     "run_completed",
                     "agent_turn_finished",
                     "run_failed",
+                    "run_cancelled",
                     "approval_resolved",
                     "approval_requested",
                     "agent_turn_started",
@@ -1385,6 +1422,8 @@ class PostgresSessionStore:
                 event_type, payload_json = status_row
                 if event_type == "run_failed":
                     status = "failed"
+                elif event_type == "run_cancelled":
+                    status = "idle"
                 elif event_type == "approval_requested":
                     status = "awaiting_approval"
                 elif event_type == "agent_turn_started":
@@ -1472,7 +1511,7 @@ class PostgresSessionStore:
                 "AND NOT EXISTS ("
                 "  SELECT 1 FROM vectora_native_thread_events e2 "
                 "  WHERE e2.thread_id = e1.thread_id AND e2.run_id = e1.run_id "
-                "  AND e2.type IN ('run_completed', 'run_failed', 'agent_turn_finished')"
+                "  AND e2.type IN ('run_completed', 'run_failed', 'run_cancelled', 'agent_turn_finished')"
                 ")"
             )
         return [(r["thread_id"], r["run_id"]) for r in rows]

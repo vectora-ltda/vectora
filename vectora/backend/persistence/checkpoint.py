@@ -257,6 +257,24 @@ def create_snapshot_checkpoint(
     files_touched: list[str] = []
     total_bytes = 0
 
+    import json as _json
+
+    created_at = datetime.now(UTC).isoformat()
+    # O manifesto conta no cap: a base é medida com lista vazia e cada entrada
+    # soma seu JSON mais o separador. A medida é um teto, então nunca subestima
+    # o tamanho final gravado em seguida.
+    manifest_bytes = len(
+        _json.dumps(
+            {
+                "thread_id": thread_id,
+                "message": message,
+                "created_at": created_at,
+                "files": [],
+            },
+            ensure_ascii=False,
+        ).encode()
+    )
+
     try:
         with tarfile.open(archive_path, "w:gz") as tar:
             for fpath in files:
@@ -266,22 +284,25 @@ def create_snapshot_checkpoint(
                     continue
                 if size > _SNAPSHOT_MAX_FILE_BYTES:
                     continue
-                if total_bytes + size > _SNAPSHOT_MAX_TOTAL_BYTES:
-                    continue
                 arcname = str(fpath.relative_to(cwd_path))
+                entry_bytes = len(_json.dumps(arcname, ensure_ascii=False).encode()) + 2
+                if total_bytes + size + manifest_bytes + entry_bytes > (
+                    _SNAPSHOT_MAX_TOTAL_BYTES
+                ):
+                    continue
                 tar.add(str(fpath), arcname=arcname, recursive=False)
                 files_touched.append(arcname)
                 total_bytes += size
+                manifest_bytes += entry_bytes
 
             # Manifesto interno com metadados do checkpoint.
             import io
-            import json as _json
 
             manifest = _json.dumps(
                 {
                     "thread_id": thread_id,
                     "message": message,
-                    "created_at": datetime.now(UTC).isoformat(),
+                    "created_at": created_at,
                     "files": files_touched,
                 },
                 ensure_ascii=False,
@@ -379,6 +400,10 @@ def restore_snapshot_checkpoint(snapshot_path: str, cwd: str) -> dict[str, Any]:
                     staged_path.parent.mkdir(parents=True, exist_ok=True)
                     with source, staged_path.open("wb") as output:
                         shutil.copyfileobj(source, output)
+                    # Keep the executable bit recorded in the snapshot. Only
+                    # permission bits are applied: setuid/setgid/sticky stay
+                    # out of a restored workspace.
+                    staged_path.chmod(member.mode & 0o777)
                     staged.append((staged_path, destination))
                 for staged_path, destination in staged:
                     destination.parent.mkdir(parents=True, exist_ok=True)

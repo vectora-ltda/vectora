@@ -14,6 +14,7 @@ from typing import Any, Literal
 
 from backend.contracts.models import (
     QualityGatePolicy,
+    QualityGateReason,
     QualityGateRunResult,
     QualityGateSpec,
     VerificationOutcome,
@@ -107,7 +108,7 @@ async def _execute_single_gate(
 
     max_output_bytes = 10000
     output_buffer = bytearray()
-    failure_reason: str | None = None
+    failure_reason: QualityGateReason | None = None
 
     async def _read_stream(stream: asyncio.StreamReader) -> None:
         """Executa a operação  read stream."""
@@ -174,7 +175,9 @@ async def _execute_single_gate(
 
     duration_ms = int((time.perf_counter() - t0) * 1000)
     passed = exit_code == 0
-    reason = "passed" if passed else (failure_reason or "assertion_failed")
+    reason: QualityGateReason = (
+        "passed" if passed else (failure_reason or "assertion_failed")
+    )
     return QualityGateRunResult(
         gate_id=gate.id,
         passed=passed,
@@ -360,7 +363,9 @@ async def run_verification(
             commit_sha=commit_sha,
         )
 
-    has_infra_error = any(result.reason == "dispatch_error" for result in gate_results)
+    has_infra_error = any(
+        result.reason in ("dispatch_error", "timeout") for result in gate_results
+    )
     status: Literal["passed", "degraded", "failed"]
     if has_infra_error:
         outcome: VerificationOutcome = "infra_error"

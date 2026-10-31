@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import os
 import sys
 from pathlib import Path
 
@@ -184,6 +186,82 @@ async def test_run_verification_dispatch_error_is_not_approved(
     assert result.outcome == "infra_error"
     assert result.status == "failed"
     assert result.passed is False
+
+
+@pytest.mark.asyncio
+async def test_run_verification_timeout_on_degrade_gate_is_not_approved(
+    test_workspace: Path,
+) -> None:
+    """Gate que excede o tempo limite não concluiu; não pode aprovar a execução."""
+    gate = QualityGateSpec(
+        id="slow_gate",
+        name="Slow gate",
+        command=[sys.executable, "-c", "import time; time.sleep(30)"],
+        policy="degrade",
+        timeout_seconds=5,
+    )
+    result = await run_verification(
+        "timeout_ws",
+        test_workspace,
+        profile=WorkspaceVerificationProfile(
+            workspace_id="timeout_ws", enabled=True, gates=[gate]
+        ),
+    )
+    assert result.gate_results[0].reason == "timeout"
+    assert result.outcome == "infra_error"
+    assert result.status == "failed"
+    assert result.passed is False
+
+
+async def _git(repo: Path, env: dict[str, str], *args: str) -> str:
+    """Executa git de forma assíncrona e devolve a saída padrão."""
+    proc = await asyncio.create_subprocess_exec(
+        "git",
+        *args,
+        cwd=str(repo),
+        env=env,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        msg = f"git {' '.join(args)} falhou: {stderr.decode(errors='replace')}"
+        raise RuntimeError(msg)
+    return stdout.decode().strip()
+
+
+async def _init_repo_with_commit(repo: Path) -> str:
+    """Cria um repositório com um commit e devolve o SHA do HEAD."""
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.com",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.com",
+    }
+    repo.mkdir(exist_ok=True)
+    await _git(repo, env, "init", "-q")
+    (repo / "f.txt").write_text("x\n", encoding="utf-8")
+    await _git(repo, env, "add", "f.txt")
+    await _git(repo, env, "commit", "-q", "-m", "init")
+    return await _git(repo, env, "rev-parse", "HEAD")
+
+
+@pytest.mark.asyncio
+async def test_run_verification_records_head_commit_sha(tmp_path: Path) -> None:
+    """O commit avaliado vem do HEAD real; sem repositório Git fica ausente."""
+    repo = tmp_path / "repo"
+    expected = await _init_repo_with_commit(repo)
+    profile = WorkspaceVerificationProfile(
+        workspace_id="sha_ws", enabled=True, gates=[]
+    )
+    res = await run_verification("sha_ws", repo, profile=profile)
+    assert res.commit_sha == expected
+
+    no_repo = tmp_path / "plain"
+    no_repo.mkdir()
+    res_plain = await run_verification("sha_ws", no_repo, profile=profile)
+    assert res_plain.commit_sha is None
 
 
 @pytest.mark.asyncio

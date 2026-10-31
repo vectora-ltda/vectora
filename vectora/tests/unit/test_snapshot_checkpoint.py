@@ -9,6 +9,7 @@ Cobre:
 from __future__ import annotations
 
 import io
+import os
 import tarfile
 from pathlib import Path
 
@@ -199,6 +200,32 @@ def test_restore_snapshot_rejects_symlink_members(tmp_path: Path) -> None:
 
     assert result["status"] == "error"
     assert not (restore / "redirect").exists()
+    # A dangling link (the target may not exist on this machine) would make
+    # ``exists()`` false even if the restore had left it behind.
+    assert not (restore / "redirect").is_symlink()
+
+
+@pytest.mark.skipif(os.name == "nt", reason="modos POSIX não se aplicam ao Windows")
+def test_restore_preserva_bit_executavel_do_snapshot(tmp_path: Path) -> None:
+    """Par de erro: um script executável volta executável; um modo com setuid
+    no snapshot não é restaurado com o bit."""
+    archive = tmp_path / "exec.tar.gz"
+    payload = b"#!/bin/sh\necho ok\n"
+    with tarfile.open(archive, "w:gz") as tar:
+        info = tarfile.TarInfo("scripts/build.sh")
+        info.size = len(payload)
+        info.mode = 0o755
+        tar.addfile(info, io.BytesIO(payload))
+        suid = tarfile.TarInfo("tool")
+        suid.size = len(payload)
+        suid.mode = 0o4755
+        tar.addfile(suid, io.BytesIO(payload))
+
+    restore = tmp_path / "restore"
+    restore.mkdir()
+    assert restore_snapshot_checkpoint(str(archive), str(restore))["status"] == "ok"
+    assert (restore / "scripts" / "build.sh").stat().st_mode & 0o777 == 0o755
+    assert (restore / "tool").stat().st_mode & 0o7000 == 0
 
 
 def test_restore_snapshot_rejects_symlink_cwd_and_destination(tmp_path: Path) -> None:
@@ -279,3 +306,57 @@ def test_gc_no_op_when_under_limits(tmp_path: Path) -> None:
 def test_gc_returns_zero_on_missing_dir(tmp_path: Path) -> None:
     removed = gc_snapshots(tmp_path / "no_such_dir")
     assert removed == 0
+
+
+def test_create_snapshot_inclui_arquivo_que_cabe_com_o_manifesto(
+    tmp_path: Path,
+) -> None:
+    """Par de erro: quatro arquivos de 10 MiB e um de 9,5 MiB somam 49,5 MiB, e
+    o manifesto cabe no cap. O arquivo não pode ser omitido; se o workspace muda
+    depois do checkpoint, a restauração devolve o conteúdo original."""
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    ten_mib = 10 * 1024 * 1024
+    for i in range(4):
+        (workspace / f"big-{i}.bin").write_bytes(b"\0" * ten_mib)
+    original = b"" * (9 * 1024 * 1024 + 512 * 1024)
+    (workspace / "zz-last.bin").write_bytes(original)
+
+    result = create_snapshot_checkpoint(str(workspace), tmp_path / "snaps", "t1", "msg")
+    assert result["status"] == "ok"
+    assert "zz-last.bin" in result["files_touched"]
+    assert len(result["files_touched"]) == 5
+
+    (workspace / "zz-last.bin").write_bytes(b"alterado")
+    restore = tmp_path / "restore"
+    restore.mkdir()
+    assert (
+        restore_snapshot_checkpoint(result["snapshot_path"], str(restore))["status"]
+        == "ok"
+    )
+    assert (restore / "zz-last.bin").read_bytes() == original
+
+
+def test_create_snapshot_omite_arquivo_que_excede_o_cap_com_manifesto(
+    tmp_path: Path,
+) -> None:
+    """Par de erro: cinco arquivos de 10 MiB não cabem com o manifesto; o quinto
+    é omitido e os quatro primeiros são restaurados com o conteúdo original."""
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    ten_mib = 10 * 1024 * 1024
+    for i in range(5):
+        (workspace / f"big-{i}.bin").write_bytes(bytes([i + 1]) * ten_mib)
+
+    result = create_snapshot_checkpoint(str(workspace), tmp_path / "snaps", "t1", "msg")
+    assert result["status"] == "ok"
+    assert len(result["files_touched"]) == 4
+    assert "big-4.bin" not in result["files_touched"]
+
+    restore = tmp_path / "restore"
+    restore.mkdir()
+    assert (
+        restore_snapshot_checkpoint(result["snapshot_path"], str(restore))["status"]
+        == "ok"
+    )
+    assert (restore / "big-0.bin").read_bytes() == bytes([1]) * ten_mib
