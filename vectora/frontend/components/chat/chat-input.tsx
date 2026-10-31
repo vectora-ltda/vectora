@@ -30,6 +30,7 @@ import { UrlPreviewCard } from "./features/url-preview-card";
 import { VoiceInputButton } from "./features/voice-input-button";
 import { PermissionModeMenu } from "./features/permission-mode-menu";
 import { EffortMenu } from "./features/effort-menu";
+import { DecisionModelMenu } from "./features/decision-model-menu";
 import { PlusMenu } from "./features/plus-menu";
 import { UsagePopover } from "./features/usage-popover";
 import { SlashCommandMenu } from "./features/slash-command-menu";
@@ -806,6 +807,7 @@ export function ChatInput({
                 <ControlGroup compact>
                   <PermissionModeMenu compact />
                   <EffortMenu compact />
+                  <DecisionModelMenu compact />
                   {agentConfig && onAgentConfigChange && (
                     <ModelSelector
                       value={agentConfig.model}
@@ -836,6 +838,7 @@ export function ChatInput({
                   <PermissionModeMenu />
                   <div data-control-spacer aria-hidden="true" />
                   <EffortMenu />
+                  <DecisionModelMenu compact />
                   {agentConfig && onAgentConfigChange && (
                     <div
                       data-testid="wide-model-controls"

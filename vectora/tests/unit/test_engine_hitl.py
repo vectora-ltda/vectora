@@ -13,6 +13,7 @@ import pytest
 from backend.engine.hitl import (
     REQUIRE_APPROVAL,
     ApprovalGate,
+    _decision_args_summary,
     call_requires_separate_approval,
     should_require_approval,
 )
@@ -49,6 +50,29 @@ def test_write_terminal_requires_approval() -> None:
         should_require_approval("write_terminal", _ctx(permission_mode="auto"), {}, [])
         is False
     )
+
+
+def test_decision_args_summary_includes_structured_values_and_redacts_secrets() -> None:
+    summary = _decision_args_summary(
+        {
+            "command": "git push origin feature",
+            "api_key": "secret-value",
+            "authorization": "Bearer abcdefghijklmnopqrstuvwxyz012345",
+        }
+    )
+
+    assert '"command":"git push origin feature"' in summary
+    assert '"api_key":"[REDACTED]"' in summary
+    assert '"authorization":"[REDACTED]"' in summary
+    assert "secret-value" not in summary
+    assert "abcdefghijklmnopqrstuvwxyz012345" not in summary
+
+
+def test_decision_args_summary_is_bounded() -> None:
+    summary = _decision_args_summary({"prompt": "x" * 5000})
+
+    assert len(summary) == 4000
+    assert summary.endswith("...")
 
 
 class TestShouldRequireApproval:

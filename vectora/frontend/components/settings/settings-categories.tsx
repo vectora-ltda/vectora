@@ -25,13 +25,6 @@ const GeralTab = lazyWithRetry(
     })),
   "settings-geral-tab",
 );
-const FallbacksTab = lazyWithRetry(
-  () =>
-    import("./preferencias/tabs/fallbacks-tab").then((mod) => ({
-      default: mod.FallbacksTab,
-    })),
-  "settings-fallbacks-tab",
-);
 const MemoriaTab = lazyWithRetry(
   () =>
     import("./preferencias/tabs/memoria-tab").then((mod) => ({
@@ -59,6 +52,13 @@ const ProviderRoutingTab = lazyWithRetry(
       default: mod.ProviderRoutingTab,
     })),
   "settings-provider-routing-tab",
+);
+const AiModelsTab = lazyWithRetry(
+  () =>
+    import("./environment/tabs/ai-models-tab").then((mod) => ({
+      default: mod.AiModelsTab,
+    })),
+  "settings-ai-models-tab",
 );
 const ConnectTab = lazyWithRetry(
   () =>
@@ -216,12 +216,6 @@ export function buildSettingsCategoryGroups({
       Component: GeralTab,
     },
     {
-      id: "fallbacks",
-      group: "preferencias",
-      label: m.settings_category_fallbacks(),
-      Component: FallbacksTab,
-    },
-    {
       id: "memoria",
       group: "preferencias",
       label: m.settings_category_memoria(),
@@ -241,6 +235,12 @@ export function buildSettingsCategoryGroups({
       group: "ambiente",
       label: m.settings_category_integracoes(),
       Component: IntegracoesTab,
+    },
+    {
+      id: "ai_models",
+      group: "ambiente",
+      label: m.settings_category_ai_models(),
+      Component: AiModelsTab,
     },
     {
       id: "provider_routing",

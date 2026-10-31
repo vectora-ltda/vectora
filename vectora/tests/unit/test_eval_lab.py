@@ -11,6 +11,7 @@ from backend.cli.eval import handle_eval
 from backend.evaluation.cassette import Cassette, CassetteInteraction
 from backend.evaluation.replay_client import ReplayChatClient
 from backend.evaluation.runner import _total_tokens, compare_cassettes
+from backend.vtypes import JsonObject
 from backend.vtypes.message import MessageRole, text_message
 
 
@@ -151,6 +152,12 @@ def test_compare_cassettes():
                 duration_ms=50,
                 usage={"total": 40},
                 systemone_decision="fast_path",
+                systemone_decision_evidence={
+                    "decision": "allow",
+                    "provider": "clef-api",
+                    "surface": "hitl",
+                    "policy_digest": "sha256:policy",
+                },
             )
         ],
     )
@@ -161,6 +168,12 @@ def test_compare_cassettes():
     assert report.accuracy == 1.0
     assert report.avg_latency_reduction_pct == 90.0
     assert report.token_savings_pct == 80.0
+    assert report.details[0]["candidate_decision_evidence"] == {
+        "decision": "allow",
+        "provider": "clef-api",
+        "surface": "hitl",
+        "policy_digest": "sha256:policy",
+    }
 
 
 def test_compare_cassettes_unequal_lengths():
@@ -262,6 +275,92 @@ def test_compare_cassettes_rejects_divergent_response_without_tools() -> None:
     assert report.details[0]["response_match"] is False
 
 
+def test_compare_cassettes_detects_decision_evidence_divergence() -> None:
+    """A changed policy or decision must be visible in evaluation accuracy."""
+    baseline = Cassette(
+        cassette_id="base",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="same",
+                messages=[],
+                response_text="approved",
+                systemone_decision_evidence={
+                    "run_id": "run-old",
+                    "decision_id": "decision-old",
+                    "decision": "allow",
+                    "policy_digest": "sha256:policy-a",
+                    "surface": "hitl",
+                },
+            )
+        ],
+    )
+    candidate = Cassette(
+        cassette_id="candidate",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="same",
+                messages=[],
+                response_text="approved",
+                systemone_decision_evidence={
+                    "run_id": "run-new",
+                    "decision_id": "decision-new",
+                    "decision": "allow",
+                    "policy_digest": "sha256:policy-b",
+                    "surface": "hitl",
+                },
+            )
+        ],
+    )
+
+    report = compare_cassettes(baseline, candidate)
+
+    assert report.matches == 0
+    assert report.accuracy == 0.0
+    assert report.details[0]["decision_evidence_match"] is False
+    baseline_evidence = report.details[0]["baseline_decision_evidence"]
+    assert isinstance(baseline_evidence, dict)
+    assert baseline_evidence.get("policy_digest") == "sha256:policy-a"
+
+
+def test_compare_cassettes_ignores_decision_execution_identity() -> None:
+    """Different run IDs do not make otherwise identical decisions diverge."""
+    baseline = Cassette(
+        cassette_id="base",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="same",
+                messages=[],
+                systemone_decision_evidence={
+                    "run_id": "run-old",
+                    "decision_id": "decision-old",
+                    "decision": "requires_human",
+                    "policy_digest": "sha256:policy",
+                },
+            )
+        ],
+    )
+    candidate = Cassette(
+        cassette_id="candidate",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="same",
+                messages=[],
+                systemone_decision_evidence={
+                    "run_id": "run-new",
+                    "decision_id": "decision-new",
+                    "decision": "requires_human",
+                    "policy_digest": "sha256:policy",
+                },
+            )
+        ],
+    )
+
+    report = compare_cassettes(baseline, candidate)
+
+    assert report.matches == 1
+    assert report.details[0]["decision_evidence_match"] is True
+
+
 def test_compare_cassettes_rejects_duplicate_interaction_ids() -> None:
     """Duplicate IDs must not be silently aligned as separate cases."""
     cassette = Cassette(
@@ -273,6 +372,64 @@ def test_compare_cassettes_rejects_duplicate_interaction_ids() -> None:
     )
     with pytest.raises(ValueError, match="duplicado"):
         compare_cassettes(cassette, Cassette(cassette_id="other"))
+
+
+def test_cassette_preserves_structured_decision_evidence_and_redacts_secrets(
+    tmp_path: Path,
+) -> None:
+    """Decision provenance survives round-trip without persisting credentials."""
+    path = tmp_path / "decision.json"
+    evidence: JsonObject = {
+        "decision": "requires_human",
+        "provider": "clef-api",
+        "model": "decision-v1",
+        "confidence": 0.42,
+        "policy_digest": "sha256:policy",
+        "surface": "hitl",
+        "reason": "low_confidence",
+        "response_redacted": {"authorization": "Bearer secret-token"},
+    }
+    Cassette(
+        cassette_id="decision-run",
+        source_run_id="run-1",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="tool-1",
+                messages=[],
+                run_id="run-1",
+                systemone_decision="requires_human",
+                systemone_decision_evidence=evidence,
+            )
+        ],
+    ).save(path)
+
+    raw = path.read_text(encoding="utf-8")
+    assert "secret-token" not in raw
+    loaded = Cassette.load(path)
+    interaction = loaded.interactions[0]
+    assert interaction.run_id == loaded.source_run_id == "run-1"
+    assert interaction.systemone_decision == "requires_human"
+    assert interaction.systemone_decision_evidence is not None
+    assert interaction.systemone_decision_evidence["decision"] == "requires_human"
+    assert interaction.systemone_decision_evidence["policy_digest"] == "sha256:policy"
+    assert "[REDACTED]" in str(
+        interaction.systemone_decision_evidence["response_redacted"]
+    )
+
+
+def test_cassette_load_keeps_legacy_decision_string_compatible(
+    tmp_path: Path,
+) -> None:
+    """Legacy cassettes without structured provenance remain loadable."""
+    path = tmp_path / "legacy.json"
+    path.write_text(
+        '{"cassette_id":"legacy","interactions":[{"interaction_id":"i1",'
+        '"messages":[],"systemone_decision":"allow"}]}',
+        encoding="utf-8",
+    )
+    interaction = Cassette.load(path).interactions[0]
+    assert interaction.systemone_decision == "allow"
+    assert interaction.systemone_decision_evidence is None
 
 
 def test_total_tokens_helper():

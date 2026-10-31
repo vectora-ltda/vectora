@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import math
@@ -59,8 +60,10 @@ from backend.engine.tool_batch import (
 from backend.persistence.native.agent_run import AgentRunMetrics
 from backend.persistence.native.ledger import (
     LedgerEventType,
+    LedgerEventTypeLiteral,
     ThreadLedgerEvent,
     make_agent_turn_started_key,
+    make_decision_model_decision_key,
     make_run_completed_key,
     make_run_failed_key,
     make_tool_finished_key,
@@ -81,6 +84,287 @@ _REPEATED_CALL_HARD_LIMIT = 6
 """Limite de segurança antes de encerrar uma chamada de tool presa."""
 
 logger = logging.getLogger(__name__)
+
+
+async def _bind_decision_model_snapshot(
+    session_store: SessionStore,
+    ctx: ToolContext,
+    run_id: str | None,
+    policy_snapshot: PolicySnapshot,
+) -> None:
+    """Keep a run's decision settings stable across retries and resume."""
+    if not run_id or not hasattr(session_store, "get_agent_run"):
+        return
+    run = await session_store.get_agent_run(run_id)
+    if run is None:
+        return
+    if not isinstance(ctx._extra, dict):
+        ctx._extra = {}
+    from backend.llm.systemone.preferences import (
+        decision_model_preferences,
+        decision_model_runtime_fingerprint,
+    )
+    from backend.settings import settings
+
+    current = decision_model_preferences(ctx)
+    surfaces = current.get("surfaces")
+    effective = {
+        "enabled": current.get("enabled") is True,
+        "provider": current.get("provider"),
+        "surfaces": {str(name): enabled is True for name, enabled in surfaces.items()}
+        if isinstance(surfaces, dict)
+        else {},
+    }
+    provider = effective["provider"] if isinstance(effective["provider"], str) else None
+    model_by_provider = {
+        "clef-local": settings.systemone_local_model,
+        "laya-local": settings.systemone_laya_model,
+        "clef-api": settings.systemone_clef_api_model,
+        "jev-api": settings.systemone_jev_api_model,
+    }
+    runtime = {
+        "provider_config_fingerprint": decision_model_runtime_fingerprint(provider),
+        "model": model_by_provider.get(provider) if isinstance(provider, str) else None,
+        "systemone_enabled": settings.systemone_enabled,
+        "allow_remote_fallback": settings.systemone_allow_remote_fallback,
+        "risk_assessment_timeout_s": settings.systemone_risk_assessment_timeout_s,
+        "confidence_threshold_hitl": settings.systemone_confidence_threshold_hitl,
+        "policy_version": policy_snapshot.version,
+    }
+    evidence_id = f"decision-model-snapshot:{run_id}"
+    previous = next(
+        (
+            item
+            for item in run.evidence
+            if isinstance(item, dict) and item.get("evidence_id") == evidence_id
+        ),
+        None,
+    )
+    if previous is not None:
+        saved = previous.get("preferences")
+        if isinstance(saved, dict):
+            prior_snapshot = ctx._extra.get("decision_model_snapshot")
+            previously_revoked = (
+                isinstance(prior_snapshot, dict)
+                and prior_snapshot.get("run_id") == run_id
+                and ctx._extra.get("decision_model_revoked") is True
+            )
+            ctx._extra["decision_model_preferences"] = saved
+            if (
+                effective != saved
+                or any(previous.get(key) != value for key, value in runtime.items())
+                or previously_revoked
+            ):
+                ctx._extra["decision_model_revoked"] = True
+            else:
+                ctx._extra.pop("decision_model_revoked", None)
+            ctx._extra["decision_model_snapshot"] = previous
+        return
+    snapshot = {
+        "kind": "decision_model_snapshot",
+        "evidence_id": evidence_id,
+        "run_id": run_id,
+        "preferences": effective,
+        **runtime,
+    }
+    await session_store.record_run_evidence(run_id, evidence=snapshot)
+    persisted_run = await session_store.get_agent_run(run_id)
+    persisted = next(
+        (
+            item
+            for item in (persisted_run.evidence if persisted_run is not None else [])
+            if isinstance(item, dict) and item.get("evidence_id") == evidence_id
+        ),
+        snapshot,
+    )
+    if persisted != snapshot:
+        ctx._extra["decision_model_revoked"] = True
+        snapshot = persisted
+        effective = persisted.get("preferences", effective)
+    else:
+        ctx._extra.pop("decision_model_revoked", None)
+    ctx._extra["decision_model_preferences"] = effective
+    ctx._extra["decision_model_snapshot"] = snapshot
+
+
+def _build_selected_decision_harness(ctx: ToolContext) -> Any | None:
+    """Build only the explicitly selected decision provider for this run."""
+    from backend.llm.systemone.preferences import selected_decision_model_provider
+
+    provider = selected_decision_model_provider(ctx)
+    if provider is None:
+        return None
+
+    from backend.tools.systemone_tools import _build_default_harness
+
+    return _build_default_harness(provider)
+
+
+async def _persist_decision_model_record(
+    session_store: SessionStore,
+    *,
+    run_id: str | None,
+    thread_id: str,
+    tool_call: ToolCall,
+    surface: str | tuple[str, ...],
+    record: dict[str, Any],
+) -> None:
+    """Persist a redacted decision in AgentRun and the thread ledger."""
+    if not run_id:
+        msg = "Decision Model requires a run_id for durable audit"
+        raise ValueError(msg)
+    if not hasattr(session_store, "record_run_evidence") or not hasattr(
+        session_store, "append_ledger_event"
+    ):
+        msg = "Decision Model audit storage is unavailable"
+        raise RuntimeError(msg)
+
+    args_digest = hashlib.sha256(
+        json.dumps(tool_call.args, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    call_id = tool_call.id or f"{tool_call.name}:{args_digest}"
+    payload = {
+        "tool_name": tool_call.name,
+        "tool_call_id": call_id,
+        "args_digest": args_digest,
+        "surface": list(surface) if isinstance(surface, tuple) else surface,
+        **{
+            key: record[key]
+            for key in (
+                "decision",
+                "reason",
+                "provider",
+                "model",
+                "confidence",
+                "risk_score",
+                "policy_version",
+                "decision_id",
+            )
+            if key in record
+        },
+    }
+    evidence = {
+        "type": "decision_model_decision",
+        "evidence_id": make_decision_model_decision_key(run_id, call_id),
+        "run_id": run_id,
+        "thread_id": thread_id,
+        **payload,
+    }
+    response_redacted = record.get("response_redacted")
+    if isinstance(response_redacted, dict):
+        evidence["response_redacted"] = response_redacted
+    await session_store.record_run_evidence(
+        run_id,
+        tool_used=tool_call.name,
+        evidence=evidence,
+    )
+    await session_store.append_ledger_event(
+        thread_id,
+        event_key=make_decision_model_decision_key(run_id, call_id),
+        event_type=LedgerEventType.DECISION_MODEL_DECISION,
+        run_id=run_id,
+        tool_call_id=call_id,
+        payload=payload,
+    )
+
+
+async def _preapproval_run_is_scoped(
+    session_store: SessionStore, *, workspace_id: str, thread_id: str, run_id: str
+) -> bool:
+    """Require a durable run bound to this exact thread and workspace."""
+    if not hasattr(session_store, "get_agent_run"):
+        return False
+    try:
+        run = await session_store.get_agent_run(run_id)
+    except Exception:
+        logger.exception("Falha ao validar AgentRun da concessão pré-aprovada")
+        return False
+    return bool(
+        run
+        and run.run_id == run_id
+        and run.thread_id == thread_id
+        and run.workspace_id == workspace_id
+    )
+
+
+async def _consume_preapproval_grant(
+    session_store: SessionStore,
+    *,
+    ctx: ToolContext,
+    run_id: str | None,
+    tool_call: ToolCall,
+) -> bool:
+    """Consume an exact one-use grant and durably audit it before execution."""
+    workspace_id = ctx.workspace_id
+    extra = ctx._extra if isinstance(ctx._extra, dict) else {}
+    if (
+        not workspace_id
+        or not run_id
+        or extra.get("decision_model_revoked") is True
+        or not hasattr(session_store, "record_run_evidence")
+        or not hasattr(session_store, "append_ledger_event")
+        or not await _preapproval_run_is_scoped(
+            session_store,
+            workspace_id=workspace_id,
+            thread_id=ctx.thread_id,
+            run_id=run_id,
+        )
+    ):
+        return False
+
+    from backend.engine.hitl import _risk_assessment_key
+    from backend.services.smart_approval import consume_run_grant
+
+    risk_key = _risk_assessment_key(tool_call.name, tool_call.args)
+    decisions = extra.get("systemone_decisions")
+    decision = decisions.get(risk_key) if isinstance(decisions, dict) else None
+    if isinstance(decision, dict) and decision.get("decision") in {
+        "deny",
+        "requires_human",
+    }:
+        return False
+
+    grant_id = consume_run_grant(workspace_id, run_id, tool_call.name, tool_call.args)
+    if grant_id is None:
+        return False
+    args_digest = hashlib.sha256(
+        json.dumps(tool_call.args, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    call_id = tool_call.id or f"{tool_call.name}:{args_digest}"
+    event_key = hashlib.sha256(f"preapproval:{run_id}:{grant_id}".encode()).hexdigest()
+    evidence = {
+        "type": "hitl_preapproval_consumed",
+        "evidence_id": event_key,
+        "run_id": run_id,
+        "thread_id": ctx.thread_id,
+        "workspace_id": workspace_id,
+        "tool_name": tool_call.name,
+        "tool_call_id": call_id,
+        "args_digest": args_digest,
+        "grant_id": grant_id,
+        "decision": "preapproved",
+    }
+    try:
+        await session_store.record_run_evidence(
+            run_id, tool_used=tool_call.name, evidence=evidence
+        )
+        await session_store.append_ledger_event(
+            ctx.thread_id,
+            event_key=event_key,
+            event_type=LedgerEventType.APPROVAL_RESOLVED,
+            run_id=run_id,
+            tool_call_id=call_id,
+            payload={
+                "decision": "preapproved_grant_consumed",
+                "grant_id": grant_id,
+                "workspace_id": workspace_id,
+                "args_digest": args_digest,
+            },
+        )
+    except Exception:
+        logger.exception("Falha ao auditar concessão pré-aprovada; exigindo HITL")
+        return False
+    return True
 
 
 def _preserve_latest_tool_result(model_id: str) -> bool:
@@ -417,6 +701,9 @@ async def run_conversation(  # noqa: PLR0911
     refreshed_policy_snapshot = compile_policy_snapshot(ctx)
     if policy_snapshot is None:
         policy_snapshot = refreshed_policy_snapshot
+    await _bind_decision_model_snapshot(
+        session_store, ctx, config.run_id, policy_snapshot
+    )
 
     if isinstance(ctx._extra, dict):
         sub_deps = ctx._extra.get("subagent_deps")
@@ -507,7 +794,9 @@ async def run_conversation(  # noqa: PLR0911
                 thread_id, run_id=config.run_id
             )
             raw_state = checkpoint.get("state", {}) if checkpoint else {}
-            state = raw_state if isinstance(raw_state, dict) else {}
+            state = (
+                cast("dict[str, Any]", raw_state) if isinstance(raw_state, dict) else {}
+            )
             current_history = await session_store.get_history(thread_id)
             checkpoint_sequence = (
                 int(cast("int", checkpoint.get("last_sequence", 0)))
@@ -589,7 +878,9 @@ async def run_conversation(  # noqa: PLR0911
                     )
                     if hasattr(session_store, "save_context_projection"):
                         await session_store.save_context_projection(
-                            thread_id, config.run_id, dict(projection_entry)
+                            thread_id,
+                            config.run_id,
+                            cast("dict[str, Any]", projection_entry),
                         )
                     projection_recorded = True
             except Exception:
@@ -855,7 +1146,10 @@ async def run_conversation(  # noqa: PLR0911
                             ThreadLedgerEvent(
                                 thread_id=thread_id,
                                 event_key=make_run_completed_key(config.run_id),
-                                type=LedgerEventType.RUN_COMPLETED,
+                                type=cast(
+                                    "LedgerEventTypeLiteral",
+                                    LedgerEventType.RUN_COMPLETED,
+                                ),
                                 run_id=config.run_id,
                                 payload={"stopped_reason": "stop"},
                             ),
@@ -982,15 +1276,134 @@ async def run_conversation(  # noqa: PLR0911
                 tool_names=tuple(sorted(observed_tools)),
             )
 
-        if should_require_approval is not None:
-            pendente = next(
-                (
-                    tc
-                    for tc in tool_calls
-                    if should_require_approval(tc.name, ctx, tc.args, historico)
-                ),
-                None,
+        # In auto and Plan Mode, an explicitly enabled Decision Model can raise
+        # the approval requirement or veto a sensitive call. It never removes
+        # an approval required by the static policy.
+        from backend.llm.systemone.preferences import (
+            decision_model_enabled_for,
+            decision_model_surfaces_for_tool,
+            selected_decision_model_provider,
+        )
+
+        if ctx.permission_mode in {"auto", "plan"}:
+            from backend.engine.hitl import (
+                call_requires_separate_approval,
+                precompute_tool_risk_assessment,
             )
+
+            decision_candidates = [
+                (candidate, decision_model_surfaces_for_tool(ctx, candidate.name))
+                for candidate in tool_calls
+                if call_requires_separate_approval(candidate.name, candidate.args)
+            ]
+            if decision_candidates:
+                from backend.engine.hitl import _risk_assessment_key
+
+                decision_harness = (
+                    _build_selected_decision_harness(ctx)
+                    if any(
+                        decision_model_enabled_for(ctx, surface)
+                        for _, surface in decision_candidates
+                    )
+                    else None
+                )
+                for candidate, decision_surface in decision_candidates:
+                    if not decision_model_enabled_for(ctx, decision_surface):
+                        from backend.llm.systemone.preferences import (
+                            decision_model_preferences,
+                        )
+
+                        preferences = decision_model_preferences(ctx)
+                        reason = (
+                            "decision_model_disabled"
+                            if preferences.get("enabled") is not True
+                            else "decision_model_surface_disabled"
+                        )
+                        ctx._extra.setdefault("systemone_decisions", {})[
+                            _risk_assessment_key(candidate.name, candidate.args)
+                        ] = {
+                            "decision": "unavailable",
+                            "reason": reason,
+                            "provider": preferences.get("provider"),
+                            "run_id": config.run_id,
+                            "thread_id": thread_id,
+                        }
+                    elif decision_harness is None:
+                        ctx._extra.setdefault("systemone_decisions", {})[
+                            _risk_assessment_key(candidate.name, candidate.args)
+                        ] = {
+                            "decision": "unavailable",
+                            "reason": "decision_model_unavailable",
+                            "run_id": config.run_id,
+                            "thread_id": thread_id,
+                        }
+                    else:
+                        await precompute_tool_risk_assessment(
+                            decision_harness,
+                            tool_name=candidate.name,
+                            ctx=ctx,
+                            args=candidate.args,
+                            surface=decision_surface,
+                        )
+                    record = ctx._extra.get("systemone_decisions", {}).get(
+                        _risk_assessment_key(candidate.name, candidate.args)
+                    )
+                    if isinstance(record, dict):
+                        try:
+                            await _persist_decision_model_record(
+                                session_store,
+                                run_id=config.run_id,
+                                thread_id=thread_id,
+                                tool_call=candidate,
+                                surface=decision_surface,
+                                record=record,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Falha ao persistir decisão SystemOne do run %s",
+                                config.run_id,
+                            )
+                            record.update(
+                                {
+                                    "decision": "requires_human",
+                                    "reason": "decision_audit_unavailable",
+                                }
+                            )
+                            elevated = ctx._extra.setdefault(
+                                "systemone_risk_elevated_calls", set()
+                            )
+                            elevated.add(
+                                _risk_assessment_key(candidate.name, candidate.args)
+                            )
+                            ctx._extra["systemone_risk_requires_approval"] = True
+                            await _safe_record_run_evidence(
+                                session_store,
+                                config.run_id,
+                                tool_used=candidate.name,
+                                evidence={
+                                    "type": "decision_model_audit_failure",
+                                    "tool_call_id": candidate.id,
+                                    "reason": "decision_audit_unavailable",
+                                    "run_id": config.run_id,
+                                },
+                            )
+
+        if should_require_approval is not None:
+            pendente = None
+            for candidate in tool_calls:
+                if not should_require_approval(
+                    candidate.name, ctx, candidate.args, historico
+                ):
+                    continue
+                if await _consume_preapproval_grant(
+                    session_store,
+                    ctx=ctx,
+                    run_id=config.run_id,
+                    tool_call=candidate,
+                ):
+                    continue
+                pendente = candidate
+                break
             if pendente is not None:
                 interrupt_id = str(uuid4())
                 stable_call_id = (pendente.id or "").strip() or interrupt_id
@@ -1106,6 +1519,7 @@ async def run_conversation(  # noqa: PLR0911
                         tool_name=pendente.name,
                         args_json=args_json,
                         interrupt_id=interrupt_id,
+                        run_id=config.run_id,
                         permission_mode=ctx.permission_mode or "ask",
                         workspace_id=ctx.workspace_id,
                         options=options,
@@ -1136,6 +1550,24 @@ async def run_conversation(  # noqa: PLR0911
             extras = spec.extras if spec is not None else None
             _started_at.setdefault(tc.id, time.monotonic())
             preview = _previews.setdefault(tc.id, _args_preview(tc.args))
+            decision_data: dict[str, Any] = {}
+            try:
+                from backend.engine.hitl import _risk_assessment_key
+
+                decisions = ctx._extra.get("systemone_decisions", {})
+                candidate = decisions.get(_risk_assessment_key(tc.name, tc.args))
+                if isinstance(candidate, dict):
+                    decision_data = {
+                        "decision": candidate.get("decision"),
+                        "decision_reason": candidate.get("reason"),
+                        "decision_provider": candidate.get("provider"),
+                        "decision_model": candidate.get("model"),
+                        "decision_confidence": candidate.get("confidence"),
+                    }
+            except Exception:
+                logger.debug(
+                    "Não foi possível anexar decisão ao início da tool", exc_info=True
+                )
             if config.run_id:
                 try:
                     if hasattr(session_store, "append_ledger_event"):
@@ -1148,6 +1580,7 @@ async def run_conversation(  # noqa: PLR0911
                             payload={
                                 "tool_name": tc.name,
                                 "args": _sanitize_tool_call(tc, ctx).args,
+                                **decision_data,
                             },
                         )
                     elif hasattr(session_store, "append_event"):
@@ -1156,12 +1589,16 @@ async def run_conversation(  # noqa: PLR0911
                             ThreadLedgerEvent(
                                 thread_id=thread_id,
                                 event_key=make_tool_started_key(config.run_id, tc.id),
-                                type=LedgerEventType.TOOL_STARTED,
+                                type=cast(
+                                    "LedgerEventTypeLiteral",
+                                    LedgerEventType.TOOL_STARTED,
+                                ),
                                 run_id=config.run_id,
                                 tool_call_id=tc.id,
                                 payload={
                                     "tool_name": tc.name,
                                     "args": _sanitize_tool_call(tc, ctx).args,
+                                    **decision_data,
                                 },
                             ),
                         )
@@ -1181,6 +1618,7 @@ async def run_conversation(  # noqa: PLR0911
                         category=extras.category if extras else "general",
                         destructive=extras.destructive if extras else False,
                         icon=extras.icon if extras else "tool",
+                        **decision_data,
                     )
                 )
                 await emit(
@@ -1244,7 +1682,10 @@ async def run_conversation(  # noqa: PLR0911
                                 event_key=make_tool_finished_key(
                                     config.run_id, call_id
                                 ),
-                                type=LedgerEventType.TOOL_FINISHED,
+                                type=cast(
+                                    "LedgerEventTypeLiteral",
+                                    LedgerEventType.TOOL_FINISHED,
+                                ),
                                 run_id=config.run_id,
                                 tool_call_id=call_id,
                                 payload={
@@ -1456,7 +1897,9 @@ async def run_conversation(  # noqa: PLR0911
                             ThreadLedgerEvent(
                                 thread_id=thread_id,
                                 event_key=make_run_failed_key(config.run_id),
-                                type=LedgerEventType.RUN_FAILED,
+                                type=cast(
+                                    "LedgerEventTypeLiteral", LedgerEventType.RUN_FAILED
+                                ),
                                 run_id=config.run_id,
                                 payload={
                                     "error": f"loop_cap_exceeded: {turn_budget.exceeded}"
@@ -1510,7 +1953,7 @@ async def run_conversation(  # noqa: PLR0911
                     ThreadLedgerEvent(
                         thread_id=thread_id,
                         event_key=make_run_failed_key(config.run_id),
-                        type=LedgerEventType.RUN_FAILED,
+                        type=cast("LedgerEventTypeLiteral", LedgerEventType.RUN_FAILED),
                         run_id=config.run_id,
                         payload={"error": f"recursion_limit: {config.max_iterations}"},
                     ),
@@ -1702,12 +2145,31 @@ async def resume_conversation(
         tc: ToolCall,
         args: dict[str, Any] | None = None,
         policy_snapshot: PolicySnapshot | None = None,
+        human_approved: bool = False,
     ) -> VMessage:
         """Executa a operação  execute resume tool."""
         call = replace(tc, args=args) if args is not None else tc
         call_id = call.id or f"{resume_run_id or thread_id}:tool:{uuid4().hex}"
         call = replace(call, id=call_id)
         sanitized = _sanitize_tool_call(call, ctx)
+
+        execution_ctx = ctx
+        if human_approved and isinstance(ctx._extra, dict):
+            from backend.engine.hitl import _risk_assessment_key
+
+            risk_key = _risk_assessment_key(call.name, call.args)
+            decisions = ctx._extra.get("systemone_decisions", {})
+            if (
+                isinstance(decisions, dict)
+                and isinstance(decisions.get(risk_key), dict)
+                and decisions[risk_key].get("decision") == "requires_human"
+            ):
+                remaining = dict(decisions)
+                remaining.pop(risk_key)
+                execution_ctx = replace(
+                    ctx,
+                    _extra={**ctx._extra, "systemone_decisions": remaining},
+                )
 
         async def record(event_type: str, payload: dict[str, Any]) -> None:
             """Executa a operação record."""
@@ -1722,7 +2184,7 @@ async def resume_conversation(
                             if event_type == "tool_started"
                             else make_tool_finished_key(resume_run_id, call_id)
                         ),
-                        event_type=event_type,
+                        event_type=cast("LedgerEventTypeLiteral", event_type),
                         run_id=resume_run_id,
                         tool_call_id=call_id,
                         payload=payload,
@@ -1737,7 +2199,7 @@ async def resume_conversation(
                                 if event_type == "tool_started"
                                 else make_tool_finished_key(resume_run_id, call_id)
                             ),
-                            type=event_type,
+                            type=cast("LedgerEventTypeLiteral", event_type),
                             run_id=resume_run_id,
                             tool_call_id=call_id,
                             payload=payload,
@@ -1758,7 +2220,7 @@ async def resume_conversation(
             result = await _execute_single_call(
                 call,
                 tool_registry=tool_registry,
-                ctx=ctx,
+                ctx=execution_ctx,
                 on_event=on_event,
                 policy_snapshot=policy_snapshot,
             )
@@ -1871,7 +2333,9 @@ async def resume_conversation(
                 call_snapshot = dc_replace(policy_snapshot, allow_force_push=True)
 
             resultado = await _execute_resume_tool(
-                replace(tc, args=args), policy_snapshot=call_snapshot
+                replace(tc, args=args),
+                policy_snapshot=call_snapshot,
+                human_approved=tc.id == flagged_id,
             )
 
         parent_id = await session_store.append_message(

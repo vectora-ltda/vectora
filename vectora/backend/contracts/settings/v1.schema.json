@@ -5,14 +5,21 @@
         "sidebarPosition": {
           "default": "left",
           "description": "Posição da barra lateral",
-          "enum": ["left", "right"],
+          "enum": [
+            "left",
+            "right"
+          ],
           "title": "Sidebarposition",
           "type": "string"
         },
         "theme": {
           "default": "dark",
           "description": "Tema visual da UI",
-          "enum": ["dark", "light", "system"],
+          "enum": [
+            "dark",
+            "light",
+            "system"
+          ],
           "title": "Theme",
           "type": "string"
         }
@@ -83,7 +90,12 @@
         "wordWrap": {
           "default": "off",
           "description": "Quebra de linha",
-          "enum": ["off", "on", "wordWrapColumn", "bounded"],
+          "enum": [
+            "off",
+            "on",
+            "wordWrapColumn",
+            "bounded"
+          ],
           "title": "Wordwrap",
           "type": "string"
         }
@@ -96,7 +108,12 @@
         "autoSave": {
           "default": "off",
           "description": "Modo de salvamento automático",
-          "enum": ["off", "afterDelay", "onFocusChange", "onWindowChange"],
+          "enum": [
+            "off",
+            "afterDelay",
+            "onFocusChange",
+            "onWindowChange"
+          ],
           "title": "Autosave",
           "type": "string"
         },
@@ -117,7 +134,11 @@
         "eol": {
           "default": "lf",
           "description": "Terminador de linha",
-          "enum": ["lf", "crlf", "auto"],
+          "enum": [
+            "lf",
+            "crlf",
+            "auto"
+          ],
           "title": "Eol",
           "type": "string"
         },

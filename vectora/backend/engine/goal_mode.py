@@ -375,6 +375,21 @@ async def _run_goal_loop(
         s1_disposition = "unavailable"
         s1_completed = False
         s1_reason = ""
+        from backend.llm.systemone.preferences import (
+            decision_model_enabled_for,
+            selected_decision_model_provider,
+        )
+
+        if decision_model_enabled_for(ctx, "plan_mode"):
+            if systemone_harness is None:
+                from backend.tools.systemone_tools import _build_default_harness
+
+                systemone_harness = _build_default_harness(
+                    selected_decision_model_provider(ctx)
+                )
+        else:
+            systemone_harness = None
+
         if systemone_harness is not None:
             (
                 s1_disposition,

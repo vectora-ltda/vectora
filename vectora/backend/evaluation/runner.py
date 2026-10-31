@@ -73,6 +73,25 @@ def _tool_calls_equivalent(
     return left == right, bool(left) == bool(right)
 
 
+def _decision_evidence_for_comparison(value: JsonObject) -> JsonObject:
+    """Remove execution identity while retaining the decision's semantics."""
+    volatile_keys = {"run_id", "thread_id", "evidence_id", "decision_id"}
+
+    def normalize(item: Any) -> Any:
+        if isinstance(item, dict):
+            return {
+                str(key): normalize(child)
+                for key, child in sorted(item.items(), key=lambda pair: str(pair[0]))
+                if key not in volatile_keys
+            }
+        if isinstance(item, list):
+            return [normalize(child) for child in item]
+        return item
+
+    result = normalize(value)
+    return result if isinstance(result, dict) else {}
+
+
 def compare_cassettes(
     baseline_cassette: Cassette, candidate_cassette: Cassette
 ) -> EvalReport:
@@ -124,10 +143,26 @@ def compare_cassettes(
                 b_item.tool_calls, c_item.tool_calls
             )
             response_match = b_item.response_text == c_item.response_text
+            decision_evidence_match = None
+            if (
+                b_item.systemone_decision_evidence is not None
+                and c_item.systemone_decision_evidence is not None
+            ):
+                decision_evidence_match = _decision_evidence_for_comparison(
+                    b_item.systemone_decision_evidence
+                ) == _decision_evidence_for_comparison(
+                    c_item.systemone_decision_evidence
+                )
             # Accuracy represents observable execution equivalence, not only
             # tool intent.  A matching tool plan with a divergent response is
             # still a failed replay comparison.
-            is_match = tool_match and response_match
+            # When both cassettes carry structured Decision Model evidence, its
+            # policy and outcome are part of the observable execution contract.
+            # Legacy cassettes without that evidence remain comparable by the
+            # fields they actually recorded.
+            is_match = (
+                tool_match and response_match and decision_evidence_match is not False
+            )
             if is_match:
                 matches += 1
 
@@ -146,9 +181,12 @@ def compare_cassettes(
                     "tool_arguments_match": tool_match,
                     "tool_presence_match": same_tool_presence,
                     "response_match": response_match,
+                    "decision_evidence_match": decision_evidence_match,
                     "latency_delta_ms": c_lat - b_lat,
                     "tokens_delta": c_tok - b_tok,
                     "candidate_decision": c_item.systemone_decision,
+                    "candidate_decision_evidence": c_item.systemone_decision_evidence,
+                    "baseline_decision_evidence": b_item.systemone_decision_evidence,
                 }
             )
         elif b_item is not None:
@@ -168,6 +206,7 @@ def compare_cassettes(
                     "latency_delta_ms": -b_lat,
                     "tokens_delta": -b_tok,
                     "candidate_decision": None,
+                    "candidate_decision_evidence": None,
                     "tool_arguments_match": False,
                     "tool_presence_match": False,
                     "response_match": False,
@@ -190,6 +229,7 @@ def compare_cassettes(
                     "latency_delta_ms": c_lat,
                     "tokens_delta": c_tok,
                     "candidate_decision": c_item.systemone_decision,
+                    "candidate_decision_evidence": c_item.systemone_decision_evidence,
                     "tool_arguments_match": False,
                     "tool_presence_match": False,
                     "response_match": False,

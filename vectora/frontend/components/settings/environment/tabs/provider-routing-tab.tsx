@@ -24,6 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { m } from "@/lib/paraglide/messages";
+import { mDyn } from "@/lib/i18n-dyn";
 import type { VectoraDmrOperation } from "@/lib/types/vectora-bridge";
 
 interface OllamaModelInfo {
@@ -2383,7 +2384,7 @@ function NineRouterSection() {
  * sozinhos pelo catálogo (`PROVIDER_CAPABILITIES`) e não têm o que escolher.
  * Campo vazio devolve o controle pra env var correspondente, se houver —
  * não desliga a capacidade. */
-function MediaModelsSection() {
+export function MediaModelsSection() {
   const [models, setModels] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
 
@@ -2427,12 +2428,20 @@ function MediaModelsSection() {
     { key: "ollama_image_model", label: m.prefs_media_models_ollama_image() },
     { key: "ollama_tts_model", label: m.prefs_media_models_ollama_tts() },
     {
+      key: "ollama_video_model",
+      label: mDyn("prefs_media_models_ollama_video"),
+    },
+    {
       key: "openrouter_image_model",
       label: m.prefs_media_models_openrouter_image(),
     },
     {
       key: "openrouter_tts_model",
       label: m.prefs_media_models_openrouter_tts(),
+    },
+    {
+      key: "openrouter_video_model",
+      label: mDyn("prefs_media_models_openrouter_video"),
     },
   ];
 
@@ -2881,7 +2890,6 @@ export function ProviderRoutingTab() {
       <OpenRouterSection />
       <NineRouterSection />
       <LlamaCppSection />
-      <MediaModelsSection />
     </div>
   );
 }

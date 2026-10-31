@@ -13,12 +13,15 @@ decide COMO persistir/esperar.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 from collections import deque
 from typing import TYPE_CHECKING, Any
 
+from backend.llm.systemone.errors import SystemOneRateLimitError, SystemOneTimeoutError
+from backend.llm.systemone.preferences import decision_model_enabled_for
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import MessageRole
 
@@ -376,12 +379,91 @@ def _risk_assessment_key(tool_name: str, args: dict[str, Any]) -> str:
     return f"{tool_name}:{digest}"
 
 
-async def precompute_tool_risk_assessment(
+def _decision_args_summary(args: dict[str, Any]) -> str:
+    """Return bounded structured arguments with credentials redacted."""
+    from backend.persistence.native.agent_run import redact_sensitive_data
+
+    serialized = json.dumps(
+        redact_sensitive_data(args), sort_keys=True, separators=(",", ":"), default=str
+    )
+    return serialized if len(serialized) <= 4000 else serialized[:3997] + "..."
+
+
+def _decision_snapshot_matches_runtime(ctx: ToolContext) -> bool:
+    """Fail closed when a run's decision preferences or runtime changed."""
+    extra = getattr(ctx, "_extra", None)
+    snapshot = extra.get("decision_model_snapshot") if isinstance(extra, dict) else None
+    run_id = getattr(ctx, "run_id", "")
+    if not isinstance(snapshot, dict) or not run_id or snapshot.get("run_id") != run_id:
+        return True
+
+    try:
+        from backend.llm.systemone.preferences import decision_model_runtime_fingerprint
+        from backend.settings import settings
+        from backend.workspace.runtime_settings import runtime_settings
+
+        prefs = runtime_settings.get_frontend_prefs(
+            getattr(ctx, "user_id", "local"),
+            getattr(ctx, "workspace_id", None) or None,
+        )
+        surfaces = prefs.get("decisionModelSurfaces")
+        effective = {
+            "enabled": prefs.get("decisionModelsEnabled") is True,
+            "provider": prefs.get("decisionModelProvider"),
+            "surfaces": {
+                str(name): enabled is True for name, enabled in surfaces.items()
+            }
+            if isinstance(surfaces, dict)
+            else {},
+        }
+        if effective != snapshot.get("preferences"):
+            return False
+
+        snapshot_provider = effective.get("provider")
+        if not isinstance(snapshot_provider, str):
+            snapshot_provider = None
+        runtime = {
+            "provider_config_fingerprint": decision_model_runtime_fingerprint(
+                snapshot_provider
+            ),
+            "systemone_enabled": settings.systemone_enabled,
+            "allow_remote_fallback": settings.systemone_allow_remote_fallback,
+            "risk_assessment_timeout_s": settings.systemone_risk_assessment_timeout_s,
+            "confidence_threshold_hitl": settings.systemone_confidence_threshold_hitl,
+        }
+        provider = effective["provider"]
+        model_by_provider = {
+            "clef-local": settings.systemone_local_model,
+            "laya-local": settings.systemone_laya_model,
+            "clef-api": settings.systemone_clef_api_model,
+            "jev-api": settings.systemone_jev_api_model,
+        }
+        runtime["model"] = (
+            model_by_provider.get(provider) if isinstance(provider, str) else None
+        )
+        if any(
+            key in snapshot and snapshot.get(key) != value
+            for key, value in runtime.items()
+        ):
+            return False
+
+        from backend.services.policy_compiler import compile_policy_snapshot
+
+        return compile_policy_snapshot(ctx).version == snapshot.get("policy_version")
+    except Exception:
+        logger.warning(
+            "hitl: não foi possível validar snapshot da decisão", exc_info=True
+        )
+        return False
+
+
+async def precompute_tool_risk_assessment(  # noqa: PLR0911
     harness: SystemOneHarness,
     *,
     tool_name: str,
     ctx: ToolContext,
     args: dict[str, Any],
+    surface: str | tuple[str, ...] = "hitl",
     risk_score_threshold: float = 0.70,
 ) -> bool:
     """Calcula a avaliação de risco no fluxo assíncrono anterior ao predicado síncrono `should_require_approval`.
@@ -393,43 +475,192 @@ async def precompute_tool_risk_assessment(
     if not isinstance(extra, dict):
         return False
 
-    workspace_id = getattr(ctx, "workspace_id", None) or "default"
     mode = getattr(ctx, "permission_mode", None) or "ask"
-    safe_keys = sorted(str(k) for k in args)
-    args_summary = f"keys={safe_keys}"
-
-    try:
-        res = await harness.assess_tool_risk(
-            workspace_id=workspace_id,
-            tool_name=tool_name,
-            args_summary=args_summary,
-            permission_mode=mode,
-        )
-    except Exception:
-        logger.warning("hitl: falha ao pré-calcular risco via SystemOne", exc_info=True)
+    if mode not in {"auto", "plan"}:
         return False
 
-    if res.mode in ("off", "shadow"):
-        return False
-
-    elevate = False
-    if res.policy_result.requires_hitl:
-        elevate = True
-    elif res.response is not None:
-        ans = res.response.answers.get("risk_score")
-        score = getattr(ans, "score", 0.0)
-        if isinstance(score, int | float) and score >= risk_score_threshold:
-            elevate = True
-
-    elevated = extra.setdefault("systemone_risk_elevated_calls", set())
+    workspace_id = getattr(ctx, "workspace_id", None) or "default"
     key = _risk_assessment_key(tool_name, args)
-    if elevate:
+    args_summary = _decision_args_summary(args)
+
+    def require_human(reason: str) -> bool:
+        elevated = extra.setdefault("systemone_risk_elevated_calls", set())
         elevated.add(key)
         extra["systemone_risk_requires_approval"] = True
+        extra.setdefault("systemone_decisions", {})[key] = {
+            "decision": "requires_human",
+            "reason": reason,
+            "run_id": ctx.run_id,
+            "thread_id": ctx.thread_id,
+        }
+        return True
+
+    if extra.get("decision_model_revoked") is True:
+        return require_human("decision_model_revoked")
+    if not _decision_snapshot_matches_runtime(ctx):
+        extra["decision_model_revoked"] = True
+        return require_human("decision_model_revoked")
+    if not decision_model_enabled_for(ctx, surface):
+        from backend.llm.systemone.preferences import decision_model_preferences
+
+        preferences = decision_model_preferences(ctx)
+        reason = (
+            "decision_model_disabled"
+            if preferences.get("enabled") is not True
+            else "decision_model_surface_disabled"
+        )
+        extra.setdefault("systemone_decisions", {})[key] = {
+            "decision": "unavailable",
+            "reason": reason,
+            "provider": preferences.get("provider"),
+            "run_id": ctx.run_id,
+            "thread_id": ctx.thread_id,
+        }
+        return False
+
+    try:
+        if not await harness.is_ready():
+            extra.setdefault("systemone_decisions", {})[key] = {
+                "decision": "unavailable",
+                "reason": "decision_model_unavailable",
+            }
+            return False
+    except Exception:
+        logger.warning("hitl: readiness probe failed", exc_info=True)
+        extra.setdefault("systemone_decisions", {})[key] = {
+            "decision": "unavailable",
+            "reason": "decision_model_unavailable",
+        }
+        return False
+
+    snapshot = extra.get("decision_model_snapshot")
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    timeout_s = snapshot.get("risk_assessment_timeout_s")
+    timeout_s = (
+        float(timeout_s)
+        if isinstance(timeout_s, int | float) and timeout_s > 0
+        else harness.risk_assessment_timeout_s
+    )
+    confidence_threshold = snapshot.get("confidence_threshold_hitl")
+    confidence_threshold = (
+        float(confidence_threshold)
+        if isinstance(confidence_threshold, int | float)
+        and 0 <= confidence_threshold <= 1
+        else harness.confidence_threshold_hitl
+    )
+
+    try:
+        harness.set_mode(
+            "tool_risk_assessment_score", "enforced", workspace_id=workspace_id
+        )
+        async with asyncio.timeout(timeout_s):
+            res = await harness.assess_tool_risk(
+                workspace_id=workspace_id,
+                tool_name=tool_name,
+                args_summary=args_summary,
+                permission_mode=mode,
+                allow_remote_override=True,
+            )
+    except (TimeoutError, SystemOneTimeoutError):
+        logger.warning("hitl: prazo da decisão SystemOne excedido", exc_info=True)
+        return require_human("decision_model_timeout")
+    except SystemOneRateLimitError:
+        logger.warning("hitl: limite de taxa da decisão SystemOne", exc_info=True)
+        return require_human("decision_model_rate_limited")
+    except Exception:
+        logger.warning("hitl: falha ao pré-calcular risco via SystemOne", exc_info=True)
+        return require_human("decision_model_failed")
+
+    # Re-read preferences and policy after the model call. A user or policy
+    # change while the provider was running revokes this result before it can
+    # be used to allow or auto-approve the tool call.
+    if not _decision_snapshot_matches_runtime(ctx):
+        extra["decision_model_revoked"] = True
+        return require_human("decision_model_revoked")
+
+    try:
+        if res.mode in ("off", "shadow"):
+            return require_human("decision_model_mode_mismatch")
+        if res.policy_result.outcome == "rejected":
+            return require_human("decision_policy_rejected")
+        if res.response is None:
+            return require_human("decision_model_empty_response")
+
+        answer = res.response.answers.get("risk_score")
+        score = getattr(answer, "score", None)
+        confidence = getattr(answer, "confidence", None)
+        # An incomplete or malformed model answer is not evidence that a call
+        # is safe. Only an explicit, policy-accepted, confident low-risk score
+        # may produce an autonomous allow.
+        decision = "requires_human"
+        reason = "decision_model_missing_or_invalid_risk_score"
+        if res.policy_result.requires_hitl:
+            decision, reason = "requires_human", res.policy_result.reason
+        elif (
+            isinstance(score, int | float)
+            and not isinstance(score, bool)
+            and 0 <= score <= 1
+            and isinstance(confidence, int | float)
+            and not isinstance(confidence, bool)
+            and 0 <= confidence <= 1
+            and confidence >= confidence_threshold
+        ):
+            if score >= 0.95:
+                decision, reason = "deny", "decision_model_high_risk"
+            elif score >= risk_score_threshold:
+                decision, reason = "requires_human", "decision_model_risk_threshold"
+            else:
+                decision, reason = "allow", "risk_below_threshold"
+        response_redacted = _redacted_decision_response(res.response)
+    except Exception:
+        logger.warning("hitl: resposta de risco inválida", exc_info=True)
+        return require_human("decision_model_invalid_response")
+    elevate = decision == "requires_human"
+    elevated = extra.setdefault("systemone_risk_elevated_calls", set())
+    if elevate:
+        elevated.add(key)
     else:
         elevated.discard(key)
-        extra["systemone_risk_requires_approval"] = bool(elevated)
+    extra["systemone_risk_requires_approval"] = bool(elevated)
+    extra.setdefault("systemone_decisions", {})[key] = {
+        "decision": decision,
+        "reason": reason,
+        "provider": res.provider,
+        "model": res.model,
+        "risk_score": score,
+        "confidence": confidence,
+        "policy_version": res.policy_version,
+        "decision_id": res.decision_id,
+        "run_id": ctx.run_id,
+        "thread_id": ctx.thread_id,
+        "response_redacted": response_redacted,
+    }
+    logger.info(
+        "systemone.execution_decision tool=%s decision=%s reason=%s provider=%s model=%s",
+        tool_name,
+        decision,
+        reason,
+        res.provider,
+        res.model,
+        extra={
+            "tool_name": tool_name,
+            "decision": decision,
+            "reason": reason,
+            "provider": res.provider,
+            "model": res.model,
+            "run_id": ctx.run_id,
+        },
+    )
     return elevate
+
+
+def _redacted_decision_response(response: Any) -> dict[str, Any]:
+    """Serialize the provider response through the shared secret redactor."""
+    from backend.persistence.native.agent_run import redact_sensitive_data
+
+    serialized = response.model_dump(mode="json")
+    redacted = redact_sensitive_data(serialized)
+    return redacted if isinstance(redacted, dict) else {}
 
 
 _MAX_NON_TOOL_REVIEW_RECORDS = 500

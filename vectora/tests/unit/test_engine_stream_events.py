@@ -87,6 +87,25 @@ class TestParidadeComOSchemaPydantic:
         assert nativo == pydantic
         assert _parse(nativo)["type"] == "tool_call"
 
+    def test_tool_call_started_carries_redacted_decision_summary(self):
+        event = ToolCallStarted(
+            tool_name="file_write",
+            tool_call_id="call_sensitive",
+            args_json="{}",
+            decision="requires_human",
+            decision_reason="decision_model_risk_threshold",
+            decision_provider="clef-api",
+            decision_model="clef-flash",
+            decision_confidence=0.82,
+        )
+        payload = _parse(to_sse_line(event))
+        assert payload["decision"] == "requires_human"
+        assert payload["decision_reason"] == "decision_model_risk_threshold"
+        assert payload["decision_provider"] == "clef-api"
+        assert payload["decision_model"] == "clef-flash"
+        assert payload["decision_confidence"] == 0.82
+        assert "raw_response" not in payload
+
     def test_tool_result(self):
         nativo = to_sse_line(
             ToolResult(tool_call_id="call_1", content_json="ok", is_error=False)

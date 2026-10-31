@@ -177,6 +177,13 @@ def _run(
         raise SystemExit(rc)
 
 
+#: `_run` fecha o stdin, então o pnpm não pode perguntar antes de recriar um
+#: node_modules incompatível (troca de store/versão do pnpm). Sem
+#: `confirmModulesPurge=false` ele aborta com
+#: ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY em vez de reinstalar.
+PNPM_INSTALL = ["install", "--frozen-lockfile", "--config.confirmModulesPurge=false"]
+
+
 def _open_log(name: str):
     logdir = os.path.join(ROOT, ".scons-logs")
     os.makedirs(logdir, exist_ok=True)
@@ -189,7 +196,7 @@ def _open_log(name: str):
 def _action_build_chat(target, source, env):
     frontend_dir = os.path.join(VECTORA, "frontend")
     node_env = {"NODE_NO_WARNINGS": "1"}
-    _run([PNPM, "install", "--frozen-lockfile"], env=node_env, cwd=frontend_dir)
+    _run([PNPM, *PNPM_INSTALL], env=node_env, cwd=frontend_dir)
     _run([PNPM, "build"], env=node_env, cwd=frontend_dir)
 
     dist = os.path.join(VECTORA, "frontend", "dist")
@@ -375,7 +382,7 @@ def _action_install_desktop(target, source, env):
     # existe como node separado só pra manter a árvore de dependências do
     # SConstruct explícita (_build_desktop depende deste node, não do
     # build-chat, que pode não ter rodado no pipeline de release).
-    _run([PNPM, "--dir", "vectora/frontend", "install", "--frozen-lockfile"])
+    _run([PNPM, "--dir", "vectora/frontend", *PNPM_INSTALL])
     _ensure_electron_binary()
 
 
@@ -507,7 +514,7 @@ def _pnpm_install_if_needed(pkg_dir: str, log) -> None:
         or not os.path.isfile(stamp)
         or (os.path.isfile(lock) and os.path.getmtime(lock) > os.path.getmtime(stamp))
     ):
-        _run([PNPM, "--dir", pkg_dir, "install", "--frozen-lockfile"], log=log)
+        _run([PNPM, "--dir", pkg_dir, *PNPM_INSTALL], log=log)
         open(stamp, "w").close()  # noqa: PTH123 WPS515
 
 

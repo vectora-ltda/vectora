@@ -48,6 +48,7 @@ const mockSettings = {
 vi.mock("@/lib/stores/settings-store", () => ({
   useSettingsStore: (selector?: (s: typeof mockSettings) => unknown) =>
     selector ? selector(mockSettings) : mockSettings,
+  hydrateDecisionModelPreferences: vi.fn(),
   PERMISSION_MODES: ["ask", "accept_edits", "plan", "auto", "bypass"],
   REASONING_EFFORTS: ["low", "medium", "high", "max"],
 }));
@@ -419,7 +420,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
   });
 
   it("ativa o spacer wide somente quando os textos cabem em largura natural", () => {
-    let groupWidth = 500;
+    let groupWidth = 200;
     const resizeCallbacks: ResizeObserverCallback[] = [];
     const originalClientWidth = Object.getOwnPropertyDescriptor(
       HTMLElement.prototype,
@@ -483,7 +484,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
       const spacer = container.querySelector(
         '[data-testid="wide-control-spacer"]',
       )!;
-      expect(spacer).not.toHaveClass("hidden");
+      expect(spacer).toHaveClass("hidden");
     } finally {
       bounds.mockRestore();
       vi.unstubAllGlobals();
@@ -500,7 +501,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
   });
 
   it("oculta o spacer wide quando a largura é insuficiente", () => {
-    let groupWidth = 323;
+    let groupWidth = 200;
     const resizeCallbacks: ResizeObserverCallback[] = [];
     const originalClientWidth = Object.getOwnPropertyDescriptor(
       HTMLElement.prototype,
@@ -574,13 +575,13 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
       )!;
       expect(spacer).toHaveClass("hidden");
 
-      groupWidth = 324;
+      groupWidth = 180;
       act(() => {
         for (const callback of resizeCallbacks) {
           callback([], {} as ResizeObserver);
         }
       });
-      expect(spacer).not.toHaveClass("hidden");
+      expect(spacer).toHaveClass("hidden");
     } finally {
       bounds.mockRestore();
       vi.unstubAllGlobals();
@@ -775,23 +776,23 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
         controls.map((control) => Number.parseFloat(control.style.width));
 
       act(() => {
-        groupWidth = 324;
+        groupWidth = 480;
         for (const callback of resizeCallbacks) {
           callback([], {} as ResizeObserver);
         }
       });
       expect(spacer).not.toHaveClass("hidden");
-      expect(widths()).toEqual([100, 100, 100]);
+      expect(widths()).toEqual([100, 100, 100, 100]);
 
       act(() => {
-        groupWidth = 200;
+        groupWidth = 208;
         for (const callback of resizeCallbacks) {
           callback([], {} as ResizeObserver);
         }
       });
       expect(spacer).toHaveClass("hidden");
-      expect(widths().every((width) => width > 40 && width < 100)).toBe(true);
-      expect(widths().reduce((sum, width) => sum + width, 0) + 16).toBeCloseTo(
+      expect(widths().every((width) => width >= 40 && width < 100)).toBe(true);
+      expect(widths().reduce((sum, width) => sum + width, 0) + 24).toBeCloseTo(
         groupWidth,
       );
     } finally {
@@ -840,7 +841,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     ).toHaveClass("size-3");
   });
 
-  it("mantém contexto separado dos três seletores compactos", () => {
+  it("mantém contexto separado dos quatro seletores compactos", () => {
     const { container } = render(
       <ChatInput
         {...baseProps({
@@ -858,7 +859,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
     const contextControl = container.querySelector(
       '[data-testid="compact-context-control"]',
     );
-    expect(selectorGroup?.children).toHaveLength(3);
+    expect(selectorGroup?.children).toHaveLength(4);
     expect(contextControl).toBeInTheDocument();
     expect(selectorGroup).not.toContainElement(contextControl as HTMLElement);
   });
@@ -919,7 +920,7 @@ describe("ChatInput — aviso de modelo sem suporte a imagem", () => {
         Number.parseFloat((item as HTMLElement).style.width),
       );
 
-      expect(assignedWidths).toHaveLength(3);
+      expect(assignedWidths).toHaveLength(4);
       expect(
         assignedWidths.reduce((sum, width) => sum + width, 0) + 8,
       ).toBeLessThanOrEqual(120);

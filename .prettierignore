@@ -9,6 +9,7 @@
 **/build/
 **/.vectora/
 graphify-out/
+vectora/backend/contracts/
 
 # Conteúdo Hugo (docs/) usa shortcodes `{{< ... >}}` que o parser markdown
 # do Prettier não entende — ele corrompe o fechamento multi-linha (vira

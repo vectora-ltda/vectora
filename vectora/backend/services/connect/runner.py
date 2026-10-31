@@ -9,6 +9,7 @@ exatamente pelo mesmo caminho de uma do chat web (motor nativo,
 from __future__ import annotations
 
 import logging
+from uuid import uuid4
 
 from backend.engine.conversation_loop import LoopConfig, run_conversation
 from backend.engine.hitl import should_require_approval
@@ -45,6 +46,7 @@ async def run_agent_for_thread(thread_id: str, text: str) -> str:
     )
     session_store = await agent_factory.get_session_store()
     approval_gate = await agent_factory.get_approval_gate()
+    run_id = uuid4().hex
 
     await session_store.create_session(
         thread_id,
@@ -67,12 +69,34 @@ async def run_agent_for_thread(thread_id: str, text: str) -> str:
         "thread_id": thread_id,
         "user_id": "local",
         "permission_mode": _EXTERNAL_PERMISSION_MODE,
+        "run_id": run_id,
     }
     run_ctx = ctx_from_config({"configurable": configurable})
     run_ctx._extra["untrusted_content"] = True
+    run_ctx._extra["connector_execution"] = True
     run_ctx.store = await agent_factory.get_store()
     chat_client = FallbackChatClient(primary_model_id="")
-    loop_config = LoopConfig(max_iterations=50)
+    loop_config = LoopConfig(max_iterations=50, run_id=run_id)
+
+    # Decision Model evidence is durable and therefore needs an AgentRun before
+    # the first provider call, just like the native streaming entry point.
+    from backend.persistence.native.agent_run import AgentRun
+
+    await session_store.start_run(
+        thread_id,
+        run_id,
+        detail="Mensagem recebida por conector externo.",
+    )
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id=run_id,
+            thread_id=thread_id,
+            user_id="local",
+            status="running",
+            detail="Mensagem recebida por conector externo.",
+            evidence=[{"type": "connector_input", "untrusted_content": True}],
+        )
+    )
 
     from backend.services.policy_compiler import compile_policy_snapshot
 
@@ -90,10 +114,6 @@ async def run_agent_for_thread(thread_id: str, text: str) -> str:
             policy_snapshot=snapshot,
         )
 
-    from backend.services.policy_compiler import compile_policy_snapshot
-
-    snapshot = compile_policy_snapshot(run_ctx, untrusted_content=True)
-
     result = await run_conversation(
         session_store=session_store,
         chat_client=chat_client,
@@ -105,6 +125,13 @@ async def run_agent_for_thread(thread_id: str, text: str) -> str:
         approval_gate=approval_gate,
         policy_snapshot=snapshot,
     )
+
+    if result.stopped_reason == "interrupted":
+        # External platforms cannot display Vectora's interactive approval
+        # controls. Keep the run waiting for the owner and tell the sender that
+        # the requested action was not executed instead of returning an empty
+        # message or silently bypassing the approval gate.
+        return "A ação requer aprovação no Vectora e foi pausada sem execução."
 
     reply = result.final_message.text() if result.final_message else ""
     if len(reply) > MAX_REPLY_CHARS:

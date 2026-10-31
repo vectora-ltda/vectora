@@ -474,6 +474,9 @@ class Settings(BaseSettings):
     systemone_confidence_threshold_hitl: float = Field(default=0.70, ge=0.0, le=1.0)
     """Limiar de confiança para acionar revisão humana obrigatória (HITL)."""
 
+    systemone_risk_assessment_timeout_s: float = Field(default=10.0, gt=0.0, le=120.0)
+    """Prazo máximo para avaliação de risco antes de exigir revisão humana."""
+
     clef_api_key: str | None = None
     """Chave de API para o provedor Clef remoto."""
 

@@ -131,6 +131,7 @@ export type StreamEvent =
       tool_name: string;
       args_json: string;
       interrupt_id: string;
+      run_id?: string;
       /** Razão pela qual o modelo pediu aprovação (opcional). */
       reasoning?: string;
       /** Preview do diff antes/depois, formato unified (opcional). */
@@ -499,11 +500,13 @@ export const transcribeAudio = (
   audioBase64: string,
   mimeType: string,
   filename = "recording.webm",
+  transcriptionMode: "local" | "remote" = "remote",
 ): Promise<{ text: string }> =>
   postRpc("/vectora.chat.v1.ChatService/TranscribeAudio", {
     audio_base64: audioBase64,
     mime_type: mimeType,
     filename,
+    transcription_mode: transcriptionMode,
   });
 
 export const getThread = (thread_id: string): Promise<Thread> =>

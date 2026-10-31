@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, Literal, cast
 
 import pytest
 
@@ -30,6 +30,10 @@ from backend.llm.systemone.patterns import (
     build_default_patterns,
     serialize_canonical_state,
 )
+from backend.llm.systemone.preferences import (
+    decision_model_enabled_for,
+    decision_model_surfaces_for_tool,
+)
 from backend.llm.systemone.protocol import SystemOneProvider
 from backend.llm.systemone.settings import SystemOneSettings
 from backend.llm.systemone.types import (
@@ -52,6 +56,7 @@ from backend.tools.rag import SystemOneRerank
 from backend.tools.systemone_tools import (
     systemone_evaluate_pattern,
     systemone_list_patterns,
+    systemone_propose_kanban_transition,
 )
 from backend.vtypes.documents import Document
 
@@ -426,6 +431,96 @@ async def test_remote_privacy_and_fallback_model_reconstruction() -> None:
 
 
 @pytest.mark.asyncio
+async def test_remote_override_does_not_enable_disabled_fallback() -> None:
+    """A autorização de privacidade não substitui a opção global de fallback."""
+    settings = SystemOneSettings(
+        enabled=True,
+        local_model="clef-flash",
+        clef_api_model="@cf/cloudflare/clef-flash",
+        allow_remote_fallback=False,
+    )
+    primary = FakeDecisionProvider("clef-local")
+    primary.error_to_raise = SystemOneConnectionError(
+        "systemone_connection_error", provider="clef-local"
+    )
+    remote_fallback = FakeDecisionProvider("clef-api")
+    harness = SystemOneHarness(settings, primary, fallback_provider=remote_fallback)
+    harness.set_mode("kanban_block_classifier", "enforced")
+
+    result = await harness.decide_pattern(
+        "kanban_block_classifier",
+        {"task_id": "task-1", "error_summary": "explicit privacy override"},
+        workspace_id="ws-1",
+        allow_remote_override=True,
+    )
+
+    assert result.used_fallback is False
+    assert result.policy_result.outcome == "requires_hitl"
+    assert primary.calls
+    assert all(call.model == "clef-flash" for call in primary.calls)
+    assert remote_fallback.calls == []
+
+
+@pytest.mark.asyncio
+async def test_hitl_risk_override_respects_disabled_remote_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The HITL consumer's privacy override cannot enable global fallback."""
+    settings = SystemOneSettings(
+        enabled=True,
+        local_model="clef-flash",
+        clef_api_model="@cf/cloudflare/clef-flash",
+        allow_remote_fallback=False,
+    )
+    primary = FakeDecisionProvider("clef-local")
+    primary.error_to_raise = SystemOneConnectionError(
+        "systemone_connection_error", provider="clef-local"
+    )
+
+    async def healthy() -> bool:
+        return True
+
+    monkeypatch.setattr(primary, "health", healthy)
+    remote_fallback = FakeDecisionProvider("clef-api")
+    harness = SystemOneHarness(
+        settings,
+        primary,
+        fallback_provider=remote_fallback,
+    )
+    ctx = ToolContext(
+        thread_id="t-no-remote-fallback",
+        workspace_id="ws-1",
+        permission_mode="auto",
+        _extra={
+            "decision_model_preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": {"hitl": True},
+            }
+        },
+    )
+
+    elevated = await precompute_tool_risk_assessment(
+        harness,
+        tool_name="file_read",
+        ctx=ctx,
+        args={"path": "private.txt"},
+    )
+
+    from backend.engine.hitl import _risk_assessment_key
+
+    decision = ctx._extra["systemone_decisions"][
+        _risk_assessment_key("file_read", {"path": "private.txt"})
+    ]
+    assert elevated is True
+    assert decision["decision"] == "requires_human"
+    assert decision["reason"] == "decision_model_empty_response"
+    assert primary.calls
+    assert all(call.model == "clef-flash" for call in primary.calls)
+    assert remote_fallback.calls == []
+
+
+@pytest.mark.asyncio
 async def test_queue_full_and_cancellation_release_budget() -> None:
     """Verifica o comportamento de queue full and cancellation release budget."""
     settings = SystemOneSettings(enabled=True)
@@ -647,7 +742,7 @@ async def test_hitl_risk_assessment_only_elevates_and_never_reduces_approval() -
     provider = FakeDecisionProvider("clef-local")
     provider.custom_answers = {
         "risk_score": ScoreAnswer(
-            score=0.95, min_score=0.0, max_score=1.0, confidence=0.95
+            score=0.80, min_score=0.0, max_score=1.0, confidence=0.95
         )
     }
     harness = SystemOneHarness(settings, provider)
@@ -658,6 +753,11 @@ async def test_hitl_risk_assessment_only_elevates_and_never_reduces_approval() -
         workspace_id="ws-1",
         permission_mode="auto",
     )
+    ctx._extra["decision_model_preferences"] = {
+        "enabled": True,
+        "provider": "clef-local",
+        "surfaces": {"hitl": True},
+    }
     # file_read em modo 'auto' não exigiria aprovação pelas regras estáticas
     assert should_require_approval("file_read", ctx, {"path": "a.txt"}, []) is False
 
@@ -709,6 +809,448 @@ async def test_hitl_risk_assessment_only_elevates_and_never_reduces_approval() -
 
 
 @pytest.mark.asyncio
+async def test_revoked_decision_model_requires_human_without_provider_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    harness = SystemOneHarness(
+        SystemOneSettings(enabled=True), FakeDecisionProvider("clef-local")
+    )
+
+    async def unexpected_readiness() -> bool:
+        pytest.fail("revoked provider must not be queried")
+
+    monkeypatch.setattr(harness, "is_ready", unexpected_readiness)
+    ctx = ToolContext(
+        thread_id="t-revoked",
+        workspace_id="ws-1",
+        permission_mode="auto",
+        _extra={
+            "decision_model_preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": {"hitl": True},
+            },
+            "decision_model_revoked": True,
+        },
+    )
+    args = {"path": "secret.txt"}
+    assert await precompute_tool_risk_assessment(
+        harness, tool_name="file_read", ctx=ctx, args=args
+    )
+    from backend.engine.hitl import _risk_assessment_key
+
+    assert ctx._extra["systemone_decisions"][
+        _risk_assessment_key("file_read", args)
+    ] == {
+        "decision": "requires_human",
+        "reason": "decision_model_revoked",
+        "run_id": "",
+        "thread_id": "t-revoked",
+    }
+
+
+@pytest.mark.asyncio
+async def test_high_confidence_risk_is_a_veto_not_a_human_approval() -> None:
+    """A strong deny must be persisted as deny and never converted to HITL approval."""
+    provider = FakeDecisionProvider("clef-local")
+    provider.custom_answers = {
+        "risk_score": ScoreAnswer(
+            score=0.99, min_score=0.0, max_score=1.0, confidence=0.99
+        )
+    }
+    harness = SystemOneHarness(SystemOneSettings(enabled=True), provider)
+    ctx = ToolContext(
+        thread_id="t-veto",
+        workspace_id="ws-1",
+        permission_mode="auto",
+        _extra={
+            "decision_model_preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": {"hitl": True},
+            }
+        },
+    )
+
+    elevated = await precompute_tool_risk_assessment(
+        harness,
+        tool_name="file_read",
+        ctx=ctx,
+        args={"path": "secret.txt"},
+    )
+
+    from backend.engine.hitl import _risk_assessment_key
+
+    decision = ctx._extra["systemone_decisions"][
+        _risk_assessment_key("file_read", {"path": "secret.txt"})
+    ]
+    assert elevated is False
+    assert decision["decision"] == "deny"
+    assert (
+        should_require_approval("file_read", ctx, {"path": "secret.txt"}, []) is False
+    )
+
+
+@pytest.mark.asyncio
+async def test_disabled_hitl_surface_does_not_call_decision_provider() -> None:
+    """A disabled surface is authoritative even when the model is enabled."""
+
+    class MustNotRunHarness:
+        async def assess_tool_risk(self, **_kwargs):
+            raise AssertionError("disabled HITL surface called the provider")
+
+    ctx = ToolContext(
+        thread_id="t-disabled",
+        workspace_id="ws-1",
+        permission_mode="auto",
+        _extra={
+            "decision_model_preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": {"hitl": False},
+            }
+        },
+    )
+    result = await precompute_tool_risk_assessment(
+        cast("SystemOneHarness", MustNotRunHarness()),
+        tool_name="file_read",
+        ctx=ctx,
+        args={"path": "safe.txt"},
+    )
+    assert result is False
+    decision = next(iter(ctx._extra["systemone_decisions"].values()))
+    assert decision["decision"] == "unavailable"
+    assert decision["reason"] == "decision_model_surface_disabled"
+
+
+@pytest.mark.asyncio
+async def test_missing_risk_score_requires_human_instead_of_implicit_allow() -> None:
+    provider = FakeDecisionProvider("clef-local")
+    provider.custom_answers = {}
+    harness = SystemOneHarness(SystemOneSettings(enabled=True), provider)
+    ctx = ToolContext(
+        thread_id="t-invalid-risk",
+        workspace_id="ws-1",
+        permission_mode="auto",
+        _extra={
+            "decision_model_preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": {"hitl": True},
+            }
+        },
+    )
+
+    elevated = await precompute_tool_risk_assessment(
+        harness,
+        tool_name="file_read",
+        ctx=ctx,
+        args={"path": "private.txt"},
+    )
+
+    from backend.engine.hitl import _risk_assessment_key
+
+    decision = ctx._extra["systemone_decisions"][
+        _risk_assessment_key("file_read", {"path": "private.txt"})
+    ]
+    assert elevated is True
+    assert decision["decision"] == "requires_human"
+    assert decision["reason"] == "systemone_empty_answers"
+
+
+@pytest.mark.asyncio
+async def test_subagent_surface_uses_its_own_preference_flag() -> None:
+    provider = FakeDecisionProvider("clef-local")
+    provider.custom_answers = {
+        "risk_score": ScoreAnswer(
+            score=0.80, min_score=0.0, max_score=1.0, confidence=0.95
+        )
+    }
+    harness = SystemOneHarness(SystemOneSettings(enabled=True), provider)
+    ctx = ToolContext(
+        thread_id="child-thread",
+        workspace_id="ws-1",
+        permission_mode="auto",
+        _extra={
+            "subagent_execution": True,
+            "decision_model_preferences": {
+                "enabled": True,
+                "surfaces": {"hitl": True, "subagents": True},
+            },
+        },
+    )
+
+    elevated = await precompute_tool_risk_assessment(
+        harness,
+        tool_name="file_read",
+        ctx=ctx,
+        args={"path": "input.txt"},
+        surface="subagents",
+    )
+
+    assert elevated is True
+    assert "systemone_decisions" in ctx._extra
+
+
+@pytest.mark.asyncio
+async def test_plan_mode_uses_its_own_flag_without_bypassing_approval() -> None:
+    """A Plan Mode decision may add a gate but cannot remove the static one."""
+    provider = FakeDecisionProvider("clef-local")
+    provider.custom_answers = {
+        "risk_score": ScoreAnswer(
+            score=0.80, min_score=0.0, max_score=1.0, confidence=0.95
+        )
+    }
+    harness = SystemOneHarness(SystemOneSettings(enabled=True), provider)
+    ctx = ToolContext(
+        thread_id="plan-thread",
+        workspace_id="ws-1",
+        permission_mode="plan",
+        _extra={
+            "decision_model_preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": {"plan_mode": True, "browser": False},
+            }
+        },
+    )
+
+    from backend.llm.systemone.preferences import decision_model_surfaces_for_tool
+
+    plan_surface = decision_model_surfaces_for_tool(ctx, "file_write")
+    assert plan_surface == ("plan_mode",)
+    assert decision_model_surfaces_for_tool(ctx, "browser_navigate") == (
+        "plan_mode",
+        "browser",
+    )
+    assert decision_model_enabled_for(ctx, ("plan_mode", "browser")) is False
+
+    elevated = await precompute_tool_risk_assessment(
+        harness,
+        tool_name="file_write",
+        ctx=ctx,
+        args={"path": "plan.txt"},
+        surface=plan_surface,
+    )
+    assert elevated is True
+    assert should_require_approval("file_write", ctx, {"path": "plan.txt"}, []) is True
+
+    ctx._extra["decision_model_preferences"]["surfaces"]["plan_mode"] = False
+    assert (
+        await precompute_tool_risk_assessment(
+            harness,
+            tool_name="file_write",
+            ctx=ctx,
+            args={"path": "plan.txt"},
+            surface=plan_surface,
+        )
+        is False
+    )
+    decision = next(iter(ctx._extra["systemone_decisions"].values()))
+    assert decision["decision"] == "unavailable"
+    assert decision["reason"] == "decision_model_surface_disabled"
+
+
+@pytest.mark.parametrize(
+    ("tool_name", "background_task_id", "surfaces", "enabled"),
+    [
+        ("browser_navigate", "", {"subagents": True, "browser": False}, False),
+        ("browser_navigate", "", {"subagents": False, "browser": True}, False),
+        ("browser_navigate", "", {"subagents": True, "browser": True}, True),
+        ("call_mcp_tool", "", {"subagents": True, "mcp": False}, False),
+        (
+            "write_terminal",
+            "job-1",
+            {"subagents": True, "background": True, "terminal": False},
+            False,
+        ),
+        (
+            "kanban_update_status",
+            "",
+            {"subagents": True, "kanban": False},
+            False,
+        ),
+        (
+            "kanban_update_status",
+            "",
+            {"subagents": True, "kanban": True},
+            True,
+        ),
+    ],
+)
+def test_decision_model_requires_provenance_and_capability_flags(
+    tool_name: str,
+    background_task_id: str,
+    surfaces: dict[str, bool],
+    enabled: bool,
+) -> None:
+    ctx = ToolContext(
+        thread_id="child-thread",
+        workspace_id="ws-1",
+        background_task_id=background_task_id,
+        _extra={
+            "subagent_execution": True,
+            "decision_model_preferences": {"enabled": True, "surfaces": surfaces},
+        },
+    )
+    applicable = decision_model_surfaces_for_tool(ctx, tool_name)
+    assert applicable[0] == "subagents"
+    assert decision_model_enabled_for(ctx, applicable) is enabled
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "permission_mode", "extra", "background_task_id", "surfaces"),
+    [
+        (
+            "browser_navigate",
+            "auto",
+            {"subagent_execution": True},
+            "",
+            {"subagents": True, "browser": False},
+        ),
+        (
+            "browser_navigate",
+            "auto",
+            {"subagent_execution": True},
+            "",
+            {"subagents": False, "browser": True},
+        ),
+        (
+            "call_mcp_tool",
+            "auto",
+            {"connector_execution": True},
+            "",
+            {"connectors": False, "mcp": True},
+        ),
+        (
+            "write_terminal",
+            "auto",
+            {"subagent_execution": True},
+            "background-1",
+            {"subagents": True, "background": False, "terminal": True},
+        ),
+        (
+            "kanban_update_status",
+            "auto",
+            {"subagent_execution": True},
+            "",
+            {"subagents": False, "kanban": True},
+        ),
+        (
+            "browser_navigate",
+            "plan",
+            {},
+            "",
+            {"plan_mode": True, "browser": False},
+        ),
+        (
+            "http_request",
+            "auto",
+            {},
+            "",
+            {"network": False},
+        ),
+    ],
+)
+async def test_disabled_decision_surface_combination_never_probes_provider(
+    tool_name: str,
+    permission_mode: Literal["auto", "plan"],
+    extra: dict[str, object],
+    background_task_id: str,
+    surfaces: dict[str, bool],
+) -> None:
+    """Any disabled provenance/capability flag prevents a model call."""
+    from backend.engine.hitl import (
+        _risk_assessment_key,
+        precompute_tool_risk_assessment,
+    )
+
+    class MustNotProbeHarness:
+        async def is_ready(self) -> bool:
+            pytest.fail("disabled decision surface probed provider readiness")
+
+    ctx = ToolContext(
+        user_id="u1",
+        thread_id="surface-guard-thread",
+        workspace_id="surface-guard-workspace",
+        background_task_id=background_task_id,
+        permission_mode=permission_mode,
+        _extra={
+            **extra,
+            "decision_model_preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": surfaces,
+            },
+        },
+    )
+    args = {"target": "sensitive-resource"}
+    applicable_surfaces = decision_model_surfaces_for_tool(ctx, tool_name)
+    assert applicable_surfaces
+    assert not decision_model_enabled_for(ctx, applicable_surfaces)
+
+    elevated = await precompute_tool_risk_assessment(
+        cast("SystemOneHarness", MustNotProbeHarness()),
+        tool_name=tool_name,
+        ctx=ctx,
+        args=args,
+        surface=applicable_surfaces,
+    )
+
+    assert elevated is False
+    assert ctx._extra["systemone_decisions"][_risk_assessment_key(tool_name, args)] == {
+        "decision": "unavailable",
+        "reason": "decision_model_surface_disabled",
+        "provider": "clef-local",
+        "run_id": "",
+        "thread_id": "surface-guard-thread",
+    }
+
+
+def test_kanban_decisions_use_the_kanban_surface_flag() -> None:
+    ctx = ToolContext(
+        thread_id="kanban-thread",
+        workspace_id="ws-1",
+        _extra={
+            "decision_model_preferences": {
+                "enabled": True,
+                "surfaces": {"kanban": True, "hitl": False},
+            }
+        },
+    )
+
+    assert decision_model_surfaces_for_tool(ctx, "kanban_update_status") == ("kanban",)
+    assert decision_model_surfaces_for_tool(ctx, "kanban_create") == ("kanban",)
+    assert (
+        decision_model_enabled_for(
+            ctx, decision_model_surfaces_for_tool(ctx, "kanban_update_status")
+        )
+        is True
+    )
+
+
+def test_connector_decisions_require_the_connector_surface_flag() -> None:
+    ctx = ToolContext(
+        thread_id="external-thread",
+        permission_mode="auto",
+        _extra={
+            "connector_execution": True,
+            "decision_model_preferences": {
+                "enabled": True,
+                "surfaces": {"hitl": True, "connectors": False},
+            },
+        },
+    )
+    surface = decision_model_surfaces_for_tool(ctx, "file_write")
+    assert surface == ("connectors", "hitl")
+    assert decision_model_enabled_for(ctx, surface) is False
+
+    ctx._extra["decision_model_preferences"]["surfaces"]["connectors"] = True
+    assert decision_model_enabled_for(ctx, surface) is True
+
+
+@pytest.mark.asyncio
 async def test_systemone_tools_enforce_registered_patterns_and_authenticated_context() -> (
     None
 ):
@@ -750,3 +1292,57 @@ async def test_systemone_tools_enforce_registered_patterns_and_authenticated_con
     assert parsed_eval["status"] == "ok"
     assert parsed_eval["execution_authorized"] is False
     assert parsed_eval["is_usable_recommendation"] is True
+
+
+@pytest.mark.asyncio
+async def test_kanban_decision_tool_respects_surface_preference(monkeypatch):
+    from backend.tools import systemone_tools
+
+    ctx = ToolContext(
+        thread_id="sess-auth",
+        workspace_id="ws-auth",
+        _extra={
+            "systemone_harness": object(),
+            "decision_model_preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": {"kanban": False},
+            },
+        },
+    )
+    unused = False
+
+    def fail_if_built(provider_override=None):
+        nonlocal unused
+        unused = True
+        raise AssertionError("disabled Kanban surface must not construct a provider")
+
+    monkeypatch.setattr(systemone_tools, "_build_default_harness", fail_if_built)
+    result = json.loads(await systemone_propose_kanban_transition(ctx, "task-1"))
+
+    assert result == {
+        "status": "disabled",
+        "error": "Decision Model não está habilitado para decisões do Kanban",
+    }
+    assert unused is False
+
+
+def test_default_harness_uses_and_caches_configured_risk_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.settings import settings
+    from backend.tools import systemone_tools
+
+    monkeypatch.setattr(
+        systemone_tools,
+        "_DEFAULT_HARNESS_CACHE",
+        systemone_tools._DEFAULT_HARNESS_CACHE,
+    )
+    monkeypatch.setattr(settings, "systemone_risk_assessment_timeout_s", 2.5)
+    first = systemone_tools._build_default_harness()
+    assert first.risk_assessment_timeout_s == 2.5
+
+    monkeypatch.setattr(settings, "systemone_risk_assessment_timeout_s", 4.0)
+    second = systemone_tools._build_default_harness()
+    assert second is not first
+    assert second.risk_assessment_timeout_s == 4.0

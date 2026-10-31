@@ -218,6 +218,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command", metavar="subcommand")
 
+    help_p = sub.add_parser("help", help="Mostra esta ajuda ou a de um subcomando")
+    help_p.add_argument(
+        "topic", nargs="?", help="Subcomando cuja ajuda deve ser exibida"
+    )
+
     def add_marketplace_parser(resource: str, help_text: str) -> None:
         """Executa a operação add marketplace parser."""
         resource_parser = sub.add_parser(resource, help=help_text)
@@ -686,6 +691,11 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
 
     from backend.version import __version__
 
+    # The desktop transport is the named pipe (Windows) bridging to this
+    # listener; it must stay on loopback and never be reachable from the LAN.
+    desktop_ipc = bool(os.environ.get("VECTORA_DESKTOP")) and not force_web
+    host = "127.0.0.1" if desktop_ipc else args.host
+
     app = create_app()
     scheme = "https" if use_tls else "http"
     if uds_path:
@@ -707,13 +717,17 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
             "Iniciando Vectora v%s em %s://%s:%d (%s)",
             __version__,
             scheme,
-            args.host,
+            host,
             port,
-            "web+electron" if force_web else ("headless" if headless else "fullstack"),
+            "web+electron"
+            if force_web
+            else "desktop IPC"
+            if desktop_ipc
+            else ("headless" if headless else "fullstack"),
         )
         config = uvicorn.Config(
             app,
-            host=args.host,
+            host=host,
             port=port,
             log_level=uvicorn_log_level,
             access_log=False,
@@ -942,6 +956,15 @@ def run() -> None:
     command = getattr(args, "command", None)
 
     if command is None:
+        parser.print_help()
+        return
+
+    if command == "help":
+        topic = getattr(args, "topic", None)
+        if topic:
+            # Delegates to argparse so an unknown topic fails like any
+            # invalid subcommand and a known one prints its own help.
+            parser.parse_args([topic, "--help"])
         parser.print_help()
         return
 

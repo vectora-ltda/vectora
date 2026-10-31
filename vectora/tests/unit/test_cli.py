@@ -35,6 +35,44 @@ def test_parser_sem_subcomando_nao_define_command():
     assert getattr(args, "command", None) is None
 
 
+@pytest.mark.parametrize("argv", [["vectora"], ["vectora", "help"]])
+def test_sem_subcomando_e_help_imprimem_ajuda_sem_subir_servidor(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    argv: list[str],
+) -> None:
+    from backend import main
+
+    def _nao_deve_subir(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("help não pode iniciar o Vectora")
+
+    monkeypatch.setattr(main, "_run_start", _nao_deve_subir)
+    monkeypatch.setattr("sys.argv", argv)
+    main.run()
+    out = capsys.readouterr().out
+    assert out.startswith("usage: vectora")
+    assert "start" in out
+    assert "web" in out
+
+
+def test_help_de_subcomando_e_topico_invalido(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from backend import main
+
+    monkeypatch.setattr("sys.argv", ["vectora", "help", "start"])
+    with pytest.raises(SystemExit) as ok:
+        main.run()
+    assert ok.value.code == 0
+    assert "--headless" in capsys.readouterr().out
+
+    monkeypatch.setattr("sys.argv", ["vectora", "help", "inexistente"])
+    with pytest.raises(SystemExit) as err:
+        main.run()
+    assert err.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+
+
 def test_parser_remove_chat_e_server(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("sys.stderr", io.StringIO())
     parser = _build_parser()

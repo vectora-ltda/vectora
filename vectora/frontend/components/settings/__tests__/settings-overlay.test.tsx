@@ -57,6 +57,9 @@ vi.mock("../preferencias/tabs/conta-tab", () => ({
 vi.mock("../environment/tabs/integracoes-tab", () => ({
   IntegracoesTab: stubTab("tab-integracoes"),
 }));
+vi.mock("../environment/tabs/ai-models-tab", () => ({
+  AiModelsTab: stubTab("tab-ai-models"),
+}));
 vi.mock("../environment/tabs/provider-routing-tab", () => ({
   ProviderRoutingTab: stubTab("tab-provider-routing"),
 }));
@@ -116,12 +119,12 @@ describe("SettingsOverlay — navegação sem flicker", () => {
 
     expect(await screen.findByTestId("tab-geral")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByText("Fallbacks"));
+    fireEvent.click(screen.getByText("IA e Decision Models"));
     await act(async () => {});
 
     // Mesmo elemento de Dialog — nunca desmontou/remontou.
     expect(screen.getByRole("dialog")).toBe(dialog);
-    expect(await screen.findByTestId("tab-fallbacks")).toBeInTheDocument();
+    expect(await screen.findByTestId("tab-ai-models")).toBeInTheDocument();
     expect(screen.queryByTestId("tab-geral")).not.toBeInTheDocument();
   });
 });

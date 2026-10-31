@@ -4272,6 +4272,7 @@ async def unregister_nine_router_model(
 from pydantic import BaseModel, Field
 
 from backend.contracts import ProviderCapability
+from backend.llm.systemone.errors import SystemOneAuthenticationError
 from backend.llm.systemone.settings import (
     SystemOneSettings,
     get_systemone_provider,
@@ -4303,6 +4304,7 @@ class SystemOneStatusResponse(BaseModel):
     jev_api_key_masked: str | None
     allow_remote_fallback: bool
     confidence_threshold_hitl: float
+    risk_assessment_timeout_s: float
     capabilities: ProviderCapabilities | None = None
     capability_matrix: list[ProviderCapability] = Field(default_factory=list)
     is_healthy: bool = False
@@ -4325,6 +4327,7 @@ class UpdateSystemOneConfigRequest(BaseModel):
     jev_api_key: str | None = None
     allow_remote_fallback: bool | None = None
     confidence_threshold_hitl: float | None = Field(default=None, ge=0.0, le=1.0)
+    risk_assessment_timeout_s: float | None = Field(default=None, gt=0.0, le=120.0)
 
 
 @router.get("/decision-models/status")
@@ -4350,6 +4353,7 @@ async def get_decision_models_status(
             jev_api_model=settings.systemone_jev_api_model,
             allow_remote_fallback=settings.systemone_allow_remote_fallback,
             confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
+            risk_assessment_timeout_s=settings.systemone_risk_assessment_timeout_s,
         )
     except ValidationError as exc:
         raise HTTPException(
@@ -4471,9 +4475,135 @@ async def get_decision_models_status(
         jev_api_key_masked=None,
         allow_remote_fallback=settings.systemone_allow_remote_fallback,
         confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
+        risk_assessment_timeout_s=settings.systemone_risk_assessment_timeout_s,
         capabilities=caps,
         capability_matrix=capability_matrix,
         is_healthy=is_healthy,
+    )
+
+
+class DecisionModelReadinessResponse(BaseModel):
+    """Non-sensitive readiness result for the provider selected by one user."""
+
+    provider: str
+    model: str
+    configured: bool
+    credential_valid: bool | None
+    healthy: bool
+    ready: bool
+    diagnostic: str | None = None
+
+
+@router.get("/decision-models/readiness", response_model=DecisionModelReadinessResponse)
+async def get_decision_model_readiness(
+    provider: Literal["clef-local", "laya-local", "clef-api", "jev-api"],
+) -> DecisionModelReadinessResponse:
+    """Probe only the selected provider and return no secret or admin settings."""
+    from backend.settings import settings
+
+    clef_account_id = (
+        getattr(settings, "systemone_clef_account_id", "")
+        or os.getenv("CLOUDFLARE_ACCOUNT_ID")
+        or os.getenv("CLEF_ACCOUNT_ID", "")
+    )
+    clef_api_key = getattr(settings, "clef_api_key", None) or os.getenv(
+        "CLEF_API_KEY", ""
+    )
+    jev_api_key = getattr(settings, "jev_api_key", None) or os.getenv("JEV_API_KEY", "")
+    configured = bool(settings.systemone_enabled)
+    models = {
+        "clef-local": getattr(settings, "systemone_local_model", ""),
+        "laya-local": getattr(settings, "systemone_laya_model", ""),
+        "clef-api": getattr(settings, "systemone_clef_api_model", ""),
+        "jev-api": getattr(settings, "systemone_jev_api_model", ""),
+    }
+    model = models[provider]
+    credential_valid: bool | None = True
+    if provider == "clef-api":
+        configured = configured and bool(clef_account_id)
+        credential_valid = None if clef_api_key else False
+    elif provider == "jev-api":
+        credential_valid = None if jev_api_key else False
+    elif provider == "laya-local":
+        configured = configured and bool(
+            settings.systemone_laya_base_url and settings.systemone_laya_model
+        )
+    else:
+        configured = configured and bool(
+            settings.systemone_local_base_url and settings.systemone_local_model
+        )
+
+    if not configured:
+        return DecisionModelReadinessResponse(
+            provider=provider,
+            model=model,
+            configured=False,
+            credential_valid=credential_valid,
+            healthy=False,
+            ready=False,
+            diagnostic="Decision Model desabilitado ou sem configuração completa",
+        )
+    if credential_valid is False:
+        return DecisionModelReadinessResponse(
+            provider=provider,
+            model=model,
+            configured=True,
+            credential_valid=False,
+            healthy=False,
+            ready=False,
+            diagnostic="credencial do provider não configurada",
+        )
+
+    try:
+        provider_settings = SystemOneSettings(
+            enabled=True,
+            provider=provider,
+            local_base_url=settings.systemone_local_base_url,
+            local_model=settings.systemone_local_model,
+            laya_base_url=settings.systemone_laya_base_url,
+            laya_model=settings.systemone_laya_model,
+            laya_api_key=settings.systemone_laya_api_key,
+            clef_api_base_url=settings.systemone_clef_api_base_url,
+            clef_account_id=clef_account_id,
+            clef_api_model=settings.systemone_clef_api_model,
+            jev_api_base_url=settings.systemone_jev_api_base_url,
+            jev_api_model=settings.systemone_jev_api_model,
+            allow_remote_fallback=False,
+            confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
+            risk_assessment_timeout_s=settings.systemone_risk_assessment_timeout_s,
+        )
+        adapter = get_systemone_provider(
+            provider_settings,
+            clef_api_key=clef_api_key,
+            jev_api_key=jev_api_key,
+        )
+        await adapter.capabilities()
+        healthy = await adapter.health()
+    except SystemOneAuthenticationError:
+        healthy = False
+        credential_valid = False
+        diagnostic = "credencial rejeitada pelo provider"
+    except Exception as exc:
+        logger.info(
+            "provider_routing: readiness probe falhou para %s (%s)",
+            provider,
+            type(exc).__name__,
+        )
+        healthy = False
+        diagnostic = f"provider indisponível ({type(exc).__name__})"
+    else:
+        if provider in {"clef-api", "jev-api"} and healthy:
+            credential_valid = True
+        diagnostic = None if healthy else "provider não saudável"
+
+    return DecisionModelReadinessResponse(
+        provider=provider,
+        model=model,
+        configured=True,
+        credential_valid=credential_valid,
+        healthy=healthy,
+        ready=healthy,
+        diagnostic=diagnostic,
     )
 
 
@@ -4518,6 +4648,8 @@ async def update_decision_models_config(
         settings.systemone_allow_remote_fallback = body.allow_remote_fallback
     if body.confidence_threshold_hitl is not None:
         settings.systemone_confidence_threshold_hitl = body.confidence_threshold_hitl
+    if body.risk_assessment_timeout_s is not None:
+        settings.systemone_risk_assessment_timeout_s = body.risk_assessment_timeout_s
 
     env_file = _env_file()
     env_updates = {
@@ -4563,6 +4695,11 @@ async def update_decision_models_config(
             settings.systemone_confidence_threshold_hitl
         )
         if body.confidence_threshold_hitl is not None
+        else None,
+        "SYSTEMONE_RISK_ASSESSMENT_TIMEOUT_S": str(
+            settings.systemone_risk_assessment_timeout_s
+        )
+        if body.risk_assessment_timeout_s is not None
         else None,
     }
     for key, value in env_updates.items():

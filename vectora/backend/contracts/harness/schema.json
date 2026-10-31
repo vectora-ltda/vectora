@@ -42,7 +42,11 @@
           "type": "string"
         }
       },
-      "required": ["artifact_id", "sha256", "storage_uri"],
+      "required": [
+        "artifact_id",
+        "sha256",
+        "storage_uri"
+      ],
       "title": "ArtifactRef",
       "type": "object"
     },
@@ -366,7 +370,10 @@
           "type": "boolean"
         }
       },
-      "required": ["provider", "model"],
+      "required": [
+        "provider",
+        "model"
+      ],
       "title": "ProviderCapability",
       "type": "object"
     }

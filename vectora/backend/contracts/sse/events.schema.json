@@ -48,7 +48,10 @@
           "type": "string"
         }
       },
-      "required": ["thread_id", "type"],
+      "required": [
+        "thread_id",
+        "type"
+      ],
       "title": "DoneEvent",
       "type": "object"
     },
@@ -69,7 +72,10 @@
           "type": "string"
         }
       },
-      "required": ["message", "type"],
+      "required": [
+        "message",
+        "type"
+      ],
       "title": "ErrorEvent",
       "type": "object"
     },
@@ -135,6 +141,18 @@
           "title": "Reasoning",
           "type": "string"
         },
+        "run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Id"
+        },
         "tool_name": {
           "title": "Tool Name",
           "type": "string"
@@ -150,7 +168,12 @@
           "type": "string"
         }
       },
-      "required": ["args_json", "interrupt_id", "tool_name", "type"],
+      "required": [
+        "args_json",
+        "interrupt_id",
+        "tool_name",
+        "type"
+      ],
       "title": "HITLEvent",
       "type": "object"
     },
@@ -163,7 +186,9 @@
           "type": "string"
         }
       },
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "title": "MessageBreakEvent",
       "type": "object"
     },
@@ -184,7 +209,11 @@
           "type": "string"
         }
       },
-      "required": ["from_model", "to_model", "type"],
+      "required": [
+        "from_model",
+        "to_model",
+        "type"
+      ],
       "title": "ModelSwitchedEvent",
       "type": "object"
     },
@@ -205,7 +234,10 @@
           "type": "string"
         },
         "status": {
-          "enum": ["started", "finished"],
+          "enum": [
+            "started",
+            "finished"
+          ],
           "title": "Status",
           "type": "string"
         },
@@ -215,12 +247,22 @@
           "type": "string"
         }
       },
-      "required": ["node", "status", "type"],
+      "required": [
+        "node",
+        "status",
+        "type"
+      ],
       "title": "NodeEvent",
       "type": "object"
     },
     "PermissionMode": {
-      "enum": ["ask", "accept_edits", "plan", "auto", "bypass"],
+      "enum": [
+        "ask",
+        "accept_edits",
+        "plan",
+        "auto",
+        "bypass"
+      ],
       "type": "string"
     },
     "RagCitation": {
@@ -239,7 +281,10 @@
           "type": "string"
         }
       },
-      "required": ["index", "source"],
+      "required": [
+        "index",
+        "source"
+      ],
       "title": "RagCitation",
       "type": "object"
     },
@@ -259,7 +304,10 @@
           "type": "string"
         }
       },
-      "required": ["citations", "type"],
+      "required": [
+        "citations",
+        "type"
+      ],
       "title": "RagCitationEvent",
       "type": "object"
     },
@@ -349,7 +397,10 @@
           "type": "string"
         }
       },
-      "required": ["subagent_type", "type"],
+      "required": [
+        "subagent_type",
+        "type"
+      ],
       "title": "SubagentOutputEvent",
       "type": "object"
     },
@@ -366,7 +417,10 @@
           "type": "string"
         }
       },
-      "required": ["line", "type"],
+      "required": [
+        "line",
+        "type"
+      ],
       "title": "TerminalLineEvent",
       "type": "object"
     },
@@ -400,7 +454,10 @@
           "type": "string"
         }
       },
-      "required": ["thread_id", "type"],
+      "required": [
+        "thread_id",
+        "type"
+      ],
       "title": "ThreadEvent",
       "type": "object"
     },
@@ -424,7 +481,11 @@
           "title": "Quality Gate"
         },
         "status": {
-          "enum": ["pending", "in_progress", "completed"],
+          "enum": [
+            "pending",
+            "in_progress",
+            "completed"
+          ],
           "title": "Status",
           "type": "string"
         },
@@ -441,7 +502,10 @@
           "title": "Step Id"
         }
       },
-      "required": ["content", "status"],
+      "required": [
+        "content",
+        "status"
+      ],
       "title": "TodoItem",
       "type": "object"
     },
@@ -461,7 +525,10 @@
           "type": "string"
         }
       },
-      "required": ["todos", "type"],
+      "required": [
+        "todos",
+        "type"
+      ],
       "title": "TodosUpdatedEvent",
       "type": "object"
     },
@@ -482,7 +549,10 @@
           "type": "string"
         }
       },
-      "required": ["content", "type"],
+      "required": [
+        "content",
+        "type"
+      ],
       "title": "TokenEvent",
       "type": "object"
     },
@@ -521,7 +591,10 @@
           "type": "string"
         }
       },
-      "required": ["tool_name", "type"],
+      "required": [
+        "tool_name",
+        "type"
+      ],
       "title": "ToolActivityEvent",
       "type": "object"
     },
@@ -535,6 +608,66 @@
           "default": "general",
           "title": "Category",
           "type": "string"
+        },
+        "decision": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision"
+        },
+        "decision_confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Confidence"
+        },
+        "decision_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Model"
+        },
+        "decision_provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Provider"
+        },
+        "decision_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Reason"
         },
         "destructive": {
           "default": false,
@@ -565,7 +698,12 @@
           "type": "string"
         }
       },
-      "required": ["args_json", "tool_call_id", "tool_name", "type"],
+      "required": [
+        "args_json",
+        "tool_call_id",
+        "tool_name",
+        "type"
+      ],
       "title": "ToolCallEvent",
       "type": "object"
     },
@@ -581,7 +719,10 @@
           "type": "string"
         }
       },
-      "required": ["label", "value"],
+      "required": [
+        "label",
+        "value"
+      ],
       "title": "ToolOption",
       "type": "object"
     },
@@ -606,7 +747,11 @@
           "type": "string"
         }
       },
-      "required": ["content_json", "tool_call_id", "type"],
+      "required": [
+        "content_json",
+        "tool_call_id",
+        "type"
+      ],
       "title": "ToolResultEvent",
       "type": "object"
     },
@@ -640,7 +785,9 @@
           "type": "string"
         }
       },
-      "required": ["path"],
+      "required": [
+        "path"
+      ],
       "title": "TurnFileChange",
       "type": "object"
     },
@@ -661,7 +808,10 @@
         },
         "status": {
           "default": "finalized",
-          "enum": ["active", "finalized"],
+          "enum": [
+            "active",
+            "finalized"
+          ],
           "title": "Status",
           "type": "string"
         },
@@ -671,7 +821,9 @@
           "type": "string"
         }
       },
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "title": "TurnFilesChangedEvent",
       "type": "object"
     },
@@ -711,7 +863,9 @@
           "type": "string"
         }
       },
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "title": "UIMetricsEvent",
       "type": "object"
     },
@@ -736,7 +890,10 @@
           "type": "string"
         }
       },
-      "required": ["tabs", "type"],
+      "required": [
+        "tabs",
+        "type"
+      ],
       "title": "WorkbenchInvalidateEvent",
       "type": "object"
     }

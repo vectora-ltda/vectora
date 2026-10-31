@@ -10,6 +10,24 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+const workspaceState = vi.hoisted(() => ({ activeId: null as string | null }));
+
+// O store é a unidade sob teste: a API de preferências, o workspace e a
+// configuração de deployment não precisam carregar suas árvores de módulos.
+vi.mock("@/lib/api/settings-prefs", () => ({
+  fetchPrefs: vi.fn().mockResolvedValue({}),
+  fetchPrefsOrNull: vi.fn().mockResolvedValue(null),
+  pushPrefs: vi.fn().mockResolvedValue({}),
+}));
+vi.mock("@/lib/stores/workspaces-store", () => ({
+  useWorkspacesStore: {
+    getState: () => ({ active_id: workspaceState.activeId }),
+  },
+}));
+vi.mock("@/lib/config/deployment-config", () => ({
+  getDefaultModel: () => "",
+}));
+
 // Mock localStorage antes de importar o store
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
@@ -47,6 +65,7 @@ async function getStore() {
 describe("useSettingsStore — valores padrão", () => {
   beforeEach(() => {
     localStorageMock.clear();
+    workspaceState.activeId = null;
     vi.resetModules();
   });
 
@@ -76,6 +95,69 @@ describe("useSettingsStore — valores padrão", () => {
     const { useSettingsStore } = await getStore();
     const state = useSettingsStore.getState();
     expect(state.customSystemPrompt).toBe("");
+  });
+
+  it("Decision Models iniciam sem superfícies implicitamente autorizadas", async () => {
+    const { useSettingsStore } = await getStore();
+    expect(useSettingsStore.getState().decisionModelSurfaces).toEqual({});
+  });
+});
+
+describe("useSettingsStore — hidratação remota", () => {
+  beforeEach(() => {
+    localStorageMock.clear();
+    workspaceState.activeId = null;
+    vi.resetModules();
+  });
+
+  it("aplica as preferências do backend sem reenviar PATCH", async () => {
+    const { hydrateFromBackend, useSettingsStore } = await getStore();
+    const { fetchPrefs, pushPrefs } = await import("../lib/api/settings-prefs");
+    vi.mocked(fetchPrefs).mockResolvedValueOnce({
+      decisionModelsEnabled: true,
+      decisionModelProvider: "jev-api",
+      decisionModelSurfaces: { hitl: true, browser: false },
+      transcriptionMode: "local",
+      permissionMode: "auto",
+    });
+    vi.mocked(pushPrefs).mockClear();
+
+    await hydrateFromBackend();
+
+    expect(useSettingsStore.getState()).toMatchObject({
+      decisionModelsEnabled: true,
+      decisionModelProvider: "jev-api",
+      decisionModelSurfaces: { hitl: true, browser: false },
+      transcriptionMode: "local",
+      permissionMode: "auto",
+    });
+    expect(pushPrefs).not.toHaveBeenCalled();
+  });
+
+  it("hidrata Decision Models por workspace sem persistir novamente", async () => {
+    workspaceState.activeId = "workspace-a";
+    const { hydrateDecisionModelPreferences, useSettingsStore } =
+      await getStore();
+    const { fetchPrefsOrNull, pushPrefs } =
+      await import("../lib/api/settings-prefs");
+    vi.mocked(fetchPrefsOrNull).mockResolvedValueOnce({
+      decisionModelsEnabled: true,
+      decisionModelProvider: "clef-api",
+      decisionModelSurfaces: { hitl: true, browser: false },
+      transcriptionMode: "local",
+    });
+    vi.mocked(pushPrefs).mockClear();
+
+    await hydrateDecisionModelPreferences("workspace-a");
+
+    expect(useSettingsStore.getState()).toMatchObject({
+      decisionModelsEnabled: true,
+      decisionModelProvider: "clef-api",
+      decisionModelSurfaces: { hitl: true, browser: false },
+      transcriptionMode: "local",
+    });
+    expect(fetchPrefsOrNull).toHaveBeenCalledWith("workspace-a");
+    expect(pushPrefs).not.toHaveBeenCalled();
   });
 });
 

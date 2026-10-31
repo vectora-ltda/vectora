@@ -11,6 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from backend.contracts.models import (
+    QualityGateRunResult,
     QualityGateSpec,
     WorkspaceVerificationProfile,
 )
@@ -22,6 +23,22 @@ from backend.services.verification.profile_store import (
     save_verification_profile,
 )
 from backend.services.verification.snapshot import compute_files_snapshot
+
+
+def test_quality_gate_result_reason_is_typed_and_backward_compatible() -> None:
+    """Old persisted results remain readable while new reasons are validated."""
+    legacy = QualityGateRunResult(gate_id="legacy", passed=True, exit_code=0)
+    assert legacy.reason is None
+
+    failed = QualityGateRunResult(
+        gate_id="timeout", passed=False, exit_code=-1, reason="timeout"
+    )
+    assert failed.reason == "timeout"
+
+    with pytest.raises(ValidationError):
+        QualityGateRunResult.model_validate(
+            {"gate_id": "invalid", "passed": False, "exit_code": 1, "reason": "unknown"}
+        )
 
 
 @pytest.fixture

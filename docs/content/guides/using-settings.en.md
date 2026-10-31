@@ -22,6 +22,7 @@ This delivery is lexical: comments, strings, types, keywords, properties, node r
 Integration and extensibility settings, in two tabs.
 
 - **Integrations** — external connectors (manual API key or OAuth — GitHub, GitLab, Google, Slack, etc.) side by side with your custom per-user environment variables (masked in the UI, never exposed in plain text). Shows connected/disconnected status and the webhook URL when applicable.
+- **AI Models** — configure SystemOne providers, capability defaults, and the surfaces allowed to consult Decision Models. Local transcription uses `faster-whisper` and does not send audio to a remote provider. The screen checks the dependency and cache without loading the model; **Test local runtime** runs a short inference using cached weights only and never downloads files. If weights are not cached, the first real transcription may download them.
 - **Provider Routing** — local and dynamic LLM providers, e.g. discovering and selecting models served by a local Ollama instance.
 
 Installing MCP connectors and skills from a curated catalog is handled by the workbench's **Library** tab, not here — see [Using the Workbench](../using-the-workbench).

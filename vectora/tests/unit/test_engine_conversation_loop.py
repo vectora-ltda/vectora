@@ -13,7 +13,11 @@ import pytest
 
 from backend.engine.conversation_loop import (
     LoopConfig,
+    _bind_decision_model_snapshot,
+    _build_selected_decision_harness,
+    _consume_preapproval_grant,
     _load_persistent_context_memories,
+    _persist_decision_model_record,
     _preserve_latest_tool_result,
     resume_conversation,
     run_conversation,
@@ -35,12 +39,13 @@ from backend.engine.stream_events import (
 )
 from backend.persistence.native.session_store import SessionStore
 from backend.services.context_planner import compute_transcript_hash
-from backend.services.policy_compiler import PolicySnapshot
+from backend.services.policy_compiler import PolicySnapshot, compile_policy_snapshot
 from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.tools import media as _media_module
 from backend.tools import planning as _planning_module
 from backend.tools.context import ToolContext
 from backend.tools.registry import TOOL_REGISTRY, ToolExtras, ToolRegistry, vtool
+from backend.vtypes.contracts import JsonObject
 from backend.vtypes.message import (
     ContentBlock,
     MessageRole,
@@ -125,6 +130,47 @@ def test_local_models_preserve_latest_tool_result(
     assert _preserve_latest_tool_result(model_id) is expected
 
 
+def test_missing_decision_provider_does_not_select_global_default(
+    monkeypatch: pytest.MonkeyPatch, ctx: ToolContext
+) -> None:
+    from backend.llm.systemone import preferences
+    from backend.tools import systemone_tools
+
+    monkeypatch.setattr(
+        preferences, "selected_decision_model_provider", lambda _ctx: None
+    )
+
+    def unexpected_default(_provider):
+        msg = "sem provider selecionado, não deve haver fallback global"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(systemone_tools, "_build_default_harness", unexpected_default)
+
+    assert _build_selected_decision_harness(ctx) is None
+
+
+def test_decision_harness_uses_only_the_selected_provider(
+    monkeypatch: pytest.MonkeyPatch, ctx: ToolContext
+) -> None:
+    from backend.llm.systemone import preferences
+    from backend.tools import systemone_tools
+
+    calls: list[str] = []
+    sentinel = object()
+    monkeypatch.setattr(
+        preferences, "selected_decision_model_provider", lambda _ctx: "clef-local"
+    )
+
+    def build(provider):
+        calls.append(provider)
+        return sentinel
+
+    monkeypatch.setattr(systemone_tools, "_build_default_harness", build)
+
+    assert _build_selected_decision_harness(ctx) is sentinel
+    assert calls == ["clef-local"]
+
+
 @pytest.mark.asyncio
 async def test_load_persistent_context_memories_uses_memory_tool_namespace() -> None:
     """Verifica o comportamento de load persistent context memories uses memory tool namespace."""
@@ -163,6 +209,303 @@ def _tool_call_chunk(*, index: int, id: str, name: str, args: str) -> VMessageCh
             ToolCallChunk(index=index, id=id, name=name, args_fragment=args)
         ]
     )
+
+
+@pytest.mark.asyncio
+async def test_decision_snapshot_survives_preference_change_without_duplicate_evidence(
+    session_store: SessionStore, ctx: ToolContext
+) -> None:
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.settings import settings
+
+    run_id = "run-decision-snapshot"
+    await session_store.upsert_agent_run(
+        AgentRun(run_id=run_id, thread_id="thread-1", status="running")
+    )
+    ctx._extra["decision_model_preferences"] = {
+        "enabled": True,
+        "provider": "clef-local",
+        "surfaces": {"hitl": True},
+    }
+    policy = compile_policy_snapshot(ctx)
+    await _bind_decision_model_snapshot(session_store, ctx, run_id, policy)
+
+    changed = replace(
+        ctx,
+        _extra={
+            "decision_model_preferences": {
+                "enabled": False,
+                "provider": None,
+                "surfaces": {"hitl": False},
+            }
+        },
+    )
+    await _bind_decision_model_snapshot(session_store, changed, run_id, policy)
+
+    assert changed._extra["decision_model_revoked"] is True
+    assert changed._extra["decision_model_preferences"] == {
+        "enabled": True,
+        "provider": "clef-local",
+        "surfaces": {"hitl": True},
+    }
+    stored = await session_store.get_agent_run(run_id)
+    assert stored is not None
+    snapshots = [
+        item
+        for item in stored.evidence
+        if item.get("kind") == "decision_model_snapshot"
+    ]
+    assert len(snapshots) == 1
+    assert snapshots[0]["policy_version"] == policy.version
+    assert (
+        snapshots[0]["risk_assessment_timeout_s"]
+        == settings.systemone_risk_assessment_timeout_s
+    )
+    await session_store.record_run_evidence(run_id, evidence=snapshots[0])
+    stored = await session_store.get_agent_run(run_id)
+    assert stored is not None
+    assert (
+        sum(item.get("kind") == "decision_model_snapshot" for item in stored.evidence)
+        == 1
+    )
+
+
+@pytest.mark.asyncio
+async def test_preapproval_grant_is_consumed_once_and_audited_before_execution(
+    session_store: SessionStore, ctx: ToolContext, tmp_path, monkeypatch
+) -> None:
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.services import smart_approval
+    from backend.workspace.runtime_settings import RuntimeSettings
+
+    settings = RuntimeSettings(tmp_path / "preapproval.db")
+    monkeypatch.setattr(smart_approval, "_runtime_settings", lambda: settings)
+    run_id = "run-preapproval"
+    ctx.workspace_id = "workspace-1"
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id=run_id,
+            thread_id=ctx.thread_id,
+            workspace_id=ctx.workspace_id,
+            status="running",
+        )
+    )
+    args: JsonObject = {
+        "path": "private/customer.txt",
+        "content": "secret customer data",
+    }
+    tool_call = ToolCall(id="call-preapproval", name="file_write", args=args)
+    grant_id = smart_approval.add_to_allowlist(
+        ctx.workspace_id, tool_call.name, args, run_id=run_id
+    )[0]
+
+    assert (
+        await _consume_preapproval_grant(
+            session_store, ctx=ctx, run_id=run_id, tool_call=tool_call
+        )
+        is True
+    )
+    assert (
+        await _consume_preapproval_grant(
+            session_store, ctx=ctx, run_id=run_id, tool_call=tool_call
+        )
+        is False
+    )
+    assert smart_approval.get_allowlist(ctx.workspace_id) == []
+
+    stored = await session_store.get_agent_run(run_id)
+    assert stored is not None
+    evidence = [
+        item
+        for item in stored.evidence
+        if item.get("type") == "hitl_preapproval_consumed"
+    ]
+    assert len(evidence) == 1
+    assert evidence[0]["grant_id"] == grant_id
+    assert evidence[0]["tool_call_id"] == "call-preapproval"
+    assert "secret customer data" not in json.dumps(evidence)
+    events = await session_store.list_events(ctx.thread_id)
+    resolved = [
+        event
+        for event in events
+        if event.type == "approval_resolved" and event.run_id == run_id
+    ]
+    assert len(resolved) == 1
+    assert resolved[0].payload["decision"] == "preapproved_grant_consumed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("extra", "decision"),
+    [
+        ({"decision_model_revoked": True}, None),
+        ({"systemone_decisions": {"risk": {"decision": "deny"}}}, "deny"),
+        (
+            {"systemone_decisions": {"risk": {"decision": "requires_human"}}},
+            "requires_human",
+        ),
+    ],
+)
+async def test_preapproval_never_overrides_revocation_or_human_decision(
+    session_store: SessionStore,
+    ctx: ToolContext,
+    tmp_path,
+    monkeypatch,
+    extra: dict[str, object],
+    decision: str | None,
+) -> None:
+    from backend.engine.hitl import _risk_assessment_key
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.services import smart_approval
+    from backend.workspace.runtime_settings import RuntimeSettings
+
+    settings = RuntimeSettings(tmp_path / f"preapproval-{decision or 'revoked'}.db")
+    monkeypatch.setattr(smart_approval, "_runtime_settings", lambda: settings)
+    run_id = "run-preapproval-guard"
+    ctx.workspace_id = "workspace-guard"
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id=run_id,
+            thread_id=ctx.thread_id,
+            workspace_id=ctx.workspace_id,
+            status="running",
+        )
+    )
+    args: JsonObject = {"command": "rm -rf /tmp/vectora-test"}
+    tool_call = ToolCall(id="call-guard", name="terminal", args=args)
+    grant_id = smart_approval.add_to_allowlist(
+        ctx.workspace_id, tool_call.name, args, run_id=run_id
+    )[0]
+    if decision is not None:
+        risk_key = _risk_assessment_key(tool_call.name, args)
+        extra["systemone_decisions"] = {risk_key: {"decision": decision}}
+    ctx._extra = extra
+
+    assert (
+        await _consume_preapproval_grant(
+            session_store, ctx=ctx, run_id=run_id, tool_call=tool_call
+        )
+        is False
+    )
+    assert smart_approval.get_allowlist(ctx.workspace_id) == [grant_id]
+
+
+@pytest.mark.asyncio
+async def test_preapproval_fails_closed_when_run_is_not_in_the_same_workspace(
+    session_store: SessionStore, ctx: ToolContext, tmp_path, monkeypatch
+) -> None:
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.services import smart_approval
+    from backend.workspace.runtime_settings import RuntimeSettings
+
+    settings = RuntimeSettings(tmp_path / "preapproval-cross-scope.db")
+    monkeypatch.setattr(smart_approval, "_runtime_settings", lambda: settings)
+    run_id = "run-other-workspace"
+    ctx.workspace_id = "workspace-request"
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id=run_id,
+            thread_id=ctx.thread_id,
+            workspace_id="workspace-other",
+            status="running",
+        )
+    )
+    args: JsonObject = {"command": "git status"}
+    tool_call = ToolCall(id="call-cross-scope", name="terminal", args=args)
+    grant_id = smart_approval.add_to_allowlist(
+        ctx.workspace_id, tool_call.name, args, run_id=run_id
+    )[0]
+
+    assert (
+        await _consume_preapproval_grant(
+            session_store, ctx=ctx, run_id=run_id, tool_call=tool_call
+        )
+        is False
+    )
+    assert smart_approval.get_allowlist(ctx.workspace_id) == [grant_id]
+
+
+@pytest.mark.asyncio
+async def test_decision_model_audit_persists_redacted_agent_run_and_ledger(
+    session_store: SessionStore,
+) -> None:
+    from backend.persistence.native.agent_run import AgentRun
+
+    run_id = "run-decision-audit"
+    await session_store.upsert_agent_run(
+        AgentRun(run_id=run_id, thread_id="thread-1", status="running")
+    )
+    tool_call = ToolCall(
+        id="call-audit",
+        name="file_write",
+        args={"path": "private/customer.txt", "token": "do-not-persist"},
+    )
+    decision = {
+        "decision": "allow",
+        "reason": "risk_below_threshold",
+        "provider": "clef-local",
+        "model": "test-model",
+        "risk_score": 0.12,
+        "confidence": 0.98,
+        "policy_version": "policy-v1",
+        "decision_id": "decision-1",
+        "raw_response": "must not be copied",
+        "response_redacted": {
+            "answers": {"risk_score": {"type": "score", "score": 0.12}},
+            "raw_payload": {"api_key": "must-be-redacted"},
+        },
+    }
+
+    await _persist_decision_model_record(
+        session_store,
+        run_id=run_id,
+        thread_id="thread-1",
+        tool_call=tool_call,
+        surface="hitl",
+        record=decision,
+    )
+    await _persist_decision_model_record(
+        session_store,
+        run_id=run_id,
+        thread_id="thread-1",
+        tool_call=tool_call,
+        surface="hitl",
+        record=decision,
+    )
+
+    stored = await session_store.get_agent_run(run_id)
+    assert stored is not None
+    evidence = [
+        item
+        for item in stored.evidence
+        if item.get("type") == "decision_model_decision"
+    ]
+    assert len(evidence) == 1
+    assert evidence[0]["decision"] == "allow"
+    assert evidence[0]["risk_score"] == 0.12
+    assert "args_digest" in evidence[0]
+    assert "path" not in evidence[0]
+    assert "raw_response" not in evidence[0]
+    response_redacted = evidence[0].get("response_redacted")
+    assert isinstance(response_redacted, dict)
+    answers = response_redacted.get("answers")
+    raw_payload = response_redacted.get("raw_payload")
+    assert isinstance(answers, dict)
+    assert isinstance(raw_payload, dict)
+    risk_score = answers.get("risk_score")
+    assert isinstance(risk_score, dict)
+    assert risk_score.get("score") == 0.12
+    assert raw_payload.get("api_key") == "[REDACTED]"
+
+    events = await session_store.list_events("thread-1")
+    decisions = [event for event in events if event.type == "decision_model_decision"]
+    assert len(decisions) == 1
+    assert decisions[0].run_id == run_id
+    assert decisions[0].tool_call_id == "call-audit"
+    assert decisions[0].payload["args_digest"] == evidence[0]["args_digest"]
+    assert "private/customer.txt" not in str(decisions[0].payload)
+    assert "do-not-persist" not in str(decisions[0].payload)
+    assert "response_redacted" not in decisions[0].payload
 
 
 class TestParadaNormal:
@@ -1488,6 +1831,13 @@ class TestResumeConversation:
         assert resultado.stopped_reason == "interrupted"
         assert await session_store.get_pending_approval("thread-1") is not None
 
+        from backend.engine.hitl import _risk_assessment_key
+
+        risk_key = _risk_assessment_key("escrever_arquivo2", {})
+        ctx._extra["systemone_decisions"] = {
+            risk_key: {"decision": "requires_human", "reason": "risk_threshold"}
+        }
+
         eventos: list[EngineEvent] = []
 
         async def on_event(event: EngineEvent) -> None:
@@ -1510,6 +1860,9 @@ class TestResumeConversation:
         assert historico[-1].role.value == "tool"
         assert historico[-1].text() == "escrito!"
         assert historico[-1].is_error is False
+        assert (
+            ctx._extra["systemone_decisions"][risk_key]["decision"] == "requires_human"
+        )
         resultados = [e for e in eventos if isinstance(e, ToolResult)]
         assert resultados == [
             ToolResult(tool_call_id="call_1", content_json="escrito!", is_error=False)

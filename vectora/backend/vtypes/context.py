@@ -116,7 +116,7 @@ def ctx_from_config(config: dict | None) -> VectoraContext:
         permission_mode = _PERMISSION_MODE.validate_python(raw_permission_mode)
     except ValidationError as exc:
         raise ValueError(f"permission_mode inválido: {raw_permission_mode!r}") from exc
-    return VectoraContext(
+    ctx = VectoraContext(
         user_id=str(c.get("user_id") or "local"),
         workspace_id=str(c.get("workspace_id") or ""),
         permission_mode=permission_mode,
@@ -131,3 +131,23 @@ def ctx_from_config(config: dict | None) -> VectoraContext:
         tool_call_id=str(c.get("tool_call_id") or ""),
         run_id=str(c.get("run_id") or ""),
     )
+    # Decision-model preferences are user-scoped and loaded from the durable
+    # runtime preference store, never trusted from a caller's configurable.
+    try:
+        from backend.workspace.runtime_settings import runtime_settings
+
+        prefs = runtime_settings.get_frontend_prefs(
+            ctx.user_id, ctx.workspace_id or None
+        )
+        ctx._extra["decision_model_preferences"] = {
+            "enabled": prefs.get("decisionModelsEnabled") is True,
+            "provider": prefs.get("decisionModelProvider"),
+            "surfaces": prefs.get("decisionModelSurfaces", {}),
+        }
+    except Exception:
+        ctx._extra["decision_model_preferences"] = {
+            "enabled": False,
+            "provider": None,
+            "surfaces": {},
+        }
+    return ctx
