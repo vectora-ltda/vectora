@@ -275,6 +275,92 @@ def test_compare_cassettes_rejects_divergent_response_without_tools() -> None:
     assert report.details[0]["response_match"] is False
 
 
+def test_compare_cassettes_detects_decision_evidence_divergence() -> None:
+    """A changed policy or decision must be visible in evaluation accuracy."""
+    baseline = Cassette(
+        cassette_id="base",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="same",
+                messages=[],
+                response_text="approved",
+                systemone_decision_evidence={
+                    "run_id": "run-old",
+                    "decision_id": "decision-old",
+                    "decision": "allow",
+                    "policy_digest": "sha256:policy-a",
+                    "surface": "hitl",
+                },
+            )
+        ],
+    )
+    candidate = Cassette(
+        cassette_id="candidate",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="same",
+                messages=[],
+                response_text="approved",
+                systemone_decision_evidence={
+                    "run_id": "run-new",
+                    "decision_id": "decision-new",
+                    "decision": "allow",
+                    "policy_digest": "sha256:policy-b",
+                    "surface": "hitl",
+                },
+            )
+        ],
+    )
+
+    report = compare_cassettes(baseline, candidate)
+
+    assert report.matches == 0
+    assert report.accuracy == 0.0
+    assert report.details[0]["decision_evidence_match"] is False
+    baseline_evidence = report.details[0]["baseline_decision_evidence"]
+    assert isinstance(baseline_evidence, dict)
+    assert baseline_evidence.get("policy_digest") == "sha256:policy-a"
+
+
+def test_compare_cassettes_ignores_decision_execution_identity() -> None:
+    """Different run IDs do not make otherwise identical decisions diverge."""
+    baseline = Cassette(
+        cassette_id="base",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="same",
+                messages=[],
+                systemone_decision_evidence={
+                    "run_id": "run-old",
+                    "decision_id": "decision-old",
+                    "decision": "requires_human",
+                    "policy_digest": "sha256:policy",
+                },
+            )
+        ],
+    )
+    candidate = Cassette(
+        cassette_id="candidate",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="same",
+                messages=[],
+                systemone_decision_evidence={
+                    "run_id": "run-new",
+                    "decision_id": "decision-new",
+                    "decision": "requires_human",
+                    "policy_digest": "sha256:policy",
+                },
+            )
+        ],
+    )
+
+    report = compare_cassettes(baseline, candidate)
+
+    assert report.matches == 1
+    assert report.details[0]["decision_evidence_match"] is True
+
+
 def test_compare_cassettes_rejects_duplicate_interaction_ids() -> None:
     """Duplicate IDs must not be silently aligned as separate cases."""
     cassette = Cassette(
