@@ -1,0 +1,34 @@
+{
+  "name": "vext-sdk-workspace",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Shared packages for the VEXT extension ecosystem",
+  "type": "module",
+  "license": "Apache-2.0",
+  "author": "Vectora Ltda",
+  "workspaces": [
+    "packages/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vectora-ltda/vext-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vectora-ltda/vext-sdk/issues"
+  },
+  "homepage": "https://github.com/vectora-ltda/vext-sdk/tree/master",
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "check": "npm run build --workspace=@vext/json-rpc && npm run test --workspaces && npm run build --workspaces"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

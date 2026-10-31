@@ -1,0 +1,33 @@
+{
+  "id": "dev-containers",
+  "name": "Dev Containers",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "frontend": "dist/frontend.js",
+  "backend": "dist/backend.js",
+  "api_version": 1,
+  "protocol_version": 1,
+  "runtime": "node",
+  "entrypoint": "dist/backend.js",
+  "frontend_entrypoint": "dist/frontend.js",
+  "backend_entrypoint": "dist/backend.js",
+  "permissions": [
+    "process.spawn",
+    "workspace.read"
+  ],
+  "publisher": "Vectora",
+  "contributions": {
+    "workbench": [
+      {
+        "id": "dev-containers",
+        "title": "Dev Containers",
+        "icon": "Package",
+        "entrypoint": "dist/frontend.js"
+      }
+    ],
+    "shortcuts": [],
+    "footer": []
+  },
+  "description": "Create and manage development containers for the current workspace.",
+  "icon": "assets/icon.svg"
+}
