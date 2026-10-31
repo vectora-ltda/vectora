@@ -462,6 +462,65 @@ async def test_remote_override_does_not_enable_disabled_fallback() -> None:
 
 
 @pytest.mark.asyncio
+async def test_hitl_risk_override_respects_disabled_remote_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The HITL consumer's privacy override cannot enable global fallback."""
+    settings = SystemOneSettings(
+        enabled=True,
+        local_model="clef-flash",
+        clef_api_model="@cf/cloudflare/clef-flash",
+        allow_remote_fallback=False,
+    )
+    primary = FakeDecisionProvider("clef-local")
+    primary.error_to_raise = SystemOneConnectionError(
+        "systemone_connection_error", provider="clef-local"
+    )
+
+    async def healthy() -> bool:
+        return True
+
+    monkeypatch.setattr(primary, "health", healthy)
+    remote_fallback = FakeDecisionProvider("clef-api")
+    harness = SystemOneHarness(
+        settings,
+        primary,
+        fallback_provider=remote_fallback,
+    )
+    ctx = ToolContext(
+        thread_id="t-no-remote-fallback",
+        workspace_id="ws-1",
+        permission_mode="auto",
+        _extra={
+            "decision_model_preferences": {
+                "enabled": True,
+                "provider": "clef-local",
+                "surfaces": {"hitl": True},
+            }
+        },
+    )
+
+    elevated = await precompute_tool_risk_assessment(
+        harness,
+        tool_name="file_read",
+        ctx=ctx,
+        args={"path": "private.txt"},
+    )
+
+    from backend.engine.hitl import _risk_assessment_key
+
+    decision = ctx._extra["systemone_decisions"][
+        _risk_assessment_key("file_read", {"path": "private.txt"})
+    ]
+    assert elevated is True
+    assert decision["decision"] == "requires_human"
+    assert decision["reason"] == "decision_model_empty_response"
+    assert primary.calls
+    assert all(call.model == "clef-flash" for call in primary.calls)
+    assert remote_fallback.calls == []
+
+
+@pytest.mark.asyncio
 async def test_queue_full_and_cancellation_release_budget() -> None:
     """Verifica o comportamento de queue full and cancellation release budget."""
     settings = SystemOneSettings(enabled=True)
