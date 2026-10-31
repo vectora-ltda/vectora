@@ -1,31 +1,38 @@
 # Changelog
 
-As notas abaixo documentam a versão 0.3.0 e preservam o histórico anterior do projeto.
+Este arquivo registra as mudanças da linha 0.3 do Vectora. A entrada descreve o conteúdo integrado à branch de release e diferencia a funcionalidade entregue da validação que depende de serviços externos.
 
-## [0.3.0](https://github.com/vectora-ltda/vectora/compare/v0.2.1...v0.3.0) (2026-10-05)
+## [0.3.0](https://github.com/vectora-ltda/vectora/compare/v0.2.1...v0.3.0) — linha de release
 
-Esta seção reúne as alterações da linha 0.3 identificadas por milestone e já integradas à base de release.
+### Adicionado
 
-### Alterações aprovadas e integradas
+- **Runtime de agente e contratos:** contratos canônicos Python e TypeScript para APIs, eventos SSE, tools e configurações; validação de drift e compatibilidade semântica ([#382](https://github.com/vectora-ltda/vectora/pull/382), [#414](https://github.com/vectora-ltda/vectora/pull/414)).
+- **AgentRun e histórico:** identidade persistente de execução, estados, relações entre agente principal e subagentes, ledger derivado de eventos e paridade de persistência SQLite/PostgreSQL ([#382](https://github.com/vectora-ltda/vectora/pull/382), issues [#367](https://github.com/vectora-ltda/vectora/issues/367) e [#368](https://github.com/vectora-ltda/vectora/issues/368)).
+- **Planejamento e execução:** DAG de subagentes, tarefas Kanban com dependências, Plan Mode executável, gates e decisões de aprovação ([#382](https://github.com/vectora-ltda/vectora/pull/382), issues [#371](https://github.com/vectora-ltda/vectora/issues/371) e [#374](https://github.com/vectora-ltda/vectora/issues/374)).
+- **Decision Models e HITL configurável:** avaliações estruturadas por provider e superfície, preferências no chat e nas configurações, evidências associadas ao AgentRun e controles de aprovação de uso único ([#404](https://github.com/vectora-ltda/vectora/pull/404), issue [#403](https://github.com/vectora-ltda/vectora/issues/403)).
+- **Verificação e avaliação:** quality gates, resultados estruturados, cassetes com redação de dados sensíveis, replay e comparação de execuções ([#382](https://github.com/vectora-ltda/vectora/pull/382), issues [#369](https://github.com/vectora-ltda/vectora/issues/369) e [#370](https://github.com/vectora-ltda/vectora/issues/370)).
+- **Políticas e segurança de execução:** snapshots de policy, hooks e controles de egress nos caminhos cobertos, além de correções de resiliência para ledger, navegação, memória, storage e checkpoints ([#382](https://github.com/vectora-ltda/vectora/pull/382), [#400](https://github.com/vectora-ltda/vectora/pull/400); issues [#372](https://github.com/vectora-ltda/vectora/issues/372) e [#375](https://github.com/vectora-ltda/vectora/issues/375)).
+- **Contexto e memória:** Context Planner, Context Graph, projeções, domínios de memória, buckets e recuperação para RAG ([#382](https://github.com/vectora-ltda/vectora/pull/382), issues [#373](https://github.com/vectora-ltda/vectora/issues/373) e [#378](https://github.com/vectora-ltda/vectora/issues/378)).
+- **Browser Workbench e providers:** navegação baseada no Chromium distribuído com Electron, busca, fetch, crawl e map com limites e controles de destino; integrações de providers locais e workbenches ([#382](https://github.com/vectora-ltda/vectora/pull/382), [#355](https://github.com/vectora-ltda/vectora/pull/355)).
+- **Storage e operação:** paridade de backends, manutenção e recuperação de dados, além de ajustes no fluxo de release e nos testes locais de providers ([#400](https://github.com/vectora-ltda/vectora/pull/400), [#408](https://github.com/vectora-ltda/vectora/pull/408)).
 
-Os itens desta seção são listados abaixo.
+### Corrigido
 
-- Corrige a política de bases empilhadas e permite validação controlada de PRs sobre branches `stack/*` ([#315](https://github.com/vectora-ltda/vectora/pull/315)).
-- Promove e sincroniza a linha de manutenção `release/0.2` com a base estável ([#306](https://github.com/vectora-ltda/vectora/pull/306), [#297](https://github.com/vectora-ltda/vectora/pull/297), [#296](https://github.com/vectora-ltda/vectora/pull/296)).
-- Estabiliza a seleção de branches versionadas do Release Please e evita releases vazias ([#299](https://github.com/vectora-ltda/vectora/pull/299)).
-- Remove objetos de release não rastreados do armazenamento R2 ([#294](https://github.com/vectora-ltda/vectora/pull/294)).
-- Corrige a leitura da versão de release a partir da raiz do repositório ([#292](https://github.com/vectora-ltda/vectora/pull/292)).
-- Publica a versão 0.2.0 como marco anterior da linha de release ([#283](https://github.com/vectora-ltda/vectora/pull/283)).
+- Consistência de sequência e cursor do histórico, casos de mensagem órfã e persistência de estado de erro.
+- Comparação de contratos para referências, enums, limites e combinadores de schema.
+- Liberação de guards de navegação, filtragem de cópias expiradas de memória e proteção de restauração de checkpoints contra links simbólicos.
+- Contrato de motivos de quality gate e validações de configuração relacionadas.
 
-As PRs abertas com aprovação registrada na milestone 0.3 permanecem candidatas à integração posterior e não são declaradas como código já publicado nesta versão.
+### Verificação e limites
 
-- Instalador desktop completo para a matriz de plataformas ([#295](https://github.com/vectora-ltda/vectora/pull/295), aprovada e ainda aberta).
+- A stack de produto foi integrada à linha `release/0.3` pelo PR #382; #400, #408 e #414 complementam essa linha. O PR #404 contém a camada configurável de HITL e Decision Models e deve ser tratado como parte desta documentação somente após sua integração à release.
+- Testes unitários e de integração não comprovam que providers live estejam disponíveis. Execuções marcadas `skipped`, incluindo providers locais sem serviço configurado, não são evidência de funcionamento live.
+- Replay reproduz cassetes sem chamadas externas; não substitui teste de integração com provider ou Browser Workbench real.
+- A cobertura de policy e egress depende dos adapters integrados. Não assuma que caminhos de execução ainda não conectados herdam os mesmos controles.
 
-### Features
+## Histórico anterior
 
-A implementação detalhada permanece registrada nas seções históricas abaixo.
-
-Este changelog registra as capacidades identificadas na implementação atual do Vectora. O conteúdo é um ponto de partida histórico anterior à versão 0.2.0 e não atribui cada recurso a uma versão específica.
+As seções abaixo preservam o inventário histórico de capacidades do produto. Elas não atribuem automaticamente cada capacidade à versão 0.3.
 
 ## Capacidades anteriores à 0.2.0
 

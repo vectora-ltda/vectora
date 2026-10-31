@@ -5,4 +5,4 @@ sidebar:
   open: true
 ---
 
-Guías prácticas de uso: el chat, el workbench, las pantallas de configuración, flujos de git y cómo conectar clientes MCP externos.
+Guías prácticas del chat, workbenches, configuración, Decision Models, historial de ejecuciones y la línea 0.3. Estas páginas describen el contenido integrado en la rama de release; comprueba tu versión instalada antes de usar funciones que aún se estén desplegando.

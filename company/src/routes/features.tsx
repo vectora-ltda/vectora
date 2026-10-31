@@ -62,6 +62,20 @@ export function getFeatureCategories(): Category[] {
           summary: m.features_kanban_summary(),
           description: m.features_kanban_desc(),
         },
+        {
+          id: "agent-run",
+          Icon: Workflow,
+          title: m.features_agent_run_title(),
+          summary: m.features_agent_run_summary(),
+          description: m.features_agent_run_desc(),
+        },
+        {
+          id: "plan-mode",
+          Icon: ListTree,
+          title: m.features_plan_mode_title(),
+          summary: m.features_plan_mode_summary(),
+          description: m.features_plan_mode_desc(),
+        },
       ],
     },
     {
@@ -151,6 +165,13 @@ export function getFeatureCategories(): Category[] {
           description: m.features_ollama_desc(),
         },
         {
+          id: "decision-models",
+          Icon: Bot,
+          title: m.features_decision_models_title(),
+          summary: m.features_decision_models_summary(),
+          description: m.features_decision_models_desc(),
+        },
+        {
           id: "openrouter",
           Icon: RouteIcon,
           title: m.features_openrouter_title(),
@@ -170,6 +191,26 @@ export function getFeatureCategories(): Category[] {
           title: m.features_library_title(),
           summary: m.features_library_summary(),
           description: m.features_library_desc(),
+        },
+      ],
+    },
+    {
+      id: "governanca",
+      label: m.features_cat_governanca,
+      items: [
+        {
+          id: "verification-lab",
+          Icon: ShieldCheck,
+          title: m.features_verification_title(),
+          summary: m.features_verification_summary(),
+          description: m.features_verification_desc(),
+        },
+        {
+          id: "policy-egress",
+          Icon: ShieldCheck,
+          title: m.features_policy_title(),
+          summary: m.features_policy_summary(),
+          description: m.features_policy_desc(),
         },
       ],
     },
