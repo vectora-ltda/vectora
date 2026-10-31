@@ -950,6 +950,47 @@ describe("MediaModelsSection", () => {
     await waitFor(() => expect(campo.value).toBe("modelo-da-env"));
   });
 
+  it("edita os modelos de vídeo retornados pelo backend", async () => {
+    mockFetch({
+      mediaModelsGet: {
+        models: {
+          ollama_video_model: "ollama-video-original",
+          openrouter_video_model: "openrouter-video-original",
+        },
+      },
+      mediaModelsPatch: {
+        models: {
+          ollama_video_model: "ollama-video-updated",
+          openrouter_video_model: "openrouter-video-original",
+        },
+      },
+    });
+
+    render(<AiModelsTab />);
+
+    const ollamaVideo = (await screen.findByLabelText(
+      /prefs_media_models_ollama_video|Ollama — vídeo/,
+    )) as HTMLInputElement;
+    const openrouterVideo = (await screen.findByLabelText(
+      /prefs_media_models_openrouter_video|OpenRouter — vídeo/,
+    )) as HTMLInputElement;
+    expect(ollamaVideo.value).toBe("ollama-video-original");
+    expect(openrouterVideo.value).toBe("openrouter-video-original");
+
+    fireEvent.change(ollamaVideo, {
+      target: { value: "ollama-video-updated" },
+    });
+    fireEvent.blur(ollamaVideo);
+    await waitFor(() => expect(ollamaVideo.value).toBe("ollama-video-updated"));
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/admin/media-models",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ ollama_video_model: "ollama-video-updated" }),
+      }),
+    );
+  });
+
   it("backend fora do ar deixa os campos vazios sem quebrar a aba (edge)", async () => {
     mockFetch({ mediaModelsGet: null });
 
