@@ -18,7 +18,9 @@ import asyncio
 import importlib.util
 import logging
 import tempfile
+import threading
 from pathlib import PurePath
+from typing import TypedDict
 
 import httpx
 
@@ -54,7 +56,22 @@ class TranscriptionError(Exception):
     """Falha ao transcrever um áudio — sem chave configurada ou erro da API."""
 
 
-def local_transcription_readiness() -> dict[str, bool | str]:
+class LocalTranscriptionReadiness(TypedDict):
+    mode: str
+    dependency_available: bool
+    model_cached: bool
+    runtime_verified: bool
+    probe_attempted: bool
+    probe_in_progress: bool
+    ready: bool
+    diagnostic: str
+
+
+_LOCAL_PROBE_LOCK = threading.Lock()
+_LOCAL_PROBE_TIMEOUT_S = 45.0
+
+
+def local_transcription_readiness() -> LocalTranscriptionReadiness:
     """Report whether local STT can run without downloading model weights.
 
     Readiness is deliberately observational: it does not import CTranslate2,
@@ -76,20 +93,107 @@ def local_transcription_readiness() -> dict[str, bool | str]:
         if model_root.exists()
         else False
     )
-    ready = dependency_available and model_cached
+    probe_in_progress = _LOCAL_PROBE_LOCK.locked()
+    ready = False
     if not dependency_available:
         diagnostic = "faster-whisper não está instalado"
     elif not model_cached:
         diagnostic = "modelo base ainda não baixado; o primeiro uso exigirá download"
+    elif probe_in_progress:
+        diagnostic = "teste do runtime local em andamento"
     else:
-        diagnostic = "modelo local disponível"
+        diagnostic = "modelo em cache; teste o runtime para confirmar que ele carrega"
     return {
         "mode": "local",
         "dependency_available": dependency_available,
         "model_cached": model_cached,
+        "runtime_verified": False,
+        "probe_attempted": False,
+        "probe_in_progress": probe_in_progress,
         "ready": ready,
         "diagnostic": diagnostic,
     }
+
+
+def _probe_local_transcription_sync() -> str:
+    """Load cached Whisper weights and run a short inference without network I/O."""
+    if not _LOCAL_PROBE_LOCK.acquire(blocking=False):
+        return "probe_in_progress"
+    try:
+        readiness = local_transcription_readiness()
+        if not readiness["dependency_available"]:
+            return "dependency_missing"
+        if not readiness["model_cached"]:
+            return "model_missing"
+
+        import numpy as np
+        from faster_whisper import WhisperModel
+
+        model_root = settings.vectora_home / "models" / "whisper"
+        snapshots = [
+            snapshot
+            for snapshot in model_root.glob(
+                "models--Systran--faster-whisper-base/snapshots/*"
+            )
+            if snapshot.is_dir() and (snapshot / "model.bin").is_file()
+        ]
+        if not snapshots:
+            return "model_missing"
+        model_path = max(snapshots, key=lambda path: path.stat().st_mtime)
+        model = WhisperModel(
+            str(model_path),
+            device="cpu",
+            compute_type="int8",
+            local_files_only=True,
+        )
+        segments, _ = model.transcribe(
+            np.zeros(8_000, dtype=np.float32),
+            language="en",
+            vad_filter=False,
+        )
+        # Transcription is lazy; consume it so the probe includes inference.
+        next(iter(segments), None)
+        return "ready"
+    except Exception:
+        logger.exception("transcription readiness probe failed")
+        return "runtime_failed"
+    finally:
+        _LOCAL_PROBE_LOCK.release()
+
+
+async def probe_local_transcription_readiness() -> LocalTranscriptionReadiness:
+    """Explicitly test cached local STT with a bounded, network-disabled probe."""
+    readiness = local_transcription_readiness()
+    if not readiness["dependency_available"] or not readiness["model_cached"]:
+        readiness["probe_attempted"] = True
+        readiness["diagnostic"] = (
+            "faster-whisper não está instalado"
+            if not readiness["dependency_available"]
+            else "modelo base não está em cache; a sondagem não fará download"
+        )
+        return readiness
+
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(_probe_local_transcription_sync),
+            timeout=_LOCAL_PROBE_TIMEOUT_S,
+        )
+    except TimeoutError:
+        result = "timeout"
+
+    readiness["probe_attempted"] = True
+    readiness["runtime_verified"] = result == "ready"
+    readiness["probe_in_progress"] = result in {"probe_in_progress", "timeout"}
+    readiness["ready"] = result == "ready"
+    readiness["diagnostic"] = {
+        "ready": "modelo carregado e inferência local concluída",
+        "dependency_missing": "faster-whisper não está instalado",
+        "model_missing": "modelo base não está em cache; a sondagem não fará download",
+        "probe_in_progress": "já existe uma sondagem local em andamento",
+        "timeout": "a espera excedeu 45 segundos; a sondagem ainda pode concluir em background",
+        "runtime_failed": "o modelo em cache não carregou ou falhou na inferência",
+    }[result]
+    return readiness
 
 
 async def transcribe_audio(

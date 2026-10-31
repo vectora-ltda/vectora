@@ -88,6 +88,31 @@ def test_readiness_local_expoe_dependencia_e_cache_sem_tocar_modelo(monkeypatch)
     assert result == readiness
 
 
+def test_readiness_probe_usa_caminho_explicito(monkeypatch):
+    readiness = {
+        "mode": "local",
+        "dependency_available": True,
+        "model_cached": True,
+        "runtime_verified": True,
+        "probe_attempted": True,
+        "probe_in_progress": False,
+        "ready": True,
+        "diagnostic": "modelo carregado e inferência local concluída",
+    }
+    monkeypatch.setattr(
+        "backend.llm.transcription.probe_local_transcription_readiness",
+        lambda: _async_value(readiness),
+    )
+
+    result = asyncio.run(transcription_readiness(probe=True))
+
+    assert result == readiness
+
+
+async def _async_value(value):
+    return value
+
+
 def test_local_transcription_readiness_distingue_runtime_de_modelo_cacheado(
     tmp_path, monkeypatch
 ):
@@ -118,7 +143,123 @@ def test_local_transcription_readiness_distingue_runtime_de_modelo_cacheado(
     cached = local_transcription_readiness()
     assert cached["dependency_available"] is True
     assert cached["model_cached"] is True
-    assert cached["ready"] is True
+    assert cached["ready"] is False
+    assert cached["runtime_verified"] is False
+    assert cached["probe_attempted"] is False
+
+
+def test_local_transcription_probe_runs_cached_model_without_network(
+    tmp_path, monkeypatch
+):
+    import sys
+    import types
+
+    from backend.llm.transcription import _probe_local_transcription_sync
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    monkeypatch.setattr(
+        "backend.llm.transcription.importlib.util.find_spec",
+        lambda _name: object(),
+    )
+    snapshot = (
+        tmp_path
+        / "models"
+        / "whisper"
+        / "models--Systran--faster-whisper-base"
+        / "snapshots"
+        / "snapshot-id"
+    )
+    snapshot.mkdir(parents=True)
+    (snapshot / "model.bin").write_bytes(b"weights")
+    calls: list[dict[str, object]] = []
+
+    class FakeWhisperModel:
+        def __init__(self, model_path: str, **kwargs: object) -> None:
+            calls.append({"model_path": model_path, **kwargs})
+
+        def transcribe(self, audio: object, **kwargs: object):
+            calls.append({"audio": audio, **kwargs})
+            return iter(()), object()
+
+    monkeypatch.setitem(
+        sys.modules,
+        "faster_whisper",
+        types.SimpleNamespace(WhisperModel=FakeWhisperModel),
+    )
+
+    assert _probe_local_transcription_sync() == "ready"
+    assert calls[0]["local_files_only"] is True
+    assert calls[0]["model_path"] == str(snapshot)
+    assert calls[1]["vad_filter"] is False
+
+
+def test_local_transcription_probe_does_not_load_or_download_missing_model(
+    tmp_path, monkeypatch
+):
+    from backend.llm.transcription import _probe_local_transcription_sync
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    monkeypatch.setattr(
+        "backend.llm.transcription.importlib.util.find_spec",
+        lambda _name: object(),
+    )
+
+    assert _probe_local_transcription_sync() == "model_missing"
+
+
+def test_local_transcription_readiness_reports_probe_in_progress():
+    from backend.llm.transcription import (
+        _LOCAL_PROBE_LOCK,
+        local_transcription_readiness,
+    )
+
+    assert _LOCAL_PROBE_LOCK.acquire(blocking=False)
+    try:
+        readiness = local_transcription_readiness()
+    finally:
+        _LOCAL_PROBE_LOCK.release()
+
+    assert readiness["probe_in_progress"] is True
+    assert readiness["ready"] is False
+
+
+def test_local_transcription_probe_reports_timeout_without_claiming_readiness(
+    tmp_path, monkeypatch
+):
+    import threading
+
+    from backend.llm.transcription import probe_local_transcription_readiness
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    monkeypatch.setattr(
+        "backend.llm.transcription.importlib.util.find_spec",
+        lambda _name: object(),
+    )
+    snapshot = (
+        tmp_path
+        / "models"
+        / "whisper"
+        / "models--Systran--faster-whisper-base"
+        / "snapshots"
+        / "snapshot-id"
+    )
+    snapshot.mkdir(parents=True)
+    (snapshot / "model.bin").write_bytes(b"weights")
+    monkeypatch.setattr("backend.llm.transcription._LOCAL_PROBE_TIMEOUT_S", 0.001)
+    monkeypatch.setattr(
+        "backend.llm.transcription._probe_local_transcription_sync",
+        lambda: (threading.Event().wait(0.05), "ready")[1],
+    )
+
+    result = asyncio.run(probe_local_transcription_readiness())
+
+    assert result["probe_attempted"] is True
+    assert result["runtime_verified"] is False
+    assert result["probe_in_progress"] is True
+    assert result["ready"] is False
 
 
 def test_local_transcription_readiness_fails_when_dependency_missing(
@@ -137,6 +278,24 @@ def test_local_transcription_readiness_fails_when_dependency_missing(
     assert result["dependency_available"] is False
     assert result["ready"] is False
     assert "não está instalado" in str(result["diagnostic"])
+
+
+def test_probe_without_dependency_returns_diagnostic_without_loading_model(
+    tmp_path, monkeypatch
+):
+    from backend.llm.transcription import probe_local_transcription_readiness
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    monkeypatch.setattr(
+        "backend.llm.transcription.importlib.util.find_spec", lambda _name: None
+    )
+
+    result = asyncio.run(probe_local_transcription_readiness())
+
+    assert result["probe_attempted"] is True
+    assert result["ready"] is False
+    assert result["diagnostic"] == "faster-whisper não está instalado"
 
 
 def test_audio_base64_invalido_retorna_422():

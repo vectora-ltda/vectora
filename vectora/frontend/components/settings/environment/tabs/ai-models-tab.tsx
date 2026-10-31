@@ -429,8 +429,12 @@ export function TranscriptionSettings() {
   const [localReadiness, setLocalReadiness] = useState<{
     dependency_available: boolean;
     model_cached: boolean;
+    runtime_verified?: boolean;
+    probe_attempted?: boolean;
+    probe_in_progress?: boolean;
     ready: boolean;
   } | null>(null);
+  const [probingLocalRuntime, setProbingLocalRuntime] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -453,6 +457,30 @@ export function TranscriptionSettings() {
       active = false;
     };
   }, []);
+
+  const probeLocalRuntime = async () => {
+    setProbingLocalRuntime(true);
+    try {
+      const response = await fetch(
+        "/vectora.chat.v1.ChatService/TranscriptionReadiness?probe=true",
+      );
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setLocalReadiness(
+        (await response.json()) as {
+          dependency_available: boolean;
+          model_cached: boolean;
+          runtime_verified?: boolean;
+          probe_attempted?: boolean;
+          probe_in_progress?: boolean;
+          ready: boolean;
+        },
+      );
+    } catch {
+      setLocalReadiness(null);
+    } finally {
+      setProbingLocalRuntime(false);
+    }
+  };
   return (
     <section
       className="space-y-2 rounded-lg border p-3"
@@ -490,8 +518,24 @@ export function TranscriptionSettings() {
                 ? mDyn("ai_models_transcription_model_download_required")
                 : localReadiness.ready
                   ? mDyn("ai_models_transcription_local_ready")
-                  : mDyn("ai_models_transcription_readiness_unknown")}
+                  : localReadiness.probe_in_progress
+                    ? mDyn("ai_models_transcription_probe_in_progress")
+                    : localReadiness.probe_attempted
+                      ? mDyn("ai_models_transcription_probe_failed")
+                      : mDyn("ai_models_transcription_probe_required")}
         </p>
+      )}
+      {transcriptionMode === "local" && localReadiness?.model_cached && (
+        <button
+          type="button"
+          className="h-8 rounded-md border px-3 text-xs"
+          onClick={() => void probeLocalRuntime()}
+          disabled={probingLocalRuntime || localReadiness.probe_in_progress}
+        >
+          {probingLocalRuntime
+            ? mDyn("ai_models_transcription_probe_running")
+            : mDyn("ai_models_transcription_probe_button")}
+        </button>
       )}
     </section>
   );

@@ -8889,6 +8889,54 @@
         "title": "TranscribeAudioResponse",
         "type": "object"
       },
+      "TranscriptionReadinessResponse": {
+        "properties": {
+          "dependency_available": {
+            "title": "Dependency Available",
+            "type": "boolean"
+          },
+          "diagnostic": {
+            "title": "Diagnostic",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "model_cached": {
+            "title": "Model Cached",
+            "type": "boolean"
+          },
+          "probe_attempted": {
+            "title": "Probe Attempted",
+            "type": "boolean"
+          },
+          "probe_in_progress": {
+            "title": "Probe In Progress",
+            "type": "boolean"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "runtime_verified": {
+            "title": "Runtime Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mode",
+          "dependency_available",
+          "model_cached",
+          "runtime_verified",
+          "probe_attempted",
+          "probe_in_progress",
+          "ready",
+          "diagnostic"
+        ],
+        "title": "TranscriptionReadinessResponse",
+        "type": "object"
+      },
       "TreeEntry": {
         "properties": {
           "kind": {
@@ -21714,29 +21762,40 @@
     },
     "/vectora.chat.v1.ChatService/TranscriptionReadiness": {
       "get": {
-        "description": "Report local STT dependency and cached-model state without downloading.",
+        "description": "Report local STT readiness; only an explicit probe loads cached weights.",
         "operationId": "transcription_readiness_vectora_chat_v1_ChatService_TranscriptionReadiness_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "probe",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Probe",
+              "type": "boolean"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": {
-                    "anyOf": [
-                      {
-                        "type": "boolean"
-                      },
-                      {
-                        "type": "string"
-                      }
-                    ]
-                  },
-                  "title": "Response Transcription Readiness Vectora Chat V1 Chatservice Transcriptionreadiness Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/TranscriptionReadinessResponse"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Transcription Readiness"

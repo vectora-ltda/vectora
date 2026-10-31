@@ -146,22 +146,51 @@ describe("TranscriptionSettings", () => {
     );
   });
 
-  it("reports when the local transcription model is ready from cache", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
+  it("requires an explicit runtime probe before reporting local STT ready", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
         ok: true,
         json: async () => ({
           dependency_available: true,
           model_cached: true,
+          runtime_verified: false,
+          probe_attempted: false,
+          ready: false,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          dependency_available: true,
+          model_cached: true,
+          runtime_verified: true,
+          probe_attempted: true,
           ready: true,
         }),
-      }),
-    );
+      });
+    vi.stubGlobal("fetch", fetchMock);
     useSettingsStore.setState({ transcriptionMode: "local" });
     render(<TranscriptionSettings />);
 
     const readiness = await screen.findByRole("status");
+    await waitFor(() =>
+      expect(readiness.textContent).toMatch(
+        /ai_models_transcription_probe_required|The model is cached but has not been tested yet\./,
+      ),
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /ai_models_transcription_probe_button|Test local runtime/,
+      }),
+    );
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenLastCalledWith(
+        "/vectora.chat.v1.ChatService/TranscriptionReadiness?probe=true",
+      ),
+    );
     await waitFor(() =>
       expect(readiness.textContent).toMatch(
         /ai_models_transcription_local_ready|Local transcription is ready; the base model is cached\./,
