@@ -64,6 +64,32 @@ def ctx() -> ToolContext:
 
 
 class TestDespachoParaleloSequencial:
+    def test_decision_summary_preserves_action_context_and_redacts_secrets(
+        self,
+    ) -> None:
+        """The risk model sees the destination while credential values stay hidden."""
+        import json
+
+        from backend.engine.hitl import _decision_args_summary
+
+        summary = json.loads(
+            _decision_args_summary(
+                {
+                    "url": "https://api.example.com/workspaces/alpha",
+                    "method": "DELETE",
+                    "workspace": "alpha",
+                    "api_key": "credential-value",
+                }
+            )
+        )
+
+        assert summary == {
+            "api_key": "[REDACTED]",
+            "method": "DELETE",
+            "url": "https://api.example.com/workspaces/alpha",
+            "workspace": "alpha",
+        }
+
     @pytest.mark.parametrize(
         ("failure", "reason", "blocked"),
         [

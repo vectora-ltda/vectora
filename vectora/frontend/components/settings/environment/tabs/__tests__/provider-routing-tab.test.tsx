@@ -969,10 +969,10 @@ describe("MediaModelsSection", () => {
     render(<AiModelsTab />);
 
     const ollamaVideo = (await screen.findByLabelText(
-      /prefs_media_models_ollama_video|Ollama — vídeo/,
+      /prefs_media_models_ollama_video|Ollama — video|Ollama — vídeo/,
     )) as HTMLInputElement;
     const openrouterVideo = (await screen.findByLabelText(
-      /prefs_media_models_openrouter_video|OpenRouter — vídeo/,
+      /prefs_media_models_openrouter_video|OpenRouter — video|OpenRouter — vídeo/,
     )) as HTMLInputElement;
     expect(ollamaVideo.value).toBe("ollama-video-original");
     expect(openrouterVideo.value).toBe("openrouter-video-original");
