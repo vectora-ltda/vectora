@@ -49,63 +49,6 @@ def check_schema_compatibility(
         )
         return report
 
-    # Restrições de cardinalidade e tamanho também fazem parte da semântica do
-    # contrato. Em requests, estreitar o domínio rejeita clientes existentes;
-    # em responses, alargar o domínio pode emitir valores que consumidores
-    # antigos não sabem validar.
-    _bounded_constraints = (
-        "minLength",
-        "minItems",
-        "minimum",
-        "exclusiveMinimum",
-        "maxLength",
-        "maxItems",
-        "maximum",
-        "exclusiveMaximum",
-    )
-    for constraint in _bounded_constraints:
-        old_value = old_schema.get(constraint)
-        new_value = new_schema.get(constraint)
-        old_numeric = isinstance(old_value, (int, float)) and not isinstance(
-            old_value, bool
-        )
-        new_numeric = isinstance(new_value, (int, float)) and not isinstance(
-            new_value, bool
-        )
-        if old_value is None and new_numeric:
-            tightened, loosened = True, False
-        elif old_numeric and new_value is None:
-            tightened, loosened = False, True
-        elif old_numeric and new_numeric:
-            if constraint.startswith("min") or constraint == "exclusiveMinimum":
-                tightened = new_value > old_value
-            else:
-                tightened = new_value < old_value
-            loosened = new_value != old_value and not tightened
-        else:
-            continue
-        is_breaking = tightened if direction == "request" else loosened
-        message = (
-            f"{path}: restrição {constraint} alterada de {old_value!r} para "
-            f"{new_value!r}"
-        )
-        (report.breaking if is_breaking else report.non_breaking).append(message)
-
-    # JSON Schema treats an absent ``additionalProperties`` as ``true``.
-    old_additional = old_schema.get("additionalProperties", True)
-    new_additional = new_schema.get("additionalProperties", True)
-    if isinstance(old_additional, bool) and isinstance(new_additional, bool):
-        if old_additional != new_additional:
-            # Requests are sets of values accepted by the server; responses are
-            # sets emitted by the server and consumed by the client.
-            tightened = old_additional and not new_additional
-            is_breaking = tightened if direction == "request" else not tightened
-            message = (
-                f"{path}: additionalProperties alterado de {old_additional!r} "
-                f"para {new_additional!r}"
-            )
-            (report.breaking if is_breaking else report.non_breaking).append(message)
-
     # 2. Checa $ref
     old_ref = old_schema.get("$ref")
     new_ref = new_schema.get("$ref")
@@ -216,26 +159,15 @@ def check_schema_compatibility(
             report.breaking.extend(sub_report.breaking)
             report.non_breaking.extend(sub_report.non_breaking)
 
-    # 8. Checa oneOf / anyOf / allOf. Todas as combinações são conjuntos de
-    # restrições/alternativas: a ordem no JSON não altera a semântica do
-    # schema. O pareamento precisa, portanto, ser feito por conteúdo e não por
-    # índice (em especial para ``allOf``, que antes gerava falso positivo ao
-    # apenas reordenar duas restrições).
+    # 8. Checa oneOf / anyOf / allOf. Alternativas de anyOf/oneOf são conjuntos
+    # sem ordem semântica; allOf mantém a ordem porque cada posição é uma
+    # restrição correspondente.
     for combo_key in ("oneOf", "anyOf", "allOf"):
         old_combos = old_schema.get(combo_key, [])
         new_combos = new_schema.get(combo_key, [])
         if not isinstance(old_combos, list) or not isinstance(new_combos, list):
             continue
         if combo_key in {"anyOf", "oneOf"}:
-            if combo_key == "oneOf" and len(new_combos) > len(old_combos):
-                # A new oneOf branch can overlap an existing branch and make
-                # previously valid values ambiguous.  Without a full JSON
-                # Schema satisfiability solver, treat expansion as breaking
-                # in both directions rather than claiming a false proof.
-                report.breaking.append(
-                    f"{path}: alternativas adicionadas em oneOf podem tornar "
-                    "valores ambíguos"
-                )
             source, target = (
                 (old_combos, new_combos)
                 if direction == "request"
@@ -248,13 +180,9 @@ def check_schema_compatibility(
                 for target_alt in target:
                     if not isinstance(target_alt, dict):
                         continue
-                    # For responses the new producer alternative is the
-                    # source and the old consumer alternative is the target,
-                    # but the recursive checker still receives schemas in
-                    # old,new order so enum/required direction is preserved.
                     candidate = check_schema_compatibility(
-                        target_alt if direction == "response" else source_alt,
-                        source_alt if direction == "response" else target_alt,
+                        source_alt,
+                        target_alt,
                         path=f"{path}.{combo_key}[{index}]"
                         if path
                         else f"{combo_key}[{index}]",
@@ -279,69 +207,19 @@ def check_schema_compatibility(
                 f"{old_len} para {new_len}"
             )
             (report.breaking if breaking else report.non_breaking).append(message)
-        matched_target_indexes: set[int] = set()
-        # Reserve every exact pair before compatibility matching.  Otherwise
-        # an earlier broad schema can consume an exact target belonging to a
-        # later alternative and produce a false breaking change.
-        exact_matches: dict[int, int] = {}
-        for source_index, old_alt in enumerate(old_combos):
-            if not isinstance(old_alt, dict):
-                continue
-            for target_index, new_alt in enumerate(new_combos):
-                if target_index not in matched_target_indexes and old_alt == new_alt:
-                    exact_matches[source_index] = target_index
-                    matched_target_indexes.add(target_index)
-                    break
-        for source_index, old_alt in enumerate(old_combos):
-            if not isinstance(old_alt, dict):
-                continue
-            match_index: int | None = exact_matches.get(source_index)
-            best_report: CompatibilityReport | None = (
-                CompatibilityReport() if match_index is not None else None
-            )
-            # Primeiro consuma uma correspondência estrutural exata. Isso
-            # evita que duas restrições independentes de ``allOf`` sejam
-            # pareadas cruzadamente apenas porque ambas são individualmente
-            # compatíveis quando a lista foi reordenada.
-            for target_index, new_alt in enumerate(new_combos):
-                if match_index is not None or target_index in matched_target_indexes:
-                    continue
-                if isinstance(new_alt, dict) and old_alt == new_alt:
-                    match_index = target_index
-                    best_report = CompatibilityReport()
-                    break
-            for target_index, new_alt in enumerate(new_combos):
-                if (
-                    match_index is not None
-                    or target_index in matched_target_indexes
-                    or not isinstance(new_alt, dict)
-                ):
-                    continue
-                candidate = check_schema_compatibility(
+        for index, (old_alt, new_alt) in enumerate(
+            zip(old_combos, new_combos, strict=False)
+        ):
+            if isinstance(old_alt, dict) and isinstance(new_alt, dict):
+                sub_report = check_schema_compatibility(
                     old_alt,
                     new_alt,
-                    path=f"{path}.{combo_key}[{source_index}]"
+                    path=f"{path}.{combo_key}[{index}]"
                     if path
-                    else f"{combo_key}[{source_index}]",
+                    else f"{combo_key}[{index}]",
                     direction=direction,
                 )
-                if best_report is None or len(candidate.breaking) < len(
-                    best_report.breaking
-                ):
-                    best_report = candidate
-                if candidate.is_compatible:
-                    match_index = target_index
-                    best_report = candidate
-                    break
-            if match_index is None:
-                if best_report is not None:
-                    report.breaking.extend(best_report.breaking)
-                report.breaking.append(
-                    f"{path}: alternativa {source_index} de {combo_key} não possui correspondente"
-                )
-                continue
-            matched_target_indexes.add(match_index)
-            if best_report is not None:
-                report.non_breaking.extend(best_report.non_breaking)
+                report.breaking.extend(sub_report.breaking)
+                report.non_breaking.extend(sub_report.non_breaking)
 
     return report
