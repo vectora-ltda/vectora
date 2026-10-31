@@ -184,7 +184,7 @@ def test_non_desktop_uses_tcp_host() -> None:
 
         _run_start(args)
 
-    assert "host" in captured_config_kwargs
+    assert captured_config_kwargs["host"] == "0.0.0.0"  # noqa: S104
     assert "uds" not in captured_config_kwargs
     assert "VECTORA_DESKTOP" not in os.environ
 
@@ -277,6 +277,7 @@ def test_desktop_windows_no_tcp_host() -> None:
         _run_start(args)
 
     assert "uds" not in captured_config_kwargs
+    assert captured_config_kwargs["host"] == "127.0.0.1", "desktop não expõe a LAN"
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Named pipe só no Windows")
