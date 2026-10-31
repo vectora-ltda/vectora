@@ -38,9 +38,32 @@
           "description": "Indica se o gate foi aprovado",
           "title": "Passed",
           "type": "boolean"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "passed",
+                "assertion_failed",
+                "timeout",
+                "dispatch_error"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Classificação explícita do resultado: passed, assertion_failed, timeout ou dispatch_error",
+          "title": "Reason"
         }
       },
-      "required": ["gate_id", "passed", "exit_code"],
+      "required": [
+        "gate_id",
+        "passed",
+        "exit_code"
+      ],
       "title": "QualityGateRunResult",
       "type": "object"
     },
@@ -76,7 +99,11 @@
         "policy": {
           "default": "block",
           "description": "Comportamento em caso de falha: 'block' (falha o run), 'degrade' (marca degraded), 'inform' (adverte)",
-          "enum": ["block", "degrade", "inform"],
+          "enum": [
+            "block",
+            "degrade",
+            "inform"
+          ],
           "title": "Policy",
           "type": "string"
         },
@@ -89,7 +116,11 @@
           "type": "integer"
         }
       },
-      "required": ["id", "name", "command"],
+      "required": [
+        "id",
+        "name",
+        "command"
+      ],
       "title": "QualityGateSpec",
       "type": "object"
     },
@@ -128,7 +159,9 @@
           "type": "string"
         }
       },
-      "required": ["workspace_id"],
+      "required": [
+        "workspace_id"
+      ],
       "title": "WorkspaceVerificationProfile",
       "type": "object"
     }
