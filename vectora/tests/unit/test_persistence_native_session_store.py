@@ -311,6 +311,39 @@ class TestSessionRuns:
         assert run is not None and run.status == "failed"
         assert await _counts() == (1, 1, 1)
 
+    async def test_terminal_outcome_cancelado_grava_run_cancelled_no_ledger(
+        self, store: SessionStore
+    ) -> None:
+        """Cancelamento grava run, mensagem e evento run_cancelled juntos, e a
+        repetição não duplica o evento."""
+        thread_id = "thread-terminal-cancel"
+        run_id = "run-terminal-cancel"
+        turn_id = f"{run_id}:terminal"
+        await store.create_session(thread_id, user_id="alice")
+        await store.start_run(thread_id, run_id, turn_id="turn-terminal-cancel")
+
+        async def _commit_terminal() -> tuple[int, int]:
+            return await store.append_terminal_outcome(
+                thread_id,
+                text_message(MessageRole.ASSISTANT, "cancelado"),
+                parent_message_id=None,
+                turn_id=turn_id,
+                run_id=run_id,
+                status="cancelled",
+                detail="usuário cancelou",
+            )
+
+        first = await _commit_terminal()
+        second = await _commit_terminal()
+        assert first == second
+
+        run = await store.get_agent_run(run_id)
+        assert run is not None and run.status == "cancelled"
+        events = await store.list_events(thread_id, limit=50)
+        cancelled = [e for e in events if e.type == "run_cancelled"]
+        assert [e.event_key for e in cancelled] == [f"run_cancelled:{run_id}"]
+        assert not any(e.type == "run_failed" for e in events)
+
     async def test_terminal_outcome_rejeita_status_nao_terminal(
         self, store: SessionStore
     ) -> None:
