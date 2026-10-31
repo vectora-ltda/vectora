@@ -60,6 +60,7 @@ def _build_default_harness(
             jev_api_model=settings.systemone_jev_api_model,
             allow_remote_fallback=settings.systemone_allow_remote_fallback,
             confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
+            risk_assessment_timeout_s=settings.systemone_risk_assessment_timeout_s,
         )
         clef_key = settings.clef_api_key
         jev_key = settings.jev_api_key
@@ -82,6 +83,7 @@ def _build_default_harness(
         s1_settings.jev_api_model,
         s1_settings.allow_remote_fallback,
         s1_settings.confidence_threshold_hitl,
+        s1_settings.risk_assessment_timeout_s,
         clef_key,
         jev_key,
     )

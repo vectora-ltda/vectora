@@ -216,6 +216,7 @@ async def test_decision_snapshot_survives_preference_change_without_duplicate_ev
     session_store: SessionStore, ctx: ToolContext
 ) -> None:
     from backend.persistence.native.agent_run import AgentRun
+    from backend.settings import settings
 
     run_id = "run-decision-snapshot"
     await session_store.upsert_agent_run(
@@ -256,6 +257,10 @@ async def test_decision_snapshot_survives_preference_change_without_duplicate_ev
     ]
     assert len(snapshots) == 1
     assert snapshots[0]["policy_version"] == policy.version
+    assert (
+        snapshots[0]["risk_assessment_timeout_s"]
+        == settings.systemone_risk_assessment_timeout_s
+    )
     await session_store.record_run_evidence(run_id, evidence=snapshots[0])
     stored = await session_store.get_agent_run(run_id)
     assert stored is not None

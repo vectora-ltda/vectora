@@ -1325,3 +1325,24 @@ async def test_kanban_decision_tool_respects_surface_preference(monkeypatch):
         "error": "Decision Model não está habilitado para decisões do Kanban",
     }
     assert unused is False
+
+
+def test_default_harness_uses_and_caches_configured_risk_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend.settings import settings
+    from backend.tools import systemone_tools
+
+    monkeypatch.setattr(
+        systemone_tools,
+        "_DEFAULT_HARNESS_CACHE",
+        systemone_tools._DEFAULT_HARNESS_CACHE,
+    )
+    monkeypatch.setattr(settings, "systemone_risk_assessment_timeout_s", 2.5)
+    first = systemone_tools._build_default_harness()
+    assert first.risk_assessment_timeout_s == 2.5
+
+    monkeypatch.setattr(settings, "systemone_risk_assessment_timeout_s", 4.0)
+    second = systemone_tools._build_default_harness()
+    assert second is not first
+    assert second.risk_assessment_timeout_s == 4.0

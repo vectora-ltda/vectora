@@ -399,7 +399,6 @@ def _decision_snapshot_matches_runtime(ctx: ToolContext) -> bool:
 
     try:
         from backend.llm.systemone.preferences import decision_model_runtime_fingerprint
-        from backend.llm.systemone.settings import SystemOneSettings
         from backend.settings import settings
         from backend.workspace.runtime_settings import runtime_settings
 
@@ -429,7 +428,7 @@ def _decision_snapshot_matches_runtime(ctx: ToolContext) -> bool:
             ),
             "systemone_enabled": settings.systemone_enabled,
             "allow_remote_fallback": settings.systemone_allow_remote_fallback,
-            "risk_assessment_timeout_s": SystemOneSettings().risk_assessment_timeout_s,
+            "risk_assessment_timeout_s": settings.systemone_risk_assessment_timeout_s,
             "confidence_threshold_hitl": settings.systemone_confidence_threshold_hitl,
         }
         provider = effective["provider"]

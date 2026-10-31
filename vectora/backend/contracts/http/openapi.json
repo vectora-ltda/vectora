@@ -8174,6 +8174,10 @@
             ],
             "title": "Provider",
             "type": "string"
+          },
+          "risk_assessment_timeout_s": {
+            "title": "Risk Assessment Timeout S",
+            "type": "number"
           }
         },
         "required": [
@@ -8194,7 +8198,8 @@
           "jev_api_key_configured",
           "jev_api_key_masked",
           "allow_remote_fallback",
-          "confidence_threshold_hitl"
+          "confidence_threshold_hitl",
+          "risk_assessment_timeout_s"
         ],
         "title": "SystemOneStatusResponse",
         "type": "object"
@@ -9665,6 +9670,19 @@
               }
             ],
             "title": "Provider"
+          },
+          "risk_assessment_timeout_s": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 120.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Assessment Timeout S"
           }
         },
         "title": "UpdateSystemOneConfigRequest",

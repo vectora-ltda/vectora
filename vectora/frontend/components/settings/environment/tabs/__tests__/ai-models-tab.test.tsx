@@ -26,6 +26,7 @@ const status = {
   jev_api_key_configured: false,
   allow_remote_fallback: false,
   confidence_threshold_hitl: 0.7,
+  risk_assessment_timeout_s: 10,
 };
 
 afterEach(() => vi.unstubAllGlobals());
@@ -63,11 +64,27 @@ describe("SystemOneConfiguration", () => {
     const request = fetchMock.mock.calls[1][1] as RequestInit;
     expect(JSON.parse(String(request.body))).toMatchObject({
       laya_api_key: "temporary-secret",
+      risk_assessment_timeout_s: 10,
     });
     await waitFor(() =>
       expect(screen.getByLabelText(/Credential/)).toHaveValue(""),
     );
     expect(screen.queryByText("temporary-secret")).not.toBeInTheDocument();
+  });
+
+  it("prevents saving a risk timeout outside the supported range", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => status }),
+    );
+    render(<SystemOneConfiguration />);
+
+    const timeout = await screen.findByDisplayValue("10");
+    fireEvent.change(timeout, { target: { value: "121" } });
+
+    expect(
+      screen.getByRole("button", { name: "Save provider configuration" }),
+    ).toBeDisabled();
   });
 });
 

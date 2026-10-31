@@ -104,7 +104,6 @@ async def _bind_decision_model_snapshot(
         decision_model_preferences,
         decision_model_runtime_fingerprint,
     )
-    from backend.llm.systemone.settings import SystemOneSettings
     from backend.settings import settings
 
     current = decision_model_preferences(ctx)
@@ -128,7 +127,7 @@ async def _bind_decision_model_snapshot(
         "model": model_by_provider.get(provider) if isinstance(provider, str) else None,
         "systemone_enabled": settings.systemone_enabled,
         "allow_remote_fallback": settings.systemone_allow_remote_fallback,
-        "risk_assessment_timeout_s": SystemOneSettings().risk_assessment_timeout_s,
+        "risk_assessment_timeout_s": settings.systemone_risk_assessment_timeout_s,
         "confidence_threshold_hitl": settings.systemone_confidence_threshold_hitl,
         "policy_version": policy_snapshot.version,
     }

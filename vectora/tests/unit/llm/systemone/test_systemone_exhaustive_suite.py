@@ -617,6 +617,7 @@ _SYSTEMONE_SETTING_ATTRS = (
     "systemone_jev_api_model",
     "systemone_allow_remote_fallback",
     "systemone_confidence_threshold_hitl",
+    "systemone_risk_assessment_timeout_s",
     "clef_api_key",
     "jev_api_key",
 )
@@ -736,6 +737,22 @@ async def test_update_decision_models_config_hitl_threshold(hitl_thresh: float) 
     assert res.confidence_threshold_hitl == hitl_thresh
 
 
+@pytest.mark.parametrize("timeout_s", [0.1, 1.5, 10.0, 120.0])
+@pytest.mark.asyncio
+async def test_update_decision_models_config_risk_timeout(timeout_s: float) -> None:
+    req = UpdateSystemOneConfigRequest(risk_assessment_timeout_s=timeout_s)
+    res = await update_decision_models_config(req, _=None)
+    assert res.risk_assessment_timeout_s == timeout_s
+
+
+@pytest.mark.parametrize("timeout_s", [0.0, -0.1, 120.1])
+def test_update_decision_models_config_rejects_invalid_risk_timeout(
+    timeout_s: float,
+) -> None:
+    with pytest.raises(ValidationError):
+        UpdateSystemOneConfigRequest(risk_assessment_timeout_s=timeout_s)
+
+
 @pytest.mark.parametrize("fallback", [True, False])
 @pytest.mark.asyncio
 async def test_update_decision_models_config_remote_fallback(fallback: bool) -> None:
@@ -778,6 +795,7 @@ async def test_update_decision_models_config_persists_changed_fields(
             laya_model="laya-test",
             clef_account_id="account-test",
             confidence_threshold_hitl=0.7,
+            risk_assessment_timeout_s=3.5,
         ),
         _=None,
     )
@@ -788,6 +806,8 @@ async def test_update_decision_models_config_persists_changed_fields(
     assert "SYSTEMONE_LAYA_MODEL=laya-test" in saved
     assert "SYSTEMONE_CLEF_ACCOUNT_ID=account-test" in saved
     assert "SYSTEMONE_CONFIDENCE_THRESHOLD_HITL=0.7" in saved
+    assert "SYSTEMONE_RISK_ASSESSMENT_TIMEOUT_S=3.5" in saved
+    assert res.risk_assessment_timeout_s == 3.5
     assert res.clef_account_id == "account-test"
 
 

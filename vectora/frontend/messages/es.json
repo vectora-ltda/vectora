@@ -110,6 +110,7 @@
   "ai_models_provider_clef_local": "Clef local (llama.cpp)",
   "ai_models_provider_jev_api": "API de JEV",
   "ai_models_provider_laya_local": "Laya local (Ollama)",
+  "ai_models_risk_assessment_timeout": "Tiempo límite de evaluación de riesgo (s):",
   "ai_models_save_provider_configuration": "Guardar configuración del proveedor",
   "ai_models_selected_provider": "Proveedor seleccionado",
   "ai_models_surface_background": "Tareas en segundo plano",

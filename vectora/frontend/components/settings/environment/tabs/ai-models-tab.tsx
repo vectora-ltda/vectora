@@ -60,6 +60,7 @@ interface SystemOneConfig {
   jev_api_key_configured: boolean;
   allow_remote_fallback: boolean;
   confidence_threshold_hitl: number;
+  risk_assessment_timeout_s: number;
 }
 
 export function SystemOneConfiguration() {
@@ -252,6 +253,23 @@ export function SystemOneConfiguration() {
           }
         />
       </label>
+      <label className="grid gap-1 text-xs">
+        {mDyn("ai_models_risk_assessment_timeout")}{" "}
+        {config.risk_assessment_timeout_s}
+        <input
+          type="number"
+          min="0.1"
+          max="120"
+          step="0.1"
+          value={config.risk_assessment_timeout_s}
+          onChange={(event) =>
+            setConfig({
+              ...config,
+              risk_assessment_timeout_s: Number(event.target.value),
+            })
+          }
+        />
+      </label>
       <label className="flex items-center gap-2 text-xs">
         <input
           type="checkbox"
@@ -268,7 +286,12 @@ export function SystemOneConfiguration() {
       <button
         type="button"
         className="rounded-md border px-3 py-1.5 text-xs disabled:opacity-50"
-        disabled={saving}
+        disabled={
+          saving ||
+          !Number.isFinite(config.risk_assessment_timeout_s) ||
+          config.risk_assessment_timeout_s < 0.1 ||
+          config.risk_assessment_timeout_s > 120
+        }
         onClick={() =>
           void save({
             [baseUrlKey]: baseUrl,
@@ -276,6 +299,7 @@ export function SystemOneConfiguration() {
             ...(accountKey ? { [accountKey]: accountValue } : {}),
             ...(credentialKey && secret ? { [credentialKey]: secret } : {}),
             confidence_threshold_hitl: config.confidence_threshold_hitl,
+            risk_assessment_timeout_s: config.risk_assessment_timeout_s,
             allow_remote_fallback: config.allow_remote_fallback,
           })
         }

@@ -4304,6 +4304,7 @@ class SystemOneStatusResponse(BaseModel):
     jev_api_key_masked: str | None
     allow_remote_fallback: bool
     confidence_threshold_hitl: float
+    risk_assessment_timeout_s: float
     capabilities: ProviderCapabilities | None = None
     capability_matrix: list[ProviderCapability] = Field(default_factory=list)
     is_healthy: bool = False
@@ -4326,6 +4327,7 @@ class UpdateSystemOneConfigRequest(BaseModel):
     jev_api_key: str | None = None
     allow_remote_fallback: bool | None = None
     confidence_threshold_hitl: float | None = Field(default=None, ge=0.0, le=1.0)
+    risk_assessment_timeout_s: float | None = Field(default=None, gt=0.0, le=120.0)
 
 
 @router.get("/decision-models/status")
@@ -4351,6 +4353,7 @@ async def get_decision_models_status(
             jev_api_model=settings.systemone_jev_api_model,
             allow_remote_fallback=settings.systemone_allow_remote_fallback,
             confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
+            risk_assessment_timeout_s=settings.systemone_risk_assessment_timeout_s,
         )
     except ValidationError as exc:
         raise HTTPException(
@@ -4472,6 +4475,7 @@ async def get_decision_models_status(
         jev_api_key_masked=None,
         allow_remote_fallback=settings.systemone_allow_remote_fallback,
         confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
+        risk_assessment_timeout_s=settings.systemone_risk_assessment_timeout_s,
         capabilities=caps,
         capability_matrix=capability_matrix,
         is_healthy=is_healthy,
@@ -4566,6 +4570,7 @@ async def get_decision_model_readiness(
             jev_api_model=settings.systemone_jev_api_model,
             allow_remote_fallback=False,
             confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
+            risk_assessment_timeout_s=settings.systemone_risk_assessment_timeout_s,
         )
         adapter = get_systemone_provider(
             provider_settings,
@@ -4643,6 +4648,8 @@ async def update_decision_models_config(
         settings.systemone_allow_remote_fallback = body.allow_remote_fallback
     if body.confidence_threshold_hitl is not None:
         settings.systemone_confidence_threshold_hitl = body.confidence_threshold_hitl
+    if body.risk_assessment_timeout_s is not None:
+        settings.systemone_risk_assessment_timeout_s = body.risk_assessment_timeout_s
 
     env_file = _env_file()
     env_updates = {
@@ -4688,6 +4695,11 @@ async def update_decision_models_config(
             settings.systemone_confidence_threshold_hitl
         )
         if body.confidence_threshold_hitl is not None
+        else None,
+        "SYSTEMONE_RISK_ASSESSMENT_TIMEOUT_S": str(
+            settings.systemone_risk_assessment_timeout_s
+        )
+        if body.risk_assessment_timeout_s is not None
         else None,
     }
     for key, value in env_updates.items():
