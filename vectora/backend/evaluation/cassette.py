@@ -27,6 +27,9 @@ class CassetteInteraction(BaseModel):
     duration_ms: int = 0
     usage: dict[str, int] = Field(default_factory=dict)
     systemone_decision: str | None = None
+    # Structured, redacted provenance for new recordings. Keep the legacy
+    # string field above so existing cassettes remain readable.
+    systemone_decision_evidence: JsonObject | None = None
     # Provenance is optional for legacy cassettes, but new recordings should
     # populate it so a replay can be tied to the execution that produced it.
     run_id: str | None = None
@@ -70,6 +73,11 @@ class Cassette(BaseModel):
                 inter.get("response_text", "")
             )
             inter["tool_calls"] = redact_sensitive_data(inter.get("tool_calls", []))
+            decision_evidence = inter.get("systemone_decision_evidence")
+            if decision_evidence is not None:
+                inter["systemone_decision_evidence"] = redact_sensitive_data(
+                    decision_evidence
+                )
             inter["usage"] = saved_usage
         raw_dict["description"] = redact_sensitive_data(raw_dict.get("description", ""))
         path.write_text(

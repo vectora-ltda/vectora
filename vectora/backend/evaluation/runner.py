@@ -149,6 +149,7 @@ def compare_cassettes(
                     "latency_delta_ms": c_lat - b_lat,
                     "tokens_delta": c_tok - b_tok,
                     "candidate_decision": c_item.systemone_decision,
+                    "candidate_decision_evidence": c_item.systemone_decision_evidence,
                 }
             )
         elif b_item is not None:
@@ -168,6 +169,7 @@ def compare_cassettes(
                     "latency_delta_ms": -b_lat,
                     "tokens_delta": -b_tok,
                     "candidate_decision": None,
+                    "candidate_decision_evidence": None,
                     "tool_arguments_match": False,
                     "tool_presence_match": False,
                     "response_match": False,
@@ -190,6 +192,7 @@ def compare_cassettes(
                     "latency_delta_ms": c_lat,
                     "tokens_delta": c_tok,
                     "candidate_decision": c_item.systemone_decision,
+                    "candidate_decision_evidence": c_item.systemone_decision_evidence,
                     "tool_arguments_match": False,
                     "tool_presence_match": False,
                     "response_match": False,
