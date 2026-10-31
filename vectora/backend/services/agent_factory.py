@@ -599,6 +599,8 @@ async def _ensure_infra() -> None:
         await _session_store_pool.open()
         _session_store = SessionStore(_session_store_pool)
         await _session_store.setup()
+        tool_policy.bind_version_store(_session_store)
+        await tool_policy.sync_persisted_versions()
         _approval_gate = ApprovalGate(_session_store)
 
 

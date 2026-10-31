@@ -1468,6 +1468,31 @@ class SessionStore:
                 raise
         return int(new_id), current_seq
 
+    async def bump_tool_policy_version(self, scope: str) -> int:
+        """Incrementa atomicamente a versão compartilhada da política do escopo."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute(
+                "INSERT INTO tool_policy_versions (scope, version) VALUES (?, 1) "
+                "ON CONFLICT(scope) DO UPDATE SET version = version + 1 "
+                "RETURNING version",
+                (scope,),
+            )
+            row = await cur.fetchone()
+            await conn.commit()
+        if row is None:
+            msg = "tool_policy_versions não retornou a versão incrementada"
+            raise RuntimeError(msg)
+        return int(row[0])
+
+    async def get_tool_policy_versions(self) -> dict[str, int]:
+        """Versões persistidas de todos os escopos da política de tools."""
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            cur = await conn.execute("SELECT scope, version FROM tool_policy_versions")
+            rows = await cur.fetchall()
+        return {str(row[0]): int(row[1]) for row in rows}
+
     async def append_terminal_outcome(
         self,
         thread_id: str,

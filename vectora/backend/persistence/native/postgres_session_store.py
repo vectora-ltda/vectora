@@ -440,6 +440,30 @@ class PostgresSessionStore:
 
         return int(new_id), current_seq
 
+    async def bump_tool_policy_version(self, scope: str) -> int:
+        """Incrementa atomicamente a versão compartilhada da política do escopo."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "INSERT INTO vectora_tool_policy_versions (scope, version) "
+                "VALUES ($1, 1) "
+                "ON CONFLICT (scope) DO UPDATE SET "
+                "version = vectora_tool_policy_versions.version + 1 "
+                "RETURNING version",
+                scope,
+            )
+        if row is None:
+            msg = "vectora_tool_policy_versions não retornou a versão incrementada"
+            raise RuntimeError(msg)
+        return int(row["version"])
+
+    async def get_tool_policy_versions(self) -> dict[str, int]:
+        """Versões persistidas de todos os escopos da política de tools."""
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT scope, version FROM vectora_tool_policy_versions"
+            )
+        return {str(r["scope"]): int(r["version"]) for r in rows}
+
     async def append_terminal_outcome(
         self,
         thread_id: str,
