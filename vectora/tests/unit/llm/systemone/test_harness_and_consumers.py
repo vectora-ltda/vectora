@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import pytest
 
@@ -1155,7 +1155,7 @@ def test_decision_model_requires_provenance_and_capability_flags(
 )
 async def test_disabled_decision_surface_combination_never_probes_provider(
     tool_name: str,
-    permission_mode: str,
+    permission_mode: Literal["auto", "plan"],
     extra: dict[str, object],
     background_task_id: str,
     surfaces: dict[str, bool],
