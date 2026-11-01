@@ -30,6 +30,21 @@ async def test_local_timeout_keeps_audio_until_worker_releases_it(
     started = threading.Event()
     release = threading.Event()
     finished = threading.Event()
+    cleaned = threading.Event()
+    operation_lock = threading.Lock()
+
+    class ObservedLock:
+        def acquire(self, blocking: bool = True) -> bool:
+            return operation_lock.acquire(blocking=blocking)
+
+        def release(self) -> None:
+            operation_lock.release()
+            cleaned.set()
+
+        def locked(self) -> bool:
+            return operation_lock.locked()
+
+    monkeypatch.setattr(transcription, "_LOCAL_PROBE_LOCK", ObservedLock())
     paths: list[Path] = []
 
     def blocked(path: str, _language: str | None) -> dict[str, str]:
@@ -44,7 +59,10 @@ async def test_local_timeout_keeps_audio_until_worker_releases_it(
 
     monkeypatch.setattr("backend.tools.media_native._transcribe_local_sync", blocked)
     monkeypatch.setattr(
-        transcription, "_LOCAL_TRANSCRIPTION_TIMEOUT_S", 0.03, raising=False
+        transcription,
+        "_LOCAL_TRANSCRIPTION_TIMEOUT_S",
+        10.0 if cancelled else 0.03,
+        raising=False,
     )
     pending = asyncio.create_task(
         transcription.transcribe_audio_local(
@@ -67,12 +85,9 @@ async def test_local_timeout_keeps_audio_until_worker_releases_it(
             )
     finally:
         release.set()
-        await asyncio.to_thread(finished.wait, 2)
+        assert await asyncio.to_thread(finished.wait, 2)
+        assert await asyncio.to_thread(cleaned.wait, 2)
         await asyncio.gather(pending, return_exceptions=True)
-    for _ in range(50):
-        if not paths[0].exists():
-            break
-        await asyncio.sleep(0.01)
     assert not paths[0].exists()
     assert not transcription._LOCAL_PROBE_LOCK.locked()
 
