@@ -498,6 +498,17 @@ def test_cli_eval_run(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> Non
     captured_json = capsys.readouterr()
     assert '"suite_id": "my-suite"' in captured_json.out
 
+    # `--suite` aponta para um único cassette; uma lista de cassettes é recusada.
+    list_path = tmp_path / "list.json"
+    list_path.write_text(
+        f"[{suite_path.read_text(encoding='utf-8')}]", encoding="utf-8"
+    )
+    code_list = handle_eval(
+        argparse.Namespace(action="run", suite=str(list_path), output="human")
+    )
+    assert code_list == 1
+    assert "Erro ao carregar cassete" in capsys.readouterr().err
+
 
 def test_cli_eval_missing_suite(capsys: pytest.CaptureFixture[str]) -> None:
     """Verifica o comportamento de cli eval missing suite."""

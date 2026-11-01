@@ -441,9 +441,10 @@ class TestAutoEnableSemVectoraToml:
 
 
 class TestAutoEnableNativoLinuxMacos:
-    """Linux (`bwrap`) e macOS (`sandbox-exec`) — diferente do WSL2, não
-    exigem detecção assíncrona no startup, só `shutil.which` no hot path
-    síncrono de `parse_policy()`."""
+    """Linux (`bwrap`) não exige detecção assíncrona no startup, só
+    `shutil.which` no hot path síncrono de `parse_policy()`. macOS nunca
+    se auto-habilita: o worker persistente usa `bwrap` em qualquer host
+    não Windows, então auto-habilitar ali quebraria a primeira ação."""
 
     def test_linux_com_bwrap_disponivel_auto_habilita(self, tmp_path, monkeypatch):
         monkeypatch.setattr(policy_module.sys, "platform", "linux")
@@ -463,7 +464,7 @@ class TestAutoEnableNativoLinuxMacos:
 
         assert result == DISABLED_POLICY
 
-    def test_macos_com_sandbox_exec_disponivel_auto_habilita(
+    def test_macos_com_sandbox_exec_disponivel_nao_auto_habilita(
         self, tmp_path, monkeypatch
     ):
         monkeypatch.setattr(policy_module.sys, "platform", "darwin")
@@ -473,7 +474,8 @@ class TestAutoEnableNativoLinuxMacos:
 
         result = parse_policy(tmp_path / "vectora.toml")
 
-        assert result == AUTO_ENABLED_POLICY
+        assert result == DISABLED_POLICY
+        assert policy_module._native_sandbox_available_sync() is False
 
     def test_macos_sem_sandbox_exec_mantem_desabilitado(self, tmp_path, monkeypatch):
         monkeypatch.setattr(policy_module.sys, "platform", "darwin")

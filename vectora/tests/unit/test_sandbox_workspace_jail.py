@@ -244,7 +244,9 @@ class TestWsl2Spawn:
     @pytest.mark.asyncio
     async def test_sem_wsl2_faz_fallback_pro_sandbox_soft(self, monkeypatch):
         """Sem WSL2 elegível: não bloqueia — degrada pro sandbox soft nativo
-        do Windows (worker em subprocess puro, env limpo, cwd no workspace)."""
+        do Windows (worker em subprocess puro, env limpo, cwd no workspace).
+        Com `lockdown`, o modo soft só propaga o perfil de rlimits: não há
+        `--unshare-net`, então a rede do worker não é bloqueada."""
         proc = _fake_proc()
         spawn_mock = AsyncMock(return_value=proc)
         monkeypatch.setattr(wj.asyncio, "create_subprocess_exec", spawn_mock)
@@ -253,7 +255,9 @@ class TestWsl2Spawn:
         manager = wj.WorkspaceJailManager()
 
         worker = await manager.get_or_spawn(
-            "ws-1", r"C:\Users\dev\projeto", SandboxPolicy(enabled=True)
+            "ws-1",
+            r"C:\Users\dev\projeto",
+            SandboxPolicy(enabled=True, lockdown=True),
         )
 
         assert spawn_mock.await_args is not None
@@ -261,9 +265,11 @@ class TestWsl2Spawn:
         assert argv[0] == wj.sys.executable
         assert argv[1:3] == ("-m", "backend.sandbox.worker")
         assert "bwrap" not in argv
+        assert "--unshare-net" not in argv
         kwargs = spawn_mock.await_args.kwargs
         assert kwargs["cwd"] == r"C:\Users\dev\projeto"
         assert kwargs["env"]["VECTORA_SANDBOX_SOFT"] == "1"
+        assert kwargs["env"]["VECTORA_SANDBOX_LOCKDOWN"] == "1"
         assert kwargs["pass_fds"] == ()
         assert worker.job_handle == 1234
 
