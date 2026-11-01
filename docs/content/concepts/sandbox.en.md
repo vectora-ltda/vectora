@@ -9,9 +9,9 @@ Sandbox is Vectora's isolation layer for the agent's terminal and filesystem acc
 
 Without a sandbox, `terminal`, `file_write`, and `file_edit` operate directly in the backend process — the agent (or a prompt injection) can read `~/.ssh`, exfiltrate secrets, or run destructive commands with the same privileges as the backend itself. Sandbox exists to bound that blast radius to a workspace's declared `rw_paths`/`ro_paths`, without giving up file and terminal access entirely (that would defeat the point of an autonomous coding agent).
 
-## Opt-in, per workspace
+## Activation per workspace
 
-Sandbox is configured per workspace. If the workspace has **no** `vectora.toml`, Vectora turns the sandbox on automatically when the environment supports native isolation (WSL2 on Windows, `bwrap` on Linux, `sandbox-exec` on macOS); without that support, it stays off. If the workspace has a `vectora.toml`, the `[sandbox]` section applies:
+Sandbox is configured per workspace. If the workspace has **no** `vectora.toml`, Vectora turns the sandbox on automatically when the environment supports native isolation (`bwrap` on Linux, WSL2 on Windows); without that support, and always on macOS, it stays off. If the workspace has a `vectora.toml`, the `[sandbox]` section applies:
 
 ```toml
 [sandbox]
@@ -24,7 +24,7 @@ no_gpu = true
 lockdown = false            # true: fail-closed on any policy ambiguity
 ```
 
-No `[sandbox]` section → the workspace behaves exactly as before this feature existed. Malformed TOML or an invalid field, once `[sandbox]` is present, fails **closed** (locked down) instead of silently running unprotected.
+If `vectora.toml` exists without a `[sandbox]` section, the sandbox stays off and the workspace behaves exactly as before this feature existed. Malformed TOML or an invalid field, once `[sandbox]` is present, fails **closed** (locked down) instead of silently running unprotected.
 
 For worker network control (`lockdown` and `allow_tcp_ports`) and the egress policy for network tools, see [Egress policies](../../guides/egress-policies).
 
@@ -32,7 +32,7 @@ For worker network control (`lockdown` and `allow_tcp_ports`) and the egress pol
 
 Instead of spawning a new sandboxed process for every tool call, Vectora keeps a single persistent jailed worker process alive per workspace with `[sandbox]` enabled — born on the first sandboxable action, killed when the workspace goes idle. `file_write`, `file_edit`, and one-shot `terminal` commands route through this worker via a small JSON-lines protocol (`exec`/`read_file`/`write_file`).
 
-On the `local` backend (Linux only), the worker runs under `bwrap` (Bubblewrap) with:
+On the `local` backend (Linux, or Windows through WSL2), the worker runs under `bwrap` (Bubblewrap) with:
 
 - Filesystem namespacing restricted to `rw_paths`/`ro_paths`.
 - Masked paths (`mask`) never exposed inside the jail, even if they fall under an allowed path.

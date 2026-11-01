@@ -89,6 +89,29 @@ describe("getFeatureCategories", () => {
       const sharing = items.filter((i) => i.Icon === item?.Icon);
       expect(sharing.map((i) => i.id)).toEqual([id]);
     }
+
+    // Erro/borda: em todos os idiomas, Landlock ABI V4 exige kernel 6.7+ e o
+    // Evaluation Lab oculta (não "redige") os dados sensíveis.
+    const hidden: Record<string, string> = {
+      pt: "ocultados",
+      es: "ocultos",
+      fr: "masquées",
+      ru: "скрытыми",
+    };
+    for (const locale of ["en", "pt", "es", "de", "fr", "it", "ru"]) {
+      const messages = JSON.parse(
+        readFileSync(
+          join(import.meta.dirname, `../../messages/${locale}.json`),
+          "utf-8",
+        ),
+      ) as Record<string, string>;
+      const egress = messages.features_egress_policies_desc;
+      expect(egress, locale).toContain("6.7+");
+      expect(egress, locale).not.toContain("6.5+");
+      const lab = messages.features_verification_lab_desc;
+      expect(lab, locale).not.toMatch(/redigid|rédaction|редактир|redactad/);
+      if (hidden[locale]) expect(lab, locale).toContain(hidden[locale]);
+    }
   });
 
   it("erro/borda: todos os ids de feature são únicos (accordion Radix colide em duplicata)", () => {

@@ -7,6 +7,8 @@ A linha `release/0.3` amplia o Vectora de um workspace com ferramentas para um r
 
 ## O que há de novo
 
+As seções abaixo agrupam as capacidades da linha por área, com os limites que valem para cada uma.
+
 ### Execuções persistentes e histórico
 
 O AgentRun associa estado, identificador `run_id`, evidências e relações entre agente principal e subagentes. O ledger de eventos sustenta o histórico da thread e sua reconstrução. O armazenamento local usa SQLite; instalações distribuídas podem configurar PostgreSQL. Checkpoints e recursos de retomada dependem do caminho de execução e do storage configurado.
@@ -35,9 +37,9 @@ Uma avaliação iniciada que falhe não deve liberar a ação. Modelo ausente ou
 
 ### Verificação e Evaluation Lab
 
-Quality gates avaliam resultados após a execução e distinguem aprovado, falho, bloqueado, degradado e não verificado. Cassetes registram interações com redação de dados sensíveis; replay permite comparar uma execução gravada sem chamar novamente o provider externo.
+Quality gates avaliam resultados após a execução e distinguem aprovado, falho, bloqueado, degradado e não verificado. Uma cassete guarda as interações de uma execução, com os dados sensíveis ocultados ao salvar; replay permite comparar uma cassete existente sem chamar novamente o provider externo. A CLI não tem comando para gravar cassetes.
 
-Use `vectora eval run` para executar um cassette e `vectora eval compare` para comparar resultados. O replay valida o comportamento reproduzível do cassette, não a disponibilidade live do modelo, Browser Workbench ou serviço externo. Veja [Verificação e Evaluation Lab](../verification-lab) para configurar os perfis de quality gates.
+Use `vectora eval run` para reproduzir uma única cassete e `vectora eval compare` para comparar resultados. O replay valida o comportamento reproduzível do cassette, não a disponibilidade live do modelo, Browser Workbench ou serviço externo. Veja [Verificação e Evaluation Lab](../verification-lab) para configurar os perfis de quality gates.
 
 ### Memória, contexto e RAG
 
@@ -47,7 +49,7 @@ Adicione documentos ao workspace, aguarde o processamento da fila de embeddings 
 
 ### Browser Workbench e policy/egress
 
-Quando o sidecar Electron e a sessão preparada pela UI estão ativos, o runtime usa o Chromium integrado para pesquisa e navegação. Search, fetch, crawl e map compartilham os controles aplicáveis de URL e destino; limites de páginas, profundidade e origem restringem a coleta. O fallback HTTP não é a mesma sessão do navegador e não herda cookies.
+Quando o sidecar Electron e a sessão preparada pela UI estão ativos, o runtime usa o Chromium integrado para pesquisa e navegação. Fetch, crawl e map verificam a URL de destino na política de egress; a busca envia uma consulta, e as requisições do provider e do fallback não passam por essa política; limites de páginas, profundidade e origem restringem a coleta. O fallback HTTP não é a mesma sessão do navegador e não herda cookies.
 
 Policy snapshots e verificações de egress aplicam regras aos caminhos de ferramentas conectados. A cobertura é específica de cada adapter; uma integração não conectada não herda controles por estar descrita nesta página. Consulte [Políticas de egress](../egress-policies), [workbench](../using-the-workbench) e [segurança](../../security).
 

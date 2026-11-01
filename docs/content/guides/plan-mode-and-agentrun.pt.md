@@ -15,6 +15,8 @@ Este guia explica como planejar uma tarefa antes de executá-la, como acompanhar
 
 ## Configuração
 
+Esta seção mostra como iniciar o Plan Mode, o que um AgentRun registra e quais decisões ficam gravadas em cada execução.
+
 ### Plan Mode
 
 O Plan Mode tem duas formas de uso:
@@ -49,6 +51,8 @@ As rotas abaixo exigem autenticação:
 No modo local, as execuções ficam em SQLite. Instalações com PostgreSQL usam o mesmo contrato.
 
 ### Decisões registradas
+
+Cada execução registra três tipos de decisão: aprovações humanas, acesso a servidores MCP e avaliações de Decision Models.
 
 #### Aprovações humanas (HITL)
 

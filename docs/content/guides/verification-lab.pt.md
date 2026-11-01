@@ -15,6 +15,8 @@ Este guia mostra como configurar os quality gates que verificam o resultado de u
 
 ## Configuração
 
+A verificação é configurada por workspace num arquivo de perfil; o Evaluation Lab é usado pela CLI.
+
 ### Quality gates
 
 Depois de uma execução, o Vectora roda os gates do perfil de verificação do workspace. O perfil fica em `verification/<workspace_id>.json`, dentro da home do Vectora (`~/.vectora` por padrão, ou o diretório definido em `VECTORA_HOME`).
@@ -69,14 +71,14 @@ Se o arquivo do perfil estiver corrompido, o Vectora aplica um gate de proteçã
 
 ### Evaluation Lab
 
-O Evaluation Lab grava cassetes das execuções com dados sensíveis redigidos e permite reproduzi-las sem chamar o provider externo.
+O Evaluation Lab reproduz cassetes existentes sem chamar o provider externo. Uma cassete é um arquivo JSON com as interações de uma execução; os dados sensíveis são ocultados quando a cassete é salva. A CLI não tem comando para gravar cassetes.
 
 ```bash
 vectora eval run --suite caminho/para/suite.json
 vectora eval compare baseline.json candidata.json
 ```
 
-- `vectora eval run` executa um benchmark ou uma suíte de cassetes.
+- `vectora eval run` reproduz uma única cassete (`--suite` aponta para um arquivo de cassete; uma lista de cassetes é recusada).
 - `vectora eval compare` compara duas cassetes (baseline e candidata).
 - Os dois comandos aceitam `--output human` (padrão) ou `--output json`.
 
@@ -84,4 +86,4 @@ vectora eval compare baseline.json candidata.json
 
 - Replay reproduz uma cassete gravada; ele não prova que o provider, o Browser Workbench ou outra integração estejam disponíveis ao vivo.
 - Validações live marcadas como `skipped` não contam como aprovação.
-- Os gates rodam no ambiente do workspace; um comando ausente (`dispatch_error`) ou um timeout produzem `infra_error`, não falha de teste.
+- Os gates rodam no ambiente do workspace; um comando ausente (`dispatch_error`) ou um timeout produzem o resultado `infra_error` com status terminal `failed`; isso não aparece como falha de teste `assertion_failed`.

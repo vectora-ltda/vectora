@@ -15,6 +15,8 @@ Esta guía muestra cómo configurar los quality gates que verifican el resultado
 
 ## Configuración
 
+La verificación se configura por workspace en un archivo de perfil; el Evaluation Lab se usa desde la CLI.
+
 ### Quality gates
 
 Después de una ejecución, Vectora ejecuta los gates del perfil de verificación del workspace. El perfil se guarda en `verification/<workspace_id>.json`, dentro del home de Vectora (`~/.vectora` por defecto, o el directorio definido en `VECTORA_HOME`).
@@ -69,14 +71,14 @@ Si el archivo del perfil está dañado, Vectora aplica un gate de protección qu
 
 ### Evaluation Lab
 
-El Evaluation Lab graba cassettes de las ejecuciones con los datos sensibles redactados y permite reproducirlas sin llamar al proveedor externo.
+El Evaluation Lab reproduce cassettes existentes sin llamar al proveedor externo. Un cassette es un archivo JSON con las interacciones de una ejecución; los datos sensibles se ocultan al guardar el cassette. La CLI no tiene un comando para grabar cassettes.
 
 ```bash
 vectora eval run --suite ruta/a/suite.json
 vectora eval compare baseline.json candidata.json
 ```
 
-- `vectora eval run` ejecuta un benchmark o una suite de cassettes.
+- `vectora eval run` reproduce un único cassette (`--suite` apunta a un archivo de cassette; una lista de cassettes se rechaza).
 - `vectora eval compare` compara dos cassettes (baseline y candidata).
 - Los dos comandos aceptan `--output human` (por defecto) o `--output json`.
 
@@ -84,4 +86,4 @@ vectora eval compare baseline.json candidata.json
 
 - El replay reproduce un cassette grabado; no demuestra que el proveedor, el Browser Workbench u otra integración estén disponibles en vivo.
 - Las validaciones live marcadas como `skipped` no cuentan como aprobación.
-- Los gates se ejecutan en el entorno del workspace; un comando ausente (`dispatch_error`) o un timeout producen `infra_error`, no un fallo de prueba.
+- Los gates se ejecutan en el entorno del workspace; un comando ausente (`dispatch_error`) o un timeout producen el resultado `infra_error` con estado terminal `failed`; no se informa como un fallo de prueba `assertion_failed`.

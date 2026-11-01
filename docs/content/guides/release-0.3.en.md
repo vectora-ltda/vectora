@@ -7,6 +7,8 @@ The `release/0.3` line expands Vectora from a tool-enabled workspace into an age
 
 ## What's included
 
+The sections below group the line's capabilities by area, with the limits that apply to each one.
+
 ### Persistent runs and history
 
 AgentRun associates lifecycle state, a `run_id`, evidence, and parent/subagent relationships. The event ledger supports thread history and reconstruction. Local storage uses SQLite; distributed deployments can configure PostgreSQL. Checkpoints and resume behavior depend on the execution path and configured storage.
@@ -35,9 +37,9 @@ An evaluation that starts and then fails must not release the action. A missing 
 
 ### Verification and Evaluation Lab
 
-Quality gates evaluate outcomes after execution and distinguish passed, failed, blocked, degraded, and unverified results. Cassettes record interactions with sensitive data redacted; replay lets you compare a recorded run without calling the external provider again.
+Quality gates evaluate outcomes after execution and distinguish passed, failed, blocked, degraded, and unverified results. A cassette stores the interactions of a run, with sensitive data redacted when it is saved; replay lets you compare an existing cassette without calling the external provider again. The CLI has no command that records a cassette.
 
-Use `vectora eval run` to run a cassette and `vectora eval compare` to compare results. Replay validates reproducible cassette behavior, not live model, Browser Workbench, or external service availability. See [Verification and Evaluation Lab](../verification-lab) to configure quality-gate profiles.
+Use `vectora eval run` to replay a single cassette and `vectora eval compare` to compare results. Replay validates reproducible cassette behavior, not live model, Browser Workbench, or external service availability. See [Verification and Evaluation Lab](../verification-lab) to configure quality-gate profiles.
 
 ### Memory, context, and RAG
 
@@ -47,7 +49,7 @@ Add documents to the workspace, wait for the embedding queue to process them, an
 
 ### Browser Workbench and policy/egress
 
-When the Electron sidecar and UI-prepared session are active, the runtime uses integrated Chromium for search and browsing. Search, fetch, crawl, and map share applicable URL and destination controls; page, depth, and origin limits constrain collection. The HTTP fallback is not the same browser session and does not inherit its cookies.
+When the Electron sidecar and UI-prepared session are active, the runtime uses integrated Chromium for search and browsing. Fetch, crawl, and map check the target URL against the egress policy; search sends a query, and its provider and fallback requests do not go through that policy; page, depth, and origin limits constrain collection. The HTTP fallback is not the same browser session and does not inherit its cookies.
 
 Policy snapshots and egress checks apply to connected tool paths. Coverage is specific to each adapter; an integration that is not connected does not inherit controls merely because this page describes them. See [Egress policies](../egress-policies), [workbench](../using-the-workbench), and [security](../../security).
 

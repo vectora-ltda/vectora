@@ -35,6 +35,6 @@ See the [pricing page](https://vectora.company/#pricing) for current plans.
 
 ## Limits of the 0.3 line
 
-- **Local execution:** the sandbox turns on automatically only when the workspace has no `vectora.toml` and the environment supports native isolation; with a `vectora.toml`, the `[sandbox]` section applies (`enabled = false` in the template). The `local` backend runs on Linux (on Windows, through WSL2). `allow_tcp_ports` requires Landlock ABI V4 (kernel 6.5+), and an empty list does not restrict the network. See [Sandbox](./concepts/sandbox) and [Egress policies](./guides/egress-policies).
+- **Local execution:** the sandbox turns on automatically only when the workspace has no `vectora.toml` and the environment supports native isolation; with a `vectora.toml`, the `[sandbox]` section applies (`enabled = false` in the template). The `local` backend runs on Linux (on Windows, through WSL2; on macOS the sandbox does not turn on automatically). `allow_tcp_ports` requires Landlock ABI V4 (kernel 6.7+), and an empty list does not restrict the network. See [Sandbox](./concepts/sandbox) and [Egress policies](./guides/egress-policies).
 - **Remote providers:** with BYOK keys or Ollama, OpenRouter, and 9router endpoints, requests go from the machine running the backend straight to the chosen provider.
 - **Skipped validations:** live tests marked as `skipped` do not prove live behavior; cassette replay does not replace a test against the real provider. See [Verification and Evaluation Lab](./guides/verification-lab).

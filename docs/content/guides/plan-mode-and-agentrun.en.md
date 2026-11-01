@@ -15,6 +15,8 @@ This guide explains how to plan a task before running it, how to follow each age
 
 ## Configuration
 
+This section covers how to start Plan Mode, what an AgentRun records, and which decisions are stored with each run.
+
 ### Plan Mode
 
 Plan Mode can be used in two ways:
@@ -49,6 +51,8 @@ These routes require authentication:
 In local mode, runs are stored in SQLite. Installations using PostgreSQL follow the same contract.
 
 ### Recorded decisions
+
+Each run records three kinds of decisions: human approvals, MCP server access, and Decision Model evaluations.
 
 #### Human approvals (HITL)
 

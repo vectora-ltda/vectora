@@ -15,6 +15,8 @@ This guide shows how to configure the quality gates that check a run's result an
 
 ## Configuration
 
+Verification is configured per workspace in a profile file; the Evaluation Lab is used from the CLI.
+
 ### Quality gates
 
 After a run, Vectora runs the gates from the workspace verification profile. The profile is stored at `verification/<workspace_id>.json` inside the Vectora home (`~/.vectora` by default, or the directory set in `VECTORA_HOME`).
@@ -69,14 +71,14 @@ If the profile file is corrupted, Vectora applies a protective gate that fails w
 
 ### Evaluation Lab
 
-The Evaluation Lab records cassettes of runs with sensitive data redacted and lets you replay them without calling the external provider.
+The Evaluation Lab replays existing cassettes without calling the external provider. A cassette is a JSON file with the interactions of a run; sensitive data is redacted when the cassette is saved. The CLI has no command that records a cassette.
 
 ```bash
 vectora eval run --suite path/to/suite.json
 vectora eval compare baseline.json candidate.json
 ```
 
-- `vectora eval run` runs a benchmark or a suite of cassettes.
+- `vectora eval run` replays a single cassette (`--suite` points to one cassette file; a list of cassettes is rejected).
 - `vectora eval compare` compares two cassettes (baseline and candidate).
 - Both commands accept `--output human` (default) or `--output json`.
 
@@ -84,4 +86,4 @@ vectora eval compare baseline.json candidate.json
 
 - Replay reproduces a recorded cassette; it does not prove that the provider, the Browser Workbench, or another integration is available live.
 - Live validations marked as `skipped` do not count as approval.
-- Gates run in the workspace environment; a missing command (`dispatch_error`) or a timeout produces `infra_error`, not a test failure.
+- Gates run in the workspace environment; a missing command (`dispatch_error`) or a timeout produces the `infra_error` outcome with a `failed` terminal status; it is not reported as an `assertion_failed` test result.

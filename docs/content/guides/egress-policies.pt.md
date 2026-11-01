@@ -14,11 +14,13 @@ Este guia explica como o Vectora controla o tráfego de saída do agente: a pol�
 
 ## Configuração
 
+O tráfego de saída é controlado por duas camadas independentes, cada uma configurada em um lugar.
+
 ### Duas camadas
 
 | Camada | Onde vale | Como se configura |
 | --- | --- | --- |
-| Política de egress | Tools de HTTP e web (busca, fetch, crawl, map) e navegação do Browser Workbench | Configurações de runtime (`egress_policy`) |
+| Política de egress | Tools de web baseadas em URL (fetch, crawl, map) e navegação do Browser Workbench | Configurações de runtime (`egress_policy`) |
 | Rede do sandbox | Comandos e arquivos executados no worker jailado | Seção `[sandbox]` do `vectora.toml` |
 
 A allowlist de servidores MCP e as pré-aprovações de ferramentas não são políticas de egress. Elas controlam quais servidores e ações podem ser usados, não para onde o tráfego vai.
@@ -56,13 +58,16 @@ lockdown = false
 allow_tcp_ports = [443]
 ```
 
-- `lockdown = true` nega toda a rede do worker (`--unshare-net`).
-- `allow_tcp_ports` nega todo TCP de saída, exceto as portas listadas. A restrição usa Landlock ABI V4 e exige Linux com kernel 6.5 ou superior.
+- `lockdown = true` nega toda a rede do worker (`--unshare-net`) quando ele roda sob `bwrap` (Linux, ou Windows via WSL2).
+- `allow_tcp_ports` nega todo TCP de saída, exceto as portas listadas. A restrição usa Landlock ABI V4 e exige Linux com kernel 6.7 ou superior.
 - Com `allow_tcp_ports` vazio (o padrão), o sandbox não restringe a rede por porta.
 
 ## Limitações
 
-- O backend `local` do sandbox (bubblewrap e Landlock) funciona em Linux; no Windows, depende de WSL2.
+- O backend `local` do sandbox (bubblewrap e Landlock) funciona em Linux; no Windows, depende de WSL2. Sem WSL2, ou sem `bwrap` na distribuição, o worker cai num modo soft que não aplica `--unshare-net`: com `lockdown = true`, os comandos continuam rodando e a rede fica aberta.
+- No macOS o sandbox não liga sozinho, e o worker persistente não usa o Seatbelt (`sandbox-exec`).
 - Em kernels sem Landlock ABI V4, `allow_tcp_ports` não é aplicado; o worker registra que a restrição não está em vigor.
 - O Vectora mapeia quais backends de sandbox conseguem aplicar restrições de rede, mas ainda não recusa a execução quando o backend escolhido não consegue.
 - A cobertura da política de egress é a das ferramentas listadas acima; não presuma que outros caminhos de rede usam os mesmos controles.
+- `web_search` envia uma consulta, não uma URL: as requisições ao provider de busca e à busca de fallback (DuckDuckGo) não passam pela política de egress.
+- Sem `TAVILY_API_KEY`, `fetch_url` verifica a URL na política de egress e depois a abre no Chromium; redirecionamentos seguidos pelo navegador não são verificados de novo.

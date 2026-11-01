@@ -78,10 +78,10 @@ As correções incluídas na linha 0.3 são listadas abaixo.
 
 Os limites abaixo valem para a linha 0.3 e devem ser considerados antes de depender de cada recurso.
 
-- O sandbox vem desativado por padrão (`[sandbox] enabled = false` em `vectora.toml`).
-- O backend `local` do sandbox (bubblewrap e Landlock) funciona somente em Linux.
-- `lockdown = true` nega toda a rede do worker (`--unshare-net`).
-- `allow_tcp_ports` restringe TCP somente com Landlock ABI V4 (kernel 6.5 ou superior); em kernels sem suporte, a restrição não é aplicada e o worker sinaliza a falha. Uma lista vazia não restringe a rede.
+- Sem `vectora.toml`, o sandbox liga sozinho no Linux com `bwrap` e no Windows com WSL2; em ambientes sem esse suporte, e sempre no macOS, fica desligado. Com `vectora.toml` sem seção `[sandbox]`, ou com `[sandbox] enabled = false` (padrão do modelo), fica desligado.
+- O backend `local` do sandbox (bubblewrap e Landlock) funciona no Linux nativo e no Windows via WSL2. No Windows sem WSL2, ou sem `bwrap` na distribuição, o worker cai no modo soft, sem isolamento de rede.
+- `lockdown = true` nega toda a rede do worker (`--unshare-net`) somente quando ele roda sob `bwrap`; no modo soft do Windows, a rede continua aberta.
+- `allow_tcp_ports` restringe TCP somente com Landlock ABI V4 (kernel 6.7 ou superior); em kernels sem suporte, a restrição não é aplicada e o worker sinaliza a falha. Uma lista vazia não restringe a rede.
 - A política de egress é lida das configurações de runtime (`egress_policy`); não há tela nem endpoint dedicado para editá-la.
 - O mapeamento de capacidade de egress por backend de sandbox existe, mas ainda não recusa a execução quando o backend não consegue aplicar a restrição exigida.
 - Testes live de providers que aparecem como `skipped` não comprovam funcionamento live; replay de cassetes não substitui teste de integração com provider ou Browser Workbench real.
