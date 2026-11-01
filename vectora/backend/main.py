@@ -185,7 +185,7 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Vectora — workspace de IA com RAG nativo",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""exemplos:
-  vectora start                        sobe backend + SPA (fullstack)
+  vectora start                        abre o app desktop (Electron)
   vectora start --headless             servidor headless (VPS/systemd)
   vectora start --port 9000            porta customizada
   vectora web                          webapp com Electron/Chromium, sem bandeja
@@ -287,11 +287,12 @@ def _build_parser() -> argparse.ArgumentParser:
     # ── start — backend + SPA (fullstack/headless) ─────────────────────────────
     start_p = sub.add_parser(
         "start",
-        help="Sobe o Vectora completo (backend + SPA)",
+        help="Abre o app desktop (Electron + backend)",
         description=(
-            "Sobe o backend completo (FastAPI) servindo a SPA via uvicorn.\n\n"
-            "  vectora start              -> fullstack (janela quando há desktop)\n"
-            "  vectora start --headless   -> só bandeja + backend, sem janela\n\n"
+            "Abre o app desktop: backend (FastAPI) + janela Electron por IPC.\n\n"
+            "  vectora start              -> app desktop (falha sem o build do Electron)\n"
+            "  vectora start --headless   -> só bandeja + backend, sem janela\n"
+            "  vectora web                -> webapp pelo navegador (TCP)\n\n"
             "Em host sem display (VPS/Docker), roda como servidor puro."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -570,6 +571,16 @@ def _build_parser() -> argparse.ArgumentParser:
     eval_compare.add_argument("candidate", help="Caminho para cassete candidata")
     eval_compare.add_argument("--output", choices=("human", "json"), default="human")
 
+    eval_export = eval_sub.add_parser(
+        "export-run", help="Exporta um AgentRun gravado para uma cassete"
+    )
+    eval_export.add_argument(
+        "--run-file", required=True, help="Arquivo JSON obtido na consulta do AgentRun"
+    )
+    eval_export.add_argument(
+        "--target", required=True, help="Arquivo de cassete de destino"
+    )
+
     return parser
 
 
@@ -621,9 +632,20 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     # sidecar (NATS) — não do bootstrap síncrono da CLI. Mantém `vectora
     # start` leve pra quem só quer a API REST: o processo ASGI decide
     # sozinho, no seu próprio startup, se faz sentido subir uma janela.
-    from backend.services.electron_sidecar import should_spawn_electron
+    from backend.services.electron_sidecar import (
+        desktop_build_missing,
+        should_spawn_electron,
+    )
 
     dev_electron = should_spawn_electron()
+    if not dev_electron and not force_web and desktop_build_missing():
+        print(
+            "❌ `vectora start` abre o app desktop, mas o build do Electron não foi "
+            "encontrado.\n"
+            "   Rode `scons frontend` e tente de novo. Para usar pelo navegador, "
+            "rode `vectora web`; para servidor sem janela, `vectora start --headless`."
+        )
+        sys.exit(1)
     if dev_electron:
         # A development desktop must never reuse the installed app's
         # databases, sockets, PID file or NATS JetStream store. Keep an
@@ -804,7 +826,7 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
         # do uvicorn (Ctrl+C nunca fechava o processo; só o kill via tray
         # do Electron encerrava, por caminho totalmente diferente).
         logger.info("Vectora: encerrando processo")
-        os._exit(0)
+        os._exit(_exit_status())
         return  # pragma: no cover - os._exit não retorna fora de teste
 
     if force_web:
@@ -837,7 +859,14 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
     # interpreter vivo; os._exit ignora-as e libera o terminal. Os recursos
     # críticos já foram fechados no lifespan.
     logger.info("Vectora: encerrando processo")
-    os._exit(0)
+    os._exit(_exit_status())
+
+
+def _exit_status() -> int:
+    """1 quando o app desktop não abriu a janela; 0 num shutdown normal."""
+    from backend.services.electron_sidecar import startup_failed
+
+    return 1 if startup_failed() else 0
 
 
 # ---------------------------------------------------------------------------

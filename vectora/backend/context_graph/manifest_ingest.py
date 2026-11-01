@@ -11,9 +11,10 @@ keyed by NAME, plus depends_on edges.
 from __future__ import annotations
 
 import re
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Any
+
+from defusedxml import ElementTree
 
 from .ids import make_id
 
@@ -221,7 +222,7 @@ def _parse_gomod(text: str) -> dict | None:
 
 def _parse_pom(text: str) -> dict | None:
     text = re.sub(r'\sxmlns="[^"]*"', "", text, count=1)
-    root = ET.fromstring(text)
+    root = ElementTree.fromstring(text)
     aid = root.findtext("artifactId")
     gid = root.findtext("groupId")
     if not aid:

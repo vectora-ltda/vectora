@@ -135,7 +135,12 @@ def _check_policy_snapshot_pre_execute(
         decision = decisions.get(
             _risk_assessment_key(tool_call.name, tool_call.args), {}
         )
-        if isinstance(decision, dict):
+        if isinstance(decision, dict) and decision:
+            from backend.engine.decision_record import DecisionRecord
+
+            decision = DecisionRecord.model_validate(decision).model_dump(
+                exclude_none=True
+            )
             if decision.get("decision") == "deny":
                 return False, "decision_model_denied: ação bloqueada antes da execução"
             if decision.get("decision") == "requires_human":
@@ -154,7 +159,7 @@ def _check_policy_snapshot_pre_execute(
 #: Callbacks aplicados, em ordem, antes da execução de qualquer tool.
 _PRE_EXECUTE: tuple[
     Callable[[ToolCall, ToolContext, PolicySnapshot | None], tuple[bool, str]], ...
-] = (_check_policy_snapshot_pre_execute,)
+] = ()
 
 
 def _apply_pre_execute(
@@ -167,7 +172,8 @@ def _apply_pre_execute(
         ok, reason = hook(tool_call, ctx, policy_snapshot)
         if not ok:
             return False, reason
-    return True, ""
+    # Extensions may update shared state; policy is the final synchronous guard.
+    return _check_policy_snapshot_pre_execute(tool_call, ctx, policy_snapshot)
 
 
 #: Callbacks aplicados, em ordem, ao texto de resultado de toda tool antes
@@ -185,6 +191,20 @@ def _apply_post_execute(texto: str) -> str:
     return texto
 
 
+async def _authorize_call(
+    tool_call: ToolCall, ctx: ToolContext, policy_snapshot: PolicySnapshot | None
+) -> tuple[bool, str]:
+    """Refresh shared revocation state before checking an execution permit."""
+    if policy_snapshot is not None:
+        from backend.rbac import tool_policy
+
+        try:
+            await tool_policy.sync_persisted_versions(strict=True)
+        except Exception:
+            return False, "policy_version_unavailable"
+    return await asyncio.to_thread(_apply_pre_execute, tool_call, ctx, policy_snapshot)
+
+
 async def _run_one(
     tool_call: ToolCall,
     *,
@@ -196,17 +216,7 @@ async def _run_one(
     on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> VMessage:
     """Executa uma chamada do lote com contexto correlacionado à própria tool."""
-    if policy_snapshot is not None:
-        # Revogação entre réplicas: a versão compartilhada é relida a cada tool
-        # call, então uma réplica que perdeu o pubsub ainda recusa a execução.
-        from backend.rbac import tool_policy
-
-        await tool_policy.sync_persisted_versions()
-    # ``validate_call`` may resolve DNS synchronously for URL egress tools; a slow
-    # resolver must not stall every other session sharing the event loop.
-    allowed, deny_reason = await asyncio.to_thread(
-        _apply_pre_execute, tool_call, ctx, policy_snapshot
-    )
+    allowed, deny_reason = await _authorize_call(tool_call, ctx, policy_snapshot)
     if not allowed:
         return VMessage(
             role=MessageRole.TOOL,
@@ -269,6 +279,21 @@ async def _run_one(
         )
         if spec.extras.category == "media":
             call_context = await apply_media_billing_source(call_context)
+        # Hooks and billing can await external work. Revalidate authorization
+        # after those waits, immediately before dispatching the handler.
+        allowed, deny_reason = await _authorize_call(tool_call, ctx, policy_snapshot)
+        if not allowed:
+            return VMessage(
+                role=MessageRole.TOOL,
+                content=[
+                    ContentBlock(
+                        kind="text", text=f"Error: policy_denied: {deny_reason}"
+                    )
+                ],
+                tool_call_id=tool_call.id,
+                name=tool_call.name,
+                is_error=True,
+            )
         texto = await spec.ainvoke(
             tool_call.args,
             call_context,

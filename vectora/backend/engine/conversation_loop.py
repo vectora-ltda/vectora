@@ -105,6 +105,7 @@ async def _bind_decision_model_snapshot(
         decision_model_runtime_fingerprint,
     )
     from backend.settings import settings
+    from backend.workspace.runtime_settings import runtime_settings
 
     current = decision_model_preferences(ctx)
     surfaces = current.get("surfaces")
@@ -123,6 +124,11 @@ async def _bind_decision_model_snapshot(
         "jev-api": settings.systemone_jev_api_model,
     }
     runtime = {
+        "preferences_revision": await asyncio.to_thread(
+            runtime_settings.get_decision_model_revision,
+            ctx.user_id or "local",
+            ctx.workspace_id or None,
+        ),
         "provider_config_fingerprint": decision_model_runtime_fingerprint(provider),
         "model": model_by_provider.get(provider) if isinstance(provider, str) else None,
         "systemone_enabled": settings.systemone_enabled,
@@ -175,8 +181,10 @@ async def _bind_decision_model_snapshot(
             for item in (persisted_run.evidence if persisted_run is not None else [])
             if isinstance(item, dict) and item.get("evidence_id") == evidence_id
         ),
-        snapshot,
+        None,
     )
+    if not isinstance(persisted, dict):
+        raise RuntimeError("Decision Model snapshot was not durably recorded")
     if persisted != snapshot:
         ctx._extra["decision_model_revoked"] = True
         snapshot = persisted
@@ -219,6 +227,11 @@ async def _persist_decision_model_record(
         msg = "Decision Model audit storage is unavailable"
         raise RuntimeError(msg)
 
+    from backend.engine.decision_record import DecisionRecord
+
+    record = DecisionRecord.model_validate(
+        {key: value for key, value in record.items() if key != "raw_response"}
+    ).model_dump(exclude_none=True)
     args_digest = hashlib.sha256(
         json.dumps(tool_call.args, sort_keys=True, default=str).encode("utf-8")
     ).hexdigest()
@@ -324,7 +337,9 @@ async def _consume_preapproval_grant(
     }:
         return False
 
-    grant_id = consume_run_grant(workspace_id, run_id, tool_call.name, tool_call.args)
+    grant_id = await asyncio.to_thread(
+        consume_run_grant, workspace_id, run_id, tool_call.name, tool_call.args
+    )
     if grant_id is None:
         return False
     args_digest = hashlib.sha256(
@@ -348,6 +363,13 @@ async def _consume_preapproval_grant(
         await session_store.record_run_evidence(
             run_id, tool_used=tool_call.name, evidence=evidence
         )
+        persisted_run = await session_store.get_agent_run(run_id)
+        if persisted_run is None or not any(
+            item.get("evidence_id") == event_key
+            for item in persisted_run.evidence
+            if isinstance(item, dict)
+        ):
+            raise RuntimeError("Preapproval audit was not durably recorded")
         await session_store.append_ledger_event(
             ctx.thread_id,
             event_key=event_key,
@@ -921,6 +943,7 @@ async def run_conversation(  # noqa: PLR0911
         )
 
         stream_usage: dict[str, int] | None = None
+        provider_started_at = time.monotonic()
         async for chunk in chat_client.astream(
             historico,
             tools=tools,
@@ -975,6 +998,22 @@ async def run_conversation(  # noqa: PLR0911
             for index, tool_call in enumerate(tool_calls)
         ]
         observed_tools.update(tc.name for tc in tool_calls if tc.name)
+        from backend.settings import settings
+
+        if settings.evaluation_recording_enabled and config.run_id:
+            from backend.evaluation.recording import record_interaction
+
+            await record_interaction(
+                session_store,
+                run_id=config.run_id,
+                messages=historico,
+                response=texto_final,
+                tool_calls=tool_calls,
+                usage=stream_usage,
+                model=str(model_id or ctx.model),
+                duration_ms=int((time.monotonic() - provider_started_at) * 1000),
+                policy_digest=str(policy_snapshot.version),
+            )
 
         logger.info(
             "llm_turn_finished",
@@ -1714,6 +1753,9 @@ async def run_conversation(  # noqa: PLR0911
                         "tool_name": resultado.name,
                         "tool_call_id": call_id,
                         "is_error": resultado.is_error,
+                        "result_digest": hashlib.sha256(
+                            resultado.text().encode()
+                        ).hexdigest(),
                     },
                 )
             await emit(

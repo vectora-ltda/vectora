@@ -4,10 +4,30 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  ChatModelSettings,
   SystemOneConfiguration,
   TranscriptionSettings,
 } from "../ai-models-tab";
 import { useSettingsStore } from "@/lib/stores/settings-store";
+
+vi.mock("@/components/chat/model-selector", () => ({
+  ModelSelector: ({
+    value,
+    onChange,
+  }: {
+    value: string;
+    onChange: (value: string) => void;
+  }) => (
+    <select
+      aria-label="Test model"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      <option value="openrouter:initial">Initial</option>
+      <option value="ollama:qwen3">Qwen</option>
+    </select>
+  ),
+}));
 
 const status = {
   enabled: true,
@@ -213,5 +233,29 @@ describe("TranscriptionSettings", () => {
         /ai_models_transcription_local_ready|Local transcription is ready; the base model is cached\./,
       ),
     );
+  });
+});
+
+describe("ChatModelSettings", () => {
+  it("persists the primary chat selection through the shared store", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, json: async () => ({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    useSettingsStore.setState({ selectedModel: "openrouter:initial" });
+    render(<ChatModelSettings />);
+    fireEvent.change(screen.getByLabelText("Test model"), {
+      target: { value: "ollama:qwen3" },
+    });
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/settings/prefs",
+        expect.objectContaining({ method: "PATCH" }),
+      ),
+    );
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      selectedModel: "ollama:qwen3",
+    });
+    expect(useSettingsStore.getState().selectedModel).toBe("ollama:qwen3");
   });
 });

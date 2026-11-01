@@ -15,6 +15,118 @@ from backend.vtypes import JsonObject
 from backend.vtypes.message import MessageRole, text_message
 
 
+def test_export_run_cli_preserves_provenance_and_rejects_invalid_recording(
+    tmp_path, capsys
+):
+    from backend.persistence.native.agent_run import AgentRun
+
+    interaction = CassetteInteraction(
+        interaction_id="one",
+        run_id="run-export",
+        messages=[],
+        response_text="api_key=private-export-key",
+    )
+    run = AgentRun(
+        run_id="run-export",
+        thread_id="thread-export",
+        evidence=[
+            {
+                "type": "evaluation_interaction",
+                "interaction": interaction.model_dump(mode="json"),
+            }
+        ],
+    )
+    source = tmp_path / "run.json"
+    target = tmp_path / "cassette.json"
+    source.write_text(run.model_dump_json(), encoding="utf-8")
+    args = argparse.Namespace(
+        action="export-run", run_file=str(source), target=str(target)
+    )
+    assert handle_eval(args) == 0
+    exported = Cassette.load(target)
+    assert exported.source_run_id == run.run_id
+    assert "private-export-key" not in target.read_text(encoding="utf-8")
+    assert exported.interactions[0].reproducible is False
+    previous = target.read_bytes()
+    run.evidence[0]["interaction"] = {
+        **interaction.model_dump(mode="json"),
+        "run_id": "other-run",
+    }
+    source.write_text(run.model_dump_json(), encoding="utf-8")
+    assert handle_eval(args) == 1
+    assert target.read_bytes() == previous
+    assert "another run" in capsys.readouterr().err
+    run.evidence[0].pop("interaction")
+    source.write_text(run.model_dump_json(), encoding="utf-8")
+    assert handle_eval(args) == 1
+    assert "missing or invalid" in capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_cli_replay_preserves_tool_history_without_external_calls():
+    from backend.cli.eval import _replay_suite
+
+    cassette = Cassette(
+        cassette_id="tool-history",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="after-tool",
+                messages=[
+                    {
+                        "role": "assistant",
+                        "content": [],
+                        "tool_calls": [
+                            {
+                                "id": "call-1",
+                                "name": "file_read",
+                                "args": {"path": "a.txt"},
+                            }
+                        ],
+                    },
+                    {
+                        "role": "tool",
+                        "content": [{"kind": "text", "text": "recorded content"}],
+                        "tool_call_id": "call-1",
+                        "name": "file_read",
+                    },
+                ],
+                response_text="recorded final response",
+            )
+        ],
+    )
+    results = await _replay_suite(cassette)
+    assert results[0]["response_text"] == "recorded final response"
+    cassette.interactions[0].messages[0]["role"] = "invalid-role"
+    with pytest.raises(ValueError):
+        await _replay_suite(cassette)
+
+
+@pytest.mark.parametrize("missing_side", ["baseline", "candidate"])
+def test_comparison_rejects_missing_decision_evidence_on_one_side(missing_side):
+    recorded = Cassette(
+        cassette_id="recorded",
+        interactions=[
+            CassetteInteraction(
+                interaction_id="decision",
+                messages=[],
+                response_text="ok",
+                systemone_decision_evidence={
+                    "decision": "allow",
+                    "policy_digest": "policy",
+                },
+            )
+        ],
+    )
+    missing = recorded.model_copy(deep=True)
+    missing.interactions[0].systemone_decision_evidence = None
+    baseline, candidate = (
+        (missing, recorded) if missing_side == "baseline" else (recorded, missing)
+    )
+    report = compare_cassettes(baseline, candidate)
+    assert report.accuracy == 0
+    assert report.details[0]["decision_evidence_match"] is False
+
+
 def test_cassette_save_and_load_with_redaction(tmp_path: Path):
     """Verifica o comportamento de cassette save and load with redaction."""
     target = tmp_path / "test_cassette.json"
@@ -31,6 +143,7 @@ def test_cassette_save_and_load_with_redaction(tmp_path: Path):
                     }
                 ],
                 response_text="Resposta segura",
+                systemone_decision="allow api_key=private-decision-key",
                 duration_ms=120,
                 usage={"input": 50, "output": 10},
             )
@@ -41,6 +154,7 @@ def test_cassette_save_and_load_with_redaction(tmp_path: Path):
     # Verifica que o arquivo persistido redigiu o segredo
     raw_content = target.read_text(encoding="utf-8")
     assert "sk-1234567890abcdef12345678" not in raw_content
+    assert "private-decision-key" not in raw_content
     assert "[REDACTED]" in raw_content
 
     loaded = Cassette.load(target)
@@ -138,6 +252,12 @@ def test_compare_cassettes():
                 tool_calls=[{"id": "c1", "name": "tool_a", "args": {}}],
                 duration_ms=500,
                 usage={"total": 200},
+                systemone_decision_evidence={
+                    "decision": "allow",
+                    "provider": "clef-api",
+                    "surface": "hitl",
+                    "policy_digest": "sha256:policy",
+                },
             )
         ],
     )
@@ -616,3 +736,49 @@ def test_cli_compare_reports_incomparable_cassettes_without_traceback(
     assert "interaction_id duplicado" in output.err
     assert "Traceback" not in output.err
     assert output.out == ""
+
+
+@pytest.mark.asyncio
+async def test_recorded_run_export_survives_store_restart_and_session_purge(tmp_path):
+    from backend.evaluation.recording import cassette_from_run, record_interaction
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.persistence.native.session_store import SessionStore
+    from backend.storage.sqlite.pool import AsyncConnectionPool
+    from backend.vtypes.message import MessageRole, text_message
+
+    path = str(tmp_path / "recording.db")
+    pool = AsyncConnectionPool(path, min_size=1, max_size=2)
+    await pool.open()
+    store = SessionStore(pool)
+    await store.create_session("recorded-thread", user_id="owner")
+    await store.upsert_agent_run(
+        AgentRun(run_id="recorded-run", thread_id="recorded-thread", user_id="owner")
+    )
+    await record_interaction(
+        store,
+        run_id="recorded-run",
+        messages=[text_message(MessageRole.USER, "hello")],
+        response="recorded",
+        tool_calls=[],
+        usage=None,
+        model="fixture",
+        duration_ms=1,
+        policy_digest="snapshot",
+    )
+    await pool.close()
+    reopened = AsyncConnectionPool(path, min_size=1, max_size=2)
+    await reopened.open()
+    try:
+        durable = SessionStore(reopened)
+        run = await durable.get_agent_run("recorded-run")
+        assert run is not None
+        cassette = cassette_from_run(run)
+        assert cassette.interactions[0].response_text == "recorded"
+        from backend.cli.eval import _replay_suite
+
+        replay = await _replay_suite(cassette)
+        assert replay[0]["response_text"] == "recorded"
+        await durable.delete_session("recorded-thread")
+        assert await durable.get_agent_run("recorded-run") is None
+    finally:
+        await reopened.close()

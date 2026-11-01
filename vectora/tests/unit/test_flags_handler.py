@@ -13,6 +13,7 @@ Valida:
 
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -40,6 +41,31 @@ def client(monkeypatch, _isolated_runtime_settings):
 
 
 class TestGetFlags:
+    @pytest.mark.parametrize("operation", ["read", "write"])
+    def test_preferences_storage_failure_is_503(
+        self, client, _isolated_runtime_settings, monkeypatch, operation
+    ):
+        def unavailable(*_args, **_kwargs):
+            raise sqlite3.OperationalError("private database path")
+
+        method = "get_frontend_prefs" if operation == "read" else "set_frontend_prefs"
+        monkeypatch.setattr(_isolated_runtime_settings, method, unavailable)
+        response = (
+            client.get("/settings/prefs")
+            if operation == "read"
+            else client.patch("/settings/prefs", json={"decisionModelsEnabled": True})
+        )
+        assert response.status_code == 503
+        assert "private database path" not in response.text
+
+    def test_invalid_provider_shape_does_not_break_preference_storage(self, client):
+        response = client.patch(
+            "/settings/prefs", json={"decisionModelProvider": [], "theme": "dark"}
+        )
+        assert response.status_code == 200
+        assert response.json() == {"theme": "dark"}
+        assert client.get("/settings/prefs").json() == {"theme": "dark"}
+
     def test_always_enabled_by_default(self, client, monkeypatch):
         """Features beta agora são estáveis e habilitadas por padrão."""
         monkeypatch.delenv("VECTORA_DEV", raising=False)

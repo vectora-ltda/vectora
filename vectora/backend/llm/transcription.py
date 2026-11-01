@@ -69,6 +69,7 @@ class LocalTranscriptionReadiness(TypedDict):
 
 _LOCAL_PROBE_LOCK = threading.Lock()
 _LOCAL_PROBE_TIMEOUT_S = 45.0
+_LOCAL_TRANSCRIPTION_TIMEOUT_S = 60.0
 
 
 def local_transcription_readiness() -> LocalTranscriptionReadiness:
@@ -163,6 +164,7 @@ def _probe_local_transcription_sync() -> str:
 
 async def probe_local_transcription_readiness() -> LocalTranscriptionReadiness:
     """Explicitly test cached local STT with a bounded, network-disabled probe."""
+    initial_home = settings.vectora_home
     readiness = local_transcription_readiness()
     if not readiness["dependency_available"] or not readiness["model_cached"]:
         readiness["probe_attempted"] = True
@@ -181,6 +183,9 @@ async def probe_local_transcription_readiness() -> LocalTranscriptionReadiness:
     except TimeoutError:
         result = "timeout"
 
+    if result == "ready" and settings.vectora_home != initial_home:
+        result = "configuration_changed"
+
     readiness["probe_attempted"] = True
     readiness["runtime_verified"] = result == "ready"
     readiness["probe_in_progress"] = result in {"probe_in_progress", "timeout"}
@@ -192,6 +197,7 @@ async def probe_local_transcription_readiness() -> LocalTranscriptionReadiness:
         "probe_in_progress": "já existe uma sondagem local em andamento",
         "timeout": "a espera excedeu 45 segundos; a sondagem ainda pode concluir em background",
         "runtime_failed": "o modelo em cache não carregou ou falhou na inferência",
+        "configuration_changed": "configuração local alterada durante a sondagem; execute um novo teste",
     }[result]
     return readiness
 
@@ -252,20 +258,36 @@ async def transcribe_audio_local(
     O arquivo temporário fica fora do workspace, recebe permissões restritas
     do sistema operacional e é removido mesmo se o modelo falhar.
     """
+    _validate_audio(data, filename, mime_type)
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(_transcribe_audio_local_sync, data, filename, language),
+            timeout=_LOCAL_TRANSCRIPTION_TIMEOUT_S,
+        )
+    except TimeoutError as exc:
+        raise TranscriptionError(
+            "prazo da transcrição local excedido; o runtime continua ocupado até concluir"
+        ) from exc
+
+
+def _transcribe_audio_local_sync(data: bytes, filename: str, language: str) -> str:
+    """Own the file and concurrency slot until native inference really finishes."""
     import os
     from pathlib import Path
 
     from backend.tools.media_native import _transcribe_local_sync
 
-    _validate_audio(data, filename, mime_type)
-    suffix = PurePath(filename).suffix.lower()
-    descriptor, temp_path = tempfile.mkstemp(prefix="vectora-stt-", suffix=suffix)
+    if not _LOCAL_PROBE_LOCK.acquire(blocking=False):
+        raise TranscriptionError(
+            "já existe uma operação de transcrição local em andamento"
+        )
+    temp_path: str | None = None
     try:
+        suffix = PurePath(filename).suffix.lower()
+        descriptor, temp_path = tempfile.mkstemp(prefix="vectora-stt-", suffix=suffix)
         with os.fdopen(descriptor, "wb") as audio_file:
             audio_file.write(data)
-        result = await asyncio.to_thread(
-            _transcribe_local_sync, temp_path, language or None
-        )
+        result = _transcribe_local_sync(temp_path, language or None)
         text = str(result.get("text", "")).strip()
         if not text:
             raise TranscriptionError("o modelo local não retornou texto")
@@ -274,14 +296,17 @@ async def transcribe_audio_local(
         raise
     except Exception as exc:
         logger.exception("transcribe_audio: falha na transcrição local")
-        raise TranscriptionError(f"transcrição local indisponível: {exc}") from exc
+        raise TranscriptionError("transcrição local indisponível") from exc
     finally:
         try:
-            Path(temp_path).unlink(missing_ok=True)
+            if temp_path is not None:
+                Path(temp_path).unlink(missing_ok=True)
         except OSError:
             logger.warning(
                 "transcribe_audio: não foi possível remover áudio temporário"
             )
+        finally:
+            _LOCAL_PROBE_LOCK.release()
 
 
 def _validate_audio(data: bytes, filename: str, mime_type: str) -> None:

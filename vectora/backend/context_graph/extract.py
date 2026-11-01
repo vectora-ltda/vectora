@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from defusedxml.common import DefusedXmlException
 from tree_sitter import Language
 
 from .cache import load_cached, save_cached
@@ -31,7 +32,6 @@ _UNSUPPORTED_TREE_SITTER_LANGUAGES = frozenset({"dm"})
 # constructors or coercion functions (e.g. String(x), Number(x), Boolean(x)).
 # Without this filter they become god-nodes accumulating spurious edges from
 # every call site. Filter applied at same-file and cross-file resolution.
-# See issue #726.
 _LANGUAGE_BUILTIN_GLOBALS: frozenset[str] = frozenset(
     {
         # JavaScript / TypeScript ECMAScript built-ins
@@ -437,7 +437,7 @@ def _find_workspace_root(start_dir: Path) -> Path | None:
         if package_json.is_file():
             try:
                 data = json.loads(package_json.read_text(encoding="utf-8"))
-            except Exception:
+            except Exception:  # nosec B112 - malformed optional metadata is skipped
                 continue
             if "workspaces" in data:
                 return candidate
@@ -519,7 +519,7 @@ def _load_workspace_packages(start_dir: Path) -> dict[str, Path]:
                 continue
             try:
                 data = json.loads(manifest.read_text(encoding="utf-8"))
-            except Exception:
+            except Exception:  # nosec B112 - malformed optional metadata is skipped
                 continue
             name = data.get("name")
             if isinstance(name, str) and name:
@@ -2918,11 +2918,11 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
     # extensions don't (file stem is part of the id), so they're collected here
     # for a corpus-level merge after every file has been parsed.
     swift_extensions: list[dict] = []
-    # #1356: call expressions in property/field initializers (e.g.
+    # call expressions in property/field initializers (e.g.
     # `let vm = VM()`) live outside function bodies, so the call-walk never
     # reaches them. Collect (owner_nid, call_node) here and walk them too.
     initializer_nodes: list[tuple[str, object]] = []
-    # #1356: per-file map of local name -> declared type (properties + params),
+    # per-file map of local name -> declared type (properties + params),
     # threaded out as `swift_type_table` so member calls (`vm.update()`) can be
     # resolved to the receiver's real definition in _resolve_swift_member_calls.
     type_table: dict[str, str] = {}
@@ -3676,8 +3676,8 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
                         )
                     if prop_type is None and role == "type":
                         prop_type = ref_name
-            # #1356 Stage 1: walk the initializer so a constructor call
-            # (`let vm = VM()`) produces a calls edge. #1356 Stage 2a: when the
+            # walk the initializer so a constructor call
+            # (`let vm = VM()`) produces a calls edge. When the
             # property has no type annotation, infer its type from the
             # constructor so `vm.update()` later resolves to VM.
             for child in node.children:
@@ -4036,7 +4036,7 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
                             )
                         if param_type is None and role == "type":
                             param_type = ref_name
-                    # #1356 Stage 2a: record param name -> type (flat per-file
+                    #  record param name -> type (flat per-file
                     # table; later params with the same name win, which is fine
                     # for the depth-1 member-call resolution we do).
                     if param_type:
@@ -4326,7 +4326,7 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
                                 for sc in child.children:
                                     if sc.type == "simple_identifier":
                                         callee_name = _read_text(sc, source)
-                        # #1356: capture the receiver so the cross-file pass can
+                        # capture the receiver so the cross-file pass can
                         # resolve it through the file's type table.
                         recv_node = first.children[0] if first.children else None
                         swift_receiver = _swift_receiver_name(recv_node, source)
@@ -4629,7 +4629,7 @@ def _extract_generic(path: Path, config: LanguageConfig) -> dict:
     for caller_nid, body_node in function_bodies:
         walk_calls(body_node, caller_nid)
 
-    # #1356: walk property/field initializers (collected above). walk_calls
+    # walk property/field initializers (collected above). walk_calls
     # self-guards against re-entering function bodies and dedups via
     # seen_call_pairs, so a closure inside an initializer is not double-walked.
     for owner_nid, init_node in initializer_nodes:
@@ -7561,16 +7561,25 @@ def _cpp_preprocess(path: Path) -> bytes:
     file-exfiltration vector.
     """
     import shutil
-    import subprocess
+    import subprocess  # nosec B404 - fixed preprocessor argv, never a shell
 
-    if not shutil.which("cpp"):
+    executable = shutil.which("cpp")
+    if not executable:
         return path.read_bytes()
     try:
         # Pass an absolute path so a corpus file named like "-I/etc/x.F90" cannot
         # be parsed by cpp as an option (cpp does not accept a "--" end-of-options
         # terminator). An absolute path always begins with "/".
-        result = subprocess.run(
-            ["cpp", "-w", "-P", "-nostdinc", "-I", "/dev/null", str(path.resolve())],
+        result = subprocess.run(  # nosec B603 - resolved executable and fixed flags, corpus path is absolute
+            [
+                executable,
+                "-w",
+                "-P",
+                "-nostdinc",
+                "-I",
+                "/dev/null",
+                str(path.resolve()),
+            ],
             capture_output=True,
             timeout=30,
         )
@@ -8285,7 +8294,7 @@ def extract_go(path: Path) -> dict:
 
 # Common Rust trait/stdlib method names that appear in virtually every codebase.
 # Resolving these cross-file produces spurious INFERRED edges across crate
-# boundaries (issue #908) — skip them from the unresolved-call queue entirely.
+# boundaries  — skip them from the unresolved-call queue entirely.
 _RUST_TRAIT_METHOD_BLOCKLIST: frozenset[str] = frozenset(
     {
         "new",
@@ -9936,7 +9945,7 @@ def _apply_symbol_resolution_facts(
             import_fact.file_path,
         )
 
-    # #1146: emit file-to-file imports_from edges for package-form submodule imports.
+    # emit file-to-file imports_from edges for package-form submodule imports.
     for from_path, to_path, line in facts.module_imports:
         try:
             from_rel = from_path.relative_to(root)
@@ -10726,7 +10735,7 @@ def _collect_python_symbol_resolution_facts(
             target_path = _resolve_python_module_path(module_name, path, root, level)
             if target_path is None:
                 continue
-            # #1146: `from pkg import submod` — if the target is a package
+            # `from pkg import submod` — if the target is a package
             # (__init__.py) and an imported name matches a submodule file on
             # disk, emit a file-level import edge to that submodule rather
             # than only to the package.
@@ -10892,7 +10901,7 @@ def _resolve_cross_file_imports(
         try:
             source = path.read_bytes()
             tree = parser.parse(source)
-        except Exception:
+        except Exception:  # nosec B112 - malformed optional metadata is skipped
             continue
 
         def walk_imports(node) -> None:
@@ -11096,7 +11105,7 @@ def _resolve_cross_file_java_imports(
         try:
             source = path.read_bytes()
             tree = parser.parse(source)
-        except Exception:
+        except Exception:  # nosec B112 - malformed optional metadata is skipped
             continue
 
         def walk(n) -> None:
@@ -11186,7 +11195,7 @@ def _resolve_java_type_references(
         try:
             source = path.read_bytes()
             tree = parser.parse(source)
-        except Exception:
+        except Exception:  # nosec B112 - malformed optional metadata is skipped
             continue
         pkg = ""
         imps: dict[str, str] = {}
@@ -13064,19 +13073,11 @@ _PROJECT_XML_MAX_BYTES = 2 * 1024 * 1024
 
 
 def _project_xml_is_safe(src: bytes) -> bool:
-    """Reject XML that declares DTDs or entities.
+    """Reject obvious DTD/entity declarations before invoking the hardened parser.
 
-    Stdlib ``xml.etree.ElementTree`` does not cap entity expansion, so a
-    crafted project file could trigger a billion-laughs style DoS. External
-    entity resolution is already disabled by pyexpat defaults, but rejecting
-    ``<!DOCTYPE`` / ``<!ENTITY`` outright is defense in depth.
-
-    Legitimate MSBuild and Lazarus package files never contain a DOCTYPE
-    or ENTITY declaration, so this is a zero-false-positive screen.
+    This byte screen covers ASCII-compatible input. The defused XML parser also
+    rejects entity expansion in other encodings, including UTF-16 project files.
     """
-    # Only the prolog can hold a DTD/internal subset, but be conservative
-    # and scan the full byte range -- these formats use ASCII tags so a
-    # case-insensitive substring match is sufficient.
     lowered = src.lower()
     return b"<!doctype" not in lowered and b"<!entity" not in lowered
 
@@ -13099,7 +13100,7 @@ def extract_lazarus_package(path: Path) -> dict:
     - package --contains--> listed unit
     """
     try:
-        import xml.etree.ElementTree as ET
+        from defusedxml import ElementTree
 
         src = path.read_bytes()
     except OSError as e:
@@ -13115,7 +13116,7 @@ def extract_lazarus_package(path: Path) -> dict:
         }
 
     try:
-        xml_root = ET.fromstring(src)
+        xml_root = ElementTree.fromstring(src)
     except Exception as e:
         return {"nodes": [], "edges": [], "error": str(e)}
 
@@ -13581,7 +13582,7 @@ def extract_slnx(path: Path) -> dict:
     Project="..."/>`` children. Unlike .sln there are no GUIDs -- projects are
     identified by their path.
     """
-    import xml.etree.ElementTree as ET
+    from defusedxml import ElementTree
 
     try:
         src = path.read_bytes()
@@ -13598,8 +13599,8 @@ def extract_slnx(path: Path) -> dict:
         }
 
     try:
-        tree = ET.fromstring(src)
-    except ET.ParseError as e:
+        tree = ElementTree.fromstring(src)
+    except (ElementTree.ParseError, DefusedXmlException) as e:
         return {"nodes": [], "edges": [], "error": f"XML parse error: {e}"}
 
     file_nid = _make_id(str(path))
@@ -13689,7 +13690,7 @@ def extract_slnx(path: Path) -> dict:
 
 def extract_csproj(path: Path) -> dict:
     """Extract packages, project refs, and target framework from a .csproj/.fsproj/.vbproj."""
-    import xml.etree.ElementTree as ET
+    from defusedxml import ElementTree
 
     try:
         src = path.read_bytes()
@@ -13706,8 +13707,8 @@ def extract_csproj(path: Path) -> dict:
         }
 
     try:
-        tree = ET.fromstring(src)
-    except ET.ParseError as e:
+        tree = ElementTree.fromstring(src)
+    except (ElementTree.ParseError, DefusedXmlException) as e:
         return {"nodes": [], "edges": [], "error": f"XML parse error: {e}"}
 
     file_nid = _make_id(str(path))
@@ -15657,7 +15658,7 @@ def _extract_parallel(
         # Honour GRAPH_MAX_WORKERS env override; otherwise scale to the
         # full CPU. The historical `, 8)` cap was a safety bound for laptops
         # in 2023 — on a 32-thread workstation it costs a 4x slowdown
-        # (issue #792). Capping at len(uncached_work) keeps small jobs
+        # Capping at len(uncached_work) keeps small jobs
         # from spawning useless idle workers.
         env_raw = os.environ.get("GRAPH_MAX_WORKERS", "").strip()
         env_cap = None
@@ -15674,7 +15675,7 @@ def _extract_parallel(
     # Windows ProcessPoolExecutor hard-caps at 61 workers (CPython limitation
     # tied to WaitForMultipleObjects). Clamp here so every path — auto-compute,
     # GRAPH_MAX_WORKERS, and --max-workers — stays valid on >61-core boxes
-    # (issue #1298). Guard against 0 from an empty work list.
+    # Guard against 0 from an empty work list.
     if sys.platform == "win32":
         max_workers = min(max_workers, 61)
     max_workers = max(max_workers, 1)
@@ -15914,7 +15915,7 @@ def extract(
                 continue
             try:
                 entry = prefix_remap.get(Path(sf).resolve())
-            except Exception:
+            except Exception:  # nosec B112 - malformed optional metadata is skipped
                 continue
             if entry is None:
                 continue
@@ -15996,7 +15997,7 @@ def extract(
     # those inflates god_nodes ranking with spurious cross-file edges.
     # Build label -> node_id index for cross-file call resolution.
     # Skip rationale nodes (their labels are docstring text, not callable
-    # identifiers, and they were polluting matches for short names — #563).
+    # identifiers, and they were polluting matches for short names).
     global_label_to_nids: dict[str, list[str]] = {}
     for n in all_nodes:
         if n.get("file_type") == "rationale":
@@ -16075,7 +16076,7 @@ def extract(
             # of the candidates, that named import disambiguates unambiguously.
             # Prefer direct symbol-import matches; fall back to module-import
             # matches only when they too collapse to a single target. Without a
-            # unique evidence-backed pick we skip, preserving the #543 guard
+            # unique evidence-backed pick we skip, preserving the ambiguity guard
             # against over-connecting common short names (log, execute, find).
             symbol_matches = [c for c in candidates if c in imported_symbols]
             if len(symbol_matches) == 1:

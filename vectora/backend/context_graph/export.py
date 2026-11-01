@@ -494,11 +494,15 @@ def attach_hyperedges(G: nx.Graph, hyperedges: list) -> None:
 
 def _git_head() -> str | None:
     """Return the current git HEAD commit hash, or None if not in a git repo."""
-    import subprocess as _sp
+    import shutil
+    import subprocess as _sp  # nosec B404 - fixed git argv without a shell
 
+    executable = shutil.which("git")
+    if not executable:
+        return None
     try:
-        r = _sp.run(
-            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, timeout=3
+        r = _sp.run(  # nosec B603 - resolved git executable and constant arguments
+            [executable, "rev-parse", "HEAD"], capture_output=True, text=True, timeout=3
         )
         return r.stdout.strip() if r.returncode == 0 else None
     except Exception:
@@ -1077,7 +1081,7 @@ def to_obsidian(
         # (e.g. pruned nodes, stale community assignments from a prior run, or
         # synthesized/merge-artifact ids). Dereferencing those via G.nodes[n] or
         # node_filename[n] raises KeyError and aborts the whole vault export, so
-        # skip dangling members rather than crashing (issue #1236).
+        # skip dangling members rather than crashing.
         members = [m for m in all_members if m in G and m in node_filename]
         n_members = len(members)
         coh_value = cohesion.get(cid) if cohesion else None
@@ -1581,7 +1585,7 @@ def to_graphml(
     node_community = _node_community_map(communities)
     for node_id in H.nodes():
         H.nodes[node_id]["community"] = node_community.get(node_id, -1)
-    # Drop internal markers (e.g. the AST-provenance "_origin" tag, #1116, and
+    # Drop internal markers (e.g. the AST-provenance "_origin" tag and
     # the "_src"/"_tgt" direction markers) — they are persistence/runtime details,
     # not graph data, and should not leak into the exported file.
     for _, attrs in H.nodes(data=True):

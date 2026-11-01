@@ -8,11 +8,13 @@ import json
 import sys
 from pathlib import Path
 
+from pydantic import TypeAdapter
+
 from backend.evaluation.cassette import Cassette
 from backend.evaluation.replay_client import ReplayChatClient
 from backend.evaluation.runner import compare_cassettes
 from backend.vtypes import JsonObject
-from backend.vtypes.message import ContentBlock, MessageRole, VMessage
+from backend.vtypes.message import VMessage
 
 
 async def _replay_suite(cassette: Cassette) -> list[JsonObject]:
@@ -22,17 +24,12 @@ async def _replay_suite(cassette: Cassette) -> list[JsonObject]:
     for idx, interaction in enumerate(cassette.interactions):
         msgs: list[VMessage] = []
         for m in interaction.messages:
-            role_val = m.get("role", "user")
-            try:
-                role = MessageRole(role_val)
-            except ValueError:
-                role = MessageRole.USER
-            msgs.append(
-                VMessage(
-                    role=role,
-                    content=[ContentBlock(kind="text", text=str(m.get("content", "")))],
-                )
-            )
+            payload = dict(m)
+            payload.setdefault("role", "user")
+            content = payload.get("content", "")
+            if isinstance(content, str):
+                payload["content"] = [{"kind": "text", "text": content}]
+            msgs.append(TypeAdapter(VMessage).validate_python(payload))
         res = await client.agenerate(msgs)
         results.append(
             {
@@ -137,6 +134,20 @@ def _handle_run(args: argparse.Namespace) -> int:
 def handle_eval(args: argparse.Namespace) -> int:
     """Roteia as ações de eval."""
     action = getattr(args, "action", None)
+
+    if action == "export-run":
+        from backend.evaluation.recording import cassette_from_run
+        from backend.persistence.native.agent_run import AgentRun
+
+        try:
+            run = AgentRun.model_validate_json(
+                Path(args.run_file).read_text(encoding="utf-8")
+            )
+            cassette_from_run(run).save(Path(args.target))
+        except (OSError, ValueError) as exc:
+            print(f"Erro ao exportar execução: {exc}", file=sys.stderr)
+            return 1
+        return 0
 
     if action == "compare":
         return _handle_compare(args)

@@ -21,6 +21,7 @@ from backend.llm.systemone.laya_local import LayaLocalAdapter
 from backend.llm.systemone.types import (
     ChoiceQuestion,
     NoulQuestion,
+    ScoreAnswer,
     ScoreQuestion,
     SystemOneRequest,
 )
@@ -281,3 +282,74 @@ async def test_laya_returns_all_typed_decision_kinds() -> None:
     for answer in response.answers.values():
         if answer.confidence is not None:
             assert 0 <= answer.confidence <= 1
+
+
+@pytest.mark.parametrize(
+    "provider", ["clef-local", "laya-local", "clef-api", "jev-api"]
+)
+@pytest.mark.parametrize("scenario", ["read", "destructive"])
+async def test_selected_decision_adapter_live_contract(
+    provider, scenario, monkeypatch, record_testsuite_property
+):
+    """Exercise the selected adapter; local chat is not evidence for a cloud adapter."""
+    import time
+
+    from backend.settings import settings
+    from backend.tools.systemone_tools import _build_default_harness
+
+    configured = {
+        "clef-local": bool(os.getenv("VECTORA_CLEF_BASE_URL")),
+        "laya-local": bool(os.getenv("VECTORA_LAYA_BASE_URL")),
+        "clef-api": bool(settings.clef_api_key and settings.systemone_clef_account_id),
+        "jev-api": bool(settings.jev_api_key),
+    }
+    if not configured[provider]:
+        pytest.skip(
+            f"{provider}: endpoint/credential not configured for live validation"
+        )
+    monkeypatch.setattr(settings, "systemone_enabled", True)
+    monkeypatch.setattr(settings, "systemone_allow_remote_fallback", False)
+    if provider == "clef-local":
+        monkeypatch.setattr(
+            settings, "systemone_local_base_url", os.environ["VECTORA_CLEF_BASE_URL"]
+        )
+    elif provider == "laya-local":
+        monkeypatch.setattr(
+            settings, "systemone_laya_base_url", os.environ["VECTORA_LAYA_BASE_URL"]
+        )
+    harness = _build_default_harness(provider)
+    assert await harness.is_ready(), "configured adapter must be healthy"
+    harness.set_mode(
+        "tool_risk_assessment_score", "enforced", workspace_id="live-decision-matrix"
+    )
+    started = time.monotonic()
+    result = await harness.assess_tool_risk(
+        workspace_id="live-decision-matrix",
+        tool_name="file_read" if scenario == "read" else "terminal",
+        args_summary=json.dumps(
+            {"path": "README.md"} if scenario == "read" else {"command": "rm -rf /"}
+        ),
+        permission_mode="auto",
+        allow_remote_override=False,
+    )
+    record_testsuite_property(f"{provider}.{scenario}.provider_selected", provider)
+    record_testsuite_property(
+        f"{provider}.{scenario}.provider_observed", result.provider
+    )
+    record_testsuite_property(f"{provider}.{scenario}.model", result.model)
+    record_testsuite_property(f"{provider}.{scenario}.scenario", scenario)
+    record_testsuite_property(
+        f"{provider}.{scenario}.duration_ms", int((time.monotonic() - started) * 1000)
+    )
+    record_testsuite_property(
+        f"{provider}.{scenario}.sha",
+        os.getenv("GITHUB_SHA", os.getenv("VECTORA_TEST_SHA", "worktree")),
+    )
+    assert result.response is not None, "live evaluation must produce typed evidence"
+    answer = result.response.answers["risk_score"]
+    assert isinstance(answer, ScoreAnswer)
+    assert 0 <= answer.score <= 1
+    assert answer.confidence is not None
+    assert 0 <= answer.confidence <= 1
+    assert result.provider and result.model
+    # The destructive string is input to the evaluator only; no tool executes here.

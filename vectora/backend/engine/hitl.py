@@ -406,6 +406,13 @@ def _decision_snapshot_matches_runtime(ctx: ToolContext) -> bool:
             getattr(ctx, "user_id", "local"),
             getattr(ctx, "workspace_id", None) or None,
         )
+        if "preferences_revision" in snapshot and snapshot[
+            "preferences_revision"
+        ] != runtime_settings.get_decision_model_revision(
+            getattr(ctx, "user_id", None) or "local",
+            getattr(ctx, "workspace_id", None) or None,
+        ):
+            return False
         surfaces = prefs.get("decisionModelSurfaces")
         effective = {
             "enabled": prefs.get("decisionModelsEnabled") is True,
@@ -497,7 +504,7 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
 
     if extra.get("decision_model_revoked") is True:
         return require_human("decision_model_revoked")
-    if not _decision_snapshot_matches_runtime(ctx):
+    if not await asyncio.to_thread(_decision_snapshot_matches_runtime, ctx):
         extra["decision_model_revoked"] = True
         return require_human("decision_model_revoked")
     if not decision_model_enabled_for(ctx, surface):
@@ -574,7 +581,7 @@ async def precompute_tool_risk_assessment(  # noqa: PLR0911
     # Re-read preferences and policy after the model call. A user or policy
     # change while the provider was running revokes this result before it can
     # be used to allow or auto-approve the tool call.
-    if not _decision_snapshot_matches_runtime(ctx):
+    if not await asyncio.to_thread(_decision_snapshot_matches_runtime, ctx):
         extra["decision_model_revoked"] = True
         return require_human("decision_model_revoked")
 

@@ -389,6 +389,10 @@ def test_autoeleicao_nao_sinaliza_quando_should_spawn_electron_diz_nao() -> None
             "backend.services.electron_sidecar.should_spawn_electron",
             return_value=False,
         ) as mock_should_spawn,
+        patch(
+            "backend.services.electron_sidecar.desktop_build_missing",
+            return_value=False,
+        ),
         patch("backend.api.server.create_app", return_value=MagicMock()),
         patch("backend.main._start_vite_dev", return_value=None, create=True),
         patch("backend.services.tray.run_server_with_tray"),
@@ -403,3 +407,58 @@ def test_autoeleicao_nao_sinaliza_quando_should_spawn_electron_diz_nao() -> None
     mock_should_spawn.assert_called_once()
     assert "VECTORA_DESKTOP" not in os.environ
     assert "VECTORA_SPAWN_ELECTRON" not in os.environ
+
+
+def test_start_sem_build_do_electron_falha_antes_de_abrir_porta(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """`vectora start` abre o desktop: com display e sem build do Electron ele
+    para com instrução, em vez de virar servidor web. Headless continua servidor."""
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in {"VECTORA_DESKTOP", "VECTORA_HEADLESS", "VECTORA_SPAWN_ELECTRON"}
+    }
+    with (
+        patch.dict(os.environ, env, clear=True),
+        patch("backend.services.electron_sidecar.has_display", return_value=True),
+        patch(
+            "backend.services.electron_sidecar.resolve_electron_launch",
+            return_value=None,
+        ),
+        patch("uvicorn.Config") as config_mock,
+        patch("backend.services.tray.run_server_with_tray"),
+        patch("backend.api.server.create_app", return_value=MagicMock()),
+        patch("os._exit"),
+    ):
+        from backend.main import _run_start
+
+        with pytest.raises(SystemExit) as exc:
+            _run_start(_base_args())
+        assert exc.value.code == 1
+        config_mock.assert_not_called()
+        assert "scons frontend" in capsys.readouterr().out
+
+        _run_start(_base_args(headless=True))
+        config_mock.assert_called_once()
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="branch exercitado é o do Windows")
+def test_janela_desktop_que_nao_abriu_encerra_com_codigo_1() -> None:
+    with (
+        patch.dict(os.environ, {"VECTORA_DESKTOP": "1"}, clear=False),
+        patch("backend.api.server.create_app", return_value=MagicMock()),
+        patch("backend.services.ipc_pipe_win.serve_pipe", AsyncMock()),
+        patch("uvicorn.Config", return_value=MagicMock()),
+        patch(
+            "uvicorn.Server", return_value=MagicMock(serve=AsyncMock(return_value=None))
+        ),
+        patch("asyncio.run"),
+        patch("backend.services.electron_sidecar.startup_failed", return_value=True),
+        patch("os._exit") as mock_exit,
+    ):
+        from backend.main import _run_start
+
+        _run_start(_base_args())
+
+    mock_exit.assert_called_once_with(1)

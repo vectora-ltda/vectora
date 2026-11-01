@@ -72,9 +72,19 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Bandit (static security analysis)
-        run: uv run bandit -c pyproject.toml -r backend || true
+        run: uv run bandit -c pyproject.toml -r backend -f json -o bandit.json
       - name: pip-audit (vulnerable dependencies)
-        run: uv run --with pip-audit pip-audit || true
+        if: ${{ !cancelled() }}
+        run: uv run --with pip-audit pip-audit --skip-editable --format json --output pip-audit.json
+      - name: Upload security reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: python-security-${{ github.sha }}
+          path: |
+            vectora/bandit.json
+            vectora/pip-audit.json
+          if-no-files-found: error
 
   # ── 2b. Frontend (oxlint + tsc + vitest) ────────────────────────────────
   # O job `lint` cobre só o Python (ruff + ty). A suíte TypeScript — lint

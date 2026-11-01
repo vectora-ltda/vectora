@@ -531,6 +531,37 @@ class RuntimeSettings:
             self._data["last_session_by_dir"] = mapping
             self._persist("last_session_by_dir", mapping)
 
+    def _read_frontend_prefs(self) -> dict[str, object]:
+        """Read durable preferences under the instance lock; propagate storage errors."""
+        row = self._conn.execute(
+            "SELECT value FROM app_settings WHERE key = ?", ("frontend_prefs",)
+        ).fetchone()
+        value = json.loads(row[0]) if row is not None else {}
+        if not isinstance(value, dict):
+            raise ValueError("preferências persistidas inválidas")
+        return value
+
+    def get_decision_model_revision(
+        self, user_id: str, workspace_id: str | None = None
+    ) -> dict[str, int]:
+        """Read monotonic global and workspace revisions without trusting a local cache."""
+        with self._lock:
+            user = self._read_frontend_prefs().get(user_id, {})
+            if not isinstance(user, dict):
+                raise ValueError("preferências de usuário inválidas")
+            workspaces = user.get("decision_model_workspace_prefs", {})
+            scoped = (
+                workspaces.get(workspace_id, {})
+                if isinstance(workspaces, dict) and workspace_id
+                else {}
+            )
+            return {
+                "user": int(user.get("_decision_model_revision", 0)),
+                "workspace": int(scoped.get("_decision_model_revision", 0))
+                if isinstance(scoped, dict)
+                else 0,
+            }
+
     def get_frontend_prefs(
         self, user_id: str, workspace_id: str | None = None
     ) -> dict[str, object]:
@@ -539,7 +570,8 @@ class RuntimeSettings:
         Chave por usuário — numa instância multi-usuário (VPS), as
         preferências de um usuário não vazam pra outro.
         """
-        all_prefs = self.get("frontend_prefs", {})
+        with self._lock:
+            all_prefs = self._read_frontend_prefs()
         if not isinstance(all_prefs, dict):
             return {}
         user_prefs = all_prefs.get(user_id)
@@ -548,14 +580,20 @@ class RuntimeSettings:
         result = {
             str(k): v
             for k, v in user_prefs.items()
-            if k != "decision_model_workspace_prefs"
+            if k not in {"decision_model_workspace_prefs", "_decision_model_revision"}
         }
         if workspace_id:
             workspace_prefs = user_prefs.get("decision_model_workspace_prefs")
             if isinstance(workspace_prefs, dict):
                 selected = workspace_prefs.get(workspace_id)
                 if isinstance(selected, dict):
-                    result.update({str(k): v for k, v in selected.items()})
+                    result.update(
+                        {
+                            str(k): v
+                            for k, v in selected.items()
+                            if k != "_decision_model_revision"
+                        }
+                    )
         return result
 
     def set_frontend_prefs(
@@ -577,14 +615,16 @@ class RuntimeSettings:
             allowed["decisionModelsEnabled"], bool
         ):
             allowed.pop("decisionModelsEnabled")
-        if "decisionModelProvider" in allowed and allowed[
-            "decisionModelProvider"
-        ] not in {
-            "clef-local",
-            "laya-local",
-            "clef-api",
-            "jev-api",
-        }:
+        if "decisionModelProvider" in allowed and (
+            not isinstance(allowed["decisionModelProvider"], str)
+            or allowed["decisionModelProvider"]
+            not in {
+                "clef-local",
+                "laya-local",
+                "clef-api",
+                "jev-api",
+            }
+        ):
             allowed.pop("decisionModelProvider")
         if "decisionModelSurfaces" in allowed:
             surfaces = allowed["decisionModelSurfaces"]
@@ -631,38 +671,59 @@ class RuntimeSettings:
             else {}
         )
         with self._lock:
-            all_prefs_raw = self._data.get("frontend_prefs", {})
-            all_prefs: dict[str, object] = (
-                {str(k): v for k, v in all_prefs_raw.items()}
-                if isinstance(all_prefs_raw, dict)
-                else {}
-            )
-            existing = all_prefs.get(user_id)
-            user_prefs: dict[str, object] = (
-                {str(k): v for k, v in existing.items()}
-                if isinstance(existing, dict)
-                else {}
-            )
-            user_prefs.update(allowed)
-            if workspace_id and workspace_decision_changes:
-                raw_workspace_prefs = user_prefs.get("decision_model_workspace_prefs")
-                workspace_prefs = (
-                    {str(key): value for key, value in raw_workspace_prefs.items()}
-                    if isinstance(raw_workspace_prefs, dict)
-                    else {}
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                all_prefs = self._read_frontend_prefs()
+                existing = all_prefs.get(user_id)
+                user_prefs = dict(existing) if isinstance(existing, dict) else {}
+                if any(
+                    key in decision_keys and user_prefs.get(key) != value
+                    for key, value in allowed.items()
+                ):
+                    user_prefs["_decision_model_revision"] = (
+                        int(user_prefs.get("_decision_model_revision", 0)) + 1
+                    )
+                user_prefs.update(allowed)
+                if workspace_id and workspace_decision_changes:
+                    raw_workspace_prefs = user_prefs.get(
+                        "decision_model_workspace_prefs"
+                    )
+                    workspace_prefs = (
+                        dict(raw_workspace_prefs)
+                        if isinstance(raw_workspace_prefs, dict)
+                        else {}
+                    )
+                    existing_workspace = workspace_prefs.get(workspace_id)
+                    scoped = (
+                        dict(existing_workspace)
+                        if isinstance(existing_workspace, dict)
+                        else {}
+                    )
+                    if any(
+                        scoped.get(key) != value
+                        for key, value in workspace_decision_changes.items()
+                    ):
+                        scoped["_decision_model_revision"] = (
+                            int(scoped.get("_decision_model_revision", 0)) + 1
+                        )
+                    scoped.update(workspace_decision_changes)
+                    workspace_prefs[workspace_id] = scoped
+                    user_prefs["decision_model_workspace_prefs"] = workspace_prefs
+                all_prefs[user_id] = user_prefs
+                self._conn.execute(
+                    "INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                    (
+                        "frontend_prefs",
+                        json.dumps(all_prefs, ensure_ascii=False),
+                        datetime.now(UTC).isoformat(),
+                    ),
                 )
-                existing_workspace = workspace_prefs.get(workspace_id)
-                scoped = (
-                    {str(key): value for key, value in existing_workspace.items()}
-                    if isinstance(existing_workspace, dict)
-                    else {}
-                )
-                scoped.update(workspace_decision_changes)
-                workspace_prefs[workspace_id] = scoped
-                user_prefs["decision_model_workspace_prefs"] = workspace_prefs
-            all_prefs[user_id] = user_prefs
-            self._data["frontend_prefs"] = all_prefs
-            self._persist("frontend_prefs", all_prefs)
+                self._conn.commit()
+                self._data["frontend_prefs"] = all_prefs
+            except Exception:
+                self._conn.rollback()
+                raise
         return self.get_frontend_prefs(user_id, workspace_id)
 
 

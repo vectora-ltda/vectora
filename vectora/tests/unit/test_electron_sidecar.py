@@ -34,11 +34,16 @@ def _reset_sidecar_state(monkeypatch: pytest.MonkeyPatch):
     electron_sidecar._spawn_lock = LazyLock()
     electron_sidecar._log_task = None
     electron_sidecar._watch_task = None
+    electron_sidecar._window_task = None
+    electron_sidecar._startup_failed = False
     electron_sidecar._job_handle = None
     electron_sidecar.set_backend_shutdown_callback(None)
     yield
-    if electron_sidecar._watch_task is not None:
-        electron_sidecar._watch_task.cancel()
+    for task in (electron_sidecar._watch_task, electron_sidecar._window_task):
+        if task is not None:
+            task.cancel()
+    electron_sidecar._window_task = None
+    electron_sidecar._startup_failed = False
     electron_sidecar._proc = None
     electron_sidecar._spawn_lock = LazyLock()
     electron_sidecar._log_task = None
@@ -522,3 +527,127 @@ class TestWatchForUnexpectedExit:
             await asyncio.sleep(0)
 
         kill_mock.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Desktop obrigatório em `vectora start` — build ausente e janela que não abre
+# ---------------------------------------------------------------------------
+
+
+class TestDesktopBuildMissing:
+    @pytest.mark.parametrize(
+        ("env", "display", "launch", "expected"),
+        [
+            ({}, True, None, True),
+            ({}, True, ("electron.exe", ["main.js"]), False),
+            ({}, False, None, False),
+            ({"VECTORA_HEADLESS": "1"}, True, None, False),
+            ({"VECTORA_DESKTOP": "1"}, True, None, False),
+        ],
+    )
+    def test_so_falta_desktop_com_display_sem_build(
+        self: TestDesktopBuildMissing,
+        monkeypatch: pytest.MonkeyPatch,
+        env: dict[str, str],
+        display: bool,
+        launch: tuple[str, list[str]] | None,
+        expected: bool,
+    ) -> None:
+        for name in ("VECTORA_DESKTOP", "VECTORA_HEADLESS"):
+            monkeypatch.delenv(name, raising=False)
+        for name, value in env.items():
+            monkeypatch.setenv(name, value)
+        with (
+            patch(
+                "backend.services.electron_sidecar.has_display", return_value=display
+            ),
+            patch(
+                "backend.services.electron_sidecar.resolve_electron_launch",
+                return_value=launch,
+            ),
+        ):
+            assert electron_sidecar.desktop_build_missing() is expected
+
+
+class _ScriptedStdout:
+    """stdout do Electron que entrega linhas fixas e depois fica aberto."""
+
+    def __init__(self: _ScriptedStdout, lines: list[bytes]) -> None:
+        self._lines = list(lines)
+        self._open: asyncio.Future[bytes] = asyncio.get_event_loop().create_future()
+
+    async def readline(self: _ScriptedStdout) -> bytes:
+        if self._lines:
+            return self._lines.pop(0)
+        return await self._open
+
+
+def _hung_proc(lines: list[bytes]) -> MagicMock:
+    proc = MagicMock()
+    proc.pid = 4242
+    proc.returncode = None
+    proc.stdout = _ScriptedStdout(lines)
+    never: asyncio.Future[None] = asyncio.get_event_loop().create_future()
+
+    async def _wait() -> None:
+        return await never
+
+    proc.wait = AsyncMock(side_effect=_wait)
+    return proc
+
+
+async def _spawn(proc: MagicMock) -> None:
+    with (
+        patch(
+            "backend.services.electron_sidecar.resolve_electron_launch",
+            return_value=("electron.exe", ["main.js"]),
+        ),
+        patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)),
+    ):
+        await electron_sidecar.ensure_electron_sidecar()
+
+
+class TestWindowReadyWatchdog:
+    @pytest.mark.asyncio
+    async def test_janela_aberta_mantem_backend_e_janela_ausente_encerra(
+        self: TestWindowReadyWatchdog,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        monkeypatch.delenv("VECTORA_WEB_MODE", raising=False)
+        monkeypatch.setenv("VECTORA_ELECTRON_WINDOW_TIMEOUT_S", "0.05")
+        shutdown = MagicMock()
+        electron_sidecar.set_backend_shutdown_callback(shutdown)
+
+        marker = electron_sidecar.WINDOW_READY_MARKER.encode() + b"\n"
+        await _spawn(_hung_proc([b"boot\n", marker]))
+        assert electron_sidecar._window_task is not None
+        await electron_sidecar._window_task
+        shutdown.assert_not_called()
+        assert electron_sidecar.startup_failed() is False
+
+        for task in (electron_sidecar._log_task, electron_sidecar._watch_task):
+            if task is not None:
+                task.cancel()
+        electron_sidecar._proc = None
+        caplog.set_level(logging.ERROR, logger="backend.services.electron_sidecar")
+        await _spawn(_hung_proc([b"boot\n"]))
+        assert electron_sidecar._window_task is not None
+        await electron_sidecar._window_task
+        shutdown.assert_called_once_with()
+        assert electron_sidecar.startup_failed() is True
+        assert "não abriu a janela" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_modo_web_nao_vigia_janela_e_timeout_invalido_usa_padrao(
+        self: TestWindowReadyWatchdog, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("VECTORA_WEB_MODE", "1")
+        await _spawn(_hung_proc([]))
+        assert electron_sidecar._window_task is None
+
+        for raw in ("", "abc", "0", "-5"):
+            monkeypatch.setenv("VECTORA_ELECTRON_WINDOW_TIMEOUT_S", raw)
+            assert electron_sidecar._window_timeout_s() == 120.0
+        monkeypatch.setenv("VECTORA_ELECTRON_WINDOW_TIMEOUT_S", "30")
+        assert electron_sidecar._window_timeout_s() == 30.0
