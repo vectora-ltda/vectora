@@ -366,3 +366,154 @@ async def test_auditoria_de_mutacao_nao_expoe_assinatura(monkeypatch):
         "smart_approval.remove",
     ]
     assert all("signature" not in event for event in eventos)
+
+
+@pytest.fixture
+async def session_store(tmp_path):
+    from backend.persistence.native.session_store import SessionStore
+    from backend.storage.sqlite.pool import AsyncConnectionPool
+
+    pool = AsyncConnectionPool(
+        str(tmp_path / "grant-sessions.db"), min_size=1, max_size=2
+    )
+    await pool.open()
+    store = SessionStore(pool)
+    await store.setup()
+    try:
+        yield store
+    finally:
+        await pool.close()
+
+
+@pytest.mark.asyncio
+async def test_authenticated_http_grant_reaches_durable_executor_without_auth_bypass(
+    tmp_path, monkeypatch, session_store
+):
+    import aiosqlite
+
+    from backend.api.handlers import threads
+    from backend.api.server import create_app
+    from backend.engine.conversation_loop import _consume_preapproval_grant
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.rbac import auth
+    from backend.tools.context import ToolContext
+    from backend.vtypes.message import ToolCall
+    from backend.workspace.workspace import workspace_registry
+
+    monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "true")
+    monkeypatch.setattr(
+        auth, "_get_secret", lambda: "isolated-grant-auth-secret-32-characters"
+    )
+    async with aiosqlite.connect(tmp_path / "auth.db") as db:
+        db.row_factory = aiosqlite.Row
+        await auth._ensure_schema(db)
+
+        async def get_db():
+            return db
+
+        monkeypatch.setattr(auth, "_get_db", get_db)
+        owner, token, _ = await auth.signup(
+            "owner@example.test", "testing-only-password", name="Owner"
+        )
+        _other, other_token, _ = await auth.signup(
+            "other@example.test", "testing-only-password", name="Other"
+        )
+        body = _grant_request()
+        monkeypatch.setitem(
+            workspace_registry._workspaces,
+            body.workspace_id,
+            Workspace(
+                id=body.workspace_id,
+                name="Private",
+                cwd=str(tmp_path),
+                created_at="2026-11-01T00:00:00+00:00",
+                owner_id=owner.id,
+            ),
+        )
+        await session_store.create_session(body.thread_id, user_id=owner.id)
+        await session_store.upsert_agent_run(
+            AgentRun(
+                run_id=body.run_id,
+                thread_id=body.thread_id,
+                workspace_id=body.workspace_id,
+                user_id=owner.id,
+            )
+        )
+        await session_store.put_pending_approval(
+            body.thread_id,
+            interrupt_id=body.interrupt_id,
+            tool_name=body.tool_name,
+            tool_call_id="http-grant",
+            run_id=body.run_id,
+            args=body.args,
+        )
+
+        async def get_store():
+            return session_store
+
+        monkeypatch.setattr(threads, "_get_session_store", get_store)
+        app = create_app(serve_static=False)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            assert (
+                await client.post("/smart-approval/allowlist", json=body.model_dump())
+            ).status_code == 401
+            other_headers = {"Authorization": f"Bearer {other_token}"}
+            denied = await client.post(
+                "/smart-approval/allowlist",
+                headers=other_headers,
+                json=body.model_dump(),
+            )
+            assert denied.status_code == 403
+            headers = {"Authorization": f"Bearer {token}"}
+            created = await client.post(
+                "/smart-approval/allowlist", headers=headers, json=body.model_dump()
+            )
+            assert created.status_code == 200, created.text
+            grant_id = created.json()["allowlist"][0]["id"]
+            listed = await client.get(
+                "/smart-approval/allowlist",
+                headers=headers,
+                params={"workspace_id": body.workspace_id},
+            )
+            assert listed.json()["allowlist"][0]["id"] == grant_id
+            altered = {**body.model_dump(), "args": {"command": "different"}}
+            assert (
+                await client.post(
+                    "/smart-approval/allowlist", headers=headers, json=altered
+                )
+            ).status_code == 409
+            context = ToolContext(
+                user_id=owner.id,
+                thread_id=body.thread_id,
+                workspace_id=body.workspace_id,
+                run_id=body.run_id,
+            )
+            call = ToolCall(id="http-grant", name=body.tool_name, args=body.args)
+            assert await _consume_preapproval_grant(
+                session_store, ctx=context, run_id=body.run_id, tool_call=call
+            )
+            assert not await _consume_preapproval_grant(
+                session_store, ctx=context, run_id=body.run_id, tool_call=call
+            )
+            run = await session_store.get_agent_run(body.run_id)
+            assert run is not None
+            assert any(item.get("grant_id") == grant_id for item in run.evidence)
+            # Recreate and revoke through the same authenticated route.
+            assert (
+                await client.post(
+                    "/smart-approval/allowlist", headers=headers, json=body.model_dump()
+                )
+            ).status_code == 200
+            revoked = await client.request(
+                "DELETE",
+                "/smart-approval/allowlist",
+                headers=headers,
+                json={"workspace_id": body.workspace_id, "rule_id": grant_id},
+            )
+            assert revoked.status_code == 200
+            assert revoked.json()["allowlist"] == []
+            assert not await _consume_preapproval_grant(
+                session_store, ctx=context, run_id=body.run_id, tool_call=call
+            )

@@ -59,10 +59,11 @@ def _advance(scope: str, version: int) -> None:
         _versions[scope] = version
 
 
-async def sync_persisted_versions() -> None:
+async def sync_persisted_versions(*, strict: bool = False) -> None:
     """Puxa do banco as versões de todos os escopos.
 
-    Falha do banco é registrada e mantém a última versão lida: a réplica
+    No modo estrito, falha de leitura propaga ao executor e impede o efeito.
+    Fora dele, a falha é registrada e mantém a última versão lida: a réplica
     continua com o cache, sem derrubar a execução de tools.
     """
     store: Any = _version_store
@@ -74,6 +75,8 @@ async def sync_persisted_versions() -> None:
         logger.warning(
             "tool_policy: versões compartilhadas indisponíveis", exc_info=True
         )
+        if strict:
+            raise
         return
     for scope, version in versions.items():
         _advance(scope, version)

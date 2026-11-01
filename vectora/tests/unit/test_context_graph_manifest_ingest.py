@@ -236,3 +236,17 @@ class TestExtractPackageManifestEdgeCases:
         result = extract_package_manifest(p)
         for e in result["edges"]:
             assert e["source"] != e["target"]
+
+
+def test_maven_manifest_rejects_entity_expansion(tmp_path):
+    from backend.context_graph.manifest_ingest import extract_package_manifest
+
+    path = tmp_path / "pom.xml"
+    path.write_text(
+        '<!DOCTYPE project [<!ENTITY injected "untrusted-expanded-value">]><project><artifactId>&injected;</artifactId></project>',
+        encoding="utf-8",
+    )
+    result = extract_package_manifest(path)
+    assert result["nodes"] == []
+    assert "error" in result
+    assert "untrusted-expanded-value" not in str(result)

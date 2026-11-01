@@ -29,3 +29,28 @@ Preferences are associated with the user and active workspace. When switching wo
 ## Security and data
 
 Decisions are associated with their execution context. Do not place credentials or private content in decision fields. The interface should mask secrets, and audit records should store only the metadata and summaries needed to explain a decision.
+
+## Changes during an execution
+
+Decision preferences are recorded per execution. Changing the provider, enabling or disabling the model, or changing its surfaces invalidates the previous authorization. Returning to the original configuration does not restore that authorization: a new evaluation or approval is required according to policy. Authorization is checked again before invoking the tool, including after asynchronous preparation.
+
+## Local transcription
+
+Transcription and runtime probes share a limit of one native operation per process. Wait for an ongoing operation to finish before retrying. Transcription waits up to 60 seconds; the probe waits up to 45 seconds. A timeout does not terminate native inference: the slot remains occupied and temporary audio is removed when processing finishes. A late result is never reported as a successful probe after a timeout.
+
+## Recording and replaying an execution
+
+Enable `EVALUATION_RECORDING_ENABLED=true` before starting the backend to capture actual model inputs. Recording is optional and disabled by default; it stores context and responses in AgentRun with credential redaction. Content can still contain private information: apply the same access and retention controls as conversation history.
+
+Save the JSON response from the authenticated `GET /runs/{run_id}` query as `run.json`, then export and replay it:
+
+```shell
+vectora eval export-run --run-file run.json --target run.cassette.json
+vectora eval run --suite run.cassette.json --output json
+```
+
+The export links interactions to decisions and observed tool-result digests. Pending operations are marked as incomplete outcomes. Replay uses recorded responses without calling providers or executing tools again. It does not prove live availability or reproducibility of the external environment.
+
+The **AI models** tab also includes the primary chat model selector and a dedicated image understanding and vision fallback section. Chat fallback order remains separate from image, TTS and video generation.
+
+Evaluation recordings live in AgentRun and are removed with the session. Exported JSON files are independent copies: apply your environment’s retention policy and delete those files separately when they are no longer needed.

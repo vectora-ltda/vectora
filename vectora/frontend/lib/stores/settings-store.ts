@@ -50,6 +50,59 @@ function activeDecisionWorkspaceId(): string | null {
   return useWorkspacesStore.getState().active_id ?? null;
 }
 
+let settingsUserEpoch = 0;
+const decisionSaves = new Map<string, Promise<boolean>>();
+
+function pushDecisionPrefs(
+  changes: Parameters<typeof pushPrefs>[0],
+  workspaceId: string | null = null,
+): Promise<boolean> {
+  const userEpoch = settingsUserEpoch;
+  const key = JSON.stringify([userEpoch, workspaceId]);
+  const previous = decisionSaves.get(key);
+  const save = () =>
+    settingsUserEpoch === userEpoch
+      ? pushPrefs(changes, workspaceId)
+      : Promise.resolve(false);
+  const pending = previous ? previous.then(save, save) : save();
+  decisionSaves.set(key, pending);
+  void pending.finally(() => {
+    if (decisionSaves.get(key) === pending) decisionSaves.delete(key);
+  });
+  return pending;
+}
+
+let decisionHydrationEpoch = 0;
+let decisionScopeEpoch = 0;
+const decisionEdits = new Map<string, number>();
+const confirmedDecisionValues = new Map<string, unknown>();
+
+function decisionConfirmation(key: string, previous: unknown) {
+  const scope = JSON.stringify([
+    settingsUserEpoch,
+    activeDecisionWorkspaceId(),
+    key,
+  ]);
+  if (!confirmedDecisionValues.has(scope))
+    confirmedDecisionValues.set(scope, previous);
+  return {
+    saved: (value: unknown) => confirmedDecisionValues.set(scope, value),
+    previous: () => confirmedDecisionValues.get(scope),
+  };
+}
+
+function beginDecisionEdit(key: string): () => boolean {
+  ++decisionHydrationEpoch;
+  const revision = (decisionEdits.get(key) ?? 0) + 1;
+  decisionEdits.set(key, revision);
+  const workspace = activeDecisionWorkspaceId();
+  const scopeEpoch = decisionScopeEpoch;
+  return () =>
+    decisionEdits.get(key) === revision &&
+    decisionScopeEpoch === scopeEpoch &&
+    activeDecisionWorkspaceId() === workspace;
+}
+
 /** Fontes configuráveis por superfície. O valor é uma família CSS, não um
  * caminho de arquivo; isso permite usar fontes instaladas no sistema sem
  * empacotar fontes proprietárias no Vectora. */
@@ -540,52 +593,79 @@ export const useSettingsStore = create<SettingsState>()(
         void pushPrefs({ reasoningEffort: v });
       },
       setDecisionModelsEnabled: (v) => {
-        const previous = get().decisionModelsEnabled;
+        const isCurrent = beginDecisionEdit("decisionModelsEnabled");
+        const confirmed = decisionConfirmation(
+          "decisionModelsEnabled",
+          get().decisionModelsEnabled,
+        );
         set({ decisionModelsEnabled: v });
-        void pushPrefs(
+        void pushDecisionPrefs(
           { decisionModelsEnabled: v },
           activeDecisionWorkspaceId(),
         ).then((saved) => {
-          if (!saved && get().decisionModelsEnabled === v)
-            set({ decisionModelsEnabled: previous });
+          if (saved) confirmed.saved(v);
+          else if (isCurrent())
+            set({ decisionModelsEnabled: confirmed.previous() as boolean });
         });
       },
       setDecisionModelProvider: (v) => {
-        const previous = get().decisionModelProvider;
+        const isCurrent = beginDecisionEdit("decisionModelProvider");
+        const confirmed = decisionConfirmation(
+          "decisionModelProvider",
+          get().decisionModelProvider,
+        );
         set({ decisionModelProvider: v });
-        void pushPrefs(
+        void pushDecisionPrefs(
           { decisionModelProvider: v },
           activeDecisionWorkspaceId(),
         ).then((saved) => {
-          if (!saved && get().decisionModelProvider === v)
-            set({ decisionModelProvider: previous });
+          if (saved) confirmed.saved(v);
+          else if (isCurrent())
+            set({
+              decisionModelProvider:
+                confirmed.previous() as DecisionModelProvider,
+            });
         });
       },
       setDecisionModelSurfaces: (v) => {
-        const previous = get().decisionModelSurfaces;
+        const isCurrent = beginDecisionEdit("decisionModelSurfaces");
+        const confirmed = decisionConfirmation(
+          "decisionModelSurfaces",
+          get().decisionModelSurfaces,
+        );
         const safe = Object.fromEntries(
           Object.entries(v).filter(
             ([, enabled]) => typeof enabled === "boolean",
           ),
         );
         set({ decisionModelSurfaces: safe });
-        void pushPrefs(
+        void pushDecisionPrefs(
           { decisionModelSurfaces: safe },
           activeDecisionWorkspaceId(),
         ).then((saved) => {
-          if (
-            !saved &&
-            JSON.stringify(get().decisionModelSurfaces) === JSON.stringify(safe)
-          )
-            set({ decisionModelSurfaces: previous });
+          if (saved) confirmed.saved(safe);
+          else if (isCurrent())
+            set({
+              decisionModelSurfaces: confirmed.previous() as Record<
+                string,
+                boolean
+              >,
+            });
         });
       },
       setTranscriptionMode: (v) => {
-        const previous = get().transcriptionMode;
+        const isCurrent = beginDecisionEdit("transcriptionMode");
+        const confirmed = decisionConfirmation(
+          "transcriptionMode",
+          get().transcriptionMode,
+        );
         set({ transcriptionMode: v });
-        void pushPrefs({ transcriptionMode: v }).then((saved) => {
-          if (!saved && get().transcriptionMode === v)
-            set({ transcriptionMode: previous });
+        void pushDecisionPrefs({ transcriptionMode: v }).then((saved) => {
+          if (saved) confirmed.saved(v);
+          else if (isCurrent())
+            set({
+              transcriptionMode: confirmed.previous() as "local" | "remote",
+            });
         });
       },
       setSidebarWidth: (v) =>
@@ -767,6 +847,10 @@ export const useSettingsStore = create<SettingsState>()(
  *   loadUserSettings("user_abc123")
  */
 export function loadUserSettings(userId?: string): void {
+  ++settingsUserEpoch;
+  confirmedDecisionValues.clear();
+  ++decisionScopeEpoch;
+  ++decisionHydrationEpoch;
   const key = getStorageKey(userId);
   useSettingsStore.persist.setOptions({ name: key });
   void Promise.resolve(useSettingsStore.persist.rehydrate()).then(() => {
@@ -790,7 +874,16 @@ export function loadUserSettings(userId?: string): void {
  * usuário estiver resolvido (ver `__root.tsx`).
  */
 export async function hydrateFromBackend(): Promise<void> {
-  const prefs = await fetchPrefs(activeDecisionWorkspaceId());
+  const workspaceId = activeDecisionWorkspaceId();
+  const epoch = ++decisionHydrationEpoch;
+  ++decisionScopeEpoch;
+  const prefs = await fetchPrefs(workspaceId);
+  if (
+    epoch !== decisionHydrationEpoch ||
+    activeDecisionWorkspaceId() !== workspaceId
+  )
+    return;
+  confirmedDecisionValues.clear();
   const update: Partial<SettingsState> = {};
   if (prefs.selectedModel) update.selectedModel = prefs.selectedModel;
   if (typeof prefs.decisionModelsEnabled === "boolean")
@@ -853,9 +946,12 @@ export async function hydrateFromBackend(): Promise<void> {
 export async function hydrateDecisionModelPreferences(
   workspaceId: string | null = activeDecisionWorkspaceId(),
 ): Promise<void> {
+  const epoch = ++decisionHydrationEpoch;
+  ++decisionScopeEpoch;
   const prefs = await fetchPrefsOrNull(workspaceId);
-  if (prefs === null) return;
+  if (prefs === null || epoch !== decisionHydrationEpoch) return;
   if (activeDecisionWorkspaceId() !== workspaceId) return;
+  confirmedDecisionValues.clear();
   useSettingsStore.setState({
     decisionModelsEnabled: prefs.decisionModelsEnabled === true,
     decisionModelProvider:

@@ -29,3 +29,28 @@ As preferências são associadas ao usuário e ao workspace ativo. Ao trocar de 
 ## Segurança e dados
 
 As decisões são associadas ao contexto de execução. Não inclua credenciais ou conteúdo privado em campos de decisão. A interface deve mascarar segredos, e os registros de auditoria devem armazenar apenas metadados e resumos necessários para explicar a decisão.
+
+## Alterações durante uma execução
+
+As preferências de decisão são registradas por execução. Alterar o provider, habilitar ou desabilitar o modelo ou mudar suas superfícies invalida a autorização anterior. Voltar à configuração original não recupera essa autorização: será necessária uma nova avaliação ou aprovação conforme a política. A verificação ocorre novamente antes de chamar a ferramenta, inclusive depois de operações assíncronas de preparação.
+
+## Transcrição local
+
+A transcrição e a sondagem do runtime compartilham um limite de uma operação nativa por processo. Se houver uma operação em andamento, aguarde sua conclusão antes de tentar novamente. A transcrição limita a espera a 60 segundos; a sondagem, a 45 segundos. Exceder a espera não encerra a inferência nativa: o slot permanece ocupado e o áudio temporário é removido quando o processamento termina. Nenhum resultado tardio é apresentado como uma sondagem concluída com sucesso após timeout.
+
+## Gravação e replay de uma execução
+
+Para registrar as entradas reais do modelo, habilite `EVALUATION_RECORDING_ENABLED=true` antes de iniciar o backend. A gravação é opcional e fica desabilitada por padrão; ela armazena contexto e respostas no AgentRun, com redação de credenciais. O conteúdo ainda pode conter informações privadas: controle o acesso e a retenção como no histórico da conversa.
+
+Salve a resposta JSON da consulta autenticada `GET /runs/{run_id}` em `run.json`. Exporte e reproduza a cassete:
+
+```shell
+vectora eval export-run --run-file run.json --target run.cassette.json
+vectora eval run --suite run.cassette.json --output json
+```
+
+A exportação associa as interações às decisões e aos digests dos resultados observados das ferramentas. Operações ainda pendentes são identificadas como resultados incompletos. O replay usa respostas gravadas e não chama providers nem executa as ferramentas novamente. Ele não comprova disponibilidade live ou repetibilidade do ambiente externo.
+
+A aba **Modelos de IA** também reúne a seleção do modelo principal do chat e uma seção própria para compreensão de imagens e fallback de visão. A ordem de fallback do chat permanece separada da geração de imagens, TTS e vídeo.
+
+A gravação de avaliação fica no AgentRun e acompanha a exclusão da sessão. Arquivos JSON exportados são cópias independentes: aplique a eles a política de retenção do seu ambiente e exclua-os separadamente quando não forem mais necessários.

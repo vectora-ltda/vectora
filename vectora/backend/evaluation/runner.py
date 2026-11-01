@@ -75,7 +75,13 @@ def _tool_calls_equivalent(
 
 def _decision_evidence_for_comparison(value: JsonObject) -> JsonObject:
     """Remove execution identity while retaining the decision's semantics."""
-    volatile_keys = {"run_id", "thread_id", "evidence_id", "decision_id"}
+    volatile_keys = {
+        "run_id",
+        "thread_id",
+        "evidence_id",
+        "decision_id",
+        "tool_call_id",
+    }
 
     def normalize(item: Any) -> Any:
         if isinstance(item, dict):
@@ -144,6 +150,10 @@ def compare_cassettes(
             )
             response_match = b_item.response_text == c_item.response_text
             decision_evidence_match = None
+            if (b_item.systemone_decision_evidence is None) != (
+                c_item.systemone_decision_evidence is None
+            ):
+                decision_evidence_match = False
             if (
                 b_item.systemone_decision_evidence is not None
                 and c_item.systemone_decision_evidence is not None

@@ -447,10 +447,100 @@ class TestRagSettings:
 
 
 class TestFrontendPrefs:
+    @pytest.mark.parametrize("failure", ["write", "commit"])
+    def test_failed_preference_write_preserves_revision_and_durable_state(
+        self, tmp_path, failure
+    ):
+        first = RuntimeSettings(tmp_path / "failed-prefs.db")
+        second = RuntimeSettings(tmp_path / "failed-prefs.db")
+        first.set_frontend_prefs(
+            "u1", {"decisionModelsEnabled": True}, workspace_id="a"
+        )
+        revision = second.get_decision_model_revision("u1", "a")
+        connection = first._conn
+
+        class FailingConnection:
+            def execute(self, query, parameters=()):
+                if failure == "write" and query.startswith("INSERT"):
+                    raise sqlite3.OperationalError("write failed")
+                return connection.execute(query, parameters)
+
+            def commit(self):
+                if failure == "commit":
+                    raise sqlite3.OperationalError("commit failed")
+                connection.commit()
+
+            def rollback(self):
+                connection.rollback()
+
+        first._conn = cast("sqlite3.Connection", FailingConnection())
+        try:
+            with pytest.raises(sqlite3.OperationalError):
+                first.set_frontend_prefs(
+                    "u1", {"decisionModelsEnabled": False}, workspace_id="a"
+                )
+            assert first.get_frontend_prefs("u1", "a")["decisionModelsEnabled"] is True
+            assert second.get_frontend_prefs("u1", "a")["decisionModelsEnabled"] is True
+            assert second.get_decision_model_revision("u1", "a") == revision
+            first._conn = connection
+            first.set_frontend_prefs(
+                "u1", {"decisionModelsEnabled": False}, workspace_id="a"
+            )
+            assert (
+                second.get_frontend_prefs("u1", "a")["decisionModelsEnabled"] is False
+            )
+        finally:
+            connection.close()
+            second._conn.close()
+
     """frontend_prefs: preferências do web app sincronizadas com o backend."""
 
     def test_defaults_vazio(self, rs) -> None:
         assert rs.get_frontend_prefs("u1") == {}
+
+    def test_independent_connections_merge_and_observe_revocation(self, tmp_path):
+        first = RuntimeSettings(tmp_path / "prefs.db")
+        second = RuntimeSettings(tmp_path / "prefs.db")
+        try:
+            first.set_frontend_prefs("u1", {"decisionModelsEnabled": True})
+            second.set_frontend_prefs("u2", {"theme": "light"})
+            assert second.get_frontend_prefs("u1")["decisionModelsEnabled"] is True
+            first.set_frontend_prefs("u1", {"decisionModelsEnabled": False})
+            assert second.get_frontend_prefs("u1")["decisionModelsEnabled"] is False
+            assert first.get_frontend_prefs("u2") == {"theme": "light"}
+        finally:
+            first._conn.close()
+            second._conn.close()
+
+    def test_decision_revision_detects_aba_and_preserves_scope(self, tmp_path):
+        first = RuntimeSettings(tmp_path / "revision.db")
+        second = RuntimeSettings(tmp_path / "revision.db")
+        try:
+            first.set_frontend_prefs(
+                "u1", {"decisionModelsEnabled": True}, workspace_id="a"
+            )
+            original = second.get_decision_model_revision("u1", "a")
+            first.set_frontend_prefs(
+                "u1", {"decisionModelsEnabled": False}, workspace_id="a"
+            )
+            first.set_frontend_prefs(
+                "u1", {"decisionModelsEnabled": True}, workspace_id="a"
+            )
+            assert second.get_decision_model_revision("u1", "a") != original
+            revision = second.get_decision_model_revision("u1", "a")
+            first.set_frontend_prefs("u1", {"theme": "light"})
+            first.set_frontend_prefs(
+                "u1", {"decisionModelsEnabled": False}, workspace_id="b"
+            )
+            assert second.get_decision_model_revision("u1", "a") == revision
+            first.set_frontend_prefs(
+                "u1", {"decisionModelsEnabled": True}, workspace_id="a"
+            )
+            assert second.get_decision_model_revision("u1", "a") == revision
+            assert "_decision_model_revision" not in first.get_frontend_prefs("u1", "a")
+        finally:
+            first._conn.close()
+            second._conn.close()
 
     def test_set_merge_e_leitura(self, rs) -> None:
         rs.set_frontend_prefs("u1", {"selectedModel": "cohere:command-a-plus"})

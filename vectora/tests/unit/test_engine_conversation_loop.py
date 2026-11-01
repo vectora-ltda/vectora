@@ -271,6 +271,219 @@ async def test_decision_snapshot_survives_preference_change_without_duplicate_ev
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "disabled", "provenance"),
+    [
+        ("terminal", "terminal", {}),
+        ("file_write", "hitl", {}),
+        ("browser_navigate", "browser", {}),
+        ("call_mcp_tool", "mcp", {}),
+        ("http_request", "network", {}),
+        ("kanban_create", "kanban", {}),
+        ("browser_navigate", "subagents", {"subagent_execution": True}),
+        ("call_mcp_tool", "connectors", {"connector_execution": True}),
+        ("terminal", "background", {"background": True}),
+    ],
+)
+async def test_disabled_decision_surface_reaches_executor_without_model_call(
+    session_store, ctx, tmp_path, monkeypatch, tool_name, disabled, provenance
+):
+    from pydantic import create_model
+
+    from backend.cli.eval import _replay_suite
+    from backend.evaluation.recording import cassette_from_run
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.settings import settings
+    from backend.tools.registry import ToolSpec
+    from backend.workspace.runtime_settings import RuntimeSettings
+
+    preferences = RuntimeSettings(tmp_path / "surface-preferences.db")
+    monkeypatch.setattr(settings, "evaluation_recording_enabled", True)
+    monkeypatch.setattr(
+        "backend.workspace.runtime_settings.runtime_settings", preferences
+    )
+    monkeypatch.setattr(TOOL_REGISTRY, "_tools", {})
+    surfaces = dict.fromkeys(
+        [
+            "hitl",
+            "terminal",
+            "browser",
+            "mcp",
+            "network",
+            "kanban",
+            "subagents",
+            "connectors",
+            "background",
+        ],
+        True,
+    )
+    surfaces[disabled] = False
+    ctx.run_id = "surface-run"
+    ctx.workspace_id = "surface-workspace"
+    ctx.permission_mode = "auto"
+    ctx.background_task_id = "background-task" if provenance.get("background") else ""
+    ctx._extra = {
+        **provenance,
+        "decision_model_preferences": {
+            "enabled": True,
+            "provider": "clef-local",
+            "surfaces": surfaces,
+        },
+    }
+    preferences.set_frontend_prefs(
+        ctx.user_id,
+        {
+            "decisionModelsEnabled": True,
+            "decisionModelProvider": "clef-local",
+            "decisionModelSurfaces": surfaces,
+        },
+        workspace_id=ctx.workspace_id,
+    )
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id=ctx.run_id,
+            thread_id=ctx.thread_id,
+            workspace_id=ctx.workspace_id,
+            user_id=ctx.user_id,
+            status="running",
+        )
+    )
+    effects = []
+
+    async def handler(value: str, ctx: ToolContext, server_name: str = "") -> str:
+        effects.append((value, ctx.run_id))
+        return "effect recorded"
+
+    spec = ToolSpec(
+        name=tool_name,
+        description="scoped effect",
+        args_model=create_model("SurfaceArgs", value=(str, ...), server_name=(str, "")),
+        handler=handler,
+        extras=ToolExtras(destructive=True),
+        needs_ctx=True,
+    )
+    registry = ToolRegistry()
+    registry.register(spec)
+    TOOL_REGISTRY.register(spec)
+
+    def unexpected(_ctx):
+        raise AssertionError("disabled surface must not construct a Decision Model")
+
+    monkeypatch.setattr(
+        "backend.engine.conversation_loop._build_selected_decision_harness", unexpected
+    )
+    try:
+        result = await run_conversation(
+            session_store=session_store,
+            chat_client=_ScriptedChatClient(
+                [
+                    [
+                        _tool_call_chunk(
+                            index=0,
+                            id="surface-call",
+                            name=tool_name,
+                            args='{"value":"expected","server_name":"fixture-server"}',
+                        )
+                    ],
+                    [_texto_chunk("done")],
+                ]
+            ),
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id=ctx.thread_id,
+            config=LoopConfig(run_id=ctx.run_id),
+        )
+        assert result.stopped_reason == "stop"
+        assert effects == [("expected", ctx.run_id)]
+        run = await session_store.get_agent_run(ctx.run_id)
+        assert run is not None
+        assert any(
+            item.get("reason") == "decision_model_surface_disabled"
+            for item in run.evidence
+        )
+        cassette = cassette_from_run(run)
+        assert len(cassette.interactions) == 2
+        evidence = cassette.interactions[0].systemone_decision_evidence
+        assert evidence is not None
+        assert evidence["outcomes_complete"] is True
+        snapshot = evidence["snapshot"]
+        assert isinstance(snapshot, dict)
+        assert snapshot["run_id"] == ctx.run_id
+        assert "preferences_revision" in snapshot
+        decisions = evidence["decisions"]
+        results = evidence["tool_results"]
+        assert isinstance(decisions, list) and isinstance(decisions[0], dict)
+        assert isinstance(results, list) and isinstance(results[0], dict)
+        assert decisions[0]["reason"] == "decision_model_surface_disabled"
+        assert results[0]["result_digest"]
+        from backend.evaluation.cassette import Cassette
+
+        target = tmp_path / "recorded.json"
+        cassette.save(target)
+        replay = await _replay_suite(Cassette.load(target))
+        assert replay[-1]["response_text"] == "done"
+        assert effects == [("expected", ctx.run_id)]
+    finally:
+        preferences._conn.close()
+
+
+@pytest.mark.asyncio
+async def test_snapshot_revocation_survives_aba_and_independent_connection(
+    session_store: SessionStore, ctx: ToolContext, tmp_path, monkeypatch
+) -> None:
+    from backend.engine.hitl import _decision_snapshot_matches_runtime
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.workspace.runtime_settings import RuntimeSettings
+
+    first = RuntimeSettings(tmp_path / "decision-revisions.db")
+    second = RuntimeSettings(tmp_path / "decision-revisions.db")
+    try:
+        monkeypatch.setattr(
+            "backend.workspace.runtime_settings.runtime_settings", second
+        )
+        prefs: dict[str, object] = {
+            "decisionModelsEnabled": True,
+            "decisionModelProvider": "clef-local",
+            "decisionModelSurfaces": {"hitl": True},
+        }
+        first.set_frontend_prefs(
+            ctx.user_id or "local", prefs, workspace_id=ctx.workspace_id
+        )
+        ctx.run_id = "run-aba"
+        ctx._extra["decision_model_preferences"] = {
+            "enabled": True,
+            "provider": "clef-local",
+            "surfaces": {"hitl": True},
+        }
+        await session_store.upsert_agent_run(
+            AgentRun(run_id=ctx.run_id, thread_id=ctx.thread_id, status="running")
+        )
+        policy = compile_policy_snapshot(ctx)
+        await _bind_decision_model_snapshot(session_store, ctx, ctx.run_id, policy)
+        assert _decision_snapshot_matches_runtime(ctx) is True
+        first.set_frontend_prefs(
+            ctx.user_id or "local",
+            {"decisionModelsEnabled": False},
+            workspace_id=ctx.workspace_id,
+        )
+        first.set_frontend_prefs(
+            ctx.user_id or "local", prefs, workspace_id=ctx.workspace_id
+        )
+        assert _decision_snapshot_matches_runtime(ctx) is False
+        resumed = replace(
+            ctx,
+            _extra={
+                "decision_model_preferences": ctx._extra["decision_model_preferences"]
+            },
+        )
+        await _bind_decision_model_snapshot(session_store, resumed, ctx.run_id, policy)
+        assert resumed._extra["decision_model_revoked"] is True
+    finally:
+        first._conn.close()
+        second._conn.close()
+
+
+@pytest.mark.asyncio
 async def test_preapproval_grant_is_consumed_once_and_audited_before_execution(
     session_store: SessionStore, ctx: ToolContext, tmp_path, monkeypatch
 ) -> None:
@@ -2204,3 +2417,73 @@ class TestResumeConversation:
 
         assert resultado.stopped_reason == "stop"
         assert ctx._extra.get("untrusted_content") is True
+
+
+@pytest.mark.asyncio
+async def test_decision_snapshot_requires_durable_evidence(
+    session_store, ctx, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    from backend.persistence.native.agent_run import AgentRun
+
+    await session_store.upsert_agent_run(
+        AgentRun(run_id="missing-run", thread_id="thread-1")
+    )
+    record = AsyncMock()
+    monkeypatch.setattr(session_store, "record_run_evidence", record)
+    with pytest.raises(RuntimeError, match="durably recorded"):
+        await _bind_decision_model_snapshot(
+            session_store, ctx, "missing-run", compile_policy_snapshot(ctx)
+        )
+    record.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["evidence", "ledger", "missing_evidence"])
+async def test_preapproval_audit_failure_does_not_authorize_or_reuse_grant(
+    session_store, ctx, tmp_path, monkeypatch, failure
+):
+    from unittest.mock import AsyncMock
+
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.services import smart_approval
+    from backend.workspace.runtime_settings import RuntimeSettings
+
+    settings = RuntimeSettings(tmp_path / "failed-audit.db")
+    monkeypatch.setattr(smart_approval, "_runtime_settings", lambda: settings)
+    ctx.workspace_id = "workspace-audit"
+    run_id = "run-failed-audit"
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id=run_id,
+            thread_id=ctx.thread_id,
+            workspace_id=ctx.workspace_id,
+        )
+    )
+    call = ToolCall(id="failed-audit", name="terminal", args={"command": "pwd"})
+    smart_approval.add_to_allowlist(
+        ctx.workspace_id, call.name, call.args, run_id=run_id
+    )
+    method = "append_ledger_event" if failure == "ledger" else "record_run_evidence"
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            session_store,
+            method,
+            AsyncMock(
+                side_effect=None
+                if failure == "missing_evidence"
+                else OSError("audit offline")
+            ),
+        )
+        assert not await _consume_preapproval_grant(
+            session_store, ctx=ctx, run_id=run_id, tool_call=call
+        )
+    settings._conn.close()
+    restarted = RuntimeSettings(tmp_path / "failed-audit.db")
+    monkeypatch.setattr(smart_approval, "_runtime_settings", lambda: restarted)
+    assert smart_approval.get_allowlist(ctx.workspace_id) == []
+    assert not await _consume_preapproval_grant(
+        session_store, ctx=ctx, run_id=run_id, tool_call=call
+    )
+    restarted._conn.close()

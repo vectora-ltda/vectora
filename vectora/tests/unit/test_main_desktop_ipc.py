@@ -389,6 +389,10 @@ def test_autoeleicao_nao_sinaliza_quando_should_spawn_electron_diz_nao() -> None
             "backend.services.electron_sidecar.should_spawn_electron",
             return_value=False,
         ) as mock_should_spawn,
+        patch(
+            "backend.services.electron_sidecar.desktop_build_missing",
+            return_value=False,
+        ),
         patch("backend.api.server.create_app", return_value=MagicMock()),
         patch("backend.main._start_vite_dev", return_value=None, create=True),
         patch("backend.services.tray.run_server_with_tray"),

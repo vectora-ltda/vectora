@@ -64,6 +64,36 @@ def ctx() -> ToolContext:
 
 
 class TestDespachoParaleloSequencial:
+    async def test_unavailable_shared_policy_prevents_tool_effect(
+        self, ctx, monkeypatch
+    ):
+        from backend.rbac import tool_policy
+
+        store = SimpleNamespace(
+            get_tool_policy_versions=AsyncMock(side_effect=OSError("offline"))
+        )
+        monkeypatch.setattr(tool_policy, "_version_store", store)
+        registry = ToolRegistry()
+        handler = AsyncMock(return_value="must not execute")
+        registry.register(
+            ToolSpec(
+                name="probe",
+                description="probe",
+                args_model=create_model("PolicyProbeArgs"),
+                handler=handler,
+                extras=ToolExtras(),
+                needs_ctx=False,
+            )
+        )
+        result = await execute_tool_batch(
+            [ToolCall(id="unavailable", name="probe", args={})],
+            tool_registry=registry,
+            ctx=ctx,
+        )
+        assert result[0].is_error is True
+        assert "policy_version_unavailable" in result[0].text()
+        handler.assert_not_awaited()
+
     def test_decision_summary_preserves_action_context_and_redacts_secrets(
         self,
     ) -> None:
@@ -622,8 +652,9 @@ class TestDespachoParaleloSequencial:
         assert result[0].is_error is True
         assert "decision_model_denied" in result[0].text()
 
+    @pytest.mark.parametrize("phase", ["callback", "billing"])
     async def test_revogacao_apos_allow_bloqueia_handler(
-        self, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch, phase: str
     ) -> None:
         """A preferência atual é revalidada no gate imediatamente anterior à tool."""
         from backend.engine.hitl import _risk_assessment_key
@@ -650,7 +681,7 @@ class TestDespachoParaleloSequencial:
         monkeypatch.setenv("LLAMACPP_API_KEY", "credential-before-tool")
         invoked = False
 
-        async def mutating_tool(value: str, call_ctx: ToolContext) -> str:
+        async def mutating_tool(value: str, ctx: ToolContext) -> str:
             nonlocal invoked
             invoked = True
             return value
@@ -707,15 +738,35 @@ class TestDespachoParaleloSequencial:
                 description="mutating",
                 args_model=create_model("RevokedBeforeExecuteArgs", value=(str, ...)),
                 handler=mutating_tool,
-                extras=ToolExtras(destructive=True),
+                extras=ToolExtras(
+                    destructive=True,
+                    category="media" if phase == "billing" else "general",
+                ),
                 needs_ctx=True,
             )
         )
 
         # The model already allowed the call, but the user disables it before
         # execution begins. The final policy hook must reject the stale result.
-        current_preferences["decisionModelsEnabled"] = False
-        result = await execute_tool_batch([call], tool_registry=registry, ctx=ctx)
+        async def revoke_during_start(_call: ToolCall) -> None:
+            if phase == "callback":
+                current_preferences["decisionModelsEnabled"] = False
+
+        async def billing(context):
+            assert phase == "billing"
+            current_preferences["decisionModelsEnabled"] = False
+            return context
+
+        monkeypatch.setattr(
+            "backend.services.media_billing.apply_media_billing_source", billing
+        )
+
+        result = await execute_tool_batch(
+            [call],
+            tool_registry=registry,
+            ctx=ctx,
+            on_tool_started=revoke_during_start,
+        )
 
         assert invoked is False
         assert result[0].is_error is True
@@ -1127,3 +1178,78 @@ def test_envelopes_git_sem_sucesso_contam_como_erro(status: str) -> None:
 
     assert _is_tool_error(f'{{"status":"{status}"}}', structured=True) is True
     assert _is_tool_error('{"status":"ok"}', structured=True) is False
+
+
+@pytest.mark.asyncio
+async def test_policy_is_rechecked_after_last_pre_execute_hook(ctx, monkeypatch):
+    from backend.engine import tool_batch
+    from backend.services.policy_compiler import compile_policy_snapshot
+
+    calls = []
+
+    def hook(call, context, snapshot):
+        context._extra.setdefault("systemone_decisions", {})["unused"] = {}
+        context._extra["tool_policy_version"] = "changed"
+        calls.append(call.name)
+        return True, ""
+
+    # A hook cannot replace the mandatory policy gate even if it returns allow.
+    monkeypatch.setattr(tool_batch, "_PRE_EXECUTE", (hook,))
+    handler = AsyncMock(return_value="effect")
+    spec = ToolSpec(
+        "probe",
+        "probe",
+        create_model("FinalGuardArgs"),
+        handler,
+        ToolExtras(),
+        False,
+    )
+    registry = ToolRegistry()
+    registry.register(spec)
+    snapshot = compile_policy_snapshot(ctx)
+    monkeypatch.setattr(
+        type(snapshot), "validate_call", lambda *_: (False, "revoked-in-hook")
+    )
+    result = await execute_tool_batch(
+        [ToolCall(id="hook-call", name="probe", args={})],
+        tool_registry=registry,
+        ctx=ctx,
+        policy_snapshot=snapshot,
+    )
+    handler.assert_not_awaited()
+    assert calls == ["probe"]
+    assert result[0].is_error is True
+    assert "revoked-in-hook" in result[0].text()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "record",
+    [
+        {"decision": "typo", "reason": "invalid"},
+        {"decision": "allow", "reason": "invalid", "confidence": float("nan")},
+        {"decision": "allow", "reason": "invalid", "risk_score": -1},
+    ],
+)
+async def test_invalid_decision_contract_blocks_handler(ctx, record):
+    from backend.engine.hitl import _risk_assessment_key
+
+    ctx._extra["systemone_decisions"] = {_risk_assessment_key("probe", {}): record}
+    handler = AsyncMock(return_value="must not execute")
+    registry = ToolRegistry()
+    registry.register(
+        ToolSpec(
+            "probe",
+            "probe",
+            create_model("InvalidDecisionArgs"),
+            handler,
+            ToolExtras(),
+            False,
+        )
+    )
+    result = await execute_tool_batch(
+        [ToolCall(id="invalid", name="probe", args={})], tool_registry=registry, ctx=ctx
+    )
+    handler.assert_not_awaited()
+    assert result[0].is_error is True
+    assert "decision_model_policy_unavailable" in result[0].text()

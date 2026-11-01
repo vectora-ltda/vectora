@@ -73,6 +73,9 @@ class Cassette(BaseModel):
                 inter.get("response_text", "")
             )
             inter["tool_calls"] = redact_sensitive_data(inter.get("tool_calls", []))
+            inter["systemone_decision"] = redact_sensitive_data(
+                inter.get("systemone_decision")
+            )
             decision_evidence = inter.get("systemone_decision_evidence")
             if decision_evidence is not None:
                 inter["systemone_decision_evidence"] = redact_sensitive_data(

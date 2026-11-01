@@ -54,18 +54,24 @@ class TestWebSearchFallback:
         data = json.loads(result)
         assert data["status"] == "error"
 
-    async def test_tavily_configurado_nao_usa_fallback(self):
+    async def test_tavily_configurado_nao_usa_fallback(self, monkeypatch):
         """Com key válida a busca vai pelo cliente nativo, e o contrato de
         saída (`json.dumps(results)`) continua o mesmo — é o contrato com o
         LLM, não muda com a troca de backend."""
+        from backend.settings import settings
+
+        monkeypatch.setattr(settings, "tavily_api_key", "real-key")
+        monkeypatch.setattr(settings, "ollama_api_key", "")
         mock_client = MagicMock()
         mock_client.search = AsyncMock(return_value=[{"title": "tavily result"}])
         with (
-            patch("backend.tools.web.settings") as ms,
+            patch(
+                "backend.tools.web._get_search_tool",
+                return_value=type("TavilyBackend", (), {"name": "tavily"})(),
+            ),
             patch("backend.tools.web._tavily_client", return_value=mock_client),
             patch("backend.browser.search_fallback.search_fallback") as mock_fallback,
         ):
-            ms.tavily_api_key = "real-key"
             result = await web_search(query="python")
 
         mock_fallback.assert_not_called()

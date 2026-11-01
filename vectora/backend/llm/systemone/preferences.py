@@ -85,7 +85,17 @@ def decision_model_surfaces_for_tool(ctx: object, tool_name: str) -> tuple[str, 
     name = tool_name.lower()
     if name == "call_mcp_tool" or name.startswith("mcp_"):
         surface = "mcp"
-    elif name == "write_terminal" or name.startswith("terminal_"):
+    elif name in {
+        "bash",
+        "terminal",
+        "terminal_tool",
+        "open_terminal",
+        "list_terminals",
+        "attach_terminal",
+        "close_terminal",
+        "read_terminal",
+        "write_terminal",
+    } or name.startswith("terminal_"):
         surface = "terminal"
     elif name == "http_request" or name in {"web_crawl", "web_map", "fetch_url"}:
         surface = "network"

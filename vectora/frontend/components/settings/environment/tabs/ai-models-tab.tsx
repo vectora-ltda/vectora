@@ -1,7 +1,11 @@
 "use client";
 
+import { ModelSelector } from "@/components/chat/model-selector";
 import { MediaModelsSection } from "./provider-routing-tab";
-import { FallbacksTab } from "../../preferencias/tabs/fallbacks-tab";
+import {
+  FallbacksTab,
+  ImageFallbackModelSection,
+} from "../../preferencias/tabs/fallbacks-tab";
 import { useEffect, useState } from "react";
 import {
   hydrateDecisionModelPreferences,
@@ -565,6 +569,23 @@ export function TranscriptionSettings() {
   );
 }
 
+export function ChatModelSettings() {
+  const selected = useSettingsStore((state) => state.selectedModel);
+  const setSelected = useSettingsStore((state) => state.setSelectedModel);
+  return (
+    <section
+      className="space-y-3 rounded-lg border p-3"
+      aria-label={mDyn("ai_models_chat_primary")}
+    >
+      <h4 className="text-sm font-medium">{mDyn("ai_models_chat_primary")}</h4>
+      <p className="text-xs text-muted-foreground">
+        {mDyn("ai_models_chat_primary_help")}
+      </p>
+      <ModelSelector value={selected} onChange={setSelected} />
+    </section>
+  );
+}
+
 export function AiModelsTab() {
   return (
     <div className="space-y-4">
@@ -576,6 +597,7 @@ export function AiModelsTab() {
           {m.ai_models_description()}
         </p>
       </div>
+      <ChatModelSettings />
       <DecisionModelsSection />
       <SystemOneConfiguration />
       <section
@@ -585,7 +607,16 @@ export function AiModelsTab() {
         <h4 className="text-sm font-medium">
           {m.settings_category_fallbacks()}
         </h4>
-        <FallbacksTab />
+        <FallbacksTab includeImageFallback={false} />
+      </section>
+      <section
+        className="space-y-3 rounded-lg border p-3"
+        aria-label={mDyn("ai_models_vision_input")}
+      >
+        <h4 className="text-sm font-medium">
+          {mDyn("ai_models_vision_input")}
+        </h4>
+        <ImageFallbackModelSection />
       </section>
       <MediaModelsSection />
       <section

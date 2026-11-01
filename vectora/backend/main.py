@@ -571,6 +571,16 @@ def _build_parser() -> argparse.ArgumentParser:
     eval_compare.add_argument("candidate", help="Caminho para cassete candidata")
     eval_compare.add_argument("--output", choices=("human", "json"), default="human")
 
+    eval_export = eval_sub.add_parser(
+        "export-run", help="Exporta um AgentRun gravado para uma cassete"
+    )
+    eval_export.add_argument(
+        "--run-file", required=True, help="Arquivo JSON obtido na consulta do AgentRun"
+    )
+    eval_export.add_argument(
+        "--target", required=True, help="Arquivo de cassete de destino"
+    )
+
     return parser
 
 

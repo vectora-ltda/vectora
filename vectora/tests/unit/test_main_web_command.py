@@ -161,6 +161,10 @@ def test_start_sem_force_web_sobe_bandeja_quando_nao_headless() -> None:
             "backend.services.electron_sidecar.should_spawn_electron",
             return_value=False,
         ),
+        patch(
+            "backend.services.electron_sidecar.desktop_build_missing",
+            return_value=False,
+        ),
         patch("backend.services.tray.run_server_with_tray") as mock_tray,
         patch("asyncio.run") as mock_asyncio_run,
         patch("os._exit"),

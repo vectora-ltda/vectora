@@ -433,6 +433,9 @@ class Settings(BaseSettings):
     systemone_enabled: bool = False
     """Habilita ou desabilita o uso de Decision Models no Vectora."""
 
+    evaluation_recording_enabled: bool = False
+    """Persist redacted model inputs for explicit Evaluation Lab exports."""
+
     systemone_provider: Literal["clef-local", "laya-local", "clef-api", "jev-api"] = (
         "clef-local"
     )
