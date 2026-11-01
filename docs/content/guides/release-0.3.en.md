@@ -17,7 +17,7 @@ See [sessions and workspaces](../../concepts/sessions-and-workspaces) and the [a
 
 Plan Mode can break a request into executable steps and dependencies. Kanban organizes background tasks and tracks their executions; policies and gates still determine what requires approval. Parallel delegation is best suited to independent tasks, with each profile limited to its allowed tools.
 
-See [subagents](../../concepts/sub-agents), [agent automation](../agent-automation), and [using chat](../using-the-chat).
+See [subagents](../../concepts/sub-agents), [agent automation](../agent-automation), and [using chat](../using-the-chat). The [Plan Mode, AgentRun, and decisions](../plan-mode-and-agentrun) guide covers Plan Mode, AgentRun states, and recorded decisions.
 
 ### Configurable HITL and Decision Models
 
@@ -37,7 +37,7 @@ An evaluation that starts and then fails must not release the action. A missing 
 
 Quality gates evaluate outcomes after execution and distinguish passed, failed, blocked, degraded, and unverified results. Cassettes record interactions with sensitive data redacted; replay lets you compare a recorded run without calling the external provider again.
 
-Use `vectora eval run` to run a cassette and `vectora eval compare` to compare results. Replay validates reproducible cassette behavior, not live model, Browser Workbench, or external service availability.
+Use `vectora eval run` to run a cassette and `vectora eval compare` to compare results. Replay validates reproducible cassette behavior, not live model, Browser Workbench, or external service availability. See [Verification and Evaluation Lab](../verification-lab) to configure quality-gate profiles.
 
 ### Memory, context, and RAG
 
@@ -49,7 +49,7 @@ Add documents to the workspace, wait for the embedding queue to process them, an
 
 When the Electron sidecar and UI-prepared session are active, the runtime uses integrated Chromium for search and browsing. Search, fetch, crawl, and map share applicable URL and destination controls; page, depth, and origin limits constrain collection. The HTTP fallback is not the same browser session and does not inherit its cookies.
 
-Policy snapshots and egress checks apply to connected tool paths. Coverage is specific to each adapter; an integration that is not connected does not inherit controls merely because this page describes them. See [workbench](../using-the-workbench) and [security](../../security).
+Policy snapshots and egress checks apply to connected tool paths. Coverage is specific to each adapter; an integration that is not connected does not inherit controls merely because this page describes them. See [Egress policies](../egress-policies), [workbench](../using-the-workbench), and [security](../../security).
 
 ## Validate your environment
 

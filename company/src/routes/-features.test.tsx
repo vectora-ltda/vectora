@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 // Mensagens reais do catálogo pt (fonte de verdade), não um Proxy que ecoa a
 // chave — senão as asserções de "não vazio" abaixo passam sempre, mesmo com
-// uma mensagem genuinamente vazia/ausente no JSON (achado do CodeRabbit).
+// uma mensagem genuinamente vazia/ausente no JSON.
 const ptMessages: Record<string, string> = JSON.parse(
   readFileSync(join(import.meta.dirname, "../../messages/pt.json"), "utf-8"),
 );
@@ -52,6 +52,42 @@ describe("getFeatureCategories", () => {
       expect(item.title.trim().length).toBeGreaterThan(0);
       expect(item.summary.trim().length).toBeGreaterThan(0);
       expect(item.description.trim().length).toBeGreaterThan(0);
+    }
+  });
+
+  it("lista as capacidades da linha 0.3 nas categorias de agente e navegação", () => {
+    const categories = getFeatureCategories();
+    const idsOf = (categoryId: string) =>
+      categories.find((c) => c.id === categoryId)?.items.map((i) => i.id) ?? [];
+
+    expect(idsOf("agente")).toEqual(
+      expect.arrayContaining([
+        "agent-run",
+        "plan-mode",
+        "decision-models",
+        "verification-lab",
+      ]),
+    );
+    const navegador = idsOf("navegador");
+    expect(navegador.indexOf("egress-policies")).toBe(
+      navegador.indexOf("sandbox") + 1,
+    );
+
+    // Erro/borda: nenhuma categoria paralela de governança, e cada item novo
+    // tem ícone próprio, distinto de todos os outros itens do catálogo.
+    expect(categories.map((c) => c.id)).not.toContain("governanca");
+    const items = categories.flatMap((c) => c.items);
+    for (const id of [
+      "agent-run",
+      "plan-mode",
+      "decision-models",
+      "verification-lab",
+      "egress-policies",
+    ]) {
+      const item = items.find((i) => i.id === id);
+      expect(item, id).toBeDefined();
+      const sharing = items.filter((i) => i.Icon === item?.Icon);
+      expect(sharing.map((i) => i.id)).toEqual([id]);
     }
   });
 

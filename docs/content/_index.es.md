@@ -32,3 +32,9 @@ Vectora es **software comercial de código cerrado** — no es open source. Lo e
 - **Pro** es opcional y cubre trial/facturación/licenciamiento vía `services.vectora.company`, un pequeño Cloudflare Worker — no es una "Vectora Cloud" que aloja o ejecuta tu instancia por ti. Actualizar cambia qué funciones están disponibles (stack de almacenamiento de alto rendimiento, chat web multiusuario, automatizaciones disparadas por webhook), nunca dónde se ejecuta el agente.
 
 Consulta la [página de precios](https://vectora.company/#pricing) para los planes actuales.
+
+## Límites de la línea 0.3
+
+- **Ejecución local:** el sandbox se activa solo cuando el workspace no tiene `vectora.toml` y el entorno admite aislamiento nativo; con `vectora.toml`, rige la sección `[sandbox]` (`enabled = false` en la plantilla). El backend `local` funciona en Linux (en Windows, mediante WSL2). `allow_tcp_ports` requiere Landlock ABI V4 (kernel 6.5+), y una lista vacía no restringe la red. Consulta [Sandbox](./concepts/sandbox) y [Políticas de egress](./guides/egress-policies).
+- **Proveedores remotos:** con claves BYOK o endpoints de Ollama, OpenRouter y 9router, las solicitudes salen de la máquina donde corre el backend directamente hacia el proveedor elegido.
+- **Validaciones omitidas:** las pruebas live marcadas como `skipped` no demuestran el funcionamiento live; el replay de cassettes no sustituye una prueba con el proveedor real. Consulta [Verificación y Evaluation Lab](./guides/verification-lab).

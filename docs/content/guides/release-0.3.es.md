@@ -17,7 +17,7 @@ Consulta [sesiones y workspaces](../../concepts/sessions-and-workspaces) y la [r
 
 Plan Mode puede dividir una solicitud en etapas ejecutables y dependencias. Kanban organiza tareas en segundo plano y sigue sus ejecuciones; las policies y los gates determinan qué requiere aprobación. La delegación paralela funciona mejor con tareas independientes y perfiles limitados a sus herramientas permitidas.
 
-Consulta [subagentes](../../concepts/sub-agents), [automatización de agentes](../agent-automation) y [uso del chat](../using-the-chat).
+Consulta [subagentes](../../concepts/sub-agents), [automatización de agentes](../agent-automation) y [uso del chat](../using-the-chat). La guía [Plan Mode, AgentRun y decisiones](../plan-mode-and-agentrun) detalla Plan Mode, los estados de AgentRun y las decisiones registradas.
 
 ### HITL y Decision Models configurables
 
@@ -37,7 +37,7 @@ Si una evaluación se inicia y falla, la acción no debe quedar autorizada. Un m
 
 Los quality gates evalúan resultados después de la ejecución y distinguen aprobado, fallido, bloqueado, degradado y no verificado. Los cassettes registran interacciones con datos sensibles redactados; replay permite comparar una ejecución grabada sin volver a llamar al proveedor externo.
 
-Usa `vectora eval run` para ejecutar un cassette y `vectora eval compare` para comparar resultados. Replay valida un cassette reproducible, no la disponibilidad live del modelo, Browser Workbench o un servicio externo.
+Usa `vectora eval run` para ejecutar un cassette y `vectora eval compare` para comparar resultados. Replay valida un cassette reproducible, no la disponibilidad live del modelo, Browser Workbench o un servicio externo. Consulta [Verificación y Evaluation Lab](../verification-lab) para configurar los perfiles de quality gates.
 
 ### Memoria, contexto y RAG
 
@@ -49,7 +49,7 @@ Añade documentos al workspace, espera a que se procese la cola de embeddings y 
 
 Cuando están activos el sidecar Electron y la sesión preparada por la interfaz, el runtime usa Chromium integrado para buscar y navegar. Search, fetch, crawl y map comparten los controles aplicables de URL y destino; los límites de páginas, profundidad y origen restringen la recopilación. El fallback HTTP no es la misma sesión del navegador ni hereda sus cookies.
 
-Los snapshots de policy y las comprobaciones de egress se aplican a las rutas de herramientas conectadas. La cobertura depende de cada adapter; una integración no conectada no hereda controles por aparecer en esta página. Consulta [workbench](../using-the-workbench) y [seguridad](../../security).
+Los snapshots de policy y las comprobaciones de egress se aplican a las rutas de herramientas conectadas. La cobertura depende de cada adapter; una integración no conectada no hereda controles por aparecer en esta página. Consulta [Políticas de egress](../egress-policies), [workbench](../using-the-workbench) y [seguridad](../../security).
 
 ## Validar el entorno
 

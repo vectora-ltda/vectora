@@ -11,7 +11,7 @@ Sin sandbox, `terminal`, `file_write` y `file_edit` operan directamente en el pr
 
 ## Opt-in, por espacio de trabajo
 
-El Sandbox viene **desactivado por defecto**. Solo se activa cuando el `vectora.toml` de un espacio de trabajo tiene una sección `[sandbox]`:
+El Sandbox se configura por espacio de trabajo. Si el espacio de trabajo **no tiene** `vectora.toml`, Vectora activa el sandbox automáticamente cuando el entorno admite aislamiento nativo (WSL2 en Windows, `bwrap` en Linux, `sandbox-exec` en macOS); sin ese soporte, queda desactivado. Si el espacio de trabajo tiene `vectora.toml`, rige la sección `[sandbox]`:
 
 ```toml
 [sandbox]
@@ -25,6 +25,8 @@ lockdown = false            # true: fail-closed ante cualquier ambigüedad de po
 ```
 
 Sin sección `[sandbox]` → el espacio de trabajo se comporta exactamente como antes de que existiera esta función. Un TOML malformado o un campo inválido, una vez que `[sandbox]` está presente, falla **cerrado** (lockdown) en vez de correr desprotegido silenciosamente.
+
+Para el control de red del worker (`lockdown` y `allow_tcp_ports`) y la política de egress de las herramientas de red, consulta [Políticas de egress](../../guides/egress-policies).
 
 ## Cómo funciona: un worker por espacio de trabajo
 

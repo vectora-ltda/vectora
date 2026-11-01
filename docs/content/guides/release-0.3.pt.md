@@ -17,7 +17,7 @@ Consulte [sessões e workspaces](../../concepts/sessions-and-workspaces) e a [re
 
 O Plan Mode pode decompor uma solicitação em etapas executáveis e dependências. O Kanban organiza tarefas em background e acompanha suas execuções; políticas e gates continuam determinando o que exige aprovação. Delegação paralela é adequada quando as tarefas são independentes e cada perfil tem somente as ferramentas permitidas.
 
-Consulte [subagentes](../../concepts/sub-agents), [automação de agentes](../agent-automation) e [uso do chat](../using-the-chat).
+Consulte [subagentes](../../concepts/sub-agents), [automação de agentes](../agent-automation) e [uso do chat](../using-the-chat). O guia [Plan Mode, AgentRun e decisões](../plan-mode-and-agentrun) detalha o Plan Mode, os estados do AgentRun e as decisões registradas.
 
 ### HITL e Decision Models configuráveis
 
@@ -37,7 +37,7 @@ Uma avaliação iniciada que falhe não deve liberar a ação. Modelo ausente ou
 
 Quality gates avaliam resultados após a execução e distinguem aprovado, falho, bloqueado, degradado e não verificado. Cassetes registram interações com redação de dados sensíveis; replay permite comparar uma execução gravada sem chamar novamente o provider externo.
 
-Use `vectora eval run` para executar um cassette e `vectora eval compare` para comparar resultados. O replay valida o comportamento reproduzível do cassette, não a disponibilidade live do modelo, Browser Workbench ou serviço externo.
+Use `vectora eval run` para executar um cassette e `vectora eval compare` para comparar resultados. O replay valida o comportamento reproduzível do cassette, não a disponibilidade live do modelo, Browser Workbench ou serviço externo. Veja [Verificação e Evaluation Lab](../verification-lab) para configurar os perfis de quality gates.
 
 ### Memória, contexto e RAG
 
@@ -49,7 +49,7 @@ Adicione documentos ao workspace, aguarde o processamento da fila de embeddings 
 
 Quando o sidecar Electron e a sessão preparada pela UI estão ativos, o runtime usa o Chromium integrado para pesquisa e navegação. Search, fetch, crawl e map compartilham os controles aplicáveis de URL e destino; limites de páginas, profundidade e origem restringem a coleta. O fallback HTTP não é a mesma sessão do navegador e não herda cookies.
 
-Policy snapshots e verificações de egress aplicam regras aos caminhos de ferramentas conectados. A cobertura é específica de cada adapter; uma integração não conectada não herda controles por estar descrita nesta página. Consulte [workbench](../using-the-workbench) e [segurança](../../security).
+Policy snapshots e verificações de egress aplicam regras aos caminhos de ferramentas conectados. A cobertura é específica de cada adapter; uma integração não conectada não herda controles por estar descrita nesta página. Consulte [Políticas de egress](../egress-policies), [workbench](../using-the-workbench) e [segurança](../../security).
 
 ## Como validar no seu ambiente
 

@@ -11,7 +11,7 @@ Without a sandbox, `terminal`, `file_write`, and `file_edit` operate directly in
 
 ## Opt-in, per workspace
 
-Sandbox is **off by default**. It activates only when a workspace's `vectora.toml` has a `[sandbox]` section:
+Sandbox is configured per workspace. If the workspace has **no** `vectora.toml`, Vectora turns the sandbox on automatically when the environment supports native isolation (WSL2 on Windows, `bwrap` on Linux, `sandbox-exec` on macOS); without that support, it stays off. If the workspace has a `vectora.toml`, the `[sandbox]` section applies:
 
 ```toml
 [sandbox]
@@ -25,6 +25,8 @@ lockdown = false            # true: fail-closed on any policy ambiguity
 ```
 
 No `[sandbox]` section → the workspace behaves exactly as before this feature existed. Malformed TOML or an invalid field, once `[sandbox]` is present, fails **closed** (locked down) instead of silently running unprotected.
+
+For worker network control (`lockdown` and `allow_tcp_ports`) and the egress policy for network tools, see [Egress policies](../../guides/egress-policies).
 
 ## How it works: one worker per workspace
 

@@ -23,7 +23,7 @@ Controlan cuándo el agente se detiene para pedir aprobación humana:
 | **Plan**              | se pausa para la primera acción protegida del turno; cada llamada de medios con coste requiere su propia aprobación |
 | **Bypass**            | desactiva las pausas habituales de HITL; los guardrails independientes siguen aplicándose          |
 
-Son modos de permiso, no niveles de confianza en el modelo. Algunas operaciones, como el control del escritorio, pueden seguir exigiendo confirmación en cualquier modo. En **Plan**, una aprobación concedida en el mismo turno permite continuar; no se convierte en una autorización permanente.
+Son modos de permiso, no niveles de confianza en el modelo. Algunas operaciones, como el control del escritorio, pueden seguir exigiendo confirmación en cualquier modo. En **Plan**, una aprobación concedida en el mismo turno permite continuar; no se convierte en una autorización permanente. Consulta [Plan Mode, AgentRun y decisiones](../plan-mode-and-agentrun) para el prefijo `/plan` y la diferencia entre Plan Mode y la pestaña Plan del workbench.
 
 Una preaprobación es una concesión explícita e independiente. Se puede consumir una sola vez para una herramienta y sus argumentos exactos, dentro del mismo workspace y `run_id`, y caduca tras un plazo limitado. Las herramientas irreversibles no aceptan esta concesión.
 

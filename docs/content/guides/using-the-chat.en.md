@@ -23,7 +23,7 @@ Control how automatically the agent acts before asking for your approval:
 | **Plan**         | pauses for the first protected action in a turn; each metered media call needs its own approval |
 | **Bypass**       | disables ordinary HITL pauses; independent guardrails still apply                           |
 
-These are permission modes, not trust levels for the model. Some operations, such as desktop control, can still require confirmation in every mode. In **Plan**, an approval already granted in the same turn lets the plan continue; it is not a permanent authorization.
+These are permission modes, not trust levels for the model. Some operations, such as desktop control, can still require confirmation in every mode. In **Plan**, an approval already granted in the same turn lets the plan continue; it is not a permanent authorization. See [Plan Mode, AgentRun, and decisions](../plan-mode-and-agentrun) for the `/plan` prefix and how Plan Mode differs from the workbench Plan tab.
 
 A pre-approval is a separate, explicit grant. It can be consumed once for one tool and its exact arguments, within the same workspace and `run_id`, and expires after a limited time. Irreversible tools cannot use this grant.
 
