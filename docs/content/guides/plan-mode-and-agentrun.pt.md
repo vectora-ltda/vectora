@@ -13,7 +13,9 @@ Este guia explica como planejar uma tarefa antes de executá-la, como acompanhar
 - Um provider de modelo configurado para o chat.
 - Para Decision Models: um provider de decisão configurado (veja [Modelos de decisão](../decision-models)).
 
-## Plan Mode
+## Configuração
+
+### Plan Mode
 
 O Plan Mode tem duas formas de uso:
 
@@ -22,7 +24,7 @@ O Plan Mode tem duas formas de uso:
 
 O Plan Mode não é a aba **Plan** da workbench. A aba mostra os artifacts e a checklist da sessão; o Plan Mode controla quando o agente pausa. Veja [Usando o chat](../using-the-chat) para todos os modos de permissão.
 
-## AgentRun
+### AgentRun
 
 Cada execução do agente tem um `run_id`, um estado, evidências e as relações entre o agente principal e os subagentes. O histórico da thread é derivado de um ledger de eventos idempotente.
 
@@ -46,9 +48,9 @@ As rotas abaixo exigem autenticação:
 
 No modo local, as execuções ficam em SQLite. Instalações com PostgreSQL usam o mesmo contrato.
 
-## Decisões registradas
+### Decisões registradas
 
-### Aprovações humanas (HITL)
+#### Aprovações humanas (HITL)
 
 Quando o agente pausa, você responde com uma destas decisões:
 
@@ -61,7 +63,7 @@ Quando o agente pausa, você responde com uma destas decisões:
 
 A decisão fica associada ao `run_id` da execução.
 
-### Acesso a servidores MCP
+#### Acesso a servidores MCP
 
 Antes de usar um servidor MCP, o Vectora avalia a política de MCP e registra o resultado:
 
@@ -73,7 +75,7 @@ Antes de usar um servidor MCP, o Vectora avalia a política de MCP e registra o 
 
 A regra do workspace tem precedência sobre a regra da instância. A allowlist de MCP controla quais servidores podem ser usados; ela não é uma política de egress (veja [Políticas de egress](../egress-policies)).
 
-### Decision Models
+#### Decision Models
 
 Com a camada configurável de HITL, um Decision Model pode avaliar uma ação e devolver `allow`, `deny` ou `requires_human`. A decisão nunca amplia permissões: policy, gates e controles locais continuam valendo. Veja [Modelos de decisão](../decision-models).
 

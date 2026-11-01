@@ -13,7 +13,9 @@ This guide explains how to plan a task before running it, how to follow each age
 - A model provider configured for chat.
 - For Decision Models: a configured decision provider (see [Decision models](../decision-models)).
 
-## Plan Mode
+## Configuration
+
+### Plan Mode
 
 Plan Mode can be used in two ways:
 
@@ -22,7 +24,7 @@ Plan Mode can be used in two ways:
 
 Plan Mode is not the workbench **Plan** tab. The tab shows the session's artifacts and checklist; Plan Mode controls when the agent pauses. See [Using the chat](../using-the-chat) for all permission modes.
 
-## AgentRun
+### AgentRun
 
 Every agent run has a `run_id`, a state, evidence, and the relationships between the main agent and its subagents. The thread history is derived from an idempotent event ledger.
 
@@ -46,9 +48,9 @@ These routes require authentication:
 
 In local mode, runs are stored in SQLite. Installations using PostgreSQL follow the same contract.
 
-## Recorded decisions
+### Recorded decisions
 
-### Human approvals (HITL)
+#### Human approvals (HITL)
 
 When the agent pauses, you answer with one of these decisions:
 
@@ -61,7 +63,7 @@ When the agent pauses, you answer with one of these decisions:
 
 The decision is linked to the run's `run_id`.
 
-### Access to MCP servers
+#### Access to MCP servers
 
 Before using an MCP server, Vectora evaluates the MCP policy and records the outcome:
 
@@ -73,7 +75,7 @@ Before using an MCP server, Vectora evaluates the MCP policy and records the out
 
 The workspace rule takes precedence over the instance rule. The MCP allowlist controls which servers can be used; it is not an egress policy (see [Egress policies](../egress-policies)).
 
-### Decision Models
+#### Decision Models
 
 With the configurable HITL layer, a Decision Model can evaluate an action and return `allow`, `deny`, or `requires_human`. A decision never widens permissions: policy, gates, and local controls still apply. See [Decision models](../decision-models).
 

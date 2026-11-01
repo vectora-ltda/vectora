@@ -12,7 +12,9 @@ Este guia explica como o Vectora controla o tráfego de saída do agente: a pol�
 - Um workspace aberto no Vectora.
 - Para o isolamento de rede de comandos: o sandbox ativo no workspace (veja [Sandbox](../../concepts/sandbox)).
 
-## Duas camadas
+## Configuração
+
+### Duas camadas
 
 | Camada | Onde vale | Como se configura |
 | --- | --- | --- |
@@ -21,7 +23,7 @@ Este guia explica como o Vectora controla o tráfego de saída do agente: a pol�
 
 A allowlist de servidores MCP e as pré-aprovações de ferramentas não são políticas de egress. Elas controlam quais servidores e ações podem ser usados, não para onde o tráfego vai.
 
-## Política de egress
+### Política de egress
 
 A política é lida das configurações de runtime, pela chave `egress_policy:<workspace_id>` ou pela chave `egress_policy` (um objeto por workspace ou um objeto único). Nesta linha não há tela nem endpoint dedicado para editá-la.
 
@@ -42,7 +44,7 @@ Como a política é avaliada:
 
 Subagentes herdam a política da execução que os criou.
 
-## Rede do sandbox
+### Rede do sandbox
 
 Quando o sandbox está ativo, a seção `[sandbox]` controla a rede dos comandos:
 

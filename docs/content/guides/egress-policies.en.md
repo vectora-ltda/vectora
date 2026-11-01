@@ -12,7 +12,9 @@ This guide explains how Vectora controls the agent's outbound traffic: the egres
 - A workspace open in Vectora.
 - For network isolation of commands: the sandbox active in the workspace (see [Sandbox](../../concepts/sandbox)).
 
-## Two layers
+## Configuration
+
+### Two layers
 
 | Layer | Where it applies | How it is configured |
 | --- | --- | --- |
@@ -21,7 +23,7 @@ This guide explains how Vectora controls the agent's outbound traffic: the egres
 
 The MCP server allowlist and tool pre-approvals are not egress policies. They control which servers and actions can be used, not where traffic goes.
 
-## Egress policy
+### Egress policy
 
 The policy is read from runtime settings, through the `egress_policy:<workspace_id>` key or the `egress_policy` key (one object per workspace or a single object). In this line there is no dedicated screen or endpoint to edit it.
 
@@ -42,7 +44,7 @@ How the policy is evaluated:
 
 Subagents inherit the policy of the run that created them.
 
-## Sandbox network
+### Sandbox network
 
 When the sandbox is active, the `[sandbox]` section controls the network for commands:
 

@@ -13,13 +13,15 @@ Este guia mostra como configurar os quality gates que verificam o resultado de u
 - Os comandos usados pelos gates (por exemplo `pytest`, `npm test` ou um linter) instalados no ambiente do workspace.
 - Para o Evaluation Lab: a CLI `vectora` disponível no terminal.
 
-## Quality gates
+## Configuração
+
+### Quality gates
 
 Depois de uma execução, o Vectora roda os gates do perfil de verificação do workspace. O perfil fica em `verification/<workspace_id>.json`, dentro da home do Vectora (`~/.vectora` por padrão, ou o diretório definido em `VECTORA_HOME`).
 
 Sem perfil salvo, o workspace usa um perfil padrão ativo e sem gates: nenhuma verificação bloqueia a execução.
 
-### Campos do perfil
+#### Campos do perfil
 
 | Campo | Descrição |
 | --- | --- |
@@ -59,13 +61,13 @@ Exemplo:
 }
 ```
 
-### Resultados
+#### Resultados
 
 Cada verificação termina em um destes resultados: `passed`, `failed`, `infra_error`, `not_run`, `blocked`, `degraded` ou `unverified`. Um teste que não rodou (`not_run`) é diferente de um teste aprovado. Cada gate também informa o motivo: `passed`, `assertion_failed`, `timeout` ou `dispatch_error`.
 
 Se o arquivo do perfil estiver corrompido, o Vectora aplica um gate de proteção que falha com política `block`, em vez de ignorar a verificação.
 
-## Evaluation Lab
+### Evaluation Lab
 
 O Evaluation Lab grava cassetes das execuções com dados sensíveis redigidos e permite reproduzi-las sem chamar o provider externo.
 

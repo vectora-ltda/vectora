@@ -13,7 +13,9 @@ Esta guía explica cómo planificar una tarea antes de ejecutarla, cómo seguir 
 - Un proveedor de modelo configurado para el chat.
 - Para Decision Models: un proveedor de decisión configurado (consulta [Modelos de decisión](../decision-models)).
 
-## Plan Mode
+## Configuración
+
+### Plan Mode
 
 Plan Mode se usa de dos formas:
 
@@ -22,7 +24,7 @@ Plan Mode se usa de dos formas:
 
 Plan Mode no es la pestaña **Plan** del workbench. La pestaña muestra los artifacts y la checklist de la sesión; Plan Mode controla cuándo se detiene el agente. Consulta [Usar el chat](../using-the-chat) para ver todos los modos de permiso.
 
-## AgentRun
+### AgentRun
 
 Cada ejecución del agente tiene un `run_id`, un estado, evidencias y las relaciones entre el agente principal y los subagentes. El historial del thread se deriva de un ledger de eventos idempotente.
 
@@ -46,9 +48,9 @@ Estas rutas requieren autenticación:
 
 En modo local, las ejecuciones se guardan en SQLite. Las instalaciones con PostgreSQL siguen el mismo contrato.
 
-## Decisiones registradas
+### Decisiones registradas
 
-### Aprobaciones humanas (HITL)
+#### Aprobaciones humanas (HITL)
 
 Cuando el agente se detiene, respondes con una de estas decisiones:
 
@@ -61,7 +63,7 @@ Cuando el agente se detiene, respondes con una de estas decisiones:
 
 La decisión queda asociada al `run_id` de la ejecución.
 
-### Acceso a servidores MCP
+#### Acceso a servidores MCP
 
 Antes de usar un servidor MCP, Vectora evalúa la política de MCP y registra el resultado:
 
@@ -73,7 +75,7 @@ Antes de usar un servidor MCP, Vectora evalúa la política de MCP y registra el
 
 La regla del workspace tiene prioridad sobre la regla de la instancia. La allowlist de MCP controla qué servidores se pueden usar; no es una política de egress (consulta [Políticas de egress](../egress-policies)).
 
-### Decision Models
+#### Decision Models
 
 Con la capa configurable de HITL, un Decision Model puede evaluar una acción y devolver `allow`, `deny` o `requires_human`. Una decisión nunca amplía permisos: la policy, los gates y los controles locales siguen vigentes. Consulta [Modelos de decisión](../decision-models).
 
