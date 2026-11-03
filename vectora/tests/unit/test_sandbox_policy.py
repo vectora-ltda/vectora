@@ -3,6 +3,7 @@ arquivo existe mas está malformado ou tem campo de tipo errado."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -476,6 +477,20 @@ class TestAutoEnableNativoLinuxMacos:
 
         assert result == DISABLED_POLICY
         assert policy_module._native_sandbox_available_sync() is False
+        import json
+
+        repo = Path(__file__).resolve().parents[3]
+        for locale in ("en", "pt", "es", "de", "fr", "it", "ru"):
+            messages = json.loads(
+                (repo / "company" / "messages" / f"{locale}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            description = messages["capability_sandbox_desc"]
+            assert "macOS" in description
+            assert "sandbox-exec" in description
+            assert "bwrap" in description
+            assert "soft" in description.lower()
 
     def test_macos_sem_sandbox_exec_mantem_desabilitado(self, tmp_path, monkeypatch):
         monkeypatch.setattr(policy_module.sys, "platform", "darwin")
@@ -508,7 +523,6 @@ class TestAutoEnableNativoLinuxMacos:
 
         monkeypatch.setattr(policy_module.shutil, "which", lambda nome: None)
         assert policy_module._native_sandbox_available_sync() is False
-
         monkeypatch.setattr(
             policy_module.shutil, "which", lambda nome: "/usr/bin/bwrap"
         )
@@ -747,3 +761,33 @@ async def test_wsl2_diagnostic_distro_sem_shell_utilizavel(monkeypatch):
     result = await wsl2_diagnostic()
 
     assert result == "distro_missing_shell"
+
+
+@pytest.mark.parametrize(
+    "configured",
+    [
+        None,
+        "[workspace]\nname = 'demo'\n",
+        "[sandbox]\nenabled = true\n",
+        "[sandbox]\nenabled = false\n",
+    ],
+)
+@pytest.mark.parametrize("native", [True, False])
+def test_documented_auto_activation_and_explicit_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str | None,
+    native: bool,
+) -> None:
+    """Arquivo ausente, ausência de seção e política explícita são estados distintos."""
+    monkeypatch.setattr(policy_module, "_native_sandbox_available_sync", lambda: native)
+    monkeypatch.setattr(policy_module, "_wsl2_eligible_sync", lambda: False)
+    path = tmp_path / "vectora.toml"
+    if configured is not None:
+        path.write_text(configured, encoding="utf-8")
+    expected = (
+        native
+        if configured is None
+        else configured.startswith("[sandbox]\nenabled = true")
+    )
+    assert parse_policy(path).enabled is expected

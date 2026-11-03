@@ -13,6 +13,8 @@ Este guia mostra como configurar os quality gates que verificam o resultado de u
 - Os comandos usados pelos gates (por exemplo `pytest`, `npm test` ou um linter) instalados no ambiente do workspace.
 - Para o Evaluation Lab: a CLI `vectora` disponível no terminal.
 
+Configure cada camada conforme as operações que você precisa restringir.
+
 ## Configuração
 
 A verificação é configurada por workspace num arquivo de perfil; o Evaluation Lab é usado pela CLI.
@@ -71,9 +73,10 @@ Se o arquivo do perfil estiver corrompido, o Vectora aplica um gate de proteçã
 
 ### Evaluation Lab
 
-O Evaluation Lab reproduz cassetes existentes sem chamar o provider externo. Uma cassete é um arquivo JSON com as interações de uma execução; os dados sensíveis são ocultados quando a cassete é salva. A CLI não tem comando para gravar cassetes.
+O Evaluation Lab reproduz cassetes existentes sem chamar o provider externo. A CLI não captura interações live diretamente. Habilite `EVALUATION_RECORDING_ENABLED=true` antes de executar para registrar as interações do modelo no AgentRun. Salve o JSON da resposta autenticada de `GET /runs/{run_id}` e use `vectora eval export-run --run-file run.json --target cassette.json`; o comando usa `cassette_from_run` e recusa execuções sem interações gravadas. Excluir a sessão remove o trace armazenado, mas os arquivos exportados exigem retenção e exclusão separadas. Apenas campos e padrões conhecidos de credenciais são ocultados; mensagens e respostas podem manter código privado ou dados pessoais. Restrinja o acesso e revise as cassetes antes de compartilhar.
 
 ```bash
+vectora eval export-run --run-file run.json --target cassette.json
 vectora eval run --suite caminho/para/suite.json
 vectora eval compare baseline.json candidata.json
 ```
@@ -81,6 +84,8 @@ vectora eval compare baseline.json candidata.json
 - `vectora eval run` reproduz uma única cassete (`--suite` aponta para um arquivo de cassete; uma lista de cassetes é recusada).
 - `vectora eval compare` compara duas cassetes (baseline e candidata).
 - Os dois comandos aceitam `--output human` (padrão) ou `--output json`.
+
+Confira os limites abaixo antes de depender do replay ou compartilhar uma gravação.
 
 ## Limitações
 

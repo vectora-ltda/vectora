@@ -94,8 +94,8 @@ describe("getFeatureCategories", () => {
     // Evaluation Lab oculta (não "redige") os dados sensíveis.
     const hidden: Record<string, string> = {
       pt: "ocultados",
-      es: "ocultos",
-      fr: "masquées",
+      es: "ocultas",
+      fr: "masqués",
       ru: "скрытыми",
     };
     for (const locale of ["en", "pt", "es", "de", "fr", "it", "ru"]) {
@@ -108,7 +108,24 @@ describe("getFeatureCategories", () => {
       const egress = messages.features_egress_policies_desc;
       expect(egress, locale).toContain("6.7+");
       expect(egress, locale).not.toContain("6.5+");
+      const sandbox = messages.capability_sandbox_desc;
+      expect(messages.features_sandbox_desc, locale).toBe(sandbox);
+      expect(sandbox, locale).toContain("macOS");
+      expect(sandbox, locale).toContain("bwrap");
+      expect(sandbox.toLowerCase(), locale).toContain("soft");
+      expect(sandbox, locale).toContain("enabled = false");
       const lab = messages.features_verification_lab_desc;
+      const privacyWords: Record<string, string> = {
+        en: "private code",
+        pt: "código privado",
+        es: "código privado",
+        de: "privaten Code",
+        fr: "code privé",
+        it: "codice privato",
+        ru: "частный код",
+      };
+      expect(lab, locale).toContain(privacyWords[locale]);
+      expect(lab, locale).not.toContain("with sensitive data hidden");
       expect(lab, locale).not.toMatch(/redigid|rédaction|редактир|redactad/);
       if (hidden[locale]) expect(lab, locale).toContain(hidden[locale]);
     }
@@ -118,5 +135,20 @@ describe("getFeatureCategories", () => {
     const categories = getFeatureCategories();
     const ids = categories.flatMap((c) => c.items.map((i) => i.id));
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("localized approval terminology", () => {
+  it("distinguishes approval gates from recovery checkpoints in Russian", () => {
+    const messages = JSON.parse(
+      readFileSync(
+        join(import.meta.dirname, "../../messages/ru.json"),
+        "utf-8",
+      ),
+    ) as Record<string, string>;
+    const description = messages.features_plan_mode_desc;
+    expect(description).toContain("этапами согласования перед действиями");
+    expect(description).toContain("контрольные точки");
+    expect(description).not.toContain("контрольными точками перед действиями");
   });
 });

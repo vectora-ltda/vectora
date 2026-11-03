@@ -275,7 +275,7 @@ class TestWsl2Spawn:
 
     @pytest.mark.asyncio
     async def test_wsl2_sem_bwrap_dentro_da_distro_faz_fallback_pro_soft(
-        self, monkeypatch
+        self, monkeypatch, tmp_path
     ):
         """WSL2 presente mas sem bwrap: idem — fallback soft em vez de bloquear."""
         proc = _fake_proc()
@@ -288,11 +288,19 @@ class TestWsl2Spawn:
         monkeypatch.setattr(wj, "assign_job_object_kill_on_close", lambda pid: 5678)
         manager = wj.WorkspaceJailManager()
 
-        worker = await manager.get_or_spawn(
-            "ws-1", r"C:\Users\dev\projeto", SandboxPolicy(enabled=True)
-        )
+        from backend.sandbox import policy as policy_module
+
+        monkeypatch.setattr(policy_module, "_wsl2_distro_cache", "Ubuntu")
+        policy = policy_module.parse_policy(tmp_path / "vectora.toml")
+        assert policy.enabled is True
+        assert policy.backend == "local"
+        worker = await manager.get_or_spawn("ws-1", r"C:\Users\dev\projeto", policy)
 
         assert spawn_mock.await_args is not None
+        argv = spawn_mock.await_args.args
+        assert argv[:3] == (wj.sys.executable, "-m", "backend.sandbox.worker")
+        assert "bwrap" not in argv
+        assert "--unshare-net" not in argv
         kwargs = spawn_mock.await_args.kwargs
         assert kwargs["env"]["VECTORA_SANDBOX_SOFT"] == "1"
         assert worker.job_handle == 5678

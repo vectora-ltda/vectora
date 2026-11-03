@@ -37,7 +37,7 @@ An evaluation that starts and then fails must not release the action. A missing 
 
 ### Verification and Evaluation Lab
 
-Quality gates evaluate outcomes after execution and distinguish passed, failed, blocked, degraded, and unverified results. A cassette stores the interactions of a run, with sensitive data redacted when it is saved; replay lets you compare an existing cassette without calling the external provider again. The CLI has no command that records a cassette.
+Quality gates evaluate outcomes after execution and distinguish passed, failed, blocked, degraded, and unverified results. The CLI does not directly capture live interactions. Enable `EVALUATION_RECORDING_ENABLED=true` before a run to record its model interactions in AgentRun. Save the authenticated `GET /runs/{run_id}` JSON response, then use `vectora eval export-run --run-file run.json --target cassette.json`; it calls `cassette_from_run` and rejects runs without recorded interactions. Deleting the session removes its stored trace, but exported files require separate retention and deletion. Only known credential fields and patterns are hidden; messages and responses can retain private code or personal data. Restrict access and review cassettes before sharing.
 
 Use `vectora eval run` to replay a single cassette and `vectora eval compare` to compare results. Replay validates reproducible cassette behavior, not live model, Browser Workbench, or external service availability. See [Verification and Evaluation Lab](../verification-lab) to configure quality-gate profiles.
 

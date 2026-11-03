@@ -37,7 +37,7 @@ Uma avaliação iniciada que falhe não deve liberar a ação. Modelo ausente ou
 
 ### Verificação e Evaluation Lab
 
-Quality gates avaliam resultados após a execução e distinguem aprovado, falho, bloqueado, degradado e não verificado. Uma cassete guarda as interações de uma execução, com os dados sensíveis ocultados ao salvar; replay permite comparar uma cassete existente sem chamar novamente o provider externo. A CLI não tem comando para gravar cassetes.
+Quality gates avaliam resultados após a execução e distinguem aprovado, falho, bloqueado, degradado e não verificado. A CLI não captura interações live diretamente. Habilite `EVALUATION_RECORDING_ENABLED=true` antes de executar para registrar as interações do modelo no AgentRun. Salve o JSON da resposta autenticada de `GET /runs/{run_id}` e use `vectora eval export-run --run-file run.json --target cassette.json`; o comando usa `cassette_from_run` e recusa execuções sem interações gravadas. Excluir a sessão remove o trace armazenado, mas os arquivos exportados exigem retenção e exclusão separadas. Apenas campos e padrões conhecidos de credenciais são ocultados; mensagens e respostas podem manter código privado ou dados pessoais. Restrinja o acesso e revise as cassetes antes de compartilhar.
 
 Use `vectora eval run` para reproduzir uma única cassete e `vectora eval compare` para comparar resultados. O replay valida o comportamento reproduzível do cassette, não a disponibilidade live do modelo, Browser Workbench ou serviço externo. Veja [Verificação e Evaluation Lab](../verification-lab) para configurar os perfis de quality gates.
 

@@ -12,6 +12,8 @@ Esta guía explica cómo Vectora controla el tráfico de salida del agente: la p
 - Un workspace abierto en Vectora.
 - Para el aislamiento de red de los comandos: el sandbox activo en el workspace (consulta [Sandbox](../../concepts/sandbox)).
 
+Configura cada capa según las operaciones que necesites restringir.
+
 ## Configuración
 
 El tráfico de salida se controla con dos capas independientes, cada una configurada en un lugar distinto.
@@ -20,14 +22,14 @@ El tráfico de salida se controla con dos capas independientes, cada una configu
 
 | Capa | Dónde se aplica | Cómo se configura |
 | --- | --- | --- |
-| Política de egress | Herramientas web basadas en URL (fetch, crawl, map) y navegación del Browser Workbench | Configuración de runtime (`egress_policy`) |
+| Política de egress | URLs iniciales de fetch, crawl y map y navegación del Browser Workbench; consulta abajo las exclusiones de redirecciones Chromium y búsqueda | Configuración de runtime (`egress_policy`) |
 | Red del sandbox | Comandos y archivos ejecutados en el worker aislado | Sección `[sandbox]` de `vectora.toml` |
 
 La allowlist de servidores MCP y las preaprobaciones de herramientas no son políticas de egress. Controlan qué servidores y acciones se pueden usar, no hacia dónde va el tráfico.
 
 ### Política de egress
 
-La política se lee de la configuración de runtime, mediante la clave `egress_policy:<workspace_id>` o la clave `egress_policy` (un objeto por workspace o un objeto único). En esta línea no hay pantalla ni endpoint dedicado para editarla.
+La política se lee de la configuración de runtime: `egress_policy:<workspace_id>` contiene directamente la política del workspace; como alternativa, `egress_policy` asocia IDs de workspace con objetos de política, por ejemplo `{"mi-workspace": {"allowed_hosts": ["example.com"]}}`. Para un workspace, un objeto único sin esa clave en `egress_policy` se ignora y se aplica la política predeterminada. No hay pantalla ni endpoint dedicado para editarla.
 
 | Campo | Por defecto | Efecto |
 | --- | --- | --- |
@@ -35,13 +37,13 @@ La política se lee de la configuración de runtime, mediante la clave `egress_p
 | `allowed_hosts` | vacío | Si se define, solo se permiten esos hosts |
 | `denied_hosts` | vacío | Hosts siempre bloqueados |
 | `allowed_ports` | `[80, 443]` | Puertos permitidos; una lista vacía no restringe puertos |
-| `allow_localhost_dev_ports` | vacío | Puertos de loopback permitidos para servidores de desarrollo |
+| `allow_localhost_dev_ports` | vacío | Puertos de loopback permitidos por la capa de egress; `fetch_url` todavía rechaza loopback mediante su guard SSRF independiente |
 
 Cómo se evalúa la política:
 
 1. Solo se aceptan URLs `http` y `https`.
 2. `denied_hosts` se comprueba antes que `allowed_hosts`. Un patrón `*.ejemplo.com` cubre `ejemplo.com` y todos sus subdominios.
-3. El host se resuelve por DNS y se comprueba cada dirección resuelta. Esto protege contra SSRF y DNS rebinding.
+3. El host se resuelve por DNS y se comprueba cada dirección devuelta en esa consulta. La ruta HTTP directa fija la IP validada; el fallback Chromium no la fija, por lo que esta comprobación no garantiza protección contra DNS rebinding en esa ruta.
 4. El puerto debe estar en `allowed_ports`, o en `allow_localhost_dev_ports` cuando el destino es loopback.
 
 Los subagentes heredan la política de la ejecución que los creó.
@@ -59,8 +61,10 @@ allow_tcp_ports = [443]
 ```
 
 - `lockdown = true` niega toda la red del worker (`--unshare-net`) cuando se ejecuta bajo `bwrap` (Linux, o Windows mediante WSL2).
-- `allow_tcp_ports` niega todo el TCP de salida excepto los puertos listados. La restricción usa Landlock ABI V4 y requiere Linux con kernel 6.7 o superior.
+- `allow_tcp_ports` niega todo el TCP de salida excepto los puertos listados. La restricción usa Landlock ABI V4 y requiere Linux con kernel 6.7 o superior. El ruleset también controla bind TCP, pero solo concede connect: un servidor local no puede hacer bind ni en un puerto listado cuando esta restricción está activa.
 - Con `allow_tcp_ports` vacío (el valor por defecto), el sandbox no restringe la red por puerto.
+
+Antes de usar estas capacidades, revisa los límites de plataforma, configuración y validación siguientes.
 
 ## Limitaciones
 
@@ -70,4 +74,4 @@ allow_tcp_ports = [443]
 - Vectora identifica qué backends de sandbox pueden aplicar restricciones de red, pero todavía no rechaza la ejecución cuando el backend elegido no puede.
 - La política de egress cubre las herramientas listadas arriba; no supongas que otras rutas de red usan los mismos controles.
 - `web_search` envía una consulta, no una URL: las peticiones al proveedor de búsqueda y a la búsqueda de fallback (DuckDuckGo) no pasan por la política de egress.
-- Sin `TAVILY_API_KEY`, `fetch_url` comprueba la URL con la política de egress y luego la abre en Chromium; las redirecciones que sigue el navegador no se vuelven a comprobar.
+- `fetch_url` usa Chromium sin `TAVILY_API_KEY` o cuando el proveedor de extracción informa errores de cuota/rate limit, incluso con la clave configurada. En ambos casos se comprueba la URL inicial, pero las redirecciones del navegador no se vuelven a comprobar y la IP de destino no se fija.

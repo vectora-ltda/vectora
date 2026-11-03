@@ -13,6 +13,8 @@ Esta guía muestra cómo configurar los quality gates que verifican el resultado
 - Los comandos que usan los gates (por ejemplo `pytest`, `npm test` o un linter) instalados en el entorno del workspace.
 - Para el Evaluation Lab: la CLI `vectora` disponible en la terminal.
 
+Configura cada capa según las operaciones que necesites restringir.
+
 ## Configuración
 
 La verificación se configura por workspace en un archivo de perfil; el Evaluation Lab se usa desde la CLI.
@@ -71,9 +73,10 @@ Si el archivo del perfil está dañado, Vectora aplica un gate de protección qu
 
 ### Evaluation Lab
 
-El Evaluation Lab reproduce cassettes existentes sin llamar al proveedor externo. Un cassette es un archivo JSON con las interacciones de una ejecución; los datos sensibles se ocultan al guardar el cassette. La CLI no tiene un comando para grabar cassettes.
+El Evaluation Lab reproduce cassettes existentes sin llamar al proveedor externo. La CLI no captura interacciones live directamente. Activa `EVALUATION_RECORDING_ENABLED=true` antes de ejecutar para registrar las interacciones del modelo en AgentRun. Guarda el JSON de la respuesta autenticada de `GET /runs/{run_id}` y usa `vectora eval export-run --run-file run.json --target cassette.json`; el comando usa `cassette_from_run` y rechaza ejecuciones sin interacciones grabadas. Eliminar la sesión borra su trace almacenado, pero los archivos exportados requieren retención y eliminación separadas. Solo se ocultan campos y patrones conocidos de credenciales; los mensajes y respuestas pueden conservar código privado o datos personales. Restringe el acceso y revisa los cassettes antes de compartirlos.
 
 ```bash
+vectora eval export-run --run-file run.json --target cassette.json
 vectora eval run --suite ruta/a/suite.json
 vectora eval compare baseline.json candidata.json
 ```
@@ -81,6 +84,8 @@ vectora eval compare baseline.json candidata.json
 - `vectora eval run` reproduce un único cassette (`--suite` apunta a un archivo de cassette; una lista de cassettes se rechaza).
 - `vectora eval compare` compara dos cassettes (baseline y candidata).
 - Los dos comandos aceptan `--output human` (por defecto) o `--output json`.
+
+Revisa los límites siguientes antes de depender del replay o compartir una grabación.
 
 ## Limitaciones
 

@@ -142,7 +142,7 @@ def test_cassette_save_and_load_with_redaction(tmp_path: Path):
                         "content": "minha chave e sk-1234567890abcdef12345678",
                     }
                 ],
-                response_text="Resposta segura",
+                response_text="Código privado da empresa: def segredo_interno(): return 42",
                 systemone_decision="allow api_key=private-decision-key",
                 duration_ms=120,
                 usage={"input": 50, "output": 10},
@@ -156,6 +156,9 @@ def test_cassette_save_and_load_with_redaction(tmp_path: Path):
     assert "sk-1234567890abcdef12345678" not in raw_content
     assert "private-decision-key" not in raw_content
     assert "[REDACTED]" in raw_content
+    # A ocultação de credenciais não anonimiza código nem dados pessoais.
+    assert "segredo_interno" in raw_content
+    assert "minha chave e [REDACTED]" in raw_content
 
     loaded = Cassette.load(target)
     assert loaded.cassette_id == "cas-001"

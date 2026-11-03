@@ -13,6 +13,8 @@ This guide shows how to configure the quality gates that check a run's result an
 - The commands used by the gates (for example `pytest`, `npm test`, or a linter) installed in the workspace environment.
 - For the Evaluation Lab: the `vectora` CLI available in your terminal.
 
+Configure each layer according to the operations you need to restrict.
+
 ## Configuration
 
 Verification is configured per workspace in a profile file; the Evaluation Lab is used from the CLI.
@@ -71,9 +73,10 @@ If the profile file is corrupted, Vectora applies a protective gate that fails w
 
 ### Evaluation Lab
 
-The Evaluation Lab replays existing cassettes without calling the external provider. A cassette is a JSON file with the interactions of a run; sensitive data is redacted when the cassette is saved. The CLI has no command that records a cassette.
+The Evaluation Lab replays existing cassettes without calling the external provider. The CLI does not directly capture live interactions. Enable `EVALUATION_RECORDING_ENABLED=true` before a run to record its model interactions in AgentRun. Save the authenticated `GET /runs/{run_id}` JSON response, then use `vectora eval export-run --run-file run.json --target cassette.json`; it calls `cassette_from_run` and rejects runs without recorded interactions. Deleting the session removes its stored trace, but exported files require separate retention and deletion. Only known credential fields and patterns are hidden; messages and responses can retain private code or personal data. Restrict access and review cassettes before sharing.
 
 ```bash
+vectora eval export-run --run-file run.json --target cassette.json
 vectora eval run --suite path/to/suite.json
 vectora eval compare baseline.json candidate.json
 ```
@@ -81,6 +84,8 @@ vectora eval compare baseline.json candidate.json
 - `vectora eval run` replays a single cassette (`--suite` points to one cassette file; a list of cassettes is rejected).
 - `vectora eval compare` compares two cassettes (baseline and candidate).
 - Both commands accept `--output human` (default) or `--output json`.
+
+Review the boundaries below before relying on replay or sharing a recording.
 
 ## Limitations
 

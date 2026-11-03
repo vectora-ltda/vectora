@@ -37,7 +37,7 @@ Si una evaluación se inicia y falla, la acción no debe quedar autorizada. Un m
 
 ### Verificación y Evaluation Lab
 
-Los quality gates evalúan resultados después de la ejecución y distinguen aprobado, fallido, bloqueado, degradado y no verificado. Un cassette guarda las interacciones de una ejecución, con los datos sensibles ocultos al guardarlo; replay permite comparar un cassette existente sin volver a llamar al proveedor externo. La CLI no tiene un comando para grabar cassettes.
+Los quality gates evalúan resultados después de la ejecución y distinguen aprobado, fallido, bloqueado, degradado y no verificado. La CLI no captura interacciones live directamente. Activa `EVALUATION_RECORDING_ENABLED=true` antes de ejecutar para registrar las interacciones del modelo en AgentRun. Guarda el JSON de la respuesta autenticada de `GET /runs/{run_id}` y usa `vectora eval export-run --run-file run.json --target cassette.json`; el comando usa `cassette_from_run` y rechaza ejecuciones sin interacciones grabadas. Eliminar la sesión borra su trace almacenado, pero los archivos exportados requieren retención y eliminación separadas. Solo se ocultan campos y patrones conocidos de credenciales; los mensajes y respuestas pueden conservar código privado o datos personales. Restringe el acceso y revisa los cassettes antes de compartirlos.
 
 Usa `vectora eval run` para reproducir un único cassette y `vectora eval compare` para comparar resultados. Replay valida un cassette reproducible, no la disponibilidad live del modelo, Browser Workbench o un servicio externo. Consulta [Verificación y Evaluation Lab](../verification-lab) para configurar los perfiles de quality gates.
 

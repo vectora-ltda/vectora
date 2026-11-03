@@ -32,11 +32,13 @@ Para o controle de rede do worker (`lockdown` e `allow_tcp_ports`) e para a pol�
 
 Em vez de criar um processo sandboxed novo a cada chamada de tool, o Vectora mantém um único worker jailado persistente vivo por workspace com `[sandbox]` habilitado — nasce na primeira ação sandboxável, é encerrado quando o workspace fica ocioso. `file_write`, `file_edit` e comandos `terminal` pontuais roteiam por esse worker via um protocolo JSON-lines pequeno (`exec`/`read_file`/`write_file`).
 
-No backend `local` (Linux, ou Windows via WSL2), o worker roda sob `bwrap` (Bubblewrap) com:
+No backend `local` (Linux, ou Windows via WSL2), o worker roda sob `bwrap` quando disponível (Bubblewrap) com:
 
 - Namespacing de filesystem restrito a `rw_paths`/`ro_paths`.
 - Paths mascarados (`mask`) nunca expostos dentro da jaula, mesmo se caírem sob um path permitido.
 - Um filtro seccomp-BPF real (via `libseccomp`) negando uma lista fixa de syscalls perigosas (`ptrace`, `mount`, `unshare`, `bpf`, carregamento de módulo de kernel, etc.) — se `libseccomp` não estiver instalado no host, o worker ainda roda sob isolamento de namespace, só sem o filtro de syscall, e essa degradação é registrada em log.
+
+No Windows, a ativação automática verifica uma distribuição WSL2 elegível, não a presença de `bwrap` dentro dela. Se `bwrap` estiver ausente, o worker usa um processo soft nativo sem isolamento de filesystem ou rede, mesmo com `lockdown = true`. No macOS não há ativação automática: o worker local persistente tenta usar `bwrap`, não Seatbelt (`sandbox-exec`).
 
 Os demais backends (`docker`, `ssh`, `modal`) rodam o mesmo modelo de worker contra seu respectivo primitivo de isolamento; `docker` também nega acesso a rede sob `lockdown`.
 

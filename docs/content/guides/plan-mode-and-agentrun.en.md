@@ -13,6 +13,8 @@ This guide explains how to plan a task before running it, how to follow each age
 - A model provider configured for chat.
 - For Decision Models: a configured decision provider (see [Decision models](../decision-models)).
 
+Check the prerequisites above before configuring planning and run tracking.
+
 ## Configuration
 
 This section covers how to start Plan Mode, what an AgentRun records, and which decisions are stored with each run.
@@ -22,7 +24,7 @@ This section covers how to start Plan Mode, what an AgentRun records, and which 
 Plan Mode can be used in two ways:
 
 - **`/plan` prefix:** a message that starts with `/plan` is sent in planning mode. The prefix is removed before the text reaches the agent.
-- **`Plan` permission mode:** the agent pauses at the first protected action of the turn and asks for your approval. Once you approve, the plan continues in the same turn. The approval does not carry over to later turns.
+- **`Plan` permission mode:** the agent pauses at the first protected action of the turn and asks for your approval. Once you approve, the plan continues in the same turn. The approval does not carry over to later turns. With an active sandbox, `should_require_approval` exempts `terminal`, `file_write` and `file_edit`; even the first such action can run without human approval in Plan permission mode. Other policy and tool restrictions still apply.
 
 Plan Mode is not the workbench **Plan** tab. The tab shows the session's artifacts and checklist; Plan Mode controls when the agent pauses. See [Using the chat](../using-the-chat) for all permission modes.
 

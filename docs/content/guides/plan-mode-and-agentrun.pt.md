@@ -13,6 +13,8 @@ Este guia explica como planejar uma tarefa antes de executá-la, como acompanhar
 - Um provider de modelo configurado para o chat.
 - Para Decision Models: um provider de decisão configurado (veja [Modelos de decisão](../decision-models)).
 
+Confira os pré-requisitos acima antes de configurar o planejamento e acompanhar execuções.
+
 ## Configuração
 
 Esta seção mostra como iniciar o Plan Mode, o que um AgentRun registra e quais decisões ficam gravadas em cada execução.
@@ -22,7 +24,7 @@ Esta seção mostra como iniciar o Plan Mode, o que um AgentRun registra e quais
 O Plan Mode tem duas formas de uso:
 
 - **Prefixo `/plan`:** uma mensagem que começa com `/plan` é enviada em modo de planejamento. O prefixo é removido do texto antes de chegar ao agente.
-- **Modo de permissão `Plano`:** o agente pausa na primeira ação protegida do turno e pede sua aprovação. Depois que você aprova, o plano continua no mesmo turno. A aprovação não vale para turnos seguintes.
+- **Modo de permissão `Plano`:** o agente pausa na primeira ação protegida do turno e pede sua aprovação. Depois que você aprova, o plano continua no mesmo turno. A aprovação não vale para turnos seguintes. Com sandbox ativo, `should_require_approval` dispensa aprovação para `terminal`, `file_write` e `file_edit`; até a primeira dessas ações pode executar sem aprovação humana no modo de permissão Plano. As demais restrições de policy e das tools continuam valendo.
 
 O Plan Mode não é a aba **Plan** da workbench. A aba mostra os artifacts e a checklist da sessão; o Plan Mode controla quando o agente pausa. Veja [Usando o chat](../using-the-chat) para todos os modos de permissão.
 

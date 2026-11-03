@@ -200,6 +200,19 @@ class TestShouldRequireApproval:
         # git/install continuam pedindo aprovação mesmo jailed.
         assert should_require_approval("install_learned_skill", ctx, {}, []) is True
 
+    @pytest.mark.parametrize("tool", ["terminal", "file_write", "file_edit"])
+    @pytest.mark.parametrize("jailed", [True, False])
+    def test_plan_first_action_respects_sandbox_exemption(
+        self, monkeypatch: pytest.MonkeyPatch, tool: str, jailed: bool
+    ) -> None:
+        """A primeira ação sem histórico só é dispensada quando há sandbox."""
+        monkeypatch.setattr(
+            "backend.engine.hitl._workspace_is_jailed", lambda _wsid: jailed
+        )
+        ctx = _ctx(permission_mode="plan", workspace_id="ws-1")
+        assert should_require_approval(tool, ctx, {}, []) is not jailed
+        assert should_require_approval("install_learned_skill", ctx, {}, []) is True
+
     def test_workspace_nao_jailed_continua_pedindo_aprovacao(self, monkeypatch):
         """Verifica o comportamento de workspace nao jailed continua pedindo aprovacao."""
         monkeypatch.setattr(

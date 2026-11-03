@@ -27,7 +27,7 @@ Cada execução do agente passa a ter identidade e estado persistentes.
 
 O planejamento passa a gerar etapas executáveis e delegação persistente.
 
-- Ativa o Plan Mode quando a mensagem começa com `/plan`; no modo de permissão `plan`, a aprovação de plano é pedida uma vez por turno.
+- Ativa o Plan Mode quando a mensagem começa com `/plan`; no modo de permissão `plan`, a aprovação de plano é pedida uma vez por turno para ações sujeitas ao HITL. Com sandbox ativo, `terminal`, `file_write` e `file_edit` são dispensadas, inclusive na primeira ação.
 - Executa subagentes por DAG, com dependências entre etapas, e organiza tarefas em background no Kanban ([#382](https://github.com/vectora-ltda/vectora/pull/382)).
 
 ##### Decisões e HITL
@@ -43,14 +43,14 @@ As decisões de aprovação ficam registradas e, com o PR #404, podem consultar 
 Os resultados das execuções passam a ser verificados e reproduzíveis.
 
 - Avalia resultados com perfis de quality gates por workspace, com políticas `block`, `degrade` e `inform` e resultados `passed`, `failed`, `infra_error`, `not_run`, `blocked`, `degraded` e `unverified` ([#382](https://github.com/vectora-ltda/vectora/pull/382), [#414](https://github.com/vectora-ltda/vectora/pull/414)).
-- Grava cassetes com redação de dados sensíveis e permite replay e comparação com `vectora eval run` e `vectora eval compare`.
+- Com gravação habilitada, exporta interações registradas no AgentRun com `vectora eval export-run`; permite replay e comparação com `vectora eval run` e `vectora eval compare`. A ocultação cobre campos e padrões conhecidos de credenciais, não todo código privado ou dado pessoal; revise os arquivos e restrinja o acesso antes de compartilhar.
 
 ##### Políticas e egress
 
 As chamadas de rede das ferramentas passam a seguir uma política de saída por workspace.
 
 - Compila um snapshot de política por execução antes das tools.
-- Aplica a política de egress (hosts permitidos e negados, portas, bloqueio de IPs privados e resolução de DNS validada) às tools de HTTP, web e navegação do Browser Workbench ([#382](https://github.com/vectora-ltda/vectora/pull/382), [#400](https://github.com/vectora-ltda/vectora/pull/400)).
+- Aplica a política de egress (hosts permitidos e negados, portas, bloqueio de IPs privados e resolução de DNS validada) às tools de web baseadas em URL (`fetch`, `crawl`, `map`) e à navegação inicial do Browser Workbench ([#382](https://github.com/vectora-ltda/vectora/pull/382), [#400](https://github.com/vectora-ltda/vectora/pull/400)).
 
 ##### Contexto, memória e RAG
 
@@ -65,6 +65,8 @@ A navegação usa o Chromium distribuído com o Electron.
 - Executa busca, fetch, crawl e map no Browser Workbench com limites de páginas, profundidade e origem ([#382](https://github.com/vectora-ltda/vectora/pull/382), [#355](https://github.com/vectora-ltda/vectora/pull/355)).
 - Ajusta o fluxo de release e os testes locais de providers ([#408](https://github.com/vectora-ltda/vectora/pull/408)).
 
+As correções abaixo complementam os recursos descritos.
+
 ### Bug Fixes
 
 As correções incluídas na linha 0.3 são listadas abaixo.
@@ -74,6 +76,8 @@ As correções incluídas na linha 0.3 são listadas abaixo.
 - Libera os guards de navegação, filtra cópias expiradas de memória e protege a restauração de checkpoints contra links simbólicos.
 - Declara o contrato de motivos de quality gate ([#414](https://github.com/vectora-ltda/vectora/pull/414)).
 
+Considere as restrições de plataforma e de integração ao usar esses recursos.
+
 ### Limitações conhecidas
 
 Os limites abaixo valem para a linha 0.3 e devem ser considerados antes de depender de cada recurso.
@@ -82,6 +86,7 @@ Os limites abaixo valem para a linha 0.3 e devem ser considerados antes de depen
 - O backend `local` do sandbox (bubblewrap e Landlock) funciona no Linux nativo e no Windows via WSL2. No Windows sem WSL2, ou sem `bwrap` na distribuição, o worker cai no modo soft, sem isolamento de rede.
 - `lockdown = true` nega toda a rede do worker (`--unshare-net`) somente quando ele roda sob `bwrap`; no modo soft do Windows, a rede continua aberta.
 - `allow_tcp_ports` restringe TCP somente com Landlock ABI V4 (kernel 6.7 ou superior); em kernels sem suporte, a restrição não é aplicada e o worker sinaliza a falha. Uma lista vazia não restringe a rede.
+- `web_search` não passa pela política de egress; no fallback Chromium de `fetch_url` (sem chave ou após erro de quota/rate limit), redirecionamentos não são reavaliados e o IP não é fixado.
 - A política de egress é lida das configurações de runtime (`egress_policy`); não há tela nem endpoint dedicado para editá-la.
 - O mapeamento de capacidade de egress por backend de sandbox existe, mas ainda não recusa a execução quando o backend não consegue aplicar a restrição exigida.
 - Testes live de providers que aparecem como `skipped` não comprovam funcionamento live; replay de cassetes não substitui teste de integração com provider ou Browser Workbench real.
