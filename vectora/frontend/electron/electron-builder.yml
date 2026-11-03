@@ -1,7 +1,7 @@
 # electron-builder config
 #
 # Gera instaladores nativos (Windows NSIS .exe + MSI, macOS .dmg/.zip e Linux
-# AppImage, DEB, RPM, Pacman, APK e Flatpak). A assinatura/notarização é configurada pelo workflow
+# AppImage, DEB, RPM, Pacman e Flatpak). A assinatura/notarização é configurada pelo workflow
 # segundo as credenciais disponíveis. Cada instalador empacota a shell Electron
 # + o binário Nuitka como extraResource.
 #
@@ -136,8 +136,8 @@ linux:
     - AppImage
     - deb
     - rpm
+    - snap
     - pacman
-    - apk
     - flatpak
     - tar.gz
   icon: public/favicon-600x600.png
@@ -178,6 +178,11 @@ flatpak:
   runtime: org.freedesktop.Platform
   runtimeVersion: "24.08"
   sdk: org.freedesktop.Sdk
+
+snapcraft:
+  base: core22
+  core22:
+    confinement: strict
 
 nsis:
   # ManifestDPIAware true vem de build-resources/installer.nsh (hook customHeader,

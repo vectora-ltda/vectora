@@ -5,9 +5,8 @@ name: Vectora (app)
 # Fluxo PR-based: lint/security/frontend/build/testes rodam sempre — em
 # todo PR, qualquer que seja a base (master, release/*, ou branch de feature
 # em PRs empilhados), e em todo push em master/release/* (merge de PR) — sem
-# gate manual. A matriz nativa de release só roda no commit de uma PR de release
-# já mergeada em master (ou por workflow_dispatch manual). A própria matriz
-# publica os artefatos; a tag só é criada após a distribuição concluir.
+# gate manual. A matriz nativa também roda em PR para validar o empacotamento
+# por SO/arquitetura; R2/KV e tags continuam exclusivos do release em master.
 # `paths` restringe esse pipeline (caro: lint+security+frontend+build+testes)
 # a mudanças que realmente afetam o app Vectora — company/services/docs têm
 # ciclo próprio (.github/workflows/edge.yml), rodar os dois juntos em todo PR
@@ -371,6 +370,7 @@ jobs:
     name: Resolve release version and update channel
     needs: [test-unit, test-external]
     if: >-
+      github.event_name == 'pull_request' ||
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
@@ -397,14 +397,15 @@ jobs:
           CHANNEL=$(python utils/select_update_channel.py "${{ steps.version.outputs.value }}")
           echo "value=$CHANNEL" >> "$GITHUB_OUTPUT"
 
-  # ── 6. Release Native Binaries (Nuitka onefile + Electron installers) ───
-  # A matriz roda no commit de release já mergeado em master. A publicação
-  # externa e a tag só acontecem depois que todos os artefatos passam nesta
-  # matriz e nos jobs de distribuição abaixo.
+  # ── 6. Native package matrix (Nuitka + Electron installers) ──────────────
+  # Pull requests build and verify every native package without production
+  # credentials. R2/KV publication and tagging remain release-only and happen
+  # after the complete matrix succeeds.
   release-native:
     name: Release native (${{ matrix.target }}/${{ matrix.arch }})
     needs: [test-unit, test-external, release-channel]
     if: >-
+      github.event_name == 'pull_request' ||
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
@@ -477,7 +478,8 @@ jobs:
         if: matrix.target == 'linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ccache flatpak flatpak-builder fuse3
+          sudo apt-get install -y ccache flatpak flatpak-builder fuse3 snapd
+          sudo snap install snapcraft --classic
           flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
       - name: Cache ccache (Nuitka C compilation)
         uses: actions/cache@v6
@@ -691,8 +693,8 @@ jobs:
               require_one "Vectora-*-linux-${{ matrix.arch }}.AppImage"
               require_one "Vectora-*-linux-${{ matrix.arch }}.deb"
               require_one "Vectora-*-linux-${{ matrix.arch }}.rpm"
+              require_one "Vectora-*-linux-${{ matrix.arch }}.snap"
               require_one "Vectora-*-linux-${{ matrix.arch }}.pkg.tar.zst"
-              require_one "Vectora-*-linux-${{ matrix.arch }}.apk"
               require_one "Vectora-*-linux-${{ matrix.arch }}.flatpak"
               require_one "Vectora-*-linux-${{ matrix.arch }}.tar.gz"
               ;;
@@ -713,13 +715,13 @@ jobs:
             vectora/frontend/dist-electron/*.AppImage
             vectora/frontend/dist-electron/*.deb
             vectora/frontend/dist-electron/*.rpm
+            vectora/frontend/dist-electron/*.snap
             vectora/frontend/dist-electron/*.pkg.tar.zst
-            vectora/frontend/dist-electron/*.apk
             vectora/frontend/dist-electron/*.flatpak
             vectora/frontend/dist-electron/*.tar.gz
             vectora/frontend/dist-electron/latest*.yml
             vectora/frontend/dist-electron/*.blockmap
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
 
   # ── 7. Publish to update channel (R2 + KV) ───────────────────────────────

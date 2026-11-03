@@ -21,6 +21,7 @@
  */
 import {
   DeleteObjectsCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -39,6 +40,9 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
+import { REQUIRED_RELEASE_FORMATS } from "../src/updates/release-matrix";
+
+export { REQUIRED_RELEASE_FORMATS } from "../src/updates/release-matrix";
 
 const CONTENT_TYPES: Record<string, string> = {
   exe: "application/x-msdownload",
@@ -48,6 +52,8 @@ const CONTENT_TYPES: Record<string, string> = {
   AppImage: "application/x-executable",
   deb: "application/vnd.debian.binary-package",
   rpm: "application/x-rpm",
+  snap: "application/vnd.snap",
+  zst: "application/zstd",
   flatpak: "application/vnd.flatpak",
   gz: "application/gzip",
   yml: "application/x-yaml",
@@ -60,11 +66,11 @@ const CONTENT_TYPES: Record<string, string> = {
 // Manifests (`latest.yml`, `latest-mac.yml`, `latest-linux.yml`) não seguem
 // esse padrão — tratados à parte via MANIFEST_OS abaixo.
 export const INSTALLER_RE =
-  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>pkg\.tar\.zst|tar\.gz|flatpak|AppImage|exe|msi|dmg|zip|deb|rpm|apk)$/;
+  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>pkg\.tar\.zst|tar\.gz|flatpak|AppImage|exe|msi|dmg|zip|deb|rpm|snap)$/;
 
 /** Blockmaps are required for electron-updater differential downloads. */
 export const BLOCKMAP_RE =
-  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>pkg\.tar\.zst|tar\.gz|flatpak|AppImage|exe|msi|dmg|zip|deb|rpm|apk)\.blockmap$/;
+  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>pkg\.tar\.zst|tar\.gz|flatpak|AppImage|exe|msi|dmg|zip|deb|rpm|snap)\.blockmap$/;
 
 /** Electron-builder uses several spellings for the x64 Linux architecture. */
 export function normalizeInstallerArch(
@@ -114,10 +120,37 @@ export const INSTALLER_EXTENSIONS = [
   "deb",
   "rpm",
   "pkg.tar.zst",
-  "apk",
+  "snap",
   "flatpak",
   "tar.gz",
 ] as const;
+
+/** Bloqueia publicação parcial antes de promover o canal no R2/KV. */
+export function validateReleaseFormats(files: string[], version: string): void {
+  const available = new Map<string, Set<string>>();
+  for (const file of files) {
+    const match = INSTALLER_RE.exec(file);
+    if (!match?.groups || match.groups.version !== version) continue;
+    const key = `${match.groups.os}/${normalizeInstallerArch(match.groups.arch)}`;
+    const formats = available.get(key) ?? new Set<string>();
+    formats.add(match.groups.ext);
+    available.set(key, formats);
+  }
+
+  const missing = Object.entries(REQUIRED_RELEASE_FORMATS).flatMap(
+    ([target, required]) => {
+      const actual = available.get(target) ?? new Set<string>();
+      return required
+        .filter((format) => !actual.has(format))
+        .map((format) => `${target}.${format}`);
+    },
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Release ${version} incompleta; publicação no R2 bloqueada. Artefatos ausentes: ${missing.join(", ")}`,
+    );
+  }
+}
 
 export const MANIFEST_OS: Record<string, string> = {
   "latest.yml": "win",
@@ -308,6 +341,8 @@ export function parseArgs(argv: string[]): {
 }
 
 export function extOf(filename: string): string {
+  if (filename.endsWith(".pkg.tar.zst")) return "zst";
+  if (filename.endsWith(".tar.gz")) return "gz";
   const dot = filename.lastIndexOf(".");
   return dot === -1 ? "" : filename.slice(dot + 1);
 }
@@ -380,6 +415,23 @@ async function uploadBuffer(
     client: s3Client(),
     params: { Bucket: bucket, Key: key, Body: body, ContentType: contentType },
   }).done();
+}
+
+/** Confirms that every upload can be read from R2 before the KV channel moves. */
+export async function verifyR2Publication(
+  keys: string[],
+  headObject: (key: string) => Promise<unknown>,
+): Promise<void> {
+  for (const key of keys) {
+    try {
+      await headObject(key);
+    } catch (cause) {
+      throw new Error(
+        `Publicação no R2 não confirmada para ${key}; o canal não será atualizado.`,
+        { cause },
+      );
+    }
+  }
 }
 
 /** Delete uploaded objects in S3-compatible batches of at most 1,000 keys. */
@@ -631,6 +683,7 @@ async function main(): Promise<void> {
   );
 
   const installersByOsArch = indexInstallersByOsArch(files, dist, version);
+  validateReleaseFormats(files, version);
 
   const uploadedKeys: string[] = [];
   for (const file of files) {
@@ -705,6 +758,9 @@ async function main(): Promise<void> {
     throw new Error(`Nenhum instalador/manifesto reconhecido em ${dist}`);
   }
 
+  await verifyR2Publication(uploadedKeys, async (key) =>
+    s3Client().send(new HeadObjectCommand({ Bucket: bucket, Key: key })),
+  );
   await publishVersionAndPrune(bucket, channel, version, uploadedKeys);
   console.log(
     `✓ ${uploadedKeys.length} arquivo(s) publicados no canal "${channel}" v${version}`,

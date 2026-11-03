@@ -23,6 +23,9 @@ import {
   BLOCKMAP_RE,
   readReleaseNotes,
   releaseSupportAsset,
+  REQUIRED_RELEASE_FORMATS,
+  validateReleaseFormats,
+  verifyR2Publication,
 } from "../../scripts/release";
 
 describe("parseArgs", () => {
@@ -109,6 +112,76 @@ describe("extOf", () => {
   it("sem extensão → string vazia (edge)", () => {
     expect(extOf("semextensao")).toBe("");
   });
+
+  it("reconhece extensões compostas para metadados R2", () => {
+    expect(extOf("Vectora-0.3.1-linux-x64.pkg.tar.zst")).toBe("zst");
+    expect(extOf("Vectora-0.3.1-linux-x64.tar.gz")).toBe("gz");
+  });
+});
+
+describe("validateReleaseFormats", () => {
+  it("aceita apenas quando a matriz inteira de formatos está pronta para R2", () => {
+    const files = Object.entries(REQUIRED_RELEASE_FORMATS).flatMap(
+      ([target, formats]) => {
+        const [os, arch] = target.split("/");
+        return formats.map((format) => `Vectora-0.3.1-${os}-${arch}.${format}`);
+      },
+    );
+
+    expect(() => validateReleaseFormats(files, "0.3.1")).not.toThrow();
+  });
+
+  it("bloqueia a promoção quando falta um formato ou uma arquitetura", () => {
+    const files = Object.entries(REQUIRED_RELEASE_FORMATS)
+      .filter(([target]) => target !== "mac/arm64")
+      .flatMap(([target, formats]) => {
+        const [os, arch] = target.split("/");
+        return formats
+          .filter((format) => !(target === "linux/x64" && format === "rpm"))
+          .map((format) => `Vectora-0.3.1-${os}-${arch}.${format}`);
+      });
+
+    expect(() => validateReleaseFormats(files, "0.3.1")).toThrow(
+      /mac\/arm64\.dmg.*linux\/x64\.rpm/,
+    );
+  });
+
+  it("não usa artefatos antigos para completar a matriz da versão atual", () => {
+    const files = Object.entries(REQUIRED_RELEASE_FORMATS).flatMap(
+      ([target, formats]) => {
+        const [os, arch] = target.split("/");
+        return formats.map((format) => `Vectora-0.3.0-${os}-${arch}.${format}`);
+      },
+    );
+
+    expect(() => validateReleaseFormats(files, "0.3.1")).toThrow(
+      /Release 0\.3\.1 incompleta/,
+    );
+  });
+});
+
+describe("verifyR2Publication", () => {
+  it("confirma cada objeto antes da atualização do canal", async () => {
+    const checked: string[] = [];
+    await verifyR2Publication(
+      ["latest/win/x64/0.3.1/app.exe", "latest/latest.yml"],
+      async (key) => {
+        checked.push(key);
+      },
+    );
+    expect(checked).toEqual([
+      "latest/win/x64/0.3.1/app.exe",
+      "latest/latest.yml",
+    ]);
+  });
+
+  it("falha e identifica o objeto que não foi confirmado no R2", async () => {
+    await expect(
+      verifyR2Publication(["latest/linux/arm64/0.3.1/app.deb"], async () => {
+        throw new Error("NotFound");
+      }),
+    ).rejects.toThrow(/app\.deb; o canal não será atualizado/);
+  });
 });
 
 describe("INSTALLER_RE", () => {
@@ -169,7 +242,6 @@ describe("INSTALLER_RE", () => {
       ["linux", "deb"],
       ["linux", "rpm"],
       ["linux", "pkg.tar.zst"],
-      ["linux", "apk"],
       ["linux", "flatpak"],
       ["linux", "tar.gz"],
     ] as const;
