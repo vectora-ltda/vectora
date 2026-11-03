@@ -779,15 +779,16 @@ jobs:
               case "$PACKAGE_FAMILY" in
                 deb)
                   apt-get update
-                  apt-get install -y /artifacts/Vectora-*-linux-x64.deb
+                  apt-get install -y xvfb /artifacts/Vectora-*-linux-x64.deb
                   dpkg-query -s vectora | grep -F "Status: install ok installed"
                   ;;
                 rpm)
-                  dnf install -y /artifacts/Vectora-*-linux-x64.rpm
+                  dnf install -y xorg-x11-server-Xvfb /artifacts/Vectora-*-linux-x64.rpm
                   rpm -q vectora
                   ;;
                 pacman)
                   pacman -Sy --noconfirm
+                  pacman -S --noconfirm xorg-server-xvfb
                   pacman -U --noconfirm /artifacts/Vectora-*-linux-x64.pkg.tar.zst
                   pacman -Q vectora
                   ;;
@@ -800,7 +801,187 @@ jobs:
                 echo "Vectora has unresolved runtime libraries in $DISTRO_IMAGE" >&2
                 exit 1
               fi
+              command -v xvfb-run
+              set +e
+              VECTORA_LICENSE_BYPASS=1 timeout --signal=TERM 25s \
+                xvfb-run -a "$executable" --no-sandbox --disable-gpu --enable-logging=stderr \
+                > /tmp/vectora-startup.log 2>&1
+              startup_status=$?
+              set -e
+              cat /tmp/vectora-startup.log
+              if [ "$startup_status" -ne 124 ]; then
+                echo "Vectora exited before the 25-second startup smoke window (status $startup_status)." >&2
+                exit 1
+              fi
+              if grep -Eiq "error while loading shared libraries|FATAL.*(error|exception)" /tmp/vectora-startup.log; then
+                echo "Vectora reported a fatal startup error in $DISTRO_IMAGE." >&2
+                exit 1
+              fi
             '
+
+  # Install the actual Windows/macOS packages (and both architectures), then
+  # verify their installed paths and keep the real desktop process alive long
+  # enough to catch loader, Gatekeeper, and first-launch failures. This is
+  # deliberately downstream of the complete build matrix and gates release.
+  desktop-install-smoke:
+    name: Desktop install and launch (${{ matrix.platform }}/${{ matrix.arch }}/${{ matrix.format }})
+    needs: release-native
+    if: needs.release-native.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Windows
+            os: windows-latest
+            arch: x64
+            format: exe
+          - platform: Windows
+            os: windows-latest
+            arch: x64
+            format: msi
+          - platform: Windows
+            os: windows-11-arm
+            arch: arm64
+            format: exe
+          - platform: Windows
+            os: windows-11-arm
+            arch: arm64
+            format: msi
+          - platform: macOS
+            os: macos-26-intel
+            arch: x64
+            format: dmg
+          - platform: macOS
+            os: macos-26-intel
+            arch: x64
+            format: zip
+          - platform: macOS
+            os: macos-26
+            arch: arm64
+            format: dmg
+          - platform: macOS
+            os: macos-26
+            arch: arm64
+            format: zip
+          - platform: Linux
+            os: ubuntu-24.04
+            arch: x64
+            format: deb
+          - platform: Linux
+            os: ubuntu-24.04-arm
+            arch: arm64
+            format: deb
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Download native installer
+        uses: actions/download-artifact@v8
+        with:
+          name: vectora-${{ matrix.platform == 'Windows' && 'win' || matrix.platform == 'macOS' && 'mac' || 'linux' }}-${{ matrix.arch }}
+          path: installers
+      - name: Install and launch Windows installer
+        if: matrix.platform == 'Windows'
+        shell: pwsh
+        env:
+          INSTALLER_FORMAT: ${{ matrix.format }}
+        run: |
+          $installer = Get-ChildItem "$env:GITHUB_WORKSPACE\installers" -File | Where-Object { $_.Extension -eq ".${env:INSTALLER_FORMAT}" } | Select-Object -First 1
+          if (-not $installer) { throw "No .$env:INSTALLER_FORMAT installer was downloaded." }
+          if ($env:INSTALLER_FORMAT -eq "msi") {
+            $install = Start-Process msiexec.exe -ArgumentList @("/i", $installer.FullName, "/qn", "/norestart", "/l*v", "$env:RUNNER_TEMP\vectora-install.log") -Wait -PassThru
+          } else {
+            $install = Start-Process -FilePath $installer.FullName -ArgumentList @("/S") -Wait -PassThru
+          }
+          if ($install.ExitCode -ne 0) { throw "Installer failed with exit code $($install.ExitCode)." }
+          $candidates = @("$env:LOCALAPPDATA\Programs\Vectora\Vectora.exe", "$env:ProgramFiles\Vectora\Vectora.exe", "${env:ProgramFiles(x86)}\Vectora\Vectora.exe")
+          $app = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $app) { throw "Installed Vectora.exe was not found in standard install locations." }
+          Write-Host "Installed executable: $app"
+          $stdout = "$env:RUNNER_TEMP\vectora.stdout.log"
+          $stderr = "$env:RUNNER_TEMP\vectora.stderr.log"
+          $process = Start-Process -FilePath $app -ArgumentList @("--disable-gpu", "--enable-logging=stderr") -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Start-Sleep -Seconds 20
+          $process.Refresh()
+          if ($process.HasExited) {
+            Get-Content $stdout, $stderr -ErrorAction SilentlyContinue
+            throw "Vectora exited during first-launch smoke test (code $($process.ExitCode))."
+          }
+          Stop-Process -Id $process.Id -Force
+          Get-Content $stdout, $stderr -ErrorAction SilentlyContinue
+      - name: Install and launch macOS installer
+        if: matrix.platform == 'macOS'
+        shell: bash
+        env:
+          INSTALLER_FORMAT: ${{ matrix.format }}
+        run: |
+          set -euo pipefail
+          installer=$(find "$GITHUB_WORKSPACE/installers" -maxdepth 1 -type f -name "*.$INSTALLER_FORMAT" -print -quit)
+          test -n "$installer" || { echo "No .$INSTALLER_FORMAT installer was downloaded." >&2; exit 1; }
+          app="$RUNNER_TEMP/Vectora.app"
+          if [[ "$INSTALLER_FORMAT" == "dmg" ]]; then
+            mount="$RUNNER_TEMP/vectora-dmg"
+            mkdir -p "$mount"
+            hdiutil attach "$installer" -nobrowse -readonly -mountpoint "$mount"
+            app_source=$(find "$mount" -maxdepth 2 -name Vectora.app -print -quit)
+            test -n "$app_source" || { hdiutil detach "$mount"; echo "Vectora.app missing from DMG." >&2; exit 1; }
+            ditto "$app_source" "$app"
+            hdiutil detach "$mount"
+          else
+            unpack="$RUNNER_TEMP/vectora-zip"
+            mkdir -p "$unpack"
+            ditto -x -k "$installer" "$unpack"
+            app_source=$(find "$unpack" -maxdepth 3 -name Vectora.app -print -quit)
+            test -n "$app_source" || { echo "Vectora.app missing from ZIP." >&2; exit 1; }
+            ditto "$app_source" "$app"
+          fi
+          executable="$app/Contents/MacOS/Vectora"
+          test -x "$executable" || { echo "Installed app executable is missing: $executable" >&2; exit 1; }
+          file "$executable"
+          codesign --verify --deep --strict "$app"
+          VECTORA_LICENSE_BYPASS=1 "$executable" --disable-gpu --enable-logging=stderr > "$RUNNER_TEMP/vectora-startup.log" 2>&1 &
+          pid=$!
+          sleep 20
+          if ! kill -0 "$pid" 2>/dev/null; then
+            cat "$RUNNER_TEMP/vectora-startup.log"
+            wait "$pid" || status=$?
+            echo "Vectora exited during first-launch smoke test (code ${status:-0})." >&2
+            exit 1
+          fi
+          kill "$pid"
+          wait "$pid" || true
+          cat "$RUNNER_TEMP/vectora-startup.log"
+      - name: Install and launch Linux package
+        if: matrix.platform == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          deb=$(find "$GITHUB_WORKSPACE/installers" -maxdepth 1 -type f -name '*.deb' -print -quit)
+          test -n "$deb" || { echo "Downloaded .deb installer is missing." >&2; exit 1; }
+          sudo apt-get install -y xvfb "$deb"
+          dpkg-query -s vectora | grep -F "Status: install ok installed"
+          executable=$(command -v vectora)
+          test -x "$executable"
+          echo "Installed executable: $executable"
+          ldd "$executable" | tee "$RUNNER_TEMP/vectora-ldd.log"
+          if grep -q "not found" "$RUNNER_TEMP/vectora-ldd.log"; then
+            echo "Installed Vectora has unresolved shared libraries." >&2
+            exit 1
+          fi
+          set +e
+          VECTORA_LICENSE_BYPASS=1 timeout --signal=TERM 25s \
+            xvfb-run -a "$executable" --no-sandbox --disable-gpu --enable-logging=stderr \
+            > "$RUNNER_TEMP/vectora-startup.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/vectora-startup.log"
+          if [ "$status" -ne 124 ]; then
+            echo "Vectora exited before the 25-second startup smoke window (status $status)." >&2
+            exit 1
+          fi
+          if grep -Eiq "error while loading shared libraries|FATAL.*(error|exception)" "$RUNNER_TEMP/vectora-startup.log"; then
+            echo "Vectora reported a fatal startup error." >&2
+            exit 1
+          fi
 
   # ── 7. Publish to update channel (R2 + KV) ───────────────────────────────
   # Roda uma única vez, depois que TODA a matriz (linux/mac/win) terminou —
@@ -810,7 +991,13 @@ jobs:
   # rollout_percent/previous_stable/history por race condition.
   publish-update-channel:
     name: Publish to update channel (R2 + KV)
-    needs: [release-native, release-channel, linux-package-install]
+    needs:
+      [
+        release-native,
+        release-channel,
+        linux-package-install,
+        desktop-install-smoke,
+      ]
     if: >-
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
