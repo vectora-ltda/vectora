@@ -724,6 +724,84 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+  # ── 7. Install Linux artifacts on supported distribution families ────────
+  # Build success alone does not prove package-manager dependencies resolve.
+  # Install the x64 artifacts in clean distro containers so a stale package
+  # name or broken dependency prevents the PR/release matrix from passing.
+  linux-package-install:
+    name: Linux install (${{ matrix.distro }})
+    needs: release-native
+    if: needs.release-native.result == 'success'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: Ubuntu 22.04
+            image: ubuntu:22.04
+            family: deb
+          - distro: Ubuntu 24.04
+            image: ubuntu:24.04
+            family: deb
+          - distro: Ubuntu 26.04
+            image: ubuntu:26.04
+            family: deb
+          - distro: Debian 12
+            image: debian:12
+            family: deb
+          - distro: Debian 13
+            image: debian:13
+            family: deb
+          - distro: Fedora
+            image: fedora:latest
+            family: rpm
+          - distro: Arch Linux
+            image: archlinux:latest
+            family: pacman
+    steps:
+      - name: Download Linux x64 installers
+        uses: actions/download-artifact@v8
+        with:
+          name: vectora-linux-x64
+          path: dist-electron
+      - name: Install package and verify runtime libraries
+        env:
+          DISTRO_IMAGE: ${{ matrix.image }}
+          PACKAGE_FAMILY: ${{ matrix.family }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --env PACKAGE_FAMILY \
+            --env DISTRO_IMAGE \
+            --volume "$GITHUB_WORKSPACE/dist-electron:/artifacts:ro" \
+            "$DISTRO_IMAGE" sh -euc '
+              case "$PACKAGE_FAMILY" in
+                deb)
+                  apt-get update
+                  apt-get install -y /artifacts/Vectora-*-linux-x64.deb
+                  dpkg-query -s vectora | grep -F "Status: install ok installed"
+                  ;;
+                rpm)
+                  dnf install -y /artifacts/Vectora-*-linux-x64.rpm
+                  rpm -q vectora
+                  ;;
+                pacman)
+                  pacman -Sy --noconfirm
+                  pacman -U --noconfirm /artifacts/Vectora-*-linux-x64.pkg.tar.zst
+                  pacman -Q vectora
+                  ;;
+                *) echo "Unsupported package family: $PACKAGE_FAMILY" >&2; exit 2 ;;
+              esac
+              executable=/opt/Vectora/vectora
+              test -x "$executable"
+              ldd "$executable" | tee /tmp/vectora-ldd.txt
+              if grep -q "not found" /tmp/vectora-ldd.txt; then
+                echo "Vectora has unresolved runtime libraries in $DISTRO_IMAGE" >&2
+                exit 1
+              fi
+            '
+
   # ── 7. Publish to update channel (R2 + KV) ───────────────────────────────
   # Roda uma única vez, depois que TODA a matriz (linux/mac/win) terminou —
   # publicar de dentro de cada job da matriz faria read-modify-write
@@ -732,7 +810,7 @@ jobs:
   # rollout_percent/previous_stable/history por race condition.
   publish-update-channel:
     name: Publish to update channel (R2 + KV)
-    needs: [release-native, release-channel]
+    needs: [release-native, release-channel, linux-package-install]
     if: >-
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
