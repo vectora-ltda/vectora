@@ -2536,6 +2536,7 @@ async def thread_pending_interrupt(
             tool_name=pending["tool_name"],
             args_json=json.dumps(pending["args"]),
             interrupt_id=pending["interrupt_id"],
+            run_id=pending.get("run_id"),
             permission_mode=permission_mode,
             workspace_id=resolved_workspace_id,
             pre_approved=pre_approved,
@@ -2553,8 +2554,11 @@ async def thread_pending_interrupt(
 
 class SmartApprovalAllowlistRequest(BaseModel):
     workspace_id: str
+    thread_id: str
+    interrupt_id: str
+    run_id: str
     tool_name: str
-    args: dict = {}
+    args: dict[str, Any] = Field(default_factory=dict)
 
 
 class SmartApprovalAllowlistRemoveRequest(BaseModel):
@@ -2573,11 +2577,11 @@ class SmartApprovalAllowlistResponse(BaseModel):
 
 def _allowlist_items(workspace_id: str) -> list[SmartApprovalAllowlistItem]:
     """Executa a operação allowlist items."""
-    from backend.services.smart_approval import allowlist_id, get_allowlist
+    from backend.services.smart_approval import get_allowlist
 
     return [
-        SmartApprovalAllowlistItem(id=allowlist_id(rule), label=f"Regra {index + 1}")
-        for index, rule in enumerate(get_allowlist(workspace_id))
+        SmartApprovalAllowlistItem(id=grant_id, label=f"Concessão {index + 1}")
+        for index, grant_id in enumerate(get_allowlist(workspace_id))
     ]
 
 
@@ -2628,9 +2632,7 @@ async def get_smart_approval_allowlist(
 async def add_smart_approval_allowlist(
     body: SmartApprovalAllowlistRequest, request: Request
 ) -> SmartApprovalAllowlistResponse:
-    """ "Sempre permitir isso" no HITLPanel — não muda o HITL em si, só faz a
-    próxima ocorrência do mesmo comando chegar já marcada como reconhecida
-    (ver `backend/services/smart_approval.py`)."""
+    """Create a one-use approval grant for this exact call and run."""
     _user_id(request)
     from backend.api.handlers.workspaces import require_workspace_access
 
@@ -2639,10 +2641,40 @@ async def add_smart_approval_allowlist(
         and require_workspace_access(body.workspace_id, request) is None
     ):
         raise HTTPException(status_code=404, detail="Workspace não encontrado")
-    from backend.services.smart_approval import add_to_allowlist, rule_id
+    await _assert_existing_thread_ownership(body.thread_id, request)
+    pending_store = await _get_session_store()
+    pending = await pending_store.get_pending_approval(body.thread_id)
+    run = await pending_store.get_agent_run(body.run_id)
+    if (
+        pending is None
+        or pending.get("interrupt_id") != body.interrupt_id
+        or pending.get("run_id") != body.run_id
+        or pending.get("tool_name") != body.tool_name
+        or body.tool_name == "write_terminal"
+        or run is None
+        or run.thread_id != body.thread_id
+        or run.workspace_id != body.workspace_id
+    ):
+        raise HTTPException(
+            status_code=409, detail="A aprovação pendente não corresponde"
+        )
+    from backend.services.smart_approval import args_digest
+
+    if args_digest(body.tool_name, pending.get("args", {})) != args_digest(
+        body.tool_name, body.args
+    ):
+        raise HTTPException(
+            status_code=409, detail="Os argumentos da aprovação foram alterados"
+        )
+    from backend.services.smart_approval import add_to_allowlist, run_grant_id
 
     try:
-        add_to_allowlist(body.workspace_id, body.tool_name, body.args)
+        add_to_allowlist(
+            body.workspace_id,
+            body.tool_name,
+            body.args,
+            run_id=body.run_id,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -2653,7 +2685,7 @@ async def add_smart_approval_allowlist(
         request,
         action="add",
         workspace_id=body.workspace_id,
-        rule_id=rule_id(body.tool_name, body.args),
+        rule_id=run_grant_id(body.workspace_id, body.run_id, body.tool_name, body.args),
     )
     return SmartApprovalAllowlistResponse(allowlist=_allowlist_items(body.workspace_id))
 

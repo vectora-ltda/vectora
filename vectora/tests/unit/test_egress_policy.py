@@ -249,3 +249,21 @@ async def test_async_is_url_allowed_accepts_literal_public_ip_without_dns() -> N
     assert ok is True
     assert reason == ""
     assert pinned_ip == "93.184.216.34"
+
+
+def test_workspace_policy_requires_workspace_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """O objeto direto usa a chave específica; a chave comum exige um mapa."""
+    from backend.workspace.runtime_settings import runtime_settings
+
+    values: dict[str, object] = {"egress_policy": {"allowed_hosts": ["example.com"]}}
+    monkeypatch.setattr(
+        runtime_settings, "get", lambda key, default=None: values.get(key, default)
+    )
+    assert EgressPolicy.for_workspace("ws-1").allowed_hosts == []
+    values["egress_policy"] = {"ws-1": {"allowed_hosts": ["mapped.example"]}}
+    assert EgressPolicy.for_workspace("ws-1").allowed_hosts == ["mapped.example"]
+    assert EgressPolicy.for_workspace("other").allowed_hosts == []
+    values["egress_policy:ws-1"] = {"allowed_hosts": ["direct.example"]}
+    assert EgressPolicy.for_workspace("ws-1").allowed_hosts == ["direct.example"]

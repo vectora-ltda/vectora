@@ -65,7 +65,7 @@ ACCESS_FS_V1_ALL = (
 )
 ACCESS_FS_READ_ONLY = _ACCESS_FS_EXECUTE | _ACCESS_FS_READ_FILE | _ACCESS_FS_READ_DIR
 
-# ABI V4 (kernel 6.5+) — direitos de rede, campo separado de
+# ABI V4 (kernel 6.7+) — direitos de rede, campo separado de
 # handled_access_fs. `uapi/linux/landlock.h`:
 #   LANDLOCK_ACCESS_NET_BIND_TCP    = 1 << 0
 #   LANDLOCK_ACCESS_NET_CONNECT_TCP = 1 << 1
@@ -145,7 +145,7 @@ def _apply_net_ruleset(
     numbers: tuple[int, int, int],
     allow_tcp_ports: tuple[int, ...],
 ) -> bool:
-    """Ruleset Landlock SEPARADO, só de rede (ABI V4, kernel 6.5+) —
+    """Ruleset Landlock SEPARADO, só de rede (ABI V4, kernel 6.7+) —
     empilha sobre o ruleset de filesystem já restrito (Landlock aplica
     rulesets cumulativamente, cada `landlock_restrict_self` adiciona ao
     conjunto de restrições do processo, nunca substitui). Nega todo TCP
@@ -216,7 +216,7 @@ def apply_landlock(
     de qualquer forma).
 
     `allow_tcp_ports`, quando não-vazio, aplica um segundo ruleset
-    (`_apply_net_ruleset`, ABI V4/kernel 6.5+) negando todo TCP exceto as
+    (`_apply_net_ruleset`, ABI V4/kernel 6.7+) negando todo TCP exceto as
     portas listadas. Sem portas configuradas (default `()`), nenhuma
     tentativa de V4 é feita — comportamento idêntico ao de antes desta
     feature. Com portas configuradas mas kernel sem suporte a V4, o

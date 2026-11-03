@@ -74,6 +74,12 @@ class SystemOneSettings(BaseModel):
         le=1.0,
         description="Limiar de confiança abaixo do qual uma decisão requer revisão humana (HITL).",
     )
+    risk_assessment_timeout_s: float = Field(
+        default=10.0,
+        gt=0.0,
+        le=120.0,
+        description="Prazo máximo para a decisão de risco antes de exigir revisão humana.",
+    )
 
 
 def mask_secret(secret: str | None) -> str | None:

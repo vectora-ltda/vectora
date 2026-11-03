@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -15,6 +18,78 @@ from backend.llm.transcription import (
 
 _AUDIO = b"ID3\x04\x00\x00\x00fake-audio-bytes"
 _WEBM = b"\x1a\x45\xdf\xa3fake-audio-bytes"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_local_timeout_keeps_audio_until_worker_releases_it(
+    monkeypatch, cancelled
+):
+    from backend.llm import transcription
+
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    cleaned = threading.Event()
+    operation_lock = threading.Lock()
+
+    class ObservedLock:
+        def acquire(self, blocking: bool = True) -> bool:
+            return operation_lock.acquire(blocking=blocking)
+
+        def release(self) -> None:
+            operation_lock.release()
+            cleaned.set()
+
+        def locked(self) -> bool:
+            return operation_lock.locked()
+
+    monkeypatch.setattr(transcription, "_LOCAL_PROBE_LOCK", ObservedLock())
+    paths: list[Path] = []
+
+    def blocked(path: str, _language: str | None) -> dict[str, str]:
+        paths.append(Path(path))
+        started.set()
+        try:
+            assert release.wait(5)
+            assert Path(path).read_bytes() == _WEBM
+            return {"text": "late"}
+        finally:
+            finished.set()
+
+    monkeypatch.setattr("backend.tools.media_native._transcribe_local_sync", blocked)
+    monkeypatch.setattr(
+        transcription,
+        "_LOCAL_TRANSCRIPTION_TIMEOUT_S",
+        10.0 if cancelled else 0.03,
+        raising=False,
+    )
+    pending = asyncio.create_task(
+        transcription.transcribe_audio_local(
+            _WEBM, "voice.webm", "audio/webm", language="pt"
+        )
+    )
+    try:
+        assert await asyncio.to_thread(started.wait, 2)
+        if cancelled:
+            pending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+        else:
+            with pytest.raises(transcription.TranscriptionError, match="prazo"):
+                await pending
+        assert paths[0].exists()
+        with pytest.raises(transcription.TranscriptionError, match="andamento"):
+            await transcription.transcribe_audio_local(
+                _WEBM, "voice.webm", "audio/webm", language="pt"
+            )
+    finally:
+        release.set()
+        assert await asyncio.to_thread(finished.wait, 2)
+        assert await asyncio.to_thread(cleaned.wait, 2)
+        await asyncio.gather(pending, return_exceptions=True)
+    assert not paths[0].exists()
+    assert not transcription._LOCAL_PROBE_LOCK.locked()
 
 
 class TestTranscribeAudio:
@@ -272,3 +347,31 @@ class TestTranscribeAudioGeminiFallback:
 
         assert text == "via whisper"
         mock_gemini_cls.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_local_probe_rejects_result_after_configuration_change(
+    monkeypatch, tmp_path
+):
+    from backend.llm import transcription
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path / "before")
+    monkeypatch.setattr(
+        transcription,
+        "local_transcription_readiness",
+        lambda: {
+            "dependency_available": True,
+            "model_cached": True,
+        },
+    )
+
+    def probe():
+        settings.vectora_home = tmp_path / "after"
+        return "ready"
+
+    monkeypatch.setattr(transcription, "_probe_local_transcription_sync", probe)
+    result = await transcription.probe_local_transcription_readiness()
+    assert result["ready"] is False
+    assert result["runtime_verified"] is False
+    assert "alterada" in result["diagnostic"]

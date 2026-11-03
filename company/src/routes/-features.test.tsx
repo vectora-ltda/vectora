@@ -11,7 +11,7 @@ import { join } from "node:path";
 
 // Mensagens reais do catálogo pt (fonte de verdade), não um Proxy que ecoa a
 // chave — senão as asserções de "não vazio" abaixo passam sempre, mesmo com
-// uma mensagem genuinamente vazia/ausente no JSON (achado do CodeRabbit).
+// uma mensagem genuinamente vazia/ausente no JSON.
 const ptMessages: Record<string, string> = JSON.parse(
   readFileSync(join(import.meta.dirname, "../../messages/pt.json"), "utf-8"),
 );
@@ -55,9 +55,152 @@ describe("getFeatureCategories", () => {
     }
   });
 
+  it("lista as capacidades da linha 0.3 nas categorias de agente e navegação", () => {
+    const categories = getFeatureCategories();
+    const idsOf = (categoryId: string) =>
+      categories.find((c) => c.id === categoryId)?.items.map((i) => i.id) ?? [];
+
+    expect(idsOf("agente")).toEqual(
+      expect.arrayContaining([
+        "agent-run",
+        "plan-mode",
+        "decision-models",
+        "verification-lab",
+      ]),
+    );
+    const navegador = idsOf("navegador");
+    expect(navegador.indexOf("egress-policies")).toBe(
+      navegador.indexOf("sandbox") + 1,
+    );
+
+    // Erro/borda: nenhuma categoria paralela de governança, e cada item novo
+    // tem ícone próprio, distinto de todos os outros itens do catálogo.
+    expect(categories.map((c) => c.id)).not.toContain("governanca");
+    const items = categories.flatMap((c) => c.items);
+    for (const id of [
+      "agent-run",
+      "plan-mode",
+      "decision-models",
+      "verification-lab",
+      "egress-policies",
+    ]) {
+      const item = items.find((i) => i.id === id);
+      expect(item, id).toBeDefined();
+      const sharing = items.filter((i) => i.Icon === item?.Icon);
+      expect(sharing.map((i) => i.id)).toEqual([id]);
+    }
+
+    // Erro/borda: em todos os idiomas, Landlock ABI V4 exige kernel 6.7+ e o
+    // Evaluation Lab oculta (não "redige") os dados sensíveis.
+    const hidden: Record<string, string> = {
+      pt: "ocultados",
+      es: "ocultas",
+      fr: "masqués",
+      ru: "скрытыми",
+    };
+    for (const locale of ["en", "pt", "es", "de", "fr", "it", "ru"]) {
+      const messages = JSON.parse(
+        readFileSync(
+          join(import.meta.dirname, `../../messages/${locale}.json`),
+          "utf-8",
+        ),
+      ) as Record<string, string>;
+      const egress = messages.features_egress_policies_desc;
+      expect(egress, locale).toContain("6.7+");
+      expect(egress, locale).not.toContain("6.5+");
+      const exclusions: Record<string, [string, string, string]> = {
+        en: [
+          "without applying the egress policy",
+          "redirects are not revalidated",
+          "IP is not pinned",
+        ],
+        pt: [
+          "sem aplicar a política de egress",
+          "redirects não são revalidados",
+          "IP de destino não é fixado",
+        ],
+        es: [
+          "sin aplicar la política de egress",
+          "no se revalidan las redirecciones",
+          "ni se fija la IP",
+        ],
+        de: [
+          "ohne die Egress-Richtlinie anzuwenden",
+          "Weiterleitungen werden nicht erneut validiert",
+          "Ziel-IP wird nicht festgelegt",
+        ],
+        fr: [
+          "sans appliquer la politique d'egress",
+          "redirections ne sont pas revalidées",
+          "IP de destination n'est pas fixée",
+        ],
+        it: [
+          "senza applicare la policy di egress",
+          "reindirizzamenti non vengono riconvalidati",
+          "IP di destinazione non viene fissato",
+        ],
+        ru: [
+          "без применения политики egress",
+          "перенаправления не проверяются повторно",
+          "IP назначения не фиксируется",
+        ],
+      };
+      const [searchException, redirectException, ipException] =
+        exclusions[locale];
+      expect(messages.features_browser_desc, locale).toContain("fetch, crawl");
+      expect(messages.features_browser_desc, locale).toContain("Search");
+      expect(messages.features_browser_desc, locale).toContain(searchException);
+      expect(egress, locale).toContain("fetch_url");
+      expect(egress, locale).toContain(redirectException);
+      expect(egress, locale).toContain(ipException);
+
+      const sandbox = messages.capability_sandbox_desc;
+      expect(messages.features_sandbox_desc, locale).toBe(sandbox);
+      expect(sandbox, locale).toContain("macOS");
+      expect(sandbox, locale).toContain("bwrap");
+      expect(sandbox.toLowerCase(), locale).toContain("soft");
+      expect(sandbox, locale).toContain("enabled = false");
+      const lab = messages.features_verification_lab_desc;
+      const privacyWords: Record<string, string> = {
+        en: "private code",
+        pt: "código privado",
+        es: "código privado",
+        de: "privaten Code",
+        fr: "code privé",
+        it: "codice privato",
+        ru: "частный код",
+      };
+      expect(lab, locale).toContain(privacyWords[locale]);
+      expect(lab, locale).not.toContain("with sensitive data hidden");
+      expect(lab, locale).not.toMatch(/redigid|rédaction|редактир|redactad/);
+      if (hidden[locale]) expect(lab, locale).toContain(hidden[locale]);
+    }
+  });
+
   it("erro/borda: todos os ids de feature são únicos (accordion Radix colide em duplicata)", () => {
     const categories = getFeatureCategories();
     const ids = categories.flatMap((c) => c.items.map((i) => i.id));
     expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("localized approval terminology", () => {
+  it("distinguishes approval gates from recovery checkpoints in Russian", () => {
+    const messages = JSON.parse(
+      readFileSync(
+        join(import.meta.dirname, "../../messages/ru.json"),
+        "utf-8",
+      ),
+    ) as Record<string, string>;
+    const description = messages.features_plan_mode_desc;
+    expect(description).toContain("этапами согласования перед действиями");
+    expect(description).toContain("контрольные точки");
+    expect(description).not.toContain("контрольными точками перед действиями");
+    expect(messages.features_decision_models_desc).toContain(
+      "этапы согласования",
+    );
+    expect(messages.features_decision_models_desc).not.toContain(
+      "контрольные точки",
+    );
   });
 });

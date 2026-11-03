@@ -13,11 +13,13 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from typing import cast
 
 import pytest
 
 from backend.engine import goal_mode
 from backend.engine.conversation_loop import LoopConfig
+from backend.llm.systemone.harness import SystemOneHarness
 from backend.persistence.native.session_store import SessionStore
 from backend.storage.sqlite.pool import AsyncConnectionPool
 from backend.tools.context import ToolContext
@@ -196,6 +198,47 @@ async def test_falhas_consecutivas_do_judge_disparam_auto_pause(session_store):
     assert "turn budget esgotado" not in outcome.reason
     assert outcome.turns_used == 3
     assert chat_client.judge_calls == 3
+
+
+@pytest.mark.asyncio
+async def test_plan_mode_respeita_flag_de_decision_model(session_store, monkeypatch):
+    thread_id = "goal-decision-model-flag"
+    await _new_thread(session_store, thread_id)
+    chat_client = _GoalChatClient(
+        turnos=[_text_turn("feito")],
+        judgments=[(True, "objetivo cumprido")],
+    )
+    model_calls: list[object] = []
+
+    async def evaluate(harness, **kwargs):
+        model_calls.append(harness)
+        return "completed", True, "aprovado pelo decision model"
+
+    monkeypatch.setattr(goal_mode, "evaluate_goal_with_systemone", evaluate)
+    ctx = _ctx()
+    ctx._extra["decision_model_preferences"] = {
+        "enabled": True,
+        "provider": "clef-local",
+        "surfaces": {"plan_mode": False},
+    }
+    supplied_harness = cast("SystemOneHarness", object())
+
+    result = await goal_mode.run_goal(
+        session_store=session_store,
+        chat_client=chat_client,
+        tool_registry=ToolRegistry(),
+        ctx=ctx,
+        thread_id=thread_id,
+        goal="implemente X",
+        loop_config=LoopConfig(max_iterations=10),
+        max_goal_turns=1,
+        should_require_approval=None,
+        systemone_harness=supplied_harness,
+    )
+
+    assert result.status == "done"
+    assert model_calls == []
+    assert chat_client.judge_calls == 1
 
 
 async def test_mesmo_gate_falhando_repetidamente_dispara_auto_pause_antes_do_turn_budget(

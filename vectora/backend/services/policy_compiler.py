@@ -52,6 +52,8 @@ class PolicySnapshot:
     permission_mode: str = "ask"
     disabled_tools: frozenset[str] = field(default_factory=frozenset)
     egress_policy: EgressPolicy = field(default_factory=EgressPolicy)
+    # Requested sandbox policy is stable across worker startup and idle expiry.
+    # HITL separately verifies effective isolation before granting an exemption.
     is_jailed: bool = False
     untrusted_content: bool = False
     allow_force_push: bool = False
@@ -206,9 +208,9 @@ def compile_policy_snapshot(
     # 3. Resolução de ambiente jailed
     is_jailed = False
     if ws_id:
-        from backend.engine.hitl import _workspace_is_jailed
+        from backend.engine.hitl import _workspace_sandbox_enabled
 
-        is_jailed = _workspace_is_jailed(ws_id)
+        is_jailed = _workspace_sandbox_enabled(ws_id)
 
     eff_egress = egress_policy or EgressPolicy.for_workspace(ws_id)
 

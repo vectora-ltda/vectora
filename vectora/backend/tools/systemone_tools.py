@@ -16,6 +16,7 @@ from typing import Any
 from backend.llm.systemone.harness import SystemOneHarness, WorkspaceBudgetTracker
 from backend.llm.systemone.patterns import DEFAULT_PATTERN_REGISTRY
 from backend.llm.systemone.settings import SystemOneSettings, get_systemone_provider
+from backend.llm.systemone.types import DecisionProviderType
 from backend.scheduling import kanban
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
@@ -36,7 +37,9 @@ def _resolve_authenticated_workspace(ctx: ToolContext) -> str | None:
     return str(ws).strip()
 
 
-def _build_default_harness() -> SystemOneHarness:
+def _build_default_harness(
+    provider_override: DecisionProviderType | None = None,
+) -> SystemOneHarness:
     """Constrói ou reutiliza uma instância governada do `SystemOneHarness` a partir da configuração ativa."""
     global _DEFAULT_HARNESS_CACHE
     try:
@@ -44,7 +47,7 @@ def _build_default_harness() -> SystemOneHarness:
 
         s1_settings = SystemOneSettings(
             enabled=settings.systemone_enabled,
-            provider=settings.systemone_provider,  # type: ignore[arg-type]
+            provider=provider_override or settings.systemone_provider,
             local_base_url=settings.systemone_local_base_url,
             local_model=settings.systemone_local_model,
             laya_base_url=settings.systemone_laya_base_url,
@@ -57,6 +60,7 @@ def _build_default_harness() -> SystemOneHarness:
             jev_api_model=settings.systemone_jev_api_model,
             allow_remote_fallback=settings.systemone_allow_remote_fallback,
             confidence_threshold_hitl=settings.systemone_confidence_threshold_hitl,
+            risk_assessment_timeout_s=settings.systemone_risk_assessment_timeout_s,
         )
         clef_key = settings.clef_api_key
         jev_key = settings.jev_api_key
@@ -79,6 +83,7 @@ def _build_default_harness() -> SystemOneHarness:
         s1_settings.jev_api_model,
         s1_settings.allow_remote_fallback,
         s1_settings.confidence_threshold_hitl,
+        s1_settings.risk_assessment_timeout_s,
         clef_key,
         jev_key,
     )
@@ -238,10 +243,24 @@ async def systemone_propose_kanban_transition(
             {"status": "error", "error": "sessão ou workspace ausente no contexto"}
         )
 
+    from backend.llm.systemone.preferences import (
+        decision_model_enabled_for,
+        selected_decision_model_provider,
+    )
+
+    if not decision_model_enabled_for(ctx, "kanban"):
+        return json.dumps(
+            {
+                "status": "disabled",
+                "error": "Decision Model não está habilitado para decisões do Kanban",
+            },
+            ensure_ascii=False,
+        )
+
     extra = getattr(ctx, "_extra", None)
     harness = extra.get("systemone_harness") if isinstance(extra, dict) else None
     if not isinstance(harness, SystemOneHarness):
-        harness = _build_default_harness()
+        harness = _build_default_harness(selected_decision_model_provider(ctx))
         if isinstance(extra, dict):
             extra["systemone_harness"] = harness
 

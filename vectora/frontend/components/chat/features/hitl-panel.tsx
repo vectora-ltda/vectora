@@ -29,6 +29,9 @@ import { m } from "@/lib/paraglide/messages";
 
 async function addToSmartApprovalAllowlist(
   workspaceId: string,
+  threadId: string,
+  interruptId: string,
+  runId: string,
   toolName: string,
   argsJson: string,
 ): Promise<void> {
@@ -44,6 +47,9 @@ async function addToSmartApprovalAllowlist(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       workspace_id: workspaceId,
+      thread_id: threadId,
+      interrupt_id: interruptId,
+      run_id: runId,
       tool_name: toolName,
       args,
     }),
@@ -61,6 +67,7 @@ export interface HITLPendingInfo {
   toolName: string;
   argsJson: string;
   interruptId: string;
+  runId?: string;
   /** Razão pela qual o modelo pediu aprovação. */
   reasoning?: string;
   /** Diff unified preview (file_write/file_edit). */
@@ -74,8 +81,7 @@ export interface HITLPendingInfo {
    * marca a sugestão como reconhecida. O painel ainda pausa esperando o
    * clique de confirmação. */
   preApproved?: boolean;
-  /** Workspace da sessão — necessário pra persistir "sempre permitir" na
-   * allowlist (por workspace, ver backend/services/smart_approval.py). */
+  /** Workspace e execução delimitam a concessão pré-aprovada de uso único. */
   workspaceId?: string;
 }
 
@@ -168,7 +174,12 @@ function DiffPreview({ diff }: { diff: string }) {
 // Component
 // ===========================================================================
 
-export function HITLPanel({ messageId, pending, onDecision }: HITLPanelProps) {
+export function HITLPanel({
+  messageId,
+  pending,
+  threadId,
+  onDecision,
+}: HITLPanelProps) {
   const [showArgs, setShowArgs] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editedArgs, setEditedArgs] = useState(prettyJson(pending.argsJson));
@@ -180,11 +191,14 @@ export function HITLPanel({ messageId, pending, onDecision }: HITLPanelProps) {
   if (decided) return null;
 
   const handleAlwaysAllow = async () => {
-    if (!pending.workspaceId) return;
+    if (!pending.workspaceId || !pending.runId) return;
     setAllowlistError(false);
     try {
       await addToSmartApprovalAllowlist(
         pending.workspaceId,
+        threadId,
+        pending.interruptId,
+        pending.runId,
         pending.toolName,
         pending.argsJson,
       );
@@ -227,6 +241,15 @@ export function HITLPanel({ messageId, pending, onDecision }: HITLPanelProps) {
           pending.toolName === "file_write_tool"
         ? "file_write"
         : pending.toolName;
+  const supportsPreapproval = new Set([
+    "terminal",
+    "terminal_tool",
+    "file_write",
+    "file_write_tool",
+    "file_edit",
+    "kanban_create",
+    "kanban_update_status",
+  ]).has(pending.toolName);
 
   return (
     <div className="mt-3 rounded-lg border border-orange-400/30 bg-orange-950/20 overflow-hidden">
@@ -365,12 +388,12 @@ export function HITLPanel({ messageId, pending, onDecision }: HITLPanelProps) {
                 <X className="w-3 h-3 mr-1" />
                 {m.hitl_reject()}
               </Button>
-              {pending.workspaceId && (
+              {pending.workspaceId && supportsPreapproval && (
                 <>
                   <Button
                     size="sm"
                     variant="ghost"
-                    disabled={allowlisted}
+                    disabled={allowlisted || !pending.runId}
                     className="h-7 px-3 text-xs text-muted-foreground ml-auto"
                     onClick={() => void handleAlwaysAllow()}
                   >

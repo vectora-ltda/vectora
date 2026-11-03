@@ -77,6 +77,36 @@ def _has_structured_result(spec: ToolSpec) -> bool:
     )
 
 
+def _decision_model_allow_block(
+    decision: dict[str, Any], ctx: ToolContext
+) -> str | None:
+    """Return a denial reason when an allow result no longer matches this run."""
+    extra = getattr(ctx, "_extra", None)
+    if decision.get("run_id") != getattr(ctx, "run_id", None) or decision.get(
+        "thread_id"
+    ) != getattr(ctx, "thread_id", None):
+        return "decision_model_identity_mismatch: execução bloqueada"
+
+    if not isinstance(extra, dict):
+        return "decision_model_snapshot_missing: execução bloqueada"
+    snapshot = extra.get("decision_model_snapshot")
+    if (
+        not isinstance(snapshot, dict)
+        or not getattr(ctx, "run_id", None)
+        or snapshot.get("run_id") != ctx.run_id
+    ):
+        return "decision_model_snapshot_missing: execução bloqueada"
+
+    from backend.engine.hitl import _decision_snapshot_matches_runtime
+
+    if extra.get(
+        "decision_model_revoked"
+    ) is True or not _decision_snapshot_matches_runtime(ctx):
+        extra["decision_model_revoked"] = True
+        return "decision_model_revoked: execução bloqueada"
+    return None
+
+
 def _redact_secrets(texto: str) -> str:
     """Executa a operação redact secrets."""
     for pattern in _SECRET_PATTERNS:
@@ -95,13 +125,41 @@ def _check_policy_snapshot_pre_execute(
 
         policy_snapshot = compile_policy_snapshot(ctx)
 
+    # A high-confidence explicit denial from the configured autonomous
+    # Decision Model is a terminal pre-execution veto. It cannot be converted
+    # into approval by a later adapter or tool implementation.
+    try:
+        from backend.engine.hitl import _risk_assessment_key
+
+        decisions = getattr(ctx, "_extra", {}).get("systemone_decisions", {})
+        decision = decisions.get(
+            _risk_assessment_key(tool_call.name, tool_call.args), {}
+        )
+        if isinstance(decision, dict) and decision:
+            from backend.engine.decision_record import DecisionRecord
+
+            decision = DecisionRecord.model_validate(decision).model_dump(
+                exclude_none=True
+            )
+            if decision.get("decision") == "deny":
+                return False, "decision_model_denied: ação bloqueada antes da execução"
+            if decision.get("decision") == "requires_human":
+                return False, "decision_model_requires_human: aprovação pendente"
+            if decision.get("decision") == "allow":
+                reason = _decision_model_allow_block(decision, ctx)
+                if reason is not None:
+                    return False, reason
+    except Exception:
+        logger.exception("Não foi possível validar o veto do Decision Model")
+        return False, "decision_model_policy_unavailable"
+
     return policy_snapshot.validate_call(tool_call.name, tool_call.args)
 
 
 #: Callbacks aplicados, em ordem, antes da execução de qualquer tool.
 _PRE_EXECUTE: tuple[
     Callable[[ToolCall, ToolContext, PolicySnapshot | None], tuple[bool, str]], ...
-] = (_check_policy_snapshot_pre_execute,)
+] = ()
 
 
 def _apply_pre_execute(
@@ -114,7 +172,8 @@ def _apply_pre_execute(
         ok, reason = hook(tool_call, ctx, policy_snapshot)
         if not ok:
             return False, reason
-    return True, ""
+    # Extensions may update shared state; policy is the final synchronous guard.
+    return _check_policy_snapshot_pre_execute(tool_call, ctx, policy_snapshot)
 
 
 #: Callbacks aplicados, em ordem, ao texto de resultado de toda tool antes
@@ -132,6 +191,20 @@ def _apply_post_execute(texto: str) -> str:
     return texto
 
 
+async def _authorize_call(
+    tool_call: ToolCall, ctx: ToolContext, policy_snapshot: PolicySnapshot | None
+) -> tuple[bool, str]:
+    """Refresh shared revocation state before checking an execution permit."""
+    if policy_snapshot is not None:
+        from backend.rbac import tool_policy
+
+        try:
+            await tool_policy.sync_persisted_versions(strict=True)
+        except Exception:
+            return False, "policy_version_unavailable"
+    return await asyncio.to_thread(_apply_pre_execute, tool_call, ctx, policy_snapshot)
+
+
 async def _run_one(
     tool_call: ToolCall,
     *,
@@ -143,17 +216,7 @@ async def _run_one(
     on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> VMessage:
     """Executa uma chamada do lote com contexto correlacionado à própria tool."""
-    if policy_snapshot is not None:
-        # Revogação entre réplicas: a versão compartilhada é relida a cada tool
-        # call, então uma réplica que perdeu o pubsub ainda recusa a execução.
-        from backend.rbac import tool_policy
-
-        await tool_policy.sync_persisted_versions()
-    # ``validate_call`` may resolve DNS synchronously for URL egress tools; a slow
-    # resolver must not stall every other session sharing the event loop.
-    allowed, deny_reason = await asyncio.to_thread(
-        _apply_pre_execute, tool_call, ctx, policy_snapshot
-    )
+    allowed, deny_reason = await _authorize_call(tool_call, ctx, policy_snapshot)
     if not allowed:
         return VMessage(
             role=MessageRole.TOOL,
@@ -216,6 +279,21 @@ async def _run_one(
         )
         if spec.extras.category == "media":
             call_context = await apply_media_billing_source(call_context)
+        # Hooks and billing can await external work. Revalidate authorization
+        # after those waits, immediately before dispatching the handler.
+        allowed, deny_reason = await _authorize_call(tool_call, ctx, policy_snapshot)
+        if not allowed:
+            return VMessage(
+                role=MessageRole.TOOL,
+                content=[
+                    ContentBlock(
+                        kind="text", text=f"Error: policy_denied: {deny_reason}"
+                    )
+                ],
+                tool_call_id=tool_call.id,
+                name=tool_call.name,
+                is_error=True,
+            )
         texto = await spec.ainvoke(
             tool_call.args,
             call_context,

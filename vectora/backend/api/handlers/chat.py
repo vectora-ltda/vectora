@@ -22,9 +22,9 @@ import os
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Annotated, Any, Protocol, TypedDict
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from backend.api.native_stream import stream_engine_events
@@ -62,6 +62,18 @@ from backend.vtypes.message import ContentBlock, MessageRole, VMessage, text_mes
 
 if TYPE_CHECKING:
     from backend.engine.stream_events import EventSink
+
+
+class TranscriptionReadinessResponse(TypedDict):
+    mode: str
+    dependency_available: bool
+    model_cached: bool
+    runtime_verified: bool
+    probe_attempted: bool
+    probe_in_progress: bool
+    ready: bool
+    diagnostic: str
+
 
 logger = logging.getLogger(__name__)
 
@@ -1554,6 +1566,21 @@ async def get_tools(http_request: Request) -> GetToolsResponse:
 # ---------------------------------------------------------------------------
 
 
+@router.get("/vectora.chat.v1.ChatService/TranscriptionReadiness")
+async def transcription_readiness(
+    probe: Annotated[bool, Query()] = False,
+) -> TranscriptionReadinessResponse:
+    """Report local STT readiness; only an explicit probe loads cached weights."""
+    from backend.llm.transcription import (
+        local_transcription_readiness,
+        probe_local_transcription_readiness,
+    )
+
+    if probe:
+        return await probe_local_transcription_readiness()
+    return local_transcription_readiness()
+
+
 @router.post("/vectora.chat.v1.ChatService/TranscribeAudio")
 async def transcribe_audio_endpoint(
     request: TranscribeAudioRequest,
@@ -1565,7 +1592,11 @@ async def transcribe_audio_endpoint(
     proprietária do Google que o Chrome tem.
     """
     from backend.api.schemas import _ATTACHMENT_MAX_SIZE_AUDIO_BYTES, _max_base64_length
-    from backend.llm.transcription import TranscriptionError, transcribe_audio
+    from backend.llm.transcription import (
+        TranscriptionError,
+        transcribe_audio,
+        transcribe_audio_local,
+    )
 
     if len(request.audio_base64) > _max_base64_length(_ATTACHMENT_MAX_SIZE_AUDIO_BYTES):
         raise HTTPException(status_code=413, detail="áudio excede o limite de 25MB")
@@ -1578,14 +1609,22 @@ async def transcribe_audio_endpoint(
     try:
         from backend.workspace.runtime_settings import runtime_settings
 
-        text = await transcribe_audio(
-            audio_bytes,
-            request.filename,
-            request.mime_type,
-            provider=runtime_settings.active_provider,
-            model=runtime_settings.active_model,
-            language="",
-        )
+        if request.transcription_mode == "local":
+            text = await transcribe_audio_local(
+                audio_bytes,
+                request.filename,
+                request.mime_type,
+                language="",
+            )
+        else:
+            text = await transcribe_audio(
+                audio_bytes,
+                request.filename,
+                request.mime_type,
+                provider=runtime_settings.active_provider,
+                model=runtime_settings.active_model,
+                language="",
+            )
     except TranscriptionError as exc:
         logger.exception("chat: falha ao transcrever ditado de voz")
         raise HTTPException(status_code=502, detail=str(exc)) from exc

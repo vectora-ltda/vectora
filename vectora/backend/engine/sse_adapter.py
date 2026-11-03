@@ -56,6 +56,11 @@ def _to_payload(event: EngineEvent) -> schemas.StreamChatEventPayload:  # noqa: 
             category=event.category,
             destructive=event.destructive,
             icon=event.icon,
+            decision=event.decision,
+            decision_reason=event.decision_reason,
+            decision_provider=event.decision_provider,
+            decision_model=event.decision_model,
+            decision_confidence=event.decision_confidence,
         )
     if isinstance(event, ToolResult):
         return schemas.ToolResultEvent(

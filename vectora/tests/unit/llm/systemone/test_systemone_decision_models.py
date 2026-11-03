@@ -38,6 +38,25 @@ from backend.llm.systemone.types import (
 )
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider", ["clef-api", "jev-api"])
+async def test_remote_health_distinguishes_invalid_credential(
+    provider: str,
+) -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Authorization"] == "Bearer invalid-key"
+        return httpx.Response(401, request=request)
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+        adapter = (
+            ClefApiAdapter(api_key="invalid-key", account_id="account", client=client)
+            if provider == "clef-api"
+            else JevApiAdapter(api_key="invalid-key", client=client)
+        )
+        with pytest.raises(SystemOneAuthenticationError):
+            await adapter.health()
+
+
 class TestSystemOneTypesValidation:
     """Validação de schemas Pydantic de tipos canônicos (Noul, Choice, Score)."""
 

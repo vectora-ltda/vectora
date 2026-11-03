@@ -754,6 +754,13 @@
     "methods": [
       "GET"
     ],
+    "name": "get_decision_model_readiness_provider_routing_decision_models_readiness_get",
+    "path": "/provider-routing/decision-models/readiness"
+  },
+  {
+    "methods": [
+      "GET"
+    ],
     "name": "get_decision_models_status_provider_routing_decision_models_status_get",
     "path": "/provider-routing/decision-models/status"
   },
@@ -1581,6 +1588,13 @@
     ],
     "name": "transcribe_audio_endpoint_vectora_chat_v1_ChatService_TranscribeAudio_post",
     "path": "/vectora.chat.v1.ChatService/TranscribeAudio"
+  },
+  {
+    "methods": [
+      "GET"
+    ],
+    "name": "transcription_readiness_vectora_chat_v1_ChatService_TranscriptionReadiness_get",
+    "path": "/vectora.chat.v1.ChatService/TranscriptionReadiness"
   },
   {
     "methods": [

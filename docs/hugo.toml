@@ -27,7 +27,7 @@ disableKinds = ["taxonomy", "term"]
     weight = 2
     title = "Vectora Docs"
     [languages.pt.params]
-      description = "Vectora — agente de IA self-hosted com RAG híbrido, Context Graph nativo, servidor MCP sempre-ativo e chat web multi-usuário."
+      description = "Vectora — workspace de desenvolvimento assistido por IA, com agente, RAG, Context Graph, workbenches e conectores MCP configuráveis."
     [[languages.pt.menu.main]]
       identifier = "vectora.company"
       name = "vectora.company"
@@ -62,7 +62,7 @@ disableKinds = ["taxonomy", "term"]
     weight = 1
     title = "Vectora Docs"
     [languages.en.params]
-      description = "Vectora — a self-hosted AI agent with hybrid RAG, a native Context Graph, an always-on MCP server, and a multi-user web chat."
+      description = "Vectora — an AI-assisted development workspace with agents, RAG, Context Graph, workbenches, and configurable MCP connectors."
     [[languages.en.menu.main]]
       identifier = "vectora.company"
       name = "vectora.company"
@@ -97,7 +97,7 @@ disableKinds = ["taxonomy", "term"]
     weight = 3
     title = "Vectora Docs"
     [languages.es.params]
-      description = "Vectora — un agente de IA autoalojado con RAG híbrido, un Context Graph nativo, un servidor MCP siempre activo y un chat web multiusuario."
+      description = "Vectora — un workspace de desarrollo asistido por IA con agentes, RAG, Context Graph, workbenches y conectores MCP configurables."
     [[languages.es.menu.main]]
       identifier = "vectora.company"
       name = "vectora.company"

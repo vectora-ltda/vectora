@@ -47,6 +47,11 @@ class ToolCallStarted:
     category: str = "general"
     destructive: bool = False
     icon: str = "tool"
+    decision: str | None = None
+    decision_reason: str | None = None
+    decision_provider: str | None = None
+    decision_model: str | None = None
+    decision_confidence: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +116,7 @@ class HitlRequested:
     tool_name: str
     args_json: str
     interrupt_id: str
+    run_id: str | None = None
     permission_mode: PermissionMode = "ask"
     workspace_id: str = ""
     reasoning: str = ""

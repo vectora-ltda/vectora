@@ -244,10 +244,35 @@ class SystemOneHarness:
         self._inflight: dict[tuple[Any, ...], asyncio.Future[SystemOneResponse]] = {}
         self.last_rerank_status = "not_called"
 
+    async def is_ready(self) -> bool:
+        """Confirm the configured primary provider can currently serve decisions."""
+        if not self._settings.enabled:
+            return False
+        try:
+            await self._primary_provider.capabilities()
+            return await self._primary_provider.health()
+        except Exception:
+            logger.info(
+                "systemone: readiness check failed for provider %s",
+                self._primary_provider.provider_id,
+                exc_info=True,
+            )
+            return False
+
     @property
     def registry(self) -> DecisionPatternRegistry:
         """Executa a operação registry."""
         return self._registry
+
+    @property
+    def risk_assessment_timeout_s(self) -> float:
+        """Return the configured deadline for a tool-risk decision."""
+        return self._settings.risk_assessment_timeout_s
+
+    @property
+    def confidence_threshold_hitl(self) -> float:
+        """Return the minimum confidence for autonomous risk decisions."""
+        return self._settings.confidence_threshold_hitl
 
     @property
     def budget_tracker(self) -> WorkspaceBudgetTracker:
@@ -1047,6 +1072,7 @@ class SystemOneHarness:
         args_summary: str,
         permission_mode: str,
         correlation_id: str | None = None,
+        allow_remote_override: bool = False,
     ) -> HarnessDecisionResult:
         """Avalia score de risco para chamada de tool no fluxo assíncrono anterior ao predicado HITL."""
         return await self.decide_pattern(
@@ -1058,4 +1084,5 @@ class SystemOneHarness:
             },
             workspace_id=workspace_id,
             correlation_id=correlation_id,
+            allow_remote_override=allow_remote_override,
         )

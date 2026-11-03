@@ -24,6 +24,7 @@ export type SettingsCategoryId =
   | "memoria"
   | "conta"
   | "integracoes"
+  | "ai_models"
   | "provider_routing"
   | "connect"
   | "plugins"

@@ -16,19 +16,29 @@ from backend.workspace.runtime_settings import RuntimeSettings
 class _FakeRequest:
     """Request fake com `.state.user` e `.json()` async, como os handlers usam."""
 
-    def __init__(self, user_id: str | None, body: Any = None) -> None:
+    def __init__(
+        self,
+        user_id: str | None,
+        body: Any = None,
+        query_params: dict[str, str] | None = None,
+    ) -> None:
         user = SimpleNamespace(id=user_id) if user_id else None
         self.state = SimpleNamespace(user=user)
         self._body = body
+        self.query_params = query_params or {}
 
     async def json(self) -> Any:
         return self._body
 
 
-def _req(user_id: str | None, body: Any = None) -> Request:
+def _req(
+    user_id: str | None,
+    body: Any = None,
+    query_params: dict[str, str] | None = None,
+) -> Request:
     """`_FakeRequest` visto como `Request` — os handlers só tocam `.state.user`
     e `.json()`, cobertos pelo fake; o cast satisfaz a assinatura tipada."""
-    return cast("Request", _FakeRequest(user_id, body))
+    return cast("Request", _FakeRequest(user_id, body, query_params))
 
 
 @pytest.fixture(autouse=True)
@@ -75,6 +85,60 @@ def test_isola_por_usuario():
     asyncio.run(update_prefs(_req("u2", {"theme": "light"})))
     assert asyncio.run(get_prefs(_req("u1"))) == {"theme": "dark"}
     assert asyncio.run(get_prefs(_req("u2"))) == {"theme": "light"}
+
+
+def test_decision_model_preferences_roundtrip_isolated_by_workspace():
+    asyncio.run(
+        update_prefs(
+            _req(
+                "u1",
+                {"workspace_id": "workspace-a", "decisionModelsEnabled": True},
+            )
+        )
+    )
+    assert (
+        asyncio.run(
+            get_prefs(_req("u1", query_params={"workspace_id": "workspace-a"}))
+        )["decisionModelsEnabled"]
+        is True
+    )
+    assert "decisionModelsEnabled" not in asyncio.run(
+        get_prefs(_req("u1", query_params={"workspace_id": "workspace-b"}))
+    )
+
+
+def test_transcription_mode_persists_only_supported_values():
+    asyncio.run(update_prefs(_req("u1", {"transcriptionMode": "local"})))
+    assert asyncio.run(get_prefs(_req("u1"))) == {"transcriptionMode": "local"}
+
+    # Negative regression: unknown modes must not silently become a route.
+    asyncio.run(update_prefs(_req("u1", {"transcriptionMode": "mystery"})))
+    assert asyncio.run(get_prefs(_req("u1"))) == {"transcriptionMode": "local"}
+
+
+def test_decision_model_workspace_preferences_reject_foreign_workspace(monkeypatch):
+    from fastapi import HTTPException
+
+    from backend.workspace.workspace import workspace_registry
+
+    monkeypatch.setattr(
+        workspace_registry,
+        "get",
+        lambda workspace_id: SimpleNamespace(id=workspace_id, owner_id="u2"),
+    )
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(
+            update_prefs(
+                _req(
+                    "u1",
+                    {
+                        "workspace_id": "workspace-private",
+                        "decisionModelsEnabled": True,
+                    },
+                )
+            )
+        )
+    assert exc.value.status_code == 403
 
 
 def test_sem_user_cai_no_fallback_local():

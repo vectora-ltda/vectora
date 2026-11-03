@@ -2208,6 +2208,63 @@
         "title": "CreateWorktreeRequest",
         "type": "object"
       },
+      "DecisionModelReadinessResponse": {
+        "description": "Non-sensitive readiness result for the provider selected by one user.",
+        "properties": {
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "credential_valid": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Valid"
+          },
+          "diagnostic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diagnostic"
+          },
+          "healthy": {
+            "title": "Healthy",
+            "type": "boolean"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "provider",
+          "model",
+          "configured",
+          "credential_valid",
+          "healthy",
+          "ready"
+        ],
+        "title": "DecisionModelReadinessResponse",
+        "type": "object"
+      },
       "DeleteMemoryResponse": {
         "properties": {
           "deleted": {
@@ -3835,6 +3892,17 @@
             "default": "",
             "title": "Reasoning",
             "type": "string"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
           },
           "tool_name": {
             "title": "Tool Name",
@@ -7759,9 +7827,20 @@
         "properties": {
           "args": {
             "additionalProperties": true,
-            "default": {},
             "title": "Args",
             "type": "object"
+          },
+          "interrupt_id": {
+            "title": "Interrupt Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "thread_id": {
+            "title": "Thread Id",
+            "type": "string"
           },
           "tool_name": {
             "title": "Tool Name",
@@ -7774,6 +7853,9 @@
         },
         "required": [
           "workspace_id",
+          "thread_id",
+          "interrupt_id",
+          "run_id",
           "tool_name"
         ],
         "title": "SmartApprovalAllowlistRequest",
@@ -8092,6 +8174,10 @@
             ],
             "title": "Provider",
             "type": "string"
+          },
+          "risk_assessment_timeout_s": {
+            "title": "Risk Assessment Timeout S",
+            "type": "number"
           }
         },
         "required": [
@@ -8112,7 +8198,8 @@
           "jev_api_key_configured",
           "jev_api_key_masked",
           "allow_remote_fallback",
-          "confidence_threshold_hitl"
+          "confidence_threshold_hitl",
+          "risk_assessment_timeout_s"
         ],
         "title": "SystemOneStatusResponse",
         "type": "object"
@@ -8776,6 +8863,15 @@
           "mime_type": {
             "title": "Mime Type",
             "type": "string"
+          },
+          "transcription_mode": {
+            "default": "remote",
+            "enum": [
+              "local",
+              "remote"
+            ],
+            "title": "Transcription Mode",
+            "type": "string"
           }
         },
         "required": [
@@ -8796,6 +8892,54 @@
           "text"
         ],
         "title": "TranscribeAudioResponse",
+        "type": "object"
+      },
+      "TranscriptionReadinessResponse": {
+        "properties": {
+          "dependency_available": {
+            "title": "Dependency Available",
+            "type": "boolean"
+          },
+          "diagnostic": {
+            "title": "Diagnostic",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "model_cached": {
+            "title": "Model Cached",
+            "type": "boolean"
+          },
+          "probe_attempted": {
+            "title": "Probe Attempted",
+            "type": "boolean"
+          },
+          "probe_in_progress": {
+            "title": "Probe In Progress",
+            "type": "boolean"
+          },
+          "ready": {
+            "title": "Ready",
+            "type": "boolean"
+          },
+          "runtime_verified": {
+            "title": "Runtime Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mode",
+          "dependency_available",
+          "model_cached",
+          "runtime_verified",
+          "probe_attempted",
+          "probe_in_progress",
+          "ready",
+          "diagnostic"
+        ],
+        "title": "TranscriptionReadinessResponse",
         "type": "object"
       },
       "TreeEntry": {
@@ -9526,6 +9670,19 @@
               }
             ],
             "title": "Provider"
+          },
+          "risk_assessment_timeout_s": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 120.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Assessment Timeout S"
           }
         },
         "title": "UpdateSystemOneConfigRequest",
@@ -15197,6 +15354,55 @@
         ]
       }
     },
+    "/provider-routing/decision-models/readiness": {
+      "get": {
+        "description": "Probe only the selected provider and return no secret or admin settings.",
+        "operationId": "get_decision_model_readiness_provider_routing_decision_models_readiness_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "enum": [
+                "clef-local",
+                "laya-local",
+                "clef-api",
+                "jev-api"
+              ],
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DecisionModelReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Decision Model Readiness",
+        "tags": [
+          "provider-routing"
+        ]
+      }
+    },
     "/provider-routing/decision-models/status": {
       "get": {
         "description": "Retorna o status atual, capacidades e saúde do subsistema de Decision Models.",
@@ -20065,7 +20271,7 @@
         "summary": "Get Smart Approval Allowlist"
       },
       "post": {
-        "description": "\"Sempre permitir isso\" no HITLPanel — não muda o HITL em si, só faz a\npróxima ocorrência do mesmo comando chegar já marcada como reconhecida\n(ver `backend/services/smart_approval.py`).",
+        "description": "Create a one-use approval grant for this exact call and run.",
         "operationId": "add_smart_approval_allowlist_smart_approval_allowlist_post",
         "requestBody": {
           "content": {
@@ -21570,6 +21776,47 @@
           }
         },
         "summary": "Transcribe Audio Endpoint"
+      }
+    },
+    "/vectora.chat.v1.ChatService/TranscriptionReadiness": {
+      "get": {
+        "description": "Report local STT readiness; only an explicit probe loads cached weights.",
+        "operationId": "transcription_readiness_vectora_chat_v1_ChatService_TranscriptionReadiness_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "probe",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Probe",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptionReadinessResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Transcription Readiness"
       }
     },
     "/vectora.chat.v1.ThreadService/CreateThread": {

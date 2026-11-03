@@ -742,7 +742,13 @@ function createWindow(options: { visible?: boolean } = {}): void {
   // Carrega a SPA pela origem IPC — zero porta TCP exposta (UDS em Linux/macOS).
   void mainWindow.loadURL(`${APP_SCHEME}://app/`);
   mainWindow.once("ready-to-show", () => {
-    if (visible) mainWindow?.show();
+    if (visible) {
+      mainWindow?.show();
+      // Lido por backend/services/electron_sidecar.py (WINDOW_READY_MARKER):
+      // sem esta linha no prazo, `vectora start` encerra em vez de seguir
+      // como servidor sem janela.
+      console.log("VECTORA_ELECTRON_WINDOW_READY");
+    }
     if (pendingDeepLink) {
       mainWindow?.webContents.send("vectora:deep-link", pendingDeepLink);
       pendingDeepLink = null;

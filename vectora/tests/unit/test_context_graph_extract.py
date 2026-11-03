@@ -496,3 +496,26 @@ class TestStripJsonc:
         code = '{ "url": "https://example.com" }'
         result = _strip_jsonc(code)
         assert "https://example.com" in result
+
+
+def test_utf16_project_keeps_valid_input_and_rejects_entities(tmp_path):
+    from backend.context_graph.extract import extract_csproj
+
+    path = tmp_path / "project.csproj"
+    path.write_bytes(
+        '<?xml version="1.0" encoding="utf-16"?><Project><PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup></Project>'.encode(
+            "utf-16"
+        )
+    )
+    valid = extract_csproj(path)
+    assert valid["nodes"]
+    assert "error" not in valid
+    path.write_bytes(
+        '<?xml version="1.0" encoding="utf-16"?><!DOCTYPE Project [<!ENTITY injected "untrusted-expanded-value">]><Project><PropertyGroup><TargetFramework>&injected;</TargetFramework></PropertyGroup></Project>'.encode(
+            "utf-16"
+        )
+    )
+    denied = extract_csproj(path)
+    assert denied["nodes"] == []
+    assert "error" in denied
+    assert "untrusted-expanded-value" not in str(denied)

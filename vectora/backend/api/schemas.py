@@ -259,6 +259,7 @@ class TranscribeAudioRequest(BaseModel):
     audio_base64: str
     mime_type: str
     filename: str = "recording.webm"
+    transcription_mode: Literal["local", "remote"] = "remote"
 
 
 class TranscribeAudioResponse(BaseModel):
@@ -361,6 +362,11 @@ class ToolCallEvent(BaseModel):
     category: str = "general"
     destructive: bool = False
     icon: str = "tool"
+    decision: str | None = None
+    decision_reason: str | None = None
+    decision_provider: str | None = None
+    decision_model: str | None = None
+    decision_confidence: float | None = None
 
 
 class ToolResultEvent(BaseModel):
@@ -415,6 +421,7 @@ class HITLEvent(BaseModel):
     tool_name: str
     args_json: str
     interrupt_id: str
+    run_id: str | None = None
     permission_mode: PermissionMode = "ask"
     workspace_id: str = ""
     reasoning: str = ""

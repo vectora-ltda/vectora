@@ -11,6 +11,7 @@ vi.mock("@/lib/stores/workspaces-store", () => ({
     select({ getActive: () => null }),
 }));
 vi.mock("@/lib/stores/settings-store", () => ({
+  hydrateDecisionModelPreferences: vi.fn().mockResolvedValue(undefined),
   useSettingsStore: (select: (state: object) => unknown) =>
     select({ chatMode: true, uiMode: "assistant" }),
 }));

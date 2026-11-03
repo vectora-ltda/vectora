@@ -107,6 +107,7 @@ describe("transcribeAudio", () => {
       audio_base64: "YmFzZTY0",
       mime_type: "audio/webm",
       filename: "recording.webm",
+      transcription_mode: "remote",
     });
     expect(r.text).toBe("olá mundo");
   });
@@ -116,6 +117,24 @@ describe("transcribeAudio", () => {
     await transcribeAudio("x", "audio/mp4", "ditado.m4a");
 
     expect(lastBody().filename).toBe("ditado.m4a");
+  });
+
+  it("envia modo local explicitamente quando selecionado", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ text: "ditado local" }));
+    const result = await transcribeAudio(
+      "x",
+      "audio/webm",
+      "voz.webm",
+      "local",
+    );
+
+    expect(lastBody()).toEqual({
+      audio_base64: "x",
+      mime_type: "audio/webm",
+      filename: "voz.webm",
+      transcription_mode: "local",
+    });
+    expect(result.text).toBe("ditado local");
   });
 });
 

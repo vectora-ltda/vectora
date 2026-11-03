@@ -34,6 +34,7 @@ class LedgerEventType:
     RUN_FAILED = "run_failed"
     RUN_CANCELLED = "run_cancelled"
     RUN_COMPLETED = "run_completed"
+    DECISION_MODEL_DECISION = "decision_model_decision"
 
 
 type LedgerEventTypeLiteral = Literal[
@@ -47,6 +48,7 @@ type LedgerEventTypeLiteral = Literal[
     "run_failed",
     "run_cancelled",
     "run_completed",
+    "decision_model_decision",
 ]
 
 # Eventos que impactam contadores de badge / não lidos para o usuário
@@ -127,6 +129,11 @@ def make_tool_started_key(run_id: str, tool_call_id: str) -> str:
 def make_tool_finished_key(run_id: str, tool_call_id: str) -> str:
     """Executa a operação make tool finished key."""
     return f"tool_finished:{run_id}:{tool_call_id}"
+
+
+def make_decision_model_decision_key(run_id: str, tool_call_id: str) -> str:
+    """Idempotency key for one Decision Model decision in a run."""
+    return f"decision_model_decision:{run_id}:{tool_call_id}"
 
 
 def make_agent_turn_started_key(run_id: str, turn_id: str | None = None) -> str:

@@ -3,6 +3,7 @@ arquivo existe mas está malformado ou tem campo de tipo errado."""
 
 from __future__ import annotations
 
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -441,9 +442,10 @@ class TestAutoEnableSemVectoraToml:
 
 
 class TestAutoEnableNativoLinuxMacos:
-    """Linux (`bwrap`) e macOS (`sandbox-exec`) — diferente do WSL2, não
-    exigem detecção assíncrona no startup, só `shutil.which` no hot path
-    síncrono de `parse_policy()`."""
+    """Linux (`bwrap`) não exige detecção assíncrona no startup, só
+    `shutil.which` no hot path síncrono de `parse_policy()`. macOS nunca
+    se auto-habilita: o worker persistente usa `bwrap` em qualquer host
+    não Windows, então auto-habilitar ali quebraria a primeira ação."""
 
     def test_linux_com_bwrap_disponivel_auto_habilita(self, tmp_path, monkeypatch):
         monkeypatch.setattr(policy_module.sys, "platform", "linux")
@@ -463,7 +465,7 @@ class TestAutoEnableNativoLinuxMacos:
 
         assert result == DISABLED_POLICY
 
-    def test_macos_com_sandbox_exec_disponivel_auto_habilita(
+    def test_macos_com_sandbox_exec_disponivel_nao_auto_habilita(
         self, tmp_path, monkeypatch
     ):
         monkeypatch.setattr(policy_module.sys, "platform", "darwin")
@@ -473,7 +475,22 @@ class TestAutoEnableNativoLinuxMacos:
 
         result = parse_policy(tmp_path / "vectora.toml")
 
-        assert result == AUTO_ENABLED_POLICY
+        assert result == DISABLED_POLICY
+        assert policy_module._native_sandbox_available_sync() is False
+        import json
+
+        repo = Path(__file__).resolve().parents[3]
+        for locale in ("en", "pt", "es", "de", "fr", "it", "ru"):
+            messages = json.loads(
+                (repo / "company" / "messages" / f"{locale}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            description = messages["capability_sandbox_desc"]
+            assert "macOS" in description
+            assert "sandbox-exec" in description
+            assert "bwrap" in description
+            assert "soft" in description.lower()
 
     def test_macos_sem_sandbox_exec_mantem_desabilitado(self, tmp_path, monkeypatch):
         monkeypatch.setattr(policy_module.sys, "platform", "darwin")
@@ -506,7 +523,6 @@ class TestAutoEnableNativoLinuxMacos:
 
         monkeypatch.setattr(policy_module.shutil, "which", lambda nome: None)
         assert policy_module._native_sandbox_available_sync() is False
-
         monkeypatch.setattr(
             policy_module.shutil, "which", lambda nome: "/usr/bin/bwrap"
         )
@@ -745,3 +761,33 @@ async def test_wsl2_diagnostic_distro_sem_shell_utilizavel(monkeypatch):
     result = await wsl2_diagnostic()
 
     assert result == "distro_missing_shell"
+
+
+@pytest.mark.parametrize(
+    "configured",
+    [
+        None,
+        "[workspace]\nname = 'demo'\n",
+        "[sandbox]\nenabled = true\n",
+        "[sandbox]\nenabled = false\n",
+    ],
+)
+@pytest.mark.parametrize("native", [True, False])
+def test_documented_auto_activation_and_explicit_policy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    configured: str | None,
+    native: bool,
+) -> None:
+    """Arquivo ausente, ausência de seção e política explícita são estados distintos."""
+    monkeypatch.setattr(policy_module, "_native_sandbox_available_sync", lambda: native)
+    monkeypatch.setattr(policy_module, "_wsl2_eligible_sync", lambda: False)
+    path = tmp_path / "vectora.toml"
+    if configured is not None:
+        path.write_text(configured, encoding="utf-8")
+    expected = (
+        native
+        if configured is None
+        else configured.startswith("[sandbox]\nenabled = true")
+    )
+    assert parse_policy(path).enabled is expected
