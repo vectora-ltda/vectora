@@ -1,41 +1,21 @@
-version: 1
-appendOnly: true
-# Labels aplicadas com base no padrão Conventional Commits
-# https://www.conventionalcommits.org/en/v1.0.0/ e nos paths tocados pelo PR.
-# Usadas pelo changelog automático (release-please) pra categorizar cada
-# mudança. Mesmo padrão do lancedb/.github/labeler.yml, adaptado pros
-# subprojetos deste monorepo.
-labels:
-  # "!" antes do ":" marca breaking change — ex.: "feat!: remove endpoint antigo"
-  - label: breaking-change
-    title: "^[^:]+!:.*"
-  - label: breaking-change
-    body: "BREAKING CHANGE"
-  - label: enhancement
-    title: "^feat(\\(.+\\))?!?:.*"
-  - label: bug
-    title: "^fix(\\(.+\\))?!?:.*"
-  - label: documentation
-    title: "^docs(\\(.+\\))?!?:.*"
-  - label: performance
-    title: "^perf(\\(.+\\))?!?:.*"
-  - label: ci
-    title: "^ci(\\(.+\\))?!?:.*"
-  - label: chore
-    title: "^(chore|test|build|style|refactor)(\\(.+\\))?!?:.*"
-  - label: backend
-    files:
-      - "^vectora/backend/.*"
-      - "^vectora/tests/.*"
-  - label: frontend
-    files:
-      - "^vectora/frontend/.*"
-  - label: services
-    files:
-      - "^services/.*"
-  - label: company
-    files:
-      - "^company/.*"
-  - label: docs
-    files:
-      - "^docs/.*"
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - ".github/**"
+backend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "vectora/backend/**"
+          - "vectora/tests/**"
+frontend:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "vectora/frontend/**"
+services:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "services/**"
+company:
+  - changed-files:
+      - any-glob-to-any-file:
+          - "company/**"

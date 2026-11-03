@@ -58,8 +58,16 @@ async def gateway_status(request: Request) -> dict:
                 timeout=aiohttp.ClientTimeout(total=3),
             ) as resp:
                 if resp.status == 200:
-                    data = await resp.json()
-                    connected = bool(data.get("connected", False))
+                    content_type = getattr(resp, "content_type", None)
+                    if (
+                        isinstance(content_type, str)
+                        and content_type != "application/json"
+                    ):
+                        connected = False
+                        detail = "Gateway respondeu conteúdo não-JSON"
+                    else:
+                        data = await resp.json()
+                        connected = bool(data.get("connected", False))
                 else:
                     connected = False
                     detail = f"Gateway respondeu {resp.status}"

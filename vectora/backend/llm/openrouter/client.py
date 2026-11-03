@@ -76,8 +76,10 @@ class OpenRouterClient:
         base_url: str = BASE_URL,
         http_client: Any = None,
         timeout_s: float = _DEFAULT_TIMEOUT_S,
+        require_api_key: bool = True,
+        include_attribution: bool = True,
     ) -> None:
-        if not (api_key or "").strip():
+        if require_api_key and not (api_key or "").strip():
             msg = (
                 "OPENROUTER_API_KEY não configurado — configure a chave em "
                 "Integrações antes de usar o provider openrouter."
@@ -86,15 +88,17 @@ class OpenRouterClient:
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
         self._timeout_s = timeout_s
+        self._require_api_key = require_api_key
+        self._include_attribution = include_attribution
         self._client = http_client
         self._owns_client = http_client is None
 
     def _headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "HTTP-Referer": _REFERER,
-            "X-Title": _TITLE,
-        }
+        headers: dict[str, str] = {}
+        if self._api_key.strip():
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        if self._include_attribution:
+            headers.update({"HTTP-Referer": _REFERER, "X-Title": _TITLE})
         if extra:
             headers.update(extra)
         return headers

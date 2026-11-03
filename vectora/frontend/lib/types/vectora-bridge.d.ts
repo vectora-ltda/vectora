@@ -36,12 +36,21 @@ export type VectoraBrowserViewEvent =
   | { type: "titleUpdated"; title: string }
   | { type: "faviconUpdated"; favicon: string }
   | { type: "loadingChanged"; isLoading: boolean }
+  | { type: "popupRequested"; url: string }
+  | { type: "escapePressed" }
   | {
       type: "loadFailed";
       errorCode: number;
       errorDescription: string;
       url: string;
     };
+export type VectoraBrowserViewKind = "tab";
+export interface VectoraBrowserViewOptions {
+  profileId: string;
+  kind: VectoraBrowserViewKind;
+  allowPopups?: boolean;
+  zoomPercent?: number;
+}
 
 export interface VectoraVscodeThemeFile {
   extensionId: string;
@@ -55,6 +64,51 @@ export interface VectoraVscodeMarketplaceSearchItem {
   publisher: string;
   description: string;
   installs: number;
+}
+
+export interface VectoraDmrDetection {
+  status:
+    | "ready"
+    | "stopped"
+    | "docker_unavailable"
+    | "plugin_unavailable"
+    | "runner_unavailable"
+    | "backend_incompatible";
+  docker: boolean;
+  plugin: boolean;
+  runner: boolean;
+  host?: Record<string, unknown>;
+  detail?: string;
+}
+
+export interface VectoraDmrOperation {
+  id: string;
+  operation: "prepare" | "start" | "stop" | "remove";
+  reference: string;
+  status: "queued" | "running" | "completed" | "failed" | "cancelled";
+  phase:
+    | "queued"
+    | "pulling"
+    | "configuring"
+    | "starting"
+    | "stopping"
+    | "removing"
+    | "completed"
+    | "failed"
+    | "cancelled";
+  progress: number;
+  error?: string;
+  output?: string;
+}
+
+export interface VectoraDmrManifestModel {
+  reference: string;
+  digest?: string;
+  engine?: string;
+  contextSize?: number;
+  source: "docker-model-runner";
+  state: "prepared" | "running" | "stopped";
+  updatedAt: string;
 }
 
 export interface VectoraDesktopBridge {
@@ -99,7 +153,7 @@ export interface VectoraDesktopBridge {
    * própria) — presente só no desktop; sem isso, a aba Browser cai no
    * `<iframe>` de fallback (sujeito a X-Frame-Options). */
   browserView?: {
-    createView: (profileId?: string) => Promise<number>;
+    createView: (options: VectoraBrowserViewOptions) => Promise<number>;
     destroyView: (viewId: number) => void;
     navigate: (
       viewId: number,
@@ -111,6 +165,8 @@ export interface VectoraDesktopBridge {
     stop: (viewId: number) => void;
     setBounds: (viewId: number, bounds: VectoraViewBounds) => void;
     setVisible: (viewId: number, visible: boolean) => void;
+    setZoom?: (viewId: number, percent: number) => void;
+    setAllowPopups?: (viewId: number, allowPopups: boolean) => void;
     clearProfileData: (profileId?: string) => Promise<void>;
     onEvent: (
       handler: (viewId: number, event: VectoraBrowserViewEvent) => void,
@@ -134,6 +190,26 @@ export interface VectoraDesktopBridge {
   zoom?: {
     setPercent: (percent: number) => void;
     get: () => Promise<number>;
+  };
+  dmr?: {
+    detect: () => Promise<VectoraDmrDetection>;
+    list: () => Promise<{
+      version: 1;
+      models: Record<string, VectoraDmrManifestModel>;
+    }>;
+    prepare: (reference: string) => Promise<VectoraDmrOperation>;
+    start: (
+      reference: string,
+      contextSize?: number,
+    ) => Promise<VectoraDmrOperation>;
+    stop: (reference: string) => Promise<VectoraDmrOperation>;
+    remove: (
+      reference: string,
+      confirmed: boolean,
+    ) => Promise<VectoraDmrOperation>;
+    getOperation: (id: string) => Promise<VectoraDmrOperation | null>;
+    listOperations: () => Promise<VectoraDmrOperation[]>;
+    cancel: (id: string) => Promise<boolean>;
   };
 }
 

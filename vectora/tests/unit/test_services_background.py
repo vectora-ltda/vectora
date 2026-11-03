@@ -9,9 +9,10 @@ webhook→IA. Cada caminho feliz tem o par de erro/borda no mesmo teste.
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -2151,6 +2152,36 @@ async def test_scheduler_runs_due_and_skips_disabled(db, monkeypatch):
     rescheduled = await bg.get_task(due.id)
     assert rescheduled is not None
     assert rescheduled.next_run_at != vencido
+
+
+async def test_scheduler_keeps_running_when_dag_recovery_fails(db, monkeypatch):
+    fired: list[str] = []
+
+    async def _fail_recovery():
+        raise RuntimeError("dag database temporarily unavailable")
+
+    async def _fake_run(task, trigger_source, payload=None):
+        fired.append(task.id)
+        return "background-run"
+
+    monkeypatch.setattr(
+        "backend.scheduling.dag.recover_expired_dag_claims", _fail_recovery
+    )
+    monkeypatch.setattr(bg, "run_task", _fake_run)
+    due = await bg.create_task(
+        session_id="s",
+        user_id="u",
+        kind="routine",
+        name="after-dag-error",
+        instruction="i",
+        trigger_type="once",
+        trigger_config={},
+    )
+    await bg._set_next_run(due.id, datetime.now(UTC).isoformat())
+    with patch("backend.scheduling.background_tasks.logger.warning") as warning:
+        await bg.get_scheduler().tick()
+    assert fired == [due.id]
+    assert warning.called
 
 
 # ---------------------------------------------------------------------------

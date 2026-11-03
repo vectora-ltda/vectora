@@ -94,9 +94,10 @@ class TestDoneEvent:
     def test_basic(self):
         from backend.api.schemas import DoneEvent
 
-        e = DoneEvent(thread_id="t-1")
+        e = DoneEvent(thread_id="t-1", run_id="run-1", message_id=42)
         assert e.thread_id == "t-1"
-        assert e.run_id == ""
+        assert e.run_id == "run-1"
+        assert e.message_id == 42
 
 
 class TestErrorEvent:
@@ -121,9 +122,13 @@ class TestHITLEvent:
             tool_name="file_write",
             args_json='{"path": "/tmp/x"}',
             interrupt_id="int-1",
+            permission_mode="ask",
+            workspace_id="ws-1",
         )
         assert e.tool_name == "file_write"
         assert e.interrupt_id == "int-1"
+        assert e.permission_mode == "ask"
+        assert e.workspace_id == "ws-1"
 
 
 class TestMessageBreakEvent:

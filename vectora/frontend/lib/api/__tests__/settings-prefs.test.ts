@@ -36,7 +36,7 @@ describe("pushPrefs", () => {
   it("faz PATCH com o corpo serializado", async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
     vi.stubGlobal("fetch", fetchMock);
-    await pushPrefs({ theme: "dark" });
+    await expect(pushPrefs({ theme: "dark" })).resolves.toBe(true);
     expect(fetchMock).toHaveBeenCalledWith(
       "/settings/prefs",
       expect.objectContaining({
@@ -46,8 +46,16 @@ describe("pushPrefs", () => {
     );
   });
 
-  it("nunca lança em falha de rede (fire-and-forget)", async () => {
+  it("retorna false em falha de rede para permitir rollback otimista", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
-    await expect(pushPrefs({ theme: "dark" })).resolves.toBeUndefined();
+    await expect(pushPrefs({ theme: "dark" })).resolves.toBe(false);
+  });
+
+  it("retorna false quando o backend rejeita a atualização", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 503 }),
+    );
+    await expect(pushPrefs({ theme: "dark" })).resolves.toBe(false);
   });
 });

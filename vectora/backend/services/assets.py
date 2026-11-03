@@ -7,7 +7,7 @@ import json
 import os
 import stat
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -152,7 +152,7 @@ class AssetStore:
             return _PROCESS_LOCKS.setdefault(self.index.resolve(), Lock())
 
     @contextmanager
-    def _locked_index(self) -> Iterator[None]:
+    def _locked_index(self) -> Generator[None]:
         """Serialize index reads and writes across threads and processes."""
         self.root.mkdir(parents=True, exist_ok=True)
         try:

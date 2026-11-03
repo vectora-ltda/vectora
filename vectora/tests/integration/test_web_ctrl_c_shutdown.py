@@ -8,11 +8,27 @@ import re
 import signal
 import subprocess  # nosec B404 - process is the test subject
 import sys
+from collections.abc import Awaitable
 from pathlib import Path
+from typing import Protocol, cast
 
 import pytest
 
 from backend.scheduling.nats_sidecar import _resolve_binary
+
+
+class _CreateSubprocessExec(Protocol):
+    def __call__(
+        self,
+        program: str,
+        *args: str,
+        cwd: str,
+        env: dict[str, str],
+        stdout: int,
+        stderr: int,
+        creationflags: int = 0,
+    ) -> Awaitable[asyncio.subprocess.Process]: ...
+
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -66,7 +82,11 @@ async def test_web_ctrl_c_fecha_backend_e_nats_ate_o_prompt(tmp_path: Path) -> N
         }
     )
     port = 0
-    proc = await asyncio.create_subprocess_exec(
+    create_process = cast(
+        "_CreateSubprocessExec",
+        asyncio.create_subprocess_exec,
+    )
+    proc = await create_process(
         sys.executable,
         "-m",
         "backend.main",

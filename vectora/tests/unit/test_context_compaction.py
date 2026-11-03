@@ -76,6 +76,28 @@ def test_compaction_preserva_system_quando_custo_excede_orcamento() -> None:
     assert compacted == [system]
 
 
+def test_compaction_ollama_preserva_resultado_de_tool_mesmo_com_system_grande() -> None:
+    system = text_message(MessageRole.SYSTEM, "regra obrigatória " * 100)
+    assistant = VMessage(
+        role=MessageRole.ASSISTANT,
+        tool_calls=[ToolCall(id="call-1", name="web_search", args={"query": "x"})],
+    )
+    result = VMessage(
+        role=MessageRole.TOOL,
+        tool_call_id="call-1",
+        content=[ContentBlock(kind="text", text="resultado")],
+    )
+
+    compacted = compact_messages(
+        [system, assistant, result],
+        max_tokens=1,
+        preserve_latest_tool_result=True,
+    )
+
+    assert compacted[0] is system
+    assert compacted[-1] is result
+
+
 def test_message_tokens_inclui_custo_de_cada_imagem() -> None:
     text = text_message(MessageRole.USER, "pedido")
     image = VMessage(

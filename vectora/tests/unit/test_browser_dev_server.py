@@ -65,3 +65,68 @@ async def test_resolve_dev_server_url_returns_none_when_nothing_running(monkeypa
     url = await resolve_dev_server_url("ws-sem-dev-server")
 
     assert url is None
+
+
+@pytest.mark.asyncio
+async def test_snapshot_libera_porta_do_dev_server_em_execucao(monkeypatch):
+    """Navegar para o dev server do workspace passa pela política de egress
+    mesmo quando a porta não está na lista configurada."""
+    from unittest.mock import AsyncMock
+
+    from backend.services import policy_compiler
+    from backend.services.egress_policy import EgressPolicy
+    from backend.tools import browser as browser_mod
+
+    monkeypatch.setattr(
+        browser_mod,
+        "resolve_dev_server_url",
+        AsyncMock(return_value="http://localhost:5173"),
+    )
+    snapshot = policy_compiler.PolicySnapshot(
+        workspace_id="ws1", egress_policy=EgressPolicy()
+    )
+
+    ajustado = await browser_mod._snapshot_com_dev_server(
+        ctx=_ctx_com_workspace("ws1"), snapshot=snapshot
+    )
+
+    assert ajustado.validate_call(
+        "browser_navigate", {"url": "http://localhost:5173/app"}
+    ) == (True, "")
+    assert 5173 in ajustado.egress_policy.allow_localhost_dev_ports
+    assert snapshot.egress_policy.allow_localhost_dev_ports == []
+
+
+@pytest.mark.asyncio
+async def test_snapshot_sem_dev_server_nao_libera_porta_local(monkeypatch):
+    """Erro/borda: sem dev server no ar, localhost continua bloqueado."""
+    from unittest.mock import AsyncMock
+
+    from backend.services import policy_compiler
+    from backend.services.egress_policy import EgressPolicy
+    from backend.tools import browser as browser_mod
+
+    monkeypatch.setattr(
+        browser_mod, "resolve_dev_server_url", AsyncMock(return_value=None)
+    )
+    snapshot = policy_compiler.PolicySnapshot(
+        workspace_id="ws1", egress_policy=EgressPolicy()
+    )
+
+    ajustado = await browser_mod._snapshot_com_dev_server(
+        ctx=_ctx_com_workspace("ws1"), snapshot=snapshot
+    )
+
+    assert ajustado is snapshot
+    allowed, _ = ajustado.validate_call(
+        "browser_navigate", {"url": "http://localhost:5173/app"}
+    )
+    assert allowed is False
+
+
+def _ctx_com_workspace(workspace_id: str):
+    from unittest.mock import MagicMock
+
+    ctx = MagicMock()
+    ctx.workspace_id = workspace_id
+    return ctx

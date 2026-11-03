@@ -17,6 +17,8 @@ import os
 logger = logging.getLogger(__name__)
 
 PIPE_ENV_VAR = "VECTORA_IPC_PIPE"
+_TCP_CONNECT_ATTEMPTS = 8
+_TCP_CONNECT_INITIAL_DELAY = 0.05
 
 
 def pipe_name() -> str:
@@ -63,19 +65,27 @@ class _PipeSide(asyncio.Protocol):
 
     async def _connect_tcp(self) -> None:
         loop = asyncio.get_running_loop()
-        try:
-            transport, _ = await loop.create_connection(
-                lambda: _TCPSide(self), self._tcp_host, self._tcp_port
-            )
-        except asyncio.CancelledError:
-            raise
-        except OSError as exc:
-            if self._closed:
-                return
-            logger.warning("ipc_pipe_win: falha ao conectar ao uvicorn: %s", exc)
-            if self._transport and not self._transport.is_closing():
-                self._transport.close()
-            return
+        for attempt in range(_TCP_CONNECT_ATTEMPTS):
+            try:
+                transport, _ = await loop.create_connection(
+                    lambda: _TCPSide(self), self._tcp_host, self._tcp_port
+                )
+                break
+            except asyncio.CancelledError:
+                raise
+            except OSError as exc:
+                if self._closed:
+                    return
+                if attempt == _TCP_CONNECT_ATTEMPTS - 1:
+                    logger.warning(
+                        "ipc_pipe_win: uvicorn indisponível após %d tentativas: %s",
+                        _TCP_CONNECT_ATTEMPTS,
+                        exc,
+                    )
+                    if self._transport and not self._transport.is_closing():
+                        self._transport.close()
+                    return
+                await asyncio.sleep(_TCP_CONNECT_INITIAL_DELAY * (2**attempt))
         if self._closed:
             transport.close()
             return

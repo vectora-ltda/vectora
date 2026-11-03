@@ -88,7 +88,13 @@ async def restore_local_backup(
         # Fechá-los antes da promoção evita handles antigos apontando para o
         # inode anterior (especialmente no Windows).
         snapshots = snapshot_targets(
-            db_path, set(selected or {"database", "workspaces", "threads", "memories"})
+            db_path,
+            set(selected or {"database", "workspaces", "threads", "memories"}),
+            boundary=(
+                db_path.parent.parent
+                if db_path.parent.name == "data"
+                else db_path.parent
+            ),
         )
 
         async def reopen_consumers() -> None:
@@ -113,7 +119,26 @@ async def restore_local_backup(
                 await threads.close_db()
             with contextlib.suppress(Exception):
                 await auth.close_db()
-            restore_snapshots(snapshots)
+            restore_snapshots(
+                snapshots,
+                boundary=(
+                    db_path.parent.parent
+                    if db_path.parent.name == "data"
+                    else db_path.parent
+                ),
+                artifact_roots=(
+                    (
+                        (
+                            db_path.parent.parent
+                            if db_path.parent.name == "data"
+                            else db_path.parent
+                        )
+                        / "artifacts",
+                    )
+                    if selected is None or "artifacts" in selected
+                    else ()
+                ),
+            )
             with contextlib.suppress(Exception):
                 await reopen_consumers()
             raise

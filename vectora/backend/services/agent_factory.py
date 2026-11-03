@@ -51,7 +51,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -61,10 +61,14 @@ from backend.workspace.plugins import tools_version
 from backend.workspace.skills import skills_version
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from backend.engine.hitl import ApprovalGate
     from backend.engine.subagents import SubagentSpec
     from backend.persistence.native.session_store import SessionStore
+    from backend.tools.registry import ToolSpec
     from backend.vtypes.history import ThreadHistoryEntry
+    from backend.vtypes.message import VMessage
 from backend.tools.registry import ToolRegistry
 from backend.workspace.skills import list_skill_paths
 
@@ -120,6 +124,24 @@ specialists. Available SOULs:
 Each SOUL only has the tools listed above — delegating a filesystem edit to
 `search` (or a web search to `coder`) fails, not falls back. Write the
 instruction as if delegating to a coworker who hasn't read the conversation.
+
+### Delegation threshold
+
+Delegation is an execution mechanism, not a default response style. Before
+calling `task()`, decide whether the request actually needs another runtime:
+
+- Answer greetings, explanations, status checks, short read-only inspections,
+  and ordinary conversation yourself.
+- Delegate only when the request requires filesystem/terminal changes, an
+  external web investigation, a test/build run, or a genuinely independent
+  specialist task.
+- Do not delegate merely to say that a workspace is connected or to repeat a
+  plan. A delegation must have a concrete deliverable and a verifiable result.
+- Prefer one specialist over several. Use parallel delegation only when the
+  work is independent and each specialist has a distinct deliverable.
+- If a delegation returns no evidence of progress or returns an error, answer
+  or continue directly when that is safe; do not delegate the same trivial
+  request again.
 
 ### How to write the instruction
 
@@ -577,6 +599,8 @@ async def _ensure_infra() -> None:
         await _session_store_pool.open()
         _session_store = SessionStore(_session_store_pool)
         await _session_store.setup()
+        tool_policy.bind_version_store(_session_store)
+        await tool_policy.sync_persisted_versions()
         _approval_gate = ApprovalGate(_session_store)
 
 
@@ -669,6 +693,25 @@ def _native_tool_registry(chat_mode: bool, user_id: str | None) -> ToolRegistry:
     return registry
 
 
+def _recusa_amend(spec: ToolSpec) -> ToolSpec:
+    """Recusa ``amend=True`` no próprio handler: a restrição vale mesmo que o
+    modelo chame a tool direto, sem depender de instrução no prompt."""
+    handler = spec.handler
+
+    async def sem_amend(*args: Any, **kwargs: Any) -> str:
+        if kwargs.get("amend"):
+            return "Error: amend reescreve histórico e não é permitido nesta SOUL."
+        return await handler(*args, **kwargs)
+
+    return replace(spec, handler=sem_amend)
+
+
+# Restrições por SOUL aplicadas no handler da tool, não só no prompt.
+_GUARDAS_DE_SOUL: dict[tuple[str, str], Callable[[ToolSpec], ToolSpec]] = {
+    ("coder", "git_commit"): _recusa_amend,
+}
+
+
 def _native_subagent_catalog(user_id: str | None) -> dict[str, SubagentSpec]:
     """Catálogo de ``SubagentSpec`` nativas a partir de ``SOUL_CATALOG``,
     filtrando cada ``ToolSpec`` já nativo por ``TOOL_REGISTRY.get(tool.name)``
@@ -699,7 +742,8 @@ def _native_subagent_catalog(user_id: str | None) -> dict[str, SubagentSpec]:
                 continue
             spec = TOOL_REGISTRY.get(name)
             if spec is not None:
-                tools.append(spec)
+                guarda = _GUARDAS_DE_SOUL.get((soul.name, name))
+                tools.append(guarda(spec) if guarda is not None else spec)
         catalog[soul.name] = SubagentSpec(
             name=soul.name,
             description=soul.description,
@@ -794,6 +838,21 @@ async def aget_thread_messages(
 
     store = await get_session_store()
     pares = await store.get_history_with_ids(thread_id)
+    return _history_pairs_from_messages(thread_id, pares)
+
+
+def _history_pairs_from_messages(
+    thread_id: str,
+    pares: list[tuple[int, VMessage]],
+) -> list[tuple[str, str, str, list[dict[str, Any]]]]:
+    """Converte um snapshot de mensagens em pares de histórico.
+
+    O chamador fornece o snapshot para que a resposta e suas flags sejam
+    derivadas da mesma leitura; isso evita que uma segunda gravação altere a
+    associação entre ``message_id`` e ``is_error``.
+    """
+    from backend.vtypes.message import MessageRole
+
     out: list[tuple[str, str, str, list[dict[str, Any]]]] = []
     for msg_id, msg in pares:
         if msg.role in (MessageRole.TOOL, MessageRole.SYSTEM):
@@ -857,15 +916,33 @@ async def aget_thread_messages_with_files(
         except ValueError:
             return []
 
+    # Fetch once and derive both text/attachments and flags from that exact
+    # snapshot.  A failed read is propagated instead of converting unknown
+    # flags into ``False``; callers can retry and observe a typed failure.
+    try:
+        history_snapshot = await store.get_history_with_ids(thread_id)
+    except Exception as exc:
+        logger.exception("history: falha ao carregar snapshot de %s", thread_id)
+        raise RuntimeError("falha ao carregar o histórico persistido") from exc
+    error_by_id: dict[str, bool | None] = {
+        str(message_id): (
+            message.is_error if isinstance(message.is_error, bool) else None
+        )
+        for message_id, message in history_snapshot
+    }
+
+    pairs = _history_pairs_from_messages(thread_id, history_snapshot)
     return [
         ThreadHistoryEntry(
             role=cast("Literal['human', 'assistant']", item[0]),
             text=item[1],
             checkpoint_id=item[2],
+            message_id=int(item[2]) if item[2].isdigit() else None,
+            is_error=error_by_id.get(item[2]),
             attachments=item[3],
             edited_files=files_for_checkpoint(item[2]),
         )
-        for item in await aget_thread_messages(thread_id, workspace_id)
+        for item in pairs
     ]
 
 
@@ -922,6 +999,8 @@ async def aget_thread_pending_interrupt(
     restart. Retorna ``None`` sem pendência; nunca lança, é consultado num
     reload de página.
     """
+    from backend.vtypes.message import MessageRole
+
     store = await get_session_store()
     pending = await store.get_pending_approval(thread_id)
     if pending is None:

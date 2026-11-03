@@ -41,6 +41,13 @@ export function FileEditor({
   const monacoFontSize = useSettingsStore((s) => s.monacoFontSize);
   const editorFontFamily = useSettingsStore((s) => s.editorFontFamily);
   const autoSave = useSettingsStore((s) => s.editorAutoSave);
+  const editorMinimap = useSettingsStore((s) => s.editorMinimap);
+  const editorWordWrap = useSettingsStore((s) => s.editorWordWrap);
+  const editorFormatOnType = useSettingsStore((s) => s.editorFormatOnType);
+  const editorQuickSuggestions = useSettingsStore(
+    (s) => s.editorQuickSuggestions,
+  );
+  const editorLineNumbers = useSettingsStore((s) => s.editorLineNumbers);
   const media = getMediaKind(path);
 
   const [file, setFile] = useState<FileContent | null>(null);
@@ -229,6 +236,13 @@ export function FileEditor({
             monacoFontSize,
             editorFontFamily,
             readOnly,
+            {
+              minimap: editorMinimap,
+              wordWrap: editorWordWrap,
+              formatOnType: editorFormatOnType,
+              quickSuggestions: editorQuickSuggestions,
+              lineNumbers: editorLineNumbers,
+            },
           )}
           loading={
             <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />

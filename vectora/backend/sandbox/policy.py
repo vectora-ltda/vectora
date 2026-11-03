@@ -46,15 +46,15 @@ DISABLED_POLICY = SandboxPolicy(enabled=False)
 # workspace não tem `vectora.toml` nenhum — o worker jailado ainda tem RW
 # completo dentro do próprio workspace (rw_paths é só pra paths extras fora
 # dele), então isso não quebra operação normal, só adiciona a defesa em
-# profundidade (Landlock/seccomp/rlimits/Seatbelt) sem exigir opt-in manual
-# por workspace quando o ambiente já suporta. Três checagens, uma por
-# plataforma: WSL2 (`detect_wsl2()`, cache populado por `warm_wsl2_cache()`
-# no startup — exige spawnar `wsl.exe`, por isso é async/cacheado) no
-# Windows; `bwrap` (Linux nativo) e `sandbox-exec` (macOS, binário built-in
-# da Apple) via `shutil.which` — as duas não exigem detecção assíncrona,
-# `shutil.which` é seguro de chamar direto no hot path síncrono. Windows
-# sem WSL2 elegível mantém o teto atual (não é seguro auto-instalar WSL2
-# silenciosamente).
+# profundidade (Landlock/seccomp/rlimits) sem exigir opt-in manual por
+# workspace quando o ambiente já suporta. Duas checagens: WSL2
+# (`detect_wsl2()`, cache populado por `warm_wsl2_cache()` no startup — exige
+# spawnar `wsl.exe`, por isso é async/cacheado) no Windows; `bwrap` (Linux
+# nativo) via `shutil.which`, seguro de chamar direto no hot path síncrono.
+# Windows sem WSL2 elegível mantém o teto atual (não é seguro auto-instalar
+# WSL2 silenciosamente). macOS nunca se auto-habilita: o worker persistente
+# (`WorkspaceJailManager`) usa `bwrap` em todo host não Windows, então uma
+# política automática ali falharia na primeira ação jailada.
 AUTO_ENABLED_POLICY = SandboxPolicy(enabled=True, backend="local")
 
 # Política mais restritiva possível — usada quando o parse falha (fail-closed:
@@ -136,15 +136,14 @@ def _wsl2_eligible_sync() -> bool:
 
 
 def _native_sandbox_available_sync() -> bool:
-    """Linux (`bwrap`) e macOS (`sandbox-exec`) — diferente do WSL2, não
-    exigem spawnar processo externo pra decidir (`detect_wsl2()` roda
-    `wsl.exe`), então não precisam de cache nem de warm-up assíncrono no
-    startup: `shutil.which` é uma checagem de filesystem, segura de chamar
-    direto no hot path síncrono de `parse_policy()`."""
+    """Linux (`bwrap`) — diferente do WSL2, não exige spawnar processo
+    externo pra decidir (`detect_wsl2()` roda `wsl.exe`), então não precisa
+    de cache nem de warm-up assíncrono no startup: `shutil.which` é uma
+    checagem de filesystem, segura de chamar direto no hot path síncrono de
+    `parse_policy()`. Fora do Linux devolve `False`: o worker persistente só
+    sabe isolar via `bwrap` (ou WSL2 no Windows, checado à parte)."""
     if sys.platform == "linux":
         return shutil.which("bwrap") is not None
-    if sys.platform == "darwin":
-        return shutil.which("sandbox-exec") is not None
     return False
 
 

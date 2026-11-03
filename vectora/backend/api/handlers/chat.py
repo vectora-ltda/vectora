@@ -22,9 +22,9 @@ import os
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Annotated, Any, Protocol, TypedDict
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
 from backend.api.native_stream import stream_engine_events
@@ -63,9 +63,30 @@ from backend.vtypes.message import ContentBlock, MessageRole, VMessage, text_mes
 if TYPE_CHECKING:
     from backend.engine.stream_events import EventSink
 
+
+class TranscriptionReadinessResponse(TypedDict):
+    mode: str
+    dependency_available: bool
+    model_cached: bool
+    runtime_verified: bool
+    probe_attempted: bool
+    probe_in_progress: bool
+    ready: bool
+    diagnostic: str
+
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class _SessionStore(Protocol):
+    async def get_session(
+        self, thread_id: str, *, user_id: str | None = None
+    ) -> dict[str, object] | None:
+        """Recupera uma sessão pelo identificador e proprietário."""
+        ...
+
 
 _CHAT_PERSISTED_HEADER = "X-Vectora-Chat-Persisted"
 
@@ -86,6 +107,53 @@ _thread_graph_selector: dict[str, dict[str, Any]] = {}
 # Stable usage event for the current turn, retained across an interrupted HITL
 # run so ResumeChat can finalize it without double counting.
 _thread_usage_event_ids: dict[str, str] = {}
+
+
+async def _restore_thread_runtime(
+    thread_id: str,
+    user_id: str,
+    session_store: _SessionStore,
+) -> tuple[str, dict[str, Any]]:
+    """Reidrata o contexto necessário para retomar um HITL após restart.
+
+    O cache em memória acelera o caminho comum, mas não é uma fonte de
+    verdade: o backend pode reiniciar entre a interrupção e a decisão humana.
+    Nesse caso, ``sessions`` preserva o modo de permissão e o workspace que
+    determinam tanto o gate quanto a resolução do PTY compartilhado.
+    """
+    permission_mode = _thread_permission_mode.get(thread_id)
+    selector = dict(_thread_graph_selector.get(thread_id, {}))
+    if permission_mode is not None and selector:
+        return permission_mode, selector
+
+    session: dict[str, object] | None = None
+    try:
+        get_session = getattr(session_store, "get_session", None)
+        if get_session is not None:
+            candidate = await get_session(thread_id, user_id=user_id)
+            if isinstance(candidate, dict):
+                session = candidate
+    except Exception as exc:
+        logger.exception("api/chat: falha ao reidratar contexto do HITL")
+        raise HTTPException(
+            status_code=503,
+            detail="Não foi possível restaurar o contexto da aprovação pendente",
+        ) from exc
+
+    if permission_mode is None:
+        permission_mode = str((session or {}).get("permission_mode") or "ask")
+        _thread_permission_mode[thread_id] = permission_mode
+
+    if not selector and session is not None:
+        workspace_id = str(session.get("workspace_id") or "")
+        selector = {
+            "chat_mode": session.get("mode") == "chat",
+            "workspace_id": workspace_id or None,
+        }
+        _thread_graph_selector[thread_id] = selector
+
+    return permission_mode, selector
+
 
 # ---------------------------------------------------------------------------
 # F1 — Helpers de attachments multimodais
@@ -799,6 +867,10 @@ async def stream_chat(
     configurable = _build_configurable(
         request.config, thread_id, user_id, user_name=user_name
     )
+    if hasattr(http_request.state, "correlation_id"):
+        configurable["correlation_id"] = http_request.state.correlation_id
+    if hasattr(http_request.state, "request_id"):
+        configurable["request_id"] = http_request.state.request_id
     if planning_mode:
         configurable["planning_mode"] = True
 
@@ -871,8 +943,7 @@ async def stream_chat(
     # closure `run` abaixo). O permission_mode NÃO afeta o cache (HITL
     # dinâmico via ToolContext.permission_mode); guardamos o modo do turno
     # só para o resume reidratar o mesmo contexto (ver resume_chat).
-    permission_mode = configurable.get("permission_mode", "ask")
-    _thread_permission_mode[thread_id] = permission_mode
+    permission_mode = configurable.get("permission_mode")
     selected_model = configurable.get("model", "")
     _thread_graph_selector[thread_id] = {
         "model": selected_model,
@@ -882,6 +953,21 @@ async def stream_chat(
         "context_compaction_enabled": request.config.context_compaction_enabled,
     }
     try:
+        session_store = await agent_factory.get_session_store()
+        if not permission_mode:
+            try:
+                candidate = await session_store.get_session(thread_id, user_id=user_id)
+                persisted = candidate if isinstance(candidate, dict) else None
+            except Exception as exc:
+                logger.exception(
+                    "api/chat: falha ao restaurar permission_mode da sessão",
+                    extra={"thread_id": thread_id, "user_id": user_id},
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail="Não foi possível restaurar o contexto da sessão",
+                ) from exc
+            permission_mode = str((persisted or {}).get("permission_mode") or "ask")
         project_root = None
         if workspace_id:
             from backend.workspace.workspace import workspace_registry
@@ -904,10 +990,14 @@ async def stream_chat(
             project_root=project_root,
             runtime_id=thread_id,
         )
-        session_store = await agent_factory.get_session_store()
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("api/chat: erro ao inicializar o motor nativo")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    configurable["permission_mode"] = permission_mode
+    _thread_permission_mode[thread_id] = permission_mode
 
     await session_store.create_session(
         thread_id,
@@ -1051,6 +1141,7 @@ async def stream_chat(
     run_id = uuid.uuid4().hex
 
     async def run(on_event: EventSink) -> str:
+        """Executa a operação run."""
         chat_client = FallbackChatClient(primary_model_id=configurable.get("model", ""))
         run_ctx = ctx_from_config(config)
         run_ctx.store = await agent_factory.get_store()
@@ -1085,6 +1176,19 @@ async def stream_chat(
             should_require_approval=should_require_approval,
             approval_gate=approval_gate,
         )
+        # Persist the concrete provider actually used. This is essential when
+        # an explicit fallback changes the model during a run; otherwise a
+        # repeated local answer cannot be attributed to Docker/llama/Ollama.
+        actual_model = chat_client.last_model_id or configurable.get("model", "")
+        if actual_model:
+            try:
+                store = await agent_factory.get_session_store()
+                if hasattr(store, "update_run"):
+                    await store.update_run(run_id, provider_model=actual_model)
+            except Exception:
+                logger.warning(
+                    "api/chat: falha ao registrar provider efetivo", exc_info=True
+                )
         from backend.workspace.runtime_settings import runtime_settings
 
         if (
@@ -1141,6 +1245,7 @@ async def stream_chat(
             http_request=http_request,
             user_id=user_id,
             run_id=run_id,
+            provider_model=configurable.get("model"),
         ),
         media_type="text/event-stream",
         headers={
@@ -1180,14 +1285,20 @@ async def resume_chat(
         from backend.persistence.thread_activity import record_activity
 
         await record_activity(resume_user_id, resume_device_id, request.thread_id)
-    permission_mode = _thread_permission_mode.get(request.thread_id, "ask")
+    pending_store = await agent_factory.get_session_store()
+    permission_mode, persisted_selector = await _restore_thread_runtime(
+        request.thread_id,
+        resume_user_id,
+        pending_store,
+    )
     selector = _thread_graph_selector.get(request.thread_id, {})
+    if not selector:
+        selector = persisted_selector
     selector_model = str(selector.get("model", "") or "")
     selector_chat_mode = bool(selector.get("chat_mode", False))
     selector_workspace_id = selector.get("workspace_id")
     selector_context_max_tokens = selector.get("context_max_tokens")
     selector_compaction_enabled = bool(selector.get("context_compaction_enabled", True))
-    pending_store = await agent_factory.get_session_store()
     pending = await pending_store.get_pending_approval(request.thread_id)
     if pending is None or pending["interrupt_id"] != request.interrupt_id:
         raise HTTPException(
@@ -1268,14 +1379,25 @@ async def resume_chat(
             "permission_mode": permission_mode,
             "workspace_id": selector_workspace_id or "",
             "model": selector_model,
+            "correlation_id": getattr(http_request.state, "correlation_id", ""),
+            "request_id": getattr(http_request.state, "request_id", ""),
         },
         "recursion_limit": 50,
     }
     run_id = uuid.uuid4().hex
 
     async def run(on_event: EventSink) -> str:
+        """Executa a operação run."""
         run_ctx = ctx_from_config(config)
         run_ctx.store = await agent_factory.get_store()
+        if hasattr(session_store, "list_agent_runs"):
+            runs = await session_store.list_agent_runs(request.thread_id, limit=5)
+            paused_run = next(
+                (r for r in runs if r.status == "waiting_approval"),
+                runs[0] if runs else None,
+            )
+            if paused_run and paused_run.untrusted_content:
+                run_ctx._extra["untrusted_content"] = True
         resumed = await resume_conversation(
             session_store=session_store,
             tool_registry=effective_tool_registry,
@@ -1388,6 +1510,7 @@ async def resume_chat(
             http_request=http_request,
             user_id=resume_user_id,
             run_id=run_id,
+            provider_model=selector_model,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
@@ -1443,6 +1566,21 @@ async def get_tools(http_request: Request) -> GetToolsResponse:
 # ---------------------------------------------------------------------------
 
 
+@router.get("/vectora.chat.v1.ChatService/TranscriptionReadiness")
+async def transcription_readiness(
+    probe: Annotated[bool, Query()] = False,
+) -> TranscriptionReadinessResponse:
+    """Report local STT readiness; only an explicit probe loads cached weights."""
+    from backend.llm.transcription import (
+        local_transcription_readiness,
+        probe_local_transcription_readiness,
+    )
+
+    if probe:
+        return await probe_local_transcription_readiness()
+    return local_transcription_readiness()
+
+
 @router.post("/vectora.chat.v1.ChatService/TranscribeAudio")
 async def transcribe_audio_endpoint(
     request: TranscribeAudioRequest,
@@ -1454,7 +1592,11 @@ async def transcribe_audio_endpoint(
     proprietária do Google que o Chrome tem.
     """
     from backend.api.schemas import _ATTACHMENT_MAX_SIZE_AUDIO_BYTES, _max_base64_length
-    from backend.llm.transcription import TranscriptionError, transcribe_audio
+    from backend.llm.transcription import (
+        TranscriptionError,
+        transcribe_audio,
+        transcribe_audio_local,
+    )
 
     if len(request.audio_base64) > _max_base64_length(_ATTACHMENT_MAX_SIZE_AUDIO_BYTES):
         raise HTTPException(status_code=413, detail="áudio excede o limite de 25MB")
@@ -1467,14 +1609,22 @@ async def transcribe_audio_endpoint(
     try:
         from backend.workspace.runtime_settings import runtime_settings
 
-        text = await transcribe_audio(
-            audio_bytes,
-            request.filename,
-            request.mime_type,
-            provider=runtime_settings.active_provider,
-            model=runtime_settings.active_model,
-            language="",
-        )
+        if request.transcription_mode == "local":
+            text = await transcribe_audio_local(
+                audio_bytes,
+                request.filename,
+                request.mime_type,
+                language="",
+            )
+        else:
+            text = await transcribe_audio(
+                audio_bytes,
+                request.filename,
+                request.mime_type,
+                provider=runtime_settings.active_provider,
+                model=runtime_settings.active_model,
+                language="",
+            )
     except TranscriptionError as exc:
         logger.exception("chat: falha ao transcrever ditado de voz")
         raise HTTPException(status_code=502, detail=str(exc)) from exc

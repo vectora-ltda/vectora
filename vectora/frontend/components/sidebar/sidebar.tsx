@@ -56,6 +56,7 @@ export const Sidebar = memo(function Sidebar({
     () => new Set(),
   );
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [newSessionTimestamp] = useState(() => new Date().toISOString());
 
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const chatMode = useSettingsStore((s) => s.chatMode);
@@ -87,19 +88,25 @@ export const Sidebar = memo(function Sidebar({
     ) {
       return threads;
     }
-    const now = new Date().toISOString();
     return [
       ...threads,
       {
         thread_id: currentThreadId,
-        created_at: now,
-        updated_at: now,
+        created_at: newSessionTimestamp,
+        updated_at: newSessionTimestamp,
         metadata: { user_id: "local" },
         workspace_id: chatMode ? undefined : (activeWorkspaceId ?? undefined),
         mode: chatMode ? "chat" : "code",
       } satisfies Thread,
     ];
-  }, [activeWorkspaceId, chatMode, currentThreadId, isNewSession, threads]);
+  }, [
+    activeWorkspaceId,
+    chatMode,
+    currentThreadId,
+    isNewSession,
+    newSessionTimestamp,
+    threads,
+  ]);
 
   const modeThreads = useMemo(() => {
     // Pools separados: chat vs código. O backend normaliza o modo em

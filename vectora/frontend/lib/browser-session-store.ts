@@ -24,6 +24,21 @@ interface BrowserViewBridge {
 const browserSessions = new Map<string, PersistedBrowserSession>();
 const browserSessionGenerations = new Map<string, number>();
 
+/** Derives a bounded, partition-safe identifier from a session key. */
+export function getBrowserProfileId(sessionKey: string): string {
+  const bytes = new TextEncoder().encode(sessionKey);
+  let first = 2166136261;
+  let second = 2654435761;
+  for (const byte of bytes) {
+    first = Math.imul(first ^ byte, 16777619);
+    second = Math.imul(second ^ byte, 2246822519);
+  }
+  const digest = `${(first >>> 0).toString(16).padStart(8, "0")}${(second >>> 0)
+    .toString(16)
+    .padStart(8, "0")}`;
+  return `session-${digest}`;
+}
+
 function getBrowserViewBridge(): BrowserViewBridge | undefined {
   return typeof window !== "undefined"
     ? window.vectora?.browserView

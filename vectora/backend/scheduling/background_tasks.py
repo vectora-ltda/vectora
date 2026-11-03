@@ -2226,6 +2226,15 @@ class BackgroundScheduler:
             # disparo das tarefas agendadas, que é a função principal do tick.
             logger.warning("background_tasks: tick do kanban falhou", exc_info=True)
 
+        # O DAG persistente tem leases próprios. Reconciliar aqui garante que
+        # uma etapa cujo worker morreu durante um restart volte a ficar elegível.
+        try:
+            from backend.scheduling.dag import recover_expired_dag_claims
+
+            await recover_expired_dag_claims()
+        except Exception:
+            logger.warning("background_tasks: tick do DAG falhou", exc_info=True)
+
         now = datetime.now(UTC)
         for task in await _list_due_interval_tasks():
             if task.trigger_type == "interval" and _is_stale(task.next_run_at, now):

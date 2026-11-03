@@ -1,0 +1,185 @@
+name: Local LLM (Ollama Qwen, llama.cpp Jev e Laya)
+
+# This workflow stays opt-in for expensive local-runtime checks.
+# The [llm-local] marker enables the real Ollama, llama.cpp and Laya matrix.
+# [local-llm] remains accepted for backwards compatibility.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [master, "release/**"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: Detect [llm-local] marker
+    runs-on: ubuntu-24.04
+    outputs:
+      requested: ${{ steps.marker.outputs.requested }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - id: marker
+        shell: bash
+        run: |
+          subject="$(git log -1 --format=%s)"
+          echo "commit_subject=$subject"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" || "$subject" == *"[llm-local]"* || "$subject" == *"[local-llm]"* ]]; then
+            echo "requested=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "requested=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  local-llm:
+    name: Ollama Qwen + llama.cpp Jev + Laya SystemOne
+    needs: detect
+    if: needs.detect.outputs.requested == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Install Docker when the runner does not provide it
+        run: |
+          if ! command -v docker >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends docker.io
+          fi
+          if command -v systemctl >/dev/null 2>&1; then
+            sudo systemctl start docker || true
+          fi
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential cmake curl git jq
+      - name: Verify Docker daemon
+        run: |
+          docker version
+          docker run --rm hello-world
+      - name: Install and start Ollama
+        env:
+          OLLAMA_HOST: 127.0.0.1:11434
+          OLLAMA_VERSION: "0.12.6"
+          OLLAMA_MODEL: qwen2.5:0.5b
+          OLLAMA_MODEL_DIGEST: sha256:005f95c7475154a17e84b85cd497949d6dd2a4f9d77c096e3c66e4d9c32acaf5
+        run: |
+          sudo systemctl stop ollama.service 2>/dev/null || true
+          curl --fail --location --retry 3 --retry-delay 2 https://ollama.com/install.sh | sh
+          ollama serve > "$RUNNER_TEMP/ollama.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/ollama.pid"
+          for _ in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:11434/api/version >/dev/null; then break; fi
+            sleep 2
+          done
+          curl --fail --silent http://127.0.0.1:11434/api/version
+          manifest_digest="$(curl --fail --silent \
+            -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+            "https://registry.ollama.ai/v2/library/qwen2.5/manifests/0.5b" \
+            | jq -r '.config.digest // empty')"
+          [[ "$manifest_digest" == "$OLLAMA_MODEL_DIGEST" ]] || {
+            echo "Ollama model manifest changed: expected $OLLAMA_MODEL_DIGEST, got $manifest_digest" >&2
+            exit 1
+          }
+          ollama pull "$OLLAMA_MODEL"
+          # Ollama's `show --json` does not expose a stable manifest digest on
+          # all supported releases. The registry manifest check above is the
+          # authoritative pin; keep the verified value for downstream logs.
+          echo "OLLAMA_MODEL_DIGEST=$OLLAMA_MODEL_DIGEST" >> "$GITHUB_ENV"
+      - name: Build llama.cpp server
+        env:
+          LLAMA_CPP_DIR: ${{ runner.temp }}/llama.cpp
+          LLAMA_CPP_COMMIT: 7951f601e89494f2ed12dbd4eb52e254b8401197
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/ggml-org/llama.cpp.git "$LLAMA_CPP_DIR"
+          git -C "$LLAMA_CPP_DIR" fetch --depth 1 origin "$LLAMA_CPP_COMMIT"
+          git -C "$LLAMA_CPP_DIR" checkout --detach "$LLAMA_CPP_COMMIT"
+          cmake -S "$LLAMA_CPP_DIR" -B "$LLAMA_CPP_DIR/build" \
+            -DGGML_NATIVE=OFF -DCMAKE_BUILD_TYPE=Release
+          cmake --build "$LLAMA_CPP_DIR/build" --config Release \
+            --target llama-server --parallel 2
+          test -x "$LLAMA_CPP_DIR/build/bin/llama-server"
+          echo "LLAMA_SERVER=$LLAMA_CPP_DIR/build/bin/llama-server" >> "$GITHUB_ENV"
+      - name: Download pinned decision model for Jev/llama.cpp
+        env:
+          MODEL_URL: https://huggingface.co/ggml-org/Julia-1-GGUF/resolve/1e6b48a6983d7467f8eedc2cb0d21267b5fc052d/Julia-1-Q8_0.gguf?download=true
+          MODEL_PATH: ${{ runner.temp }}/Julia-1-Q8_0.gguf
+          MODEL_SHA256: 1ea6a7e87156eeeda88cb7a36a61265b37ba7b993897b7289b99aea5b5e47069
+        run: |
+          curl --fail --location --retry 3 --retry-delay 2 --output "$MODEL_PATH" "$MODEL_URL"
+          echo "$MODEL_SHA256  $MODEL_PATH" | sha256sum --check --status
+          test "$(stat --format=%s "$MODEL_PATH")" -eq 168166496
+          echo "MODEL_PATH=$MODEL_PATH" >> "$GITHUB_ENV"
+      - name: Start llama.cpp and wait for readiness
+        run: |
+          "$LLAMA_SERVER" \
+            --model "$MODEL_PATH" \
+            --host 127.0.0.1 --port 18080 \
+            --ctx-size 512 --threads 2 --parallel 1 \
+            > "$RUNNER_TEMP/llama-server.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/llama-server.pid"
+          for _ in {1..60}; do
+            if curl --fail --silent http://127.0.0.1:18080/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/llama-server.log"
+          exit 1
+      - name: Set up uv and Python
+        uses: ./.github/actions/setup-uv
+        with:
+          python-version: "3.13"
+      - name: Install Laya server and download its selected checkpoint
+        working-directory: vectora
+        env:
+          LAYA_DEVICE: cpu
+          LAYA_HOST: 127.0.0.1
+          LAYA_PORT: "18000"
+          LAYA_MODELS: multilingual
+          LAYA_DEFAULT_MODEL: multilingual
+          LAYA_PRELOAD: "1"
+          HF_HOME: ${{ runner.temp }}/huggingface
+        run: |
+          runtime_python="$(uv run python -c 'import sys; print(sys.executable)')"
+          uv pip install --python "$runtime_python" "laya[serve]==0.1.0"
+          mkdir -p "$HF_HOME"
+          LAYA_DEVICE=cpu LAYA_HOST=127.0.0.1 LAYA_PORT=18000 \
+            LAYA_MODELS=multilingual LAYA_DEFAULT_MODEL=multilingual LAYA_PRELOAD=1 \
+            uv run laya-serve > "$RUNNER_TEMP/laya.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/laya.pid"
+          for _ in {1..180}; do
+            if curl --fail --silent http://127.0.0.1:18000/health >/dev/null || \
+               curl --fail --silent http://127.0.0.1:18000/openapi.json >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/laya.log"
+          exit 1
+      - name: Execute the three real local decision-model contracts
+        working-directory: vectora
+        env:
+          VECTORA_LOCAL_LLM_BASE_URL: http://127.0.0.1:18080/v1
+          VECTORA_OLLAMA_BASE_URL: http://127.0.0.1:11434
+          VECTORA_OLLAMA_MODEL: qwen2.5:0.5b
+          VECTORA_LAYA_BASE_URL: http://127.0.0.1:18000
+          VECTORA_LAYA_MODEL: multilingual
+        run: |
+          uv run pytest tests/integration/test_local_llm_live.py tests/integration/test_systemone_local_live.py -m local_llm -v --timeout=300
+      - name: Upload local runtime logs
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: local-llm-runtime-logs
+          path: |
+            ${{ runner.temp }}/llama-server.log
+            ${{ runner.temp }}/ollama.log
+            ${{ runner.temp }}/laya.log
+          if-no-files-found: ignore

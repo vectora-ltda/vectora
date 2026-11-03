@@ -21,6 +21,65 @@ from unittest.mock import MagicMock, patch
 
 
 class TestVectoraContext:
+    def test_decision_preferences_come_from_the_authenticated_user_store(
+        self, monkeypatch
+    ):
+        """Runtime prefs are trusted; caller config cannot forge a decision model opt-in."""
+        from backend.vtypes.context import ctx_from_config
+
+        class Preferences:
+            def get_frontend_prefs(
+                self, user_id: str, workspace_id: str | None = None
+            ) -> dict[str, object]:
+                assert user_id == "alice"
+                assert workspace_id is None
+                return {
+                    "decisionModelsEnabled": True,
+                    "decisionModelProvider": "jev-api",
+                    "decisionModelSurfaces": {"hitl": True, "mcp": False},
+                }
+
+        monkeypatch.setattr(
+            "backend.workspace.runtime_settings.runtime_settings", Preferences()
+        )
+        ctx = ctx_from_config(
+            {
+                "configurable": {
+                    "user_id": "alice",
+                    "decision_model_preferences": {"enabled": False},
+                }
+            }
+        )
+        assert ctx._extra["decision_model_preferences"] == {
+            "enabled": True,
+            "provider": "jev-api",
+            "surfaces": {"hitl": True, "mcp": False},
+        }
+
+    def test_decision_preferences_fail_closed_with_shared_empty_surface_default(
+        self, monkeypatch
+    ):
+        """Store failures must match the frontend's disabled, empty defaults."""
+        from backend.vtypes.context import ctx_from_config
+
+        class UnavailablePreferences:
+            def get_frontend_prefs(
+                self, user_id: str, workspace_id: str | None = None
+            ) -> dict[str, object]:
+                raise OSError("preferences database unavailable")
+
+        monkeypatch.setattr(
+            "backend.workspace.runtime_settings.runtime_settings",
+            UnavailablePreferences(),
+        )
+        ctx = ctx_from_config({"configurable": {"user_id": "alice"}})
+
+        assert ctx._extra["decision_model_preferences"] == {
+            "enabled": False,
+            "provider": None,
+            "surfaces": {},
+        }
+
     def test_ctx_from_config_full(self):
         """Todos os campos são preenchidos corretamente."""
         from backend.vtypes.context import ctx_from_config

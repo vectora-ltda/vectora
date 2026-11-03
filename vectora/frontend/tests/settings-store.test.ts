@@ -10,6 +10,24 @@
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+const workspaceState = vi.hoisted(() => ({ activeId: null as string | null }));
+
+// O store é a unidade sob teste: a API de preferências, o workspace e a
+// configuração de deployment não precisam carregar suas árvores de módulos.
+vi.mock("@/lib/api/settings-prefs", () => ({
+  fetchPrefs: vi.fn().mockResolvedValue({}),
+  fetchPrefsOrNull: vi.fn().mockResolvedValue(null),
+  pushPrefs: vi.fn().mockResolvedValue({}),
+}));
+vi.mock("@/lib/stores/workspaces-store", () => ({
+  useWorkspacesStore: {
+    getState: () => ({ active_id: workspaceState.activeId }),
+  },
+}));
+vi.mock("@/lib/config/deployment-config", () => ({
+  getDefaultModel: () => "",
+}));
+
 // Mock localStorage antes de importar o store
 const localStorageMock = (() => {
   let store: Record<string, string> = {};
@@ -47,6 +65,7 @@ async function getStore() {
 describe("useSettingsStore — valores padrão", () => {
   beforeEach(() => {
     localStorageMock.clear();
+    workspaceState.activeId = null;
     vi.resetModules();
   });
 
@@ -76,6 +95,149 @@ describe("useSettingsStore — valores padrão", () => {
     const { useSettingsStore } = await getStore();
     const state = useSettingsStore.getState();
     expect(state.customSystemPrompt).toBe("");
+  });
+
+  it("Decision Models iniciam sem superfícies implicitamente autorizadas", async () => {
+    const { useSettingsStore } = await getStore();
+    expect(useSettingsStore.getState().decisionModelSurfaces).toEqual({});
+  });
+});
+
+describe("useSettingsStore — hidratação remota", () => {
+  beforeEach(() => {
+    localStorageMock.clear();
+    workspaceState.activeId = null;
+    vi.resetModules();
+  });
+
+  it("ignora hidratação antiga do mesmo workspace após uma edição", async () => {
+    workspaceState.activeId = "workspace-a";
+    const { hydrateDecisionModelPreferences, useSettingsStore } =
+      await getStore();
+    const { fetchPrefsOrNull } = await import("../lib/api/settings-prefs");
+    let resolve!: (value: { decisionModelProvider: "clef-local" }) => void;
+    vi.mocked(fetchPrefsOrNull).mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    const pending = hydrateDecisionModelPreferences("workspace-a");
+    useSettingsStore.getState().setDecisionModelProvider("jev-api");
+    resolve({ decisionModelProvider: "clef-local" });
+    await pending;
+    expect(useSettingsStore.getState().decisionModelProvider).toBe("jev-api");
+  });
+
+  it("uma falha antiga não desfaz uma escolha posterior com o mesmo valor", async () => {
+    workspaceState.activeId = "workspace-a";
+    const { useSettingsStore } = await getStore();
+    const { pushPrefs } = await import("../lib/api/settings-prefs");
+    let fail!: (value: boolean) => void;
+    vi.mocked(pushPrefs).mockReturnValueOnce(
+      new Promise((done) => {
+        fail = done;
+      }),
+    );
+    useSettingsStore.getState().setDecisionModelProvider("jev-api");
+    useSettingsStore.getState().setDecisionModelProvider("laya-local");
+    useSettingsStore.getState().setDecisionModelProvider("jev-api");
+    fail(false);
+    await Promise.resolve();
+    expect(useSettingsStore.getState().decisionModelProvider).toBe("jev-api");
+  });
+
+  it("persiste escolhas sucessivas na ordem, mesmo com a primeira resposta atrasada", async () => {
+    workspaceState.activeId = "workspace-a";
+    const { useSettingsStore } = await getStore();
+    const { pushPrefs } = await import("../lib/api/settings-prefs");
+    vi.mocked(pushPrefs).mockClear();
+    let release!: (saved: boolean) => void;
+    vi.mocked(pushPrefs).mockReturnValueOnce(
+      new Promise((done) => {
+        release = done;
+      }),
+    );
+    useSettingsStore.getState().setDecisionModelProvider("jev-api");
+    useSettingsStore.getState().setDecisionModelProvider("laya-local");
+    expect(pushPrefs).toHaveBeenCalledTimes(1);
+    release(true);
+    await vi.waitFor(() => expect(pushPrefs).toHaveBeenCalledTimes(2));
+    expect(vi.mocked(pushPrefs).mock.calls.map(([changes]) => changes)).toEqual(
+      [
+        { decisionModelProvider: "jev-api" },
+        { decisionModelProvider: "laya-local" },
+      ],
+    );
+    expect(useSettingsStore.getState().decisionModelProvider).toBe(
+      "laya-local",
+    );
+  });
+
+  it("restaura o último valor confirmado quando duas edições sucessivas falham", async () => {
+    workspaceState.activeId = "workspace-a";
+    const { useSettingsStore } = await getStore();
+    const { pushPrefs } = await import("../lib/api/settings-prefs");
+    useSettingsStore.setState({ decisionModelProvider: "clef-local" });
+    vi.mocked(pushPrefs)
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false);
+    useSettingsStore.getState().setDecisionModelProvider("jev-api");
+    useSettingsStore.getState().setDecisionModelProvider("laya-local");
+    await vi.waitFor(() =>
+      expect(useSettingsStore.getState().decisionModelProvider).toBe(
+        "clef-local",
+      ),
+    );
+  });
+
+  it("aplica as preferências do backend sem reenviar PATCH", async () => {
+    const { hydrateFromBackend, useSettingsStore } = await getStore();
+    const { fetchPrefs, pushPrefs } = await import("../lib/api/settings-prefs");
+    vi.mocked(fetchPrefs).mockResolvedValueOnce({
+      decisionModelsEnabled: true,
+      decisionModelProvider: "jev-api",
+      decisionModelSurfaces: { hitl: true, browser: false },
+      transcriptionMode: "local",
+      permissionMode: "auto",
+    });
+    vi.mocked(pushPrefs).mockClear();
+
+    await hydrateFromBackend();
+
+    expect(useSettingsStore.getState()).toMatchObject({
+      decisionModelsEnabled: true,
+      decisionModelProvider: "jev-api",
+      decisionModelSurfaces: { hitl: true, browser: false },
+      transcriptionMode: "local",
+      permissionMode: "auto",
+    });
+    expect(pushPrefs).not.toHaveBeenCalled();
+  });
+
+  it("hidrata Decision Models por workspace sem persistir novamente", async () => {
+    workspaceState.activeId = "workspace-a";
+    const { hydrateDecisionModelPreferences, useSettingsStore } =
+      await getStore();
+    const { fetchPrefsOrNull, pushPrefs } =
+      await import("../lib/api/settings-prefs");
+    vi.mocked(fetchPrefsOrNull).mockResolvedValueOnce({
+      decisionModelsEnabled: true,
+      decisionModelProvider: "clef-api",
+      decisionModelSurfaces: { hitl: true, browser: false },
+      transcriptionMode: "local",
+    });
+    vi.mocked(pushPrefs).mockClear();
+
+    await hydrateDecisionModelPreferences("workspace-a");
+
+    expect(useSettingsStore.getState()).toMatchObject({
+      decisionModelsEnabled: true,
+      decisionModelProvider: "clef-api",
+      decisionModelSurfaces: { hitl: true, browser: false },
+      transcriptionMode: "local",
+    });
+    expect(fetchPrefsOrNull).toHaveBeenCalledWith("workspace-a");
+    expect(pushPrefs).not.toHaveBeenCalled();
   });
 });
 

@@ -23,6 +23,9 @@ from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
+_CGN_NETWORK = ipaddress.ip_network("100.64.0.0/10")
+_NAT64_WKP = ipaddress.ip_network("64:ff9b::/96")
+
 
 def _is_blocked_ip(ip_str: str) -> bool:
     """True se o IP é privado/loopback/link-local/reservado/multicast."""
@@ -30,6 +33,12 @@ def _is_blocked_ip(ip_str: str) -> bool:
         ip = ipaddress.ip_address(ip_str)
     except ValueError:
         return True
+    # CGNAT is neither ``is_private`` nor ``is_global`` in Python. It still
+    # represents an internal routing domain and must never be reachable by a
+    # browser/fetch tool. Also reject NAT64 addresses after checking the
+    # embedded IPv4 address.
+    if isinstance(ip, ipaddress.IPv6Address) and ip in _NAT64_WKP:
+        ip = ipaddress.ip_address(int(ip) & 0xFFFFFFFF)
     return (
         ip.is_private
         or ip.is_loopback
@@ -37,6 +46,7 @@ def _is_blocked_ip(ip_str: str) -> bool:
         or ip.is_reserved
         or ip.is_multicast
         or ip.is_unspecified
+        or ip in _CGN_NETWORK
     )
 
 

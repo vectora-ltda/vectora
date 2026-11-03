@@ -7,9 +7,12 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
+
+from backend.persistence.telemetry import telemetry
 
 if TYPE_CHECKING:
     from backend.storage.protocols import HealthResult
@@ -32,14 +35,36 @@ _NS_SEP = "\x1e"
 
 
 def _ns_to_str(namespace: tuple[str, ...]) -> str:
+    """Executa a operação  ns to str."""
     return _NS_SEP.join(namespace)
 
 
 def _ns_from_str(namespace: str) -> tuple[str, ...]:
+    """Executa a operação  ns from str."""
     return tuple(namespace.split(_NS_SEP)) if namespace else ()
 
 
+def is_store_value_expired(
+    value: dict[str, Any], *, now: datetime | None = None
+) -> bool:
+    """Retorna se um item persistido passou do seu ``valid_until``."""
+    valid_until = value.get("valid_until")
+    if not isinstance(valid_until, str) or not valid_until:
+        return False
+    try:
+        expires_at = datetime.fromisoformat(valid_until)
+        # Older callers could persist ISO timestamps without an offset. Treat
+        # those values as UTC so one malformed legacy record cannot abort a
+        # namespace-wide read or search.
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        return expires_at <= (now or datetime.now(UTC))
+    except (TypeError, ValueError):
+        return False
+
+
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    """Executa a operação  cosine similarity."""
     dot = sum(x * y for x, y in zip(a, b, strict=False))
     norm_a = math.sqrt(sum(x * x for x in a))
     norm_b = math.sqrt(sum(y * y for y in b))
@@ -59,6 +84,7 @@ _FILTER_OPERATORS = {
 
 
 def _matches_filter(value: dict[str, Any], filter_: dict[str, Any] | None) -> bool:
+    """Executa a operação  matches filter."""
     if not filter_:
         return True
     for key, condition in filter_.items():
@@ -183,6 +209,7 @@ def get_text_at_path(obj: Any, path: str | list[str]) -> list[str]:
 
 
 def _extract_from_obj(obj: Any, tokens: list[str], pos: int) -> list[str]:
+    """Executa a operação  extract from obj."""
     if pos >= len(tokens):
         if isinstance(obj, str | int | float | bool):
             return [str(obj)]
@@ -264,11 +291,13 @@ class VectoraStore:
     def __init__(
         self, pool: AsyncConnectionPool, *, index: dict[str, Any] | None = None
     ) -> None:
+        """Inicializa o estado da instância."""
         self._pool = pool
         self._index = index
         self._is_setup = False
 
     async def setup(self) -> None:
+        """Executa a operação setup."""
         if self._is_setup:
             return
         async with self._pool.acquire() as conn:
@@ -277,6 +306,8 @@ class VectoraStore:
         self._is_setup = True
 
     async def aget(self, namespace: tuple[str, ...], key: str) -> Item | None:
+        """Executa a operação aget."""
+        started = time.perf_counter()
         await self.setup()
         async with self._pool.acquire() as conn:
             cur = await conn.execute(
@@ -286,10 +317,34 @@ class VectoraStore:
             )
             row = await cur.fetchone()
         if row is None:
+            await telemetry.record_storage_operation(
+                backend="sqlite",
+                operation="get",
+                namespace=namespace,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                result_count=0,
+            )
             return None
         value_json, created_at, updated_at = row
+        value = json.loads(value_json)
+        if is_store_value_expired(value):
+            await telemetry.record_storage_operation(
+                backend="sqlite",
+                operation="get",
+                namespace=namespace,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                result_count=0,
+            )
+            return None
+        await telemetry.record_storage_operation(
+            backend="sqlite",
+            operation="get",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            result_count=1,
+        )
         return Item(
-            value=json.loads(value_json),
+            value=value,
             key=key,
             namespace=namespace,
             created_at=datetime.fromisoformat(created_at),
@@ -299,6 +354,8 @@ class VectoraStore:
     async def aput(
         self, namespace: tuple[str, ...], key: str, value: dict[str, Any]
     ) -> None:
+        """Executa a operação aput."""
+        started = time.perf_counter()
         await self.setup()
         namespace_str = _ns_to_str(namespace)
         async with self._pool.acquire() as conn:
@@ -326,8 +383,17 @@ class VectoraStore:
                 ),
             )
             await conn.commit()
+        await telemetry.record_storage_operation(
+            backend="sqlite",
+            operation="put",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            bytes_written=len(json.dumps(value, ensure_ascii=False).encode()),
+        )
 
     async def adelete(self, namespace: tuple[str, ...], key: str) -> None:
+        """Executa a operação adelete."""
+        started = time.perf_counter()
         await self.setup()
         async with self._pool.acquire() as conn:
             await conn.execute(
@@ -335,6 +401,60 @@ class VectoraStore:
                 (_ns_to_str(namespace), key),
             )
             await conn.commit()
+        await telemetry.record_storage_operation(
+            backend="sqlite",
+            operation="delete",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+        )
+
+    async def purge_expired(self) -> int:
+        """Remove itens expirados em uma passagem de manutenção limitada."""
+        await self.setup()
+        now = datetime.now(UTC)
+        removed = 0
+        async with self._pool.acquire() as conn:
+            last_key: tuple[str, str] | None = None
+            while True:
+                if last_key is None:
+                    page_sql = (
+                        "SELECT namespace, key, value FROM store_items "
+                        "ORDER BY namespace, key LIMIT 200"
+                    )
+                    page_params: tuple[object, ...] = ()
+                else:
+                    page_sql = (
+                        "SELECT namespace, key, value FROM store_items "
+                        "WHERE (namespace, key) > (?, ?) "
+                        "ORDER BY namespace, key LIMIT 200"
+                    )
+                    page_params = last_key
+                page_cursor = await conn.execute(
+                    page_sql,
+                    page_params,
+                )
+                rows = list(await page_cursor.fetchall())
+                if not rows:
+                    break
+                for namespace, key, value_json in rows:
+                    try:
+                        value = json.loads(value_json)
+                    except (TypeError, ValueError):
+                        continue
+                    if is_store_value_expired(value, now=now):
+                        result = await conn.execute(
+                            "DELETE FROM store_items WHERE namespace = ? AND key = ? AND value = ?",
+                            (namespace, key, value_json),
+                        )
+                        removed += result.rowcount
+                # Commit each bounded batch so a long purge does not hold a
+                # write transaction or block concurrent memory writes.
+                await conn.commit()
+                last_key = (str(rows[-1][0]), str(rows[-1][1]))
+                if len(rows) < 200:
+                    break
+            await conn.commit()
+        return removed
 
     async def asearch(
         self,
@@ -344,7 +464,10 @@ class VectoraStore:
         limit: int = 10,
         filter: dict[str, Any] | None = None,  # noqa: A002 — mesmo nome do protocolo
         offset: int = 0,
+        include_expired: bool = False,
     ) -> list[SearchItem]:
+        """Executa a operação asearch."""
+        started = time.perf_counter()
         await self.setup()
         prefix = _ns_to_str(namespace)
         async with self._pool.acquire() as conn:
@@ -366,6 +489,8 @@ class VectoraStore:
         candidates: list[tuple[float | None, SearchItem]] = []
         for ns, key, value_json, embedding_json, created_at, updated_at in rows:
             value = json.loads(value_json)
+            if not include_expired and is_store_value_expired(value):
+                continue
             if not _matches_filter(value, filter):
                 continue
             score: float | None = None
@@ -391,9 +516,18 @@ class VectoraStore:
             candidates.sort(key=lambda pair: pair[0] or 0.0, reverse=True)
 
         page = candidates[offset : offset + limit]
-        return [item for _, item in page]
+        result = [item for _, item in page]
+        await telemetry.record_storage_operation(
+            backend="sqlite",
+            operation="search",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            result_count=len(result),
+        )
+        return result
 
     async def health(self) -> HealthResult:
+        """Executa a operação health."""
         from backend.storage.protocols import _err, _ok
 
         try:
@@ -425,6 +559,7 @@ class VectoraStore:
         return json.dumps(avg)
 
     async def _embed_query(self, query: str | None) -> list[float] | None:
+        """Executa a operação  embed query."""
         if not query or self._index is None:
             return None
         vectors = await self._index["embed"]([query])

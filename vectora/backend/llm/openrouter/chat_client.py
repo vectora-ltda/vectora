@@ -23,9 +23,10 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from backend.llm.openrouter.client import OpenRouterClient, OpenRouterResponseError
+from backend.vtypes.contracts import UsageSnapshot
 from backend.vtypes.message import (
     ContentBlock,
     MessageRole,
@@ -33,6 +34,7 @@ from backend.vtypes.message import (
     ToolCallChunk,
     VMessage,
     VMessageChunk,
+    coerce_json_object,
 )
 
 if TYPE_CHECKING:
@@ -44,6 +46,12 @@ _ROLE_POR_TIPO = {
     MessageRole.ASSISTANT: "assistant",
     MessageRole.TOOL: "tool",
 }
+
+
+class _UsagePayload(TypedDict, total=False):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
 
 
 def _to_openrouter_content(content: list[ContentBlock]) -> str | list[dict]:
@@ -63,6 +71,7 @@ def _to_openrouter_content(content: list[ContentBlock]) -> str | list[dict]:
 
 
 def _to_openrouter_message(msg: VMessage) -> dict:
+    """Executa a operação  to openrouter message."""
     role = _ROLE_POR_TIPO.get(msg.role)
     if role is None:
         erro = f"Mensagem de role {msg.role!r} não tem equivalente no OpenRouter"
@@ -105,7 +114,7 @@ def _parse_tool_calls(bruto: list) -> list[ToolCall]:
         nome = funcao.get("name", "")
         args_texto = funcao.get("arguments") or "{}"
         try:
-            args = json.loads(args_texto)
+            args = coerce_json_object(json.loads(args_texto), raw=args_texto)
         except (json.JSONDecodeError, TypeError):
             args = {"_parse_error": args_texto}
         chamadas.append(ToolCall(id=item.get("id") or "", name=nome, args=args))
@@ -113,6 +122,7 @@ def _parse_tool_calls(bruto: list) -> list[ToolCall]:
 
 
 def _parse_tool_call_chunks(bruto: list) -> list[ToolCallChunk]:
+    """Executa a operação  parse tool call chunks."""
     pedacos: list[ToolCallChunk] = []
     for item in bruto or []:
         funcao = item.get("function") or {}
@@ -127,7 +137,8 @@ def _parse_tool_call_chunks(bruto: list) -> list[ToolCallChunk]:
     return pedacos
 
 
-def _usage_metadata(usage: dict | None) -> dict[str, int] | None:
+def _usage_metadata(usage: _UsagePayload | None) -> UsageSnapshot | None:
+    """Executa a operação  usage metadata."""
     if not usage:
         return None
     entrada = int(usage.get("prompt_tokens") or 0)
@@ -143,9 +154,17 @@ class OpenRouterChatClient:
     """Chat client nativo do OpenRouter — implementa o Protocol
     ``ChatClient``, async-only (CLAUDE.md regra 10)."""
 
-    def __init__(self, model: str, client: OpenRouterClient) -> None:
+    def __init__(
+        self,
+        model: str,
+        client: OpenRouterClient,
+        *,
+        compact_system_prompt: bool = False,
+    ) -> None:
+        """Inicializa o estado da instância."""
         self.model = model
         self.client = client
+        self.compact_system_prompt = compact_system_prompt
 
     def _payload(
         self,
@@ -155,12 +174,30 @@ class OpenRouterChatClient:
         temperature: float | None,
         max_tokens: int | None,
     ) -> dict:
+        """Executa a operação  payload."""
         corpo: dict[str, Any] = {
             "model": self.model,
             "messages": [_to_openrouter_message(m) for m in messages],
         }
+        if self.compact_system_prompt:
+            from backend.llm.prompt_projection import compact_small_model_system_prompt
+
+            for message in corpo["messages"]:
+                if message.get("role") == "system" and isinstance(
+                    message.get("content"), str
+                ):
+                    message["content"] = compact_small_model_system_prompt(
+                        message["content"]
+                    )
+                    break
         if temperature is not None:
-            corpo["temperature"] = temperature
+            # Tiny local models often enter a deterministic repetition loop
+            # at temperature 0 when the prompt contains identity/tool rules.
+            # A small floor keeps coding deterministic enough while avoiding
+            # known repetition loops in tiny local models.
+            corpo["temperature"] = (
+                max(0.2, temperature) if self.compact_system_prompt else temperature
+            )
         if max_tokens is not None:
             corpo["max_tokens"] = max_tokens
         if tools:
@@ -169,6 +206,7 @@ class OpenRouterChatClient:
 
     @staticmethod
     def _primeira_escolha(corpo: dict) -> dict:
+        """Executa a operação  primeira escolha."""
         escolhas = corpo.get("choices")
         if not isinstance(escolhas, list) or not escolhas:
             msg = (
@@ -186,6 +224,7 @@ class OpenRouterChatClient:
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> VMessage:
+        """Executa a operação agenerate."""
         corpo = self._payload(
             messages, tools=tools, temperature=temperature, max_tokens=max_tokens
         )
@@ -217,6 +256,7 @@ class OpenRouterChatClient:
         temperature: float | None = None,
         max_tokens: int | None = None,
     ) -> AsyncIterator[VMessageChunk]:
+        """Executa a operação astream."""
         corpo = self._payload(
             messages, tools=tools, temperature=temperature, max_tokens=max_tokens
         )

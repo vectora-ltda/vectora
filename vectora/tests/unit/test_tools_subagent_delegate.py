@@ -91,6 +91,26 @@ def _handler():
 
 
 class TestDelegateToSubagent:
+    async def test_solicitacao_trivial_nao_inicia_subagente(
+        self, session_store: SessionStore
+    ) -> None:
+        client = _ScriptedChatClient([[_texto_chunk("não deveria ser chamado")]])
+        deps = SubagentDeps(
+            catalog={"coder": _spec("coder")},
+            session_store=session_store,
+            chat_client=client,
+            should_require_approval=None,
+        )
+
+        resultado = await _handler()(
+            subagent_type="coder",
+            prompt="Olá, quem é você?",
+            ctx=_ctx(extra={"subagent_deps": deps}),
+        )
+
+        assert resultado.startswith("Delegação não necessária")
+        assert client.chamadas == 0
+
     async def test_registrada_no_tool_registry(self):
         spec = TOOL_REGISTRY.get("delegate_to_subagent")
         assert spec is not None
@@ -186,3 +206,45 @@ class TestShouldRequireApprovalObrigatorio:
                 session_store=session_store,
                 chat_client=_HangingChatClient(),
             )
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        "Documente a API de buckets",
+        "implementar o endpoint",
+        "corrigir os testes",
+        "Teste",
+    ],
+)
+async def test_actionable_requests_do_not_require_execution_markers(
+    prompt: str, session_store: SessionStore
+) -> None:
+    """Valid task descriptions must reach the selected subagent."""
+    client = _ScriptedChatClient([[_texto_chunk("feito")]])
+    deps = SubagentDeps(
+        catalog={"coder": _spec()},
+        session_store=session_store,
+        chat_client=client,
+        should_require_approval=None,
+    )
+    assert (
+        await _handler()(
+            subagent_type="coder",
+            prompt=prompt,
+            ctx=_ctx(extra={"subagent_deps": deps}),
+        )
+        == "feito"
+    )
+    assert client.chamadas == 1
+
+
+@pytest.mark.parametrize(
+    "prompt",
+    ["", "  ", "Olá!", "bom dia", "Obrigado", "Olá, quem é você?", "ok", "sim"],
+)
+def test_trivial_requests_remain_direct_only(prompt: str) -> None:
+    """Empty prompts, greetings and identity questions do not need delegation."""
+    from backend.tools.subagent_delegate import _delegation_is_actionable
+
+    assert _delegation_is_actionable(prompt) is False

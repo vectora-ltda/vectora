@@ -25,7 +25,7 @@ import {
 } from "@/lib/stores/workbench-store";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useCIStore } from "@/lib/stores/ci-store";
-import { DiffSkeleton } from "../tabs/diff-skeleton";
+import { GitSkeleton } from "../tabs/git-skeleton";
 import {
   apiCreatePR,
   fetchBranches,
@@ -44,6 +44,8 @@ import { CompareView } from "./compare-view";
 import { StashModal } from "./stash-modal";
 import { WorktreesModal } from "./worktrees-modal";
 import { m } from "@/lib/paraglide/messages";
+import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
+import { gitSettings } from "@/components/workbench/settings/workbench-settings-registry";
 
 type GitView = "changes" | "history";
 
@@ -178,10 +180,10 @@ export function GitTab({
   const wsId = workspace?.id ?? "";
   const lastCi = useCIStore((s) => s.lastRun);
 
-  const summary = useWorkbenchStore((s) => s.getDiff(wsId).summary);
-  const fetchedAt = useWorkbenchStore((s) => s.getDiff(wsId).summaryFetchedAt);
-  const setDiffSummary = useWorkbenchStore((s) => s.setDiffSummary);
-  const invalidateDiff = useWorkbenchStore((s) => s.invalidateDiff);
+  const summary = useWorkbenchStore((s) => s.getGit(wsId).summary);
+  const fetchedAt = useWorkbenchStore((s) => s.getGit(wsId).summaryFetchedAt);
+  const setGitSummary = useWorkbenchStore((s) => s.setGitSummary);
+  const invalidateGit = useWorkbenchStore((s) => s.invalidateGit);
   const clearPending = useWorkbenchStore((s) => s.clearPending);
   const setGitOperation = useWorkbenchStore((s) => s.setGitOperation);
   const gitOps = useWorkbenchStore(
@@ -197,11 +199,12 @@ export function GitTab({
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [branches, setBranches] = useState<GitBranches | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Diff summary via SWR (mesmo padrão do antigo DiffTab).
   useEffect(() => {
     // fetchedAt dispara a limpeza do pending sempre que um novo fetch chega.
-    if (wsId && fetchedAt) clearPending(wsId, "diff");
+    if (wsId && fetchedAt) clearPending(wsId, "git");
   }, [wsId, fetchedAt, clearPending]);
 
   useWorkbenchSWR({
@@ -211,7 +214,7 @@ export function GitTab({
     revalidate: async () => {
       if (!wsId) return;
       const data = await fetchDiff(wsId);
-      if (data) setDiffSummary(wsId, data);
+      if (data) setGitSummary(wsId, data);
     },
     skip: !wsId,
   });
@@ -281,9 +284,9 @@ export function GitTab({
   }, [wsId, setGitOperation]);
 
   const handleChanged = useCallback(() => {
-    if (wsId) invalidateDiff(wsId);
+    if (wsId) invalidateGit(wsId);
     setRefreshKey((k) => k + 1);
-  }, [wsId, invalidateDiff]);
+  }, [wsId, invalidateGit]);
 
   const handleOpenPR = useCallback((head: string) => {
     setPrHead(head);
@@ -300,7 +303,7 @@ export function GitTab({
     );
   }
   if (!summary) {
-    return showSkeleton ? <DiffSkeleton /> : <div className="h-full" />;
+    return showSkeleton ? <GitSkeleton /> : <div className="h-full" />;
   }
   if (!summary.is_git_repo) {
     return (
@@ -324,7 +327,16 @@ export function GitTab({
         onOpenWorktrees={() => setWorktreesOpen(true)}
         onOpenPR={handleOpenPR}
         onChanged={handleChanged}
+        onOpenSettings={() => setSettingsOpen(true)}
         operation={gitOps.operation}
+      />
+
+      <WorkbenchSettingsSurface
+        descriptor={gitSettings}
+        context={{ threadId: _threadId, workspaceId: wsId || null }}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+        testId="git-settings-panel"
       />
 
       {lastCi && (
@@ -417,7 +429,11 @@ export function GitTab({
             onOpenPR={handleOpenPR}
           />
         ) : view === "changes" ? (
-          <ChangesView workspaceId={wsId} summary={summary} />
+          <ChangesView
+            workspaceId={wsId}
+            summary={summary}
+            onOpenSettings={() => setSettingsOpen(true)}
+          />
         ) : (
           <HistoryView
             workspaceId={wsId}

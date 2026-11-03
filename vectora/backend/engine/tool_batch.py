@@ -12,18 +12,23 @@ uma das chamadas é a arriscada.
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from backend.engine.guardrails import TurnBudget
     from backend.engine.stream_events import EventSink
+    from backend.services.policy_compiler import PolicySnapshot
     from backend.tools.context import ToolContext
-    from backend.tools.registry import ToolRegistry
+    from backend.tools.registry import ToolRegistry, ToolSpec
     from backend.vtypes.message import ToolCall
 
 #: Padrões de segredo comuns que podem vazar no stdout de `terminal` ou no
@@ -37,15 +42,138 @@ _SECRET_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 
-def _is_tool_error(text: str) -> bool:
+#: Estados de envelope que indicam operação não concluída: falha geral, conflito
+#: de merge e workspace sem repositório Git. Os valores são preservados no JSON.
+_FAILED_ENVELOPE_STATUSES = frozenset(
+    {"error", "conflict", "not_git", "remote_unsupported", "git_not_found"}
+)
+
+
+def _is_tool_error(text: str, *, structured: bool = False) -> bool:
     """Reconhece prefixos de erro emitidos pelas tools localizadas."""
-    return text.lstrip().lower().startswith(("error:", "erro:", "erro ao "))
+    if text.lstrip().lower().startswith(("error:", "erro:", "erro ao ")):
+        return True
+    if not structured:
+        return False
+    try:
+        payload = json.loads(text, parse_int=str)
+    except (TypeError, json.JSONDecodeError, RecursionError):
+        return False
+    return isinstance(payload, dict) and (
+        payload.get("is_error") is True
+        or payload.get("status") in _FAILED_ENVELOPE_STATUSES
+    )
+
+
+def _has_structured_result(spec: ToolSpec) -> bool:
+    """Use structured error classification for envelopes, browser and git tools.
+
+    Tools de Git devolvem ``{"status": "error", ...}`` em falhas sem declarar
+    ``structured_envelope``; sem esta regra o lote grava ``is_error=False``.
+    """
+    return spec.extras.structured_envelope or spec.extras.category in (
+        "browser",
+        "git",
+    )
+
+
+def _decision_model_allow_block(
+    decision: dict[str, Any], ctx: ToolContext
+) -> str | None:
+    """Return a denial reason when an allow result no longer matches this run."""
+    extra = getattr(ctx, "_extra", None)
+    if decision.get("run_id") != getattr(ctx, "run_id", None) or decision.get(
+        "thread_id"
+    ) != getattr(ctx, "thread_id", None):
+        return "decision_model_identity_mismatch: execução bloqueada"
+
+    if not isinstance(extra, dict):
+        return "decision_model_snapshot_missing: execução bloqueada"
+    snapshot = extra.get("decision_model_snapshot")
+    if (
+        not isinstance(snapshot, dict)
+        or not getattr(ctx, "run_id", None)
+        or snapshot.get("run_id") != ctx.run_id
+    ):
+        return "decision_model_snapshot_missing: execução bloqueada"
+
+    from backend.engine.hitl import _decision_snapshot_matches_runtime
+
+    if extra.get(
+        "decision_model_revoked"
+    ) is True or not _decision_snapshot_matches_runtime(ctx):
+        extra["decision_model_revoked"] = True
+        return "decision_model_revoked: execução bloqueada"
+    return None
 
 
 def _redact_secrets(texto: str) -> str:
+    """Executa a operação redact secrets."""
     for pattern in _SECRET_PATTERNS:
         texto = pattern.sub("[REDACTED]", texto)
     return texto
+
+
+def _check_policy_snapshot_pre_execute(
+    tool_call: ToolCall,
+    ctx: ToolContext,
+    policy_snapshot: PolicySnapshot | None,
+) -> tuple[bool, str]:
+    """Executa a operação check policy snapshot pre execute."""
+    if policy_snapshot is None:
+        from backend.services.policy_compiler import compile_policy_snapshot
+
+        policy_snapshot = compile_policy_snapshot(ctx)
+
+    # A high-confidence explicit denial from the configured autonomous
+    # Decision Model is a terminal pre-execution veto. It cannot be converted
+    # into approval by a later adapter or tool implementation.
+    try:
+        from backend.engine.hitl import _risk_assessment_key
+
+        decisions = getattr(ctx, "_extra", {}).get("systemone_decisions", {})
+        decision = decisions.get(
+            _risk_assessment_key(tool_call.name, tool_call.args), {}
+        )
+        if isinstance(decision, dict) and decision:
+            from backend.engine.decision_record import DecisionRecord
+
+            decision = DecisionRecord.model_validate(decision).model_dump(
+                exclude_none=True
+            )
+            if decision.get("decision") == "deny":
+                return False, "decision_model_denied: ação bloqueada antes da execução"
+            if decision.get("decision") == "requires_human":
+                return False, "decision_model_requires_human: aprovação pendente"
+            if decision.get("decision") == "allow":
+                reason = _decision_model_allow_block(decision, ctx)
+                if reason is not None:
+                    return False, reason
+    except Exception:
+        logger.exception("Não foi possível validar o veto do Decision Model")
+        return False, "decision_model_policy_unavailable"
+
+    return policy_snapshot.validate_call(tool_call.name, tool_call.args)
+
+
+#: Callbacks aplicados, em ordem, antes da execução de qualquer tool.
+_PRE_EXECUTE: tuple[
+    Callable[[ToolCall, ToolContext, PolicySnapshot | None], tuple[bool, str]], ...
+] = ()
+
+
+def _apply_pre_execute(
+    tool_call: ToolCall,
+    ctx: ToolContext,
+    policy_snapshot: PolicySnapshot | None,
+) -> tuple[bool, str]:
+    """Executa a operação apply pre execute."""
+    for hook in _PRE_EXECUTE:
+        ok, reason = hook(tool_call, ctx, policy_snapshot)
+        if not ok:
+            return False, reason
+    # Extensions may update shared state; policy is the final synchronous guard.
+    return _check_policy_snapshot_pre_execute(tool_call, ctx, policy_snapshot)
 
 
 #: Callbacks aplicados, em ordem, ao texto de resultado de toda tool antes
@@ -57,9 +185,24 @@ _POST_EXECUTE: tuple[Callable[[str], str], ...] = (_redact_secrets,)
 
 
 def _apply_post_execute(texto: str) -> str:
+    """Executa a operação apply post execute."""
     for hook in _POST_EXECUTE:
         texto = hook(texto)
     return texto
+
+
+async def _authorize_call(
+    tool_call: ToolCall, ctx: ToolContext, policy_snapshot: PolicySnapshot | None
+) -> tuple[bool, str]:
+    """Refresh shared revocation state before checking an execution permit."""
+    if policy_snapshot is not None:
+        from backend.rbac import tool_policy
+
+        try:
+            await tool_policy.sync_persisted_versions(strict=True)
+        except Exception:
+            return False, "policy_version_unavailable"
+    return await asyncio.to_thread(_apply_pre_execute, tool_call, ctx, policy_snapshot)
 
 
 async def _run_one(
@@ -69,8 +212,25 @@ async def _run_one(
     ctx: ToolContext,
     turn_budget: TurnBudget | None,
     on_event: EventSink | None,
+    policy_snapshot: PolicySnapshot | None = None,
+    on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> VMessage:
     """Executa uma chamada do lote com contexto correlacionado à própria tool."""
+    allowed, deny_reason = await _authorize_call(tool_call, ctx, policy_snapshot)
+    if not allowed:
+        return VMessage(
+            role=MessageRole.TOOL,
+            content=[
+                ContentBlock(
+                    kind="text",
+                    text=f"Error: policy_denied: {deny_reason}",
+                )
+            ],
+            tool_call_id=tool_call.id,
+            name=tool_call.name,
+            is_error=True,
+        )
+
     spec = tool_registry.get(tool_call.name)
 
     if turn_budget is not None:
@@ -92,6 +252,14 @@ async def _run_one(
                 is_error=True,
             )
 
+    if on_tool_started is not None:
+        try:
+            await on_tool_started(tool_call)
+        except Exception:
+            logger.exception(
+                "Falha ao publicar TOOL_STARTED para tool_call %s", tool_call.id
+            )
+
     if spec is None:
         texto = f"Error: tool '{tool_call.name}' não encontrada no registry"
         is_error = True
@@ -103,16 +271,38 @@ async def _run_one(
         call_context = replace(
             ctx,
             tool_call_id=tool_call.id,
-            _extra={**ctx._extra, "event_sink": on_event},
+            _extra={
+                **ctx._extra,
+                "event_sink": on_event,
+                "policy_snapshot": policy_snapshot,
+            },
         )
         if spec.extras.category == "media":
             call_context = await apply_media_billing_source(call_context)
+        # Hooks and billing can await external work. Revalidate authorization
+        # after those waits, immediately before dispatching the handler.
+        allowed, deny_reason = await _authorize_call(tool_call, ctx, policy_snapshot)
+        if not allowed:
+            return VMessage(
+                role=MessageRole.TOOL,
+                content=[
+                    ContentBlock(
+                        kind="text", text=f"Error: policy_denied: {deny_reason}"
+                    )
+                ],
+                tool_call_id=tool_call.id,
+                name=tool_call.name,
+                is_error=True,
+            )
         texto = await spec.ainvoke(
             tool_call.args,
             call_context,
         )
         texto = _apply_post_execute(texto)
-        is_error = _is_tool_error(texto)
+        is_error = _is_tool_error(
+            texto,
+            structured=_has_structured_result(spec),
+        )
         from backend.services.tool_usage import record_tool_usage
 
         await record_tool_usage(
@@ -134,6 +324,8 @@ async def execute_tool_batch(
     ctx: ToolContext,
     turn_budget: TurnBudget | None = None,
     on_event: EventSink | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
+    on_tool_started: Callable[[ToolCall], Awaitable[None]] | None = None,
 ) -> list[VMessage]:
     """Executa todas as `tool_calls` do turno, na ordem em que aparecem no
     resultado — paralelo se nenhuma é destrutiva, sequencial (mas ainda
@@ -144,6 +336,11 @@ async def execute_tool_batch(
     primeira chamada que estourar o teto vira erro sem executar a tool, e
     `turn_budget.exceeded` fica setado (travado) pro chamador checar depois
     do lote inteiro e decidir parar o loop."""
+    if policy_snapshot is None:
+        from backend.services.policy_compiler import compile_policy_snapshot
+
+        policy_snapshot = compile_policy_snapshot(ctx)
+
     algum_destrutivo = any(
         (spec := tool_registry.get(tc.name)) is not None and spec.extras.destructive
         for tc in tool_calls
@@ -157,6 +354,8 @@ async def execute_tool_batch(
                 ctx=ctx,
                 turn_budget=turn_budget,
                 on_event=on_event,
+                policy_snapshot=policy_snapshot,
+                on_tool_started=on_tool_started,
             )
             for tc in tool_calls
         ]
@@ -170,6 +369,8 @@ async def execute_tool_batch(
                     ctx=ctx,
                     turn_budget=turn_budget,
                     on_event=on_event,
+                    policy_snapshot=policy_snapshot,
+                    on_tool_started=on_tool_started,
                 )
                 for tc in tool_calls
             )

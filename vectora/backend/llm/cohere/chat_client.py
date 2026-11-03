@@ -28,6 +28,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from backend.llm.cohere.client import CohereClient, CohereResponseError
+from backend.vtypes.contracts import UsageSnapshot
 from backend.vtypes.message import (
     ContentBlock,
     MessageRole,
@@ -35,6 +36,7 @@ from backend.vtypes.message import (
     ToolCallChunk,
     VMessage,
     VMessageChunk,
+    coerce_json_object,
 )
 
 if TYPE_CHECKING:
@@ -130,7 +132,7 @@ def _parse_tool_calls(bruto: list) -> list[ToolCall]:
         funcao = item.get("function") or {}
         args_texto = funcao.get("arguments") or "{}"
         try:
-            args = json.loads(args_texto)
+            args = coerce_json_object(json.loads(args_texto), raw=args_texto)
         except (json.JSONDecodeError, TypeError):
             args = {"_parse_error": args_texto}
         chamadas.append(
@@ -139,7 +141,7 @@ def _parse_tool_calls(bruto: list) -> list[ToolCall]:
     return chamadas
 
 
-def _usage_metadata(usage: dict | None) -> dict[str, int] | None:
+def _usage_metadata(usage: dict | None) -> UsageSnapshot | None:
     if not usage:
         return None
     tokens = usage.get("tokens") or {}

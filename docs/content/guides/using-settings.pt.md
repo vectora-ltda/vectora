@@ -24,6 +24,8 @@ Configurações de integração e extensibilidade.
 - **Envs** — variáveis de ambiente por usuário (mascaradas na UI, nunca expostas em texto puro), sobrescrevendo o env do sistema só pra você.
 - **Skills** — gerenciador de skills do agente. Instalar via URL git ou path local, ver health-check de cada skill, remover. Cada skill é uma pasta com um `SKILL.md` carregado sob demanda pelo deep-agent.
 - **Plugins** — servidores MCP externos configurados pelo usuário. Suporta transporte `stdio` (comando + args), `sse` e `http`. Inclui um painel de **Tool Policy** pra controlar quais tools desse servidor ficam habilitadas.
+- **Modelos de IA** — configura providers SystemOne, modelos padrão por capacidade e superfícies que podem consultar Decision Models. A transcrição local usa `faster-whisper` e não envia áudio a um provider remoto. A tela consulta dependência e cache sem carregar o modelo; **Testar runtime local** executa uma inferência curta apenas com pesos já armazenados e nunca faz download. Se os pesos não estiverem em cache, a primeira transcrição real poderá baixá-los.
+- **Provider Routing** — configura roteamento e endpoints dos providers; modelos padrão por capacidade ficam em **Modelos de IA**.
 - **Integrações** — cards de conexão com serviços externos: API key manual (ex: um serviço qualquer) ou OAuth (GitHub, GitLab, Google, Slack). Mostra status conectado/desconectado e a URL de webhook quando aplicável.
 
 ## Administração (root/admin)

@@ -10,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-QuestionStatus = Literal["pending", "answered", "cancelled", "expired"]
+from backend.vtypes.questions import QuestionStatus, StructuredQuestionRecord
 
 
 def _store_path() -> Path:
@@ -87,7 +87,7 @@ class StructuredQuestionStore:
             )
 
     async def _save(self) -> None:
-        values: list[dict[str, object]] = [
+        values: list[StructuredQuestionRecord] = [
             {
                 "question_id": q.question_id,
                 "thread_id": q.thread_id,
@@ -107,7 +107,7 @@ class StructuredQuestionStore:
         await asyncio.to_thread(self._write, path, values)
 
     @staticmethod
-    def _write(path: Path, values: list[dict[str, object]]) -> None:
+    def _write(path: Path, values: list[StructuredQuestionRecord]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(".tmp")
         tmp.write_text(json.dumps(values, ensure_ascii=False), encoding="utf-8")

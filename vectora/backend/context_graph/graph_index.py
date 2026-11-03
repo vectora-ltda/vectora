@@ -78,12 +78,12 @@ async def index_graph_nodes(
     if not nodes:
         return 0
 
-    try:
-        texts = [_node_text(n) for n in nodes]
-        vectors = await _embed_texts(texts)
-        if not vectors or len(vectors) != len(nodes):
-            return 0
+    texts = [_node_text(n) for n in nodes]
+    vectors = await _embed_texts(texts)
+    if not vectors or len(vectors) != len(nodes):
+        return 0
 
+    try:
         rows = [
             {
                 "id": str(n.get("id", "")),

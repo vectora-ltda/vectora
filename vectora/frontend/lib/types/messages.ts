@@ -24,6 +24,8 @@ export interface EditedFile {
 export interface Message {
   // Core properties
   id: string;
+  /** ID numérico persistido; nunca usar o ID visual para cursores de leitura. */
+  persistedMessageId?: number;
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
@@ -88,6 +90,8 @@ export interface Message {
     affectedPaths?: string[];
     /** Modo de permissão ativo (default/yolo/…). */
     permissionMode?: string;
+    /** Workspace que originou a aprovação. */
+    workspaceId?: string;
     options?: Array<{ label: string; value: string }>;
     priority?: number;
     expiresAt?: string | null;

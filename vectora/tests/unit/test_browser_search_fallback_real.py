@@ -1,34 +1,36 @@
-"""Fallback de busca sem API key (`backend/browser/search_fallback.py`)
-contra serviços reais: a API JSON do DuckDuckGo (`search_fallback`, requer
-rede) e Chromium real (`fetch_fallback`, requer `playwright install
-chromium` — skip limpo sem ele, mesmo padrão de `test_browser_session_real.py`).
+"""Fallback de busca sem API key contra serviços reais.
+
+A API JSON do DuckDuckGo é usada por `search_fallback`; `fetch_fallback`
+conecta ao Chromium já ativo do Electron via CDP.
 """
 
 from __future__ import annotations
 
+import os
+
+import httpx
 import pytest
 
 from backend.browser import search_fallback
 
 
-def _chromium_available() -> bool:
-    from pathlib import Path
-
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
+def _electron_cdp_available() -> bool:
+    endpoint = os.environ.get("VECTORA_ELECTRON_CDP_URL", "").strip()
+    if not endpoint:
+        port = os.environ.get("VECTORA_ELECTRON_CDP_PORT", "9223").strip()
+        if port.isdigit():
+            endpoint = f"http://127.0.0.1:{port}"
+    if not endpoint:
         return False
-
     try:
-        with sync_playwright() as p:
-            return Path(p.chromium.executable_path).is_file()
+        return httpx.get(f"{endpoint}/json/version", timeout=1).is_success
     except Exception:
         return False
 
 
 # search_fallback() chama httpx.get() direto contra a API JSON do
-# DuckDuckGo — sem Chromium nenhum. `browser` é só pra testes que sobem
-# Chromium via Playwright (ver descrição do marker em pyproject.toml);
+# DuckDuckGo — sem Chromium nenhum. `browser` é só pra testes que conectam
+# ao Electron via CDP (ver descrição do marker em pyproject.toml);
 # aplicado no módulo inteiro antes, isso fazia os 2 testes de
 # search_fallback (rede real de terceiro, sem mock) escaparem do filtro
 # `not live` que a CI já usa pra isolar esse tipo de teste do gate
@@ -68,8 +70,8 @@ def test_search_fallback_query_sem_instant_answer_retorna_lista_vazia_sem_lancar
 
 @pytest.mark.browser
 @pytest.mark.skipif(
-    not _chromium_available(),
-    reason="Chromium não instalado — rode `playwright install chromium`",
+    not _electron_cdp_available(),
+    reason="Electron não está ativo ou não publicou o endpoint CDP",
 )
 def test_fetch_fallback_extrai_texto_visivel_de_uma_pagina_real():
     text = search_fallback.fetch_fallback("https://example.com")
@@ -86,9 +88,8 @@ def test_fetch_fallback_url_invalida_levanta_em_vez_de_retornar_string_vazia():
     # nenhum — então `ssrf_guard.is_url_ssrf_safe` (fail-closed por design:
     # falha de resolução também é tratada como não-seguro, ver seu
     # docstring) sempre recusa essa URL ANTES de chegar no Chromium — sem
-    # marker `browser`/skipif de propósito (achado do CodeRabbit, PR #32):
-    # este teste nunca toca o Chromium de verdade, então não deve ficar
-    # skipped em ambientes sem ele (como a CI, que não instala Playwright).
+    # este teste nunca toca o Chromium de verdade, então continua executável
+    # quando o Electron não está ativo.
     with pytest.raises(ValueError, match="SSRF"):
         search_fallback.fetch_fallback(
             "https://este-dominio-nao-existe-de-verdade.invalid"

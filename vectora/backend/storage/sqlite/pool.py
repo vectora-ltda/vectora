@@ -114,8 +114,8 @@ class AsyncConnectionPool:
                 conn = await self._new_conn()
                 self._idle.put_nowait(conn)
             self._opened = True
-            logger.debug(
-                "storage/sqlite/pool: pool aberto — path=%s min=%d max=%d",
+            logger.info(
+                "sqlite: pool aberto — path=%s min=%d max=%d",
                 self._path,
                 self._min_size,
                 self._max_size,

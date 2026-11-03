@@ -41,11 +41,11 @@ const { mockDiffState, mockGitOps, mockWorkbench, mockStore } = vi.hoisted(
       operation: null,
     };
     const workbench = {
-      getDiff: (_id: string) => diffState,
+      getGit: (_id: string) => diffState,
       getGitOps: (_id: string) => gitOps,
-      setDiffOpenFile: vi.fn(),
-      setDiffHunks: vi.fn(),
-      invalidateDiff: vi.fn(),
+      setGitOpenFile: vi.fn(),
+      setGitHunks: vi.fn(),
+      invalidateGit: vi.fn(),
       clearGitSelection: vi.fn(),
       toggleGitFileSelection: vi.fn(),
       setGitFileSelection: vi.fn(),
@@ -292,7 +292,7 @@ describe("ChangesView", () => {
       expect(spy).toHaveBeenCalledWith("ws1", "stage", "a.ts"),
     );
     await waitFor(() =>
-      expect(mockWorkbench.invalidateDiff).toHaveBeenCalledWith("ws1"),
+      expect(mockWorkbench.invalidateGit).toHaveBeenCalledWith("ws1"),
     );
   });
 
@@ -475,7 +475,7 @@ describe("ChangesView", () => {
     );
   });
 
-  it("clicar no nome do arquivo expande e chama setDiffOpenFile", () => {
+  it("clicar no nome do arquivo expande e chama setGitOpenFile", () => {
     render(
       <ChangesView
         workspaceId="ws1"
@@ -483,7 +483,7 @@ describe("ChangesView", () => {
       />,
     );
     fireEvent.click(screen.getByText("a.ts"));
-    expect(mockWorkbench.setDiffOpenFile).toHaveBeenCalledWith(
+    expect(mockWorkbench.setGitOpenFile).toHaveBeenCalledWith(
       "ws1",
       "a.ts",
       true,

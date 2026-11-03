@@ -125,6 +125,36 @@ async def test_pipe_side_encaminha_dados_apos_tcp(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_pipe_side_retries_until_uvicorn_accepts(monkeypatch):
+    """A pipe aberta antes do uvicorn não perde a primeira requisição."""
+    tcp_transport = _FakeWriteTransport()
+    attempts = 0
+
+    async def eventually_connects(proto_factory, _host, _port):
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise OSError("connection refused")
+        proto = proto_factory()
+        proto.connection_made(tcp_transport)
+        return tcp_transport, proto
+
+    loop = asyncio.get_event_loop()
+    monkeypatch.setattr(loop, "create_connection", eventually_connects)
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(asyncio, "sleep", lambda _delay: real_sleep(0))
+
+    pipe_side = _PipeSide("127.0.0.1", 9999)
+    pipe_side.connection_made(_FakeWriteTransport())
+    pipe_side.data_received(b"GET /threads HTTP/1.1\r\n\r\n")
+    assert pipe_side._connect_task is not None
+    await pipe_side._connect_task
+
+    assert attempts == 3
+    assert b"GET /threads HTTP/1.1\r\n\r\n" in tcp_transport.written
+
+
+@pytest.mark.asyncio
 async def test_pipe_side_fecha_quando_tcp_falha(monkeypatch):
     """Se o uvicorn TCP não estiver acessível, a pipe fecha graciosamente."""
 
@@ -133,13 +163,15 @@ async def test_pipe_side_fecha_quando_tcp_falha(monkeypatch):
 
     loop = asyncio.get_event_loop()
     monkeypatch.setattr(loop, "create_connection", fail_create_conn)
+    real_sleep = asyncio.sleep
+    monkeypatch.setattr(asyncio, "sleep", lambda _delay: real_sleep(0))
 
     pipe_side = _PipeSide("127.0.0.1", 9999)
     fake_pipe = _FakeWriteTransport()
     pipe_side.connection_made(fake_pipe)
 
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
+    assert pipe_side._connect_task is not None
+    await pipe_side._connect_task
 
     assert fake_pipe._closing
 

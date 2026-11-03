@@ -72,9 +72,19 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Bandit (static security analysis)
-        run: uv run bandit -c pyproject.toml -r backend || true
+        run: uv run bandit -c pyproject.toml -r backend -f json -o bandit.json
       - name: pip-audit (vulnerable dependencies)
-        run: uv run --with pip-audit pip-audit || true
+        if: ${{ !cancelled() }}
+        run: uv run --with pip-audit pip-audit --skip-editable --format json --output pip-audit.json
+      - name: Upload security reports
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: python-security-${{ github.sha }}
+          path: |
+            vectora/bandit.json
+            vectora/pip-audit.json
+          if-no-files-found: error
 
   # ── 2b. Frontend (oxlint + tsc + vitest) ────────────────────────────────
   # O job `lint` cobre só o Python (ruff + ty). A suíte TypeScript — lint
@@ -345,12 +355,13 @@ jobs:
           EOF
       - name: Integration tests
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           VECTORA_TEST_POSTGRES_DSN: postgresql://vectora:vectora@localhost:5432/vectora_test
           VECTORA_TEST_REDIS_URL: redis://localhost:6379/0
           VECTORA_TEST_QDRANT_URL: http://localhost:6333
-        run: uv run pytest tests/integration/ -v --timeout=120 -p no:randomly --tb=short -m "not singularity"
+        run: uv run pytest tests/integration/ -v --timeout=120 -p no:randomly --tb=short -m "not live and not singularity"
       - name: E2E tests
-        run: uv run pytest tests/e2e/ -v --timeout=180 --tb=short
+        run: uv run pytest tests/e2e/ -m live -v --timeout=180 --tb=short
 
   # ── 5. Resolve release line ─────────────────────────────────────────────
   # Both native builds and R2/KV publication consume this single output. In

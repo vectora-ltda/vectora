@@ -65,6 +65,23 @@ function baseHook(overrides: Partial<ReturnType<typeof mockTasks>> = {}) {
   };
 }
 
+function runsHook(summary: string, status = "done") {
+  return baseHook({
+    runs: [
+      {
+        id: "run-1",
+        task_id: "t1",
+        run_thread_id: "bg-t1-1",
+        trigger_source: "manual",
+        status,
+        summary,
+        started_at: "2025",
+        finished_at: "2025",
+      },
+    ],
+  });
+}
+
 describe("TasksTab", () => {
   it("mostra o badge de subagente e esconde rodar-agora/toggle pra tarefa-âncora", () => {
     mockTasks.mockReturnValue(
@@ -243,23 +260,6 @@ describe("TasksTab", () => {
   });
 
   describe("card de execução colapsado", () => {
-    function runsHook(summary: string, status = "done") {
-      return baseHook({
-        runs: [
-          {
-            id: "run-1",
-            task_id: "t1",
-            run_thread_id: "bg-t1-1",
-            trigger_source: "manual",
-            status,
-            summary,
-            started_at: "2025",
-            finished_at: "2025",
-          },
-        ],
-      });
-    }
-
     it("mostra o card fechado por padrão (aria-expanded=false)", () => {
       mockTasks.mockReturnValue(
         runsHook(

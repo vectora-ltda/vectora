@@ -68,7 +68,7 @@ export const MessageSkeletons = memo(function MessageSkeletons() {
 
 /**
  * Alias — padroniza o nome `MessageListSkeleton` entre os skeletons do
- * produto (`ThreadListSkeleton`, `FileTreeSkeleton`, `DiffSkeleton`,
+ * produto (`ThreadListSkeleton`, `FileTreeSkeleton`, `GitSkeleton`,
  * `MessageListSkeleton`). Mantém `MessageSkeletons` para não quebrar imports
  * existentes.
  */

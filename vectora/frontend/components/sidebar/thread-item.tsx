@@ -1,14 +1,10 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useRef, useState } from "react";
 import { Pin, Trash2 } from "lucide-react";
 import type { Thread } from "@/lib/hooks/threads";
 import { queryClient } from "../../src/router";
-import {
-  getHistory,
-  listThreads,
-  markThreadRead,
-} from "@/lib/api/vectora-client";
+import { getHistory, listThreads } from "@/lib/api/vectora-client";
 import { threadsQueryKey } from "@/lib/queries/threads";
 import { THREAD_FETCH_LIMIT } from "@/lib/constants/features";
 import { m } from "@/lib/paraglide/messages";
@@ -53,29 +49,6 @@ export const ThreadItem = memo(function ThreadItem({
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClick = useRef(false);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
-
-  useEffect(() => {
-    if (!isActive || !thread.unread_count) return;
-    void markThreadRead(thread.thread_id)
-      .then(() => {
-        queryClient.setQueryData<{
-          threads: { id: string; unread_count?: number }[];
-        }>(threadsQueryKey(), (data) =>
-          data
-            ? {
-                threads: data.threads.map((item) =>
-                  item.id === thread.thread_id
-                    ? { ...item, unread_count: 0 }
-                    : item,
-                ),
-              }
-            : data,
-        );
-      })
-      .catch(() => {
-        void queryClient.invalidateQueries({ queryKey: threadsQueryKey() });
-      });
-  }, [isActive, thread.thread_id, thread.unread_count]);
 
   const cancelLongPress = () => {
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
@@ -164,24 +137,9 @@ export const ThreadItem = memo(function ThreadItem({
   };
 
   const handleSelect = () => {
-    // Limpa a indicação imediatamente e confirma no backend. Em caso de
-    // falha, a invalidação restaura a contagem real na próxima consulta.
-    queryClient.setQueryData<{
-      threads: { id: string; unread_count?: number }[];
-    }>(threadsQueryKey(), (data) =>
-      data
-        ? {
-            threads: data.threads.map((item) =>
-              item.id === thread.thread_id
-                ? { ...item, unread_count: 0 }
-                : item,
-            ),
-          }
-        : data,
-    );
-    void markThreadRead(thread.thread_id).catch(() => {
-      void queryClient.invalidateQueries({ queryKey: threadsQueryKey() });
-    });
+    // A confirmação de leitura precisa do cursor persistido e acontece no
+    // ChatInterface depois que o histórico foi carregado/renderizado. Não
+    // zerar a badge aqui evita esconder respostas quando o carregamento falha.
     onSelect(thread.thread_id);
   };
 
@@ -261,11 +219,10 @@ export const ThreadItem = memo(function ThreadItem({
         <span className="truncate text-[12px] leading-5">{title}</span>
         {thread.unread_count && thread.unread_count > 0 ? (
           <span
-            className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] leading-4 text-primary-foreground"
-            aria-label={m.unread_messages_count({ n: thread.unread_count })}
-          >
-            {thread.unread_count > 99 ? "99+" : thread.unread_count}
-          </span>
+            className="shrink-0 h-2 w-2 rounded-full bg-primary"
+            aria-label={m.unread_messages_count({ n: 1 })}
+            title={m.unread_messages_count({ n: 1 })}
+          />
         ) : null}
       </div>
       <button

@@ -480,47 +480,43 @@ function expectNoDuplication(history: string[], full: string) {
   expect(history.at(-1)).toBe(full);
 }
 
-describe("MessageItem — streaming incremental (token a token, como astream)", () => {
-  /**
-   * Simula o acúmulo real de `use-stream-handler.ts`: cada chunk é
-   * concatenado ao anterior (não substituído) e re-renderizado — assim como
-   * cada evento SSE `token` dispara um novo `setMessages`.
-   */
-  function streamContent(chunks: string[]): {
-    getText: () => string;
-    history: string[];
-    unmount: () => void;
-  } {
-    let acc = "";
-    const history: string[] = [];
-    const { rerender, unmount } = render(
-      <MessageItem
-        {...baseProps(msg({ id: "stream-1", role: "assistant", content: "" }))}
-      />,
+/** Simula o acúmulo incremental de tokens e devolve o histórico renderizado. */
+function streamContent(chunks: string[]): {
+  getText: () => string;
+  history: string[];
+  unmount: () => void;
+} {
+  let acc = "";
+  const history: string[] = [];
+  const { rerender, unmount } = render(
+    <MessageItem
+      {...baseProps(msg({ id: "stream-1", role: "assistant", content: "" }))}
+    />,
+  );
+  for (const chunk of chunks) {
+    acc += chunk;
+    rerender(
+      <TooltipProvider>
+        <MessageItem
+          {...baseProps(
+            msg({ id: "stream-1", role: "assistant", content: acc }),
+          )}
+        />
+      </TooltipProvider>,
     );
-    for (const chunk of chunks) {
-      acc += chunk;
-      rerender(
-        <TooltipProvider>
-          <MessageItem
-            {...baseProps(
-              msg({ id: "stream-1", role: "assistant", content: acc }),
-            )}
-          />
-        </TooltipProvider>,
-      );
-      history.push(
-        screen.getByTestId("message-content-assistant").textContent ?? "",
-      );
-    }
-    return {
-      getText: () =>
-        screen.getByTestId("message-content-assistant").textContent ?? "",
-      history,
-      unmount,
-    };
+    history.push(
+      screen.getByTestId("message-content-assistant").textContent ?? "",
+    );
   }
+  return {
+    getText: () =>
+      screen.getByTestId("message-content-assistant").textContent ?? "",
+    history,
+    unmount,
+  };
+}
 
+describe("MessageItem — streaming incremental (token a token, como astream)", () => {
   it("1. streaming char-a-char do texto exato do bug reportado", () => {
     const full = "Olá! Como posso ajudar você hoje?";
     const { getText, history } = streamContent(full.split(""));

@@ -57,6 +57,11 @@ class TestIsPublicRoute:
 
         assert _is_public_route("/metrics") is False
 
+    def test_provider_routing_is_private(self):
+        from backend.api.middleware.auth import _is_public_route
+
+        assert _is_public_route("/provider-routing/llama-cpp/status") is False
+
     def test_update_changelog_is_private(self):
         from backend.api.middleware.auth import _is_public_route
 
@@ -80,6 +85,12 @@ class TestIsPublicRoute:
 
         assert _is_public_route("/artifacts/thread-1/media/image.png") is False
         assert _is_public_route("/boards") is False
+
+    def test_agent_run_routes_are_private(self) -> None:
+        from backend.api.middleware.auth import _is_public_route
+
+        assert _is_public_route("/runs/run-1") is False
+        assert _is_public_route("/runs/run-1/timeline") is False
 
     def test_root_path_is_public_frontend(self):
         # Paths fora dos prefixos de API são proxy para o Next.js e

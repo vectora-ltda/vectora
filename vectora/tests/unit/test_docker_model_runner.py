@@ -1,0 +1,603 @@
+"""Contratos determinísticos do Docker Model Runner.
+
+As chamadas HTTP usam ``httpx.MockTransport`` apenas para testar o parser do
+contrato. O teste live opcional fica separado e só roda quando explicitamente
+habilitado pelo ambiente.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+from contextlib import suppress
+from pathlib import Path
+from unittest.mock import AsyncMock
+
+import httpx
+import pytest
+
+from backend.services import docker_model_runner as dmr
+
+
+def test_docker_executable_prefers_absolute_path_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifica o comportamento de docker executable prefers absolute path entry."""
+    executable = tmp_path / "Docker Desktop" / "docker.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"")
+    monkeypatch.setenv("VECTORA_DOCKER_PATH", str(executable))
+    monkeypatch.setattr(dmr.shutil, "which", lambda _: "docker")
+    assert dmr._docker_executable() == str(executable.resolve())
+
+
+def test_docker_executable_rejects_relative_path_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifica o comportamento de docker executable rejects relative path entry."""
+    executable = tmp_path / "docker.exe"
+    executable.write_bytes(b"")
+    monkeypatch.setattr(dmr.shutil, "which", lambda _: "docker.exe")
+    monkeypatch.setattr(dmr.sys, "platform", "linux")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "missing-home")
+    with pytest.raises(FileNotFoundError, match="caminho absoluto"):
+        dmr._docker_executable()
+
+
+def test_docker_executable_discovers_windows_installation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifica o comportamento de docker executable discovers windows installation."""
+    executable = tmp_path / "Docker" / "Docker" / "resources" / "bin" / "docker.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"")
+    monkeypatch.setattr(dmr.shutil, "which", lambda _: None)
+    monkeypatch.setattr(dmr.sys, "platform", "win32")
+    monkeypatch.setenv("PROGRAMFILES", str(tmp_path))
+    monkeypatch.setenv("LOCALAPPDATA", "")
+    assert dmr._docker_executable() == str(executable.resolve())
+
+
+def test_docker_executable_ignores_empty_relative_windows_bases(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifica o comportamento de docker executable ignores empty relative windows bases."""
+    relative = tmp_path / "Docker" / "Docker" / "resources" / "bin" / "docker.exe"
+    relative.parent.mkdir(parents=True)
+    relative.write_bytes(b"")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(dmr.shutil, "which", lambda _: None)
+    monkeypatch.setattr(dmr.sys, "platform", "win32")
+    monkeypatch.setenv("PROGRAMFILES", "")
+    monkeypatch.setenv("LOCALAPPDATA", "")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path / "missing-home")
+    with pytest.raises(FileNotFoundError, match="caminho absoluto"):
+        dmr._docker_executable()
+
+
+def test_docker_executable_does_not_probe_windows_bases_on_non_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifica o comportamento de docker executable does not probe windows bases on non windows."""
+    executable = (
+        tmp_path / "Programs" / "DockerDesktop" / "resources" / "bin" / "docker.exe"
+    )
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"")
+    monkeypatch.setattr(dmr.shutil, "which", lambda _: None)
+    monkeypatch.setattr(dmr.sys, "platform", "linux")
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    with pytest.raises(FileNotFoundError, match="caminho absoluto"):
+        dmr._docker_executable()
+
+
+def test_validate_model_reference_rejects_command_injection() -> None:
+    """Verifica o comportamento de validate model reference rejects command injection."""
+    assert dmr.validate_model_reference("hf.co/Qwen/Qwen3-0.6B") == (
+        "hf.co/Qwen/Qwen3-0.6B"
+    )
+    with pytest.raises(ValueError):
+        dmr.validate_model_reference("hf.co/model;rm -rf /")
+    with pytest.raises(ValueError):
+        dmr.validate_model_reference("--help")
+
+
+def test_normalize_base_url_rejects_non_http() -> None:
+    """Verifica o comportamento de normalize base url rejects non http."""
+    assert dmr.normalize_base_url("http://127.0.0.1:12434/") == (
+        "http://127.0.0.1:12434"
+    )
+    with pytest.raises(ValueError):
+        dmr.normalize_base_url("file:///tmp/docker.sock")
+
+
+@pytest.mark.asyncio
+async def test_docker_host_info_reports_runtime_and_gpu_capabilities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifica o comportamento de docker host info reports runtime and gpu capabilities."""
+
+    class Process:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            """Executa a operação communicate."""
+            return (
+                (
+                    b'{"OSType":"linux","Architecture":"aarch64",'
+                    b'"ServerVersion":"29.0","NCPU":8,"MemTotal":1234,'
+                    b'"Runtimes":{"io.containerd.runc.v2":{},"nvidia":{}},'
+                    b'"Warnings":["example"]}'
+                ),
+                b"",
+            )
+
+        async def wait(self) -> None:
+            """Executa a operação wait."""
+            return
+
+    async def create(*args: str, **kwargs: object) -> Process:
+        """Executa a operação create."""
+        assert args == ("docker", "info", "--format", "{{json .}}")
+        assert kwargs.get("shell") is None
+        return Process()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+    monkeypatch.setattr(dmr, "_docker_executable", lambda: "docker")
+    info = await dmr.docker_host_info()
+
+    assert info["architecture"] == "aarch64"
+    assert info["cpus"] == 8
+    assert info["gpu_backends"] == ["nvidia"]
+    assert info["warnings"] == ["example"]
+
+
+@pytest.mark.asyncio
+async def test_probe_prefers_openai_contract() -> None:
+    """Verifica o comportamento de probe prefers openai contract."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Executa a operação handler."""
+        if request.url.path == "/engines/v1/models":
+            return httpx.Response(
+                200,
+                json={"data": [{"id": "hf.co/Qwen/Qwen3-0.6B"}]},
+            )
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    result = await dmr.probe_dmr(transport=transport)
+    assert result.reachable is True
+    assert result.contract == "openai"
+    assert result.models == ("hf.co/Qwen/Qwen3-0.6B",)
+
+
+@pytest.mark.asyncio
+async def test_probe_preserves_http_failure_status_for_diagnostics() -> None:
+    """Verifica o comportamento de probe preserves http failure status for diagnostics."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Executa a operação handler."""
+        return httpx.Response(502, request=request, text="Bad Gateway")
+
+    result = await dmr.probe_dmr(transport=httpx.MockTransport(handler))
+
+    assert result.reachable is False
+    assert result.status_code == 502
+    assert result.detail == "Docker Model Runner respondeu HTTP 502"
+
+
+@pytest.mark.asyncio
+async def test_docker_model_available_rejects_cli_with_unreachable_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifica o comportamento de docker model available rejects cli with unreachable server."""
+
+    async def fake_run(*args: str, command_timeout: float = 10) -> str:
+        """Executa a operação fake run."""
+        assert args == ("version",)
+        assert command_timeout == 10
+        return "Client Version v1.2.6\nServer Version (not reachable)"
+
+    monkeypatch.setattr(dmr, "run_docker_model", fake_run)
+    available, detail = await dmr.docker_model_available()
+    assert available is False
+    assert detail is not None and "not reachable" in detail
+
+
+@pytest.mark.asyncio
+async def test_probe_dmr_inference_supports_openai_and_ollama_contracts() -> None:
+    """Verifica o comportamento de probe dmr inference supports openai and ollama contracts."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Executa a operação handler."""
+        if request.url.path.endswith("/chat/completions"):
+            return httpx.Response(200, json={"choices": [{"message": {}}]})
+        if request.url.path == "/api/chat":
+            return httpx.Response(200, json={"message": {"content": "pong"}})
+        return httpx.Response(404)
+
+    transport = httpx.MockTransport(handler)
+    assert await dmr.probe_dmr_inference(
+        None, "openai", "hf.co/Qwen/Qwen3-0.6B", transport=transport
+    )
+    assert await dmr.probe_dmr_inference(
+        None, "ollama", "hf.co/Qwen/Qwen3-0.6B", transport=transport
+    )
+
+
+@pytest.mark.asyncio
+async def test_provider_status_probes_default_endpoint_without_saved_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifica o comportamento de provider status probes default endpoint without saved config."""
+    from backend.api.handlers import provider_routing
+    from backend.settings import settings
+
+    async def fake_available() -> tuple[bool, str]:
+        """Executa a operação fake available."""
+        return True, "Docker Model Runner"
+
+    async def fake_probe(*args: object, **kwargs: object) -> dmr.DmrProbe:
+        """Executa a operação fake probe."""
+        return dmr.DmrProbe(True, "openai", ("hf.co/Qwen/Qwen3-0.6B",))
+
+    async def fake_host_info() -> dict[str, object]:
+        """Executa a operação fake host info."""
+        return {
+            "os": "linux",
+            "architecture": "aarch64",
+            "cpus": 8,
+            "memory_bytes": 1234,
+            "runtimes": ["nvidia"],
+            "gpu_backends": ["nvidia"],
+            "warnings": [],
+        }
+
+    monkeypatch.setattr(settings, "dmr_base_url", None)
+    monkeypatch.setattr(
+        "backend.services.docker_model_runner.docker_model_available",
+        fake_available,
+    )
+    monkeypatch.setattr(
+        "backend.services.docker_model_runner.probe_dmr",
+        fake_probe,
+    )
+    monkeypatch.setattr(
+        "backend.services.docker_model_runner.docker_host_info",
+        fake_host_info,
+    )
+
+    status = await provider_routing.get_dmr_status()
+
+    assert status["configured"] is False
+    assert status["base_url"] == dmr.DEFAULT_DMR_BASE_URL
+    assert status["reachable"] is True
+    assert status["models"] == ["hf.co/Qwen/Qwen3-0.6B"]
+    assert status["state"] == "ready"
+    assert status["architecture"]
+    assert status["backend"] == "nvidia"
+    capabilities = status["capabilities"]
+    assert isinstance(capabilities, dict)
+    assert capabilities["cpus"] == 8
+
+
+@pytest.mark.asyncio
+async def test_provider_http_status_does_not_require_docker_cli(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifica o comportamento de provider http status does not require docker cli."""
+    from backend.api.handlers import provider_routing
+    from backend.settings import settings
+
+    async def fake_probe(*args: object, **kwargs: object) -> dmr.DmrProbe:
+        """Executa a operação fake probe."""
+        return dmr.DmrProbe(True, "openai", ("hf.co/Qwen/Qwen3-0.6B",))
+
+    monkeypatch.setattr(settings, "dmr_base_url", None)
+    monkeypatch.setattr(settings, "dmr_model", None)
+    monkeypatch.setattr("backend.services.docker_model_runner.probe_dmr", fake_probe)
+    monkeypatch.setattr(
+        provider_routing,
+        "_read_json_file_async",
+        AsyncMock(return_value={"version": 1, "models": {}}),
+    )
+
+    status = await provider_routing.get_dmr_http_status()
+
+    assert status["reachable"] is True
+    assert status["contract"] == "openai"
+    assert status["models"] == ["hf.co/Qwen/Qwen3-0.6B"]
+
+
+@pytest.mark.asyncio
+async def test_provider_status_distinguishes_missing_model_runner_plugin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifica o comportamento de provider status distinguishes missing model runner plugin."""
+    from backend.api.handlers import provider_routing
+    from backend.settings import settings
+
+    async def fake_available() -> tuple[bool, str]:
+        """Executa a operação fake available."""
+        return False, "docker: unknown command: model"
+
+    async def fake_probe(*args: object, **kwargs: object) -> dmr.DmrProbe:
+        """Executa a operação fake probe."""
+        return dmr.DmrProbe(False, None, (), "endpoint indisponível")
+
+    monkeypatch.setattr(settings, "dmr_base_url", None)
+    monkeypatch.setattr(
+        "backend.services.docker_model_runner.docker_model_available",
+        fake_available,
+    )
+    monkeypatch.setattr(
+        "backend.services.docker_model_runner.probe_dmr",
+        fake_probe,
+    )
+
+    status = await provider_routing.get_dmr_status()
+
+    assert status["state"] == "plugin_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_run_docker_model_uses_exec_without_shell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifica o comportamento de run docker model uses exec without shell."""
+    calls: list[tuple[tuple[str, ...], bool]] = []
+
+    class Process:
+        returncode = 0
+
+        async def communicate(self) -> tuple[bytes, bytes]:
+            """Executa a operação communicate."""
+            return b"ok", b""
+
+        async def wait(self) -> None:
+            """Executa a operação wait."""
+            return
+
+    async def create(*args: str, **kwargs: object) -> Process:
+        """Executa a operação create."""
+        calls.append((args, bool(kwargs.get("shell"))))
+        return Process()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+    monkeypatch.setattr(dmr, "_docker_executable", lambda: "docker")
+    output = await dmr.run_docker_model("pull", "hf.co/Qwen/Qwen3-0.6B")
+    assert output == "ok\n"
+    assert calls == [(("docker", "model", "pull", "hf.co/Qwen/Qwen3-0.6B"), False)]
+
+
+@pytest.mark.asyncio
+async def test_run_model_preloads_in_detached_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifica o comportamento de run model preloads in detached mode."""
+    calls: list[tuple[str, ...]] = []
+
+    async def fake_run(*args: str, command_timeout: float = 120.0) -> str:
+        """Executa a operação fake run."""
+        calls.append(args)
+        return "started"
+
+    monkeypatch.setattr(dmr, "run_docker_model", fake_run)
+
+    assert await dmr.run_model("hf.co/Qwen/Qwen3-0.6B") == "started"
+    assert calls == [("run", "--detach", "hf.co/Qwen/Qwen3-0.6B")]
+
+
+@pytest.mark.asyncio
+async def test_run_model_configures_context_before_detached_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifica o comportamento de run model configures context before detached start."""
+    calls: list[tuple[str, ...]] = []
+
+    async def fake_run(*args: str, command_timeout: float = 120.0) -> str:
+        """Executa a operação fake run."""
+        calls.append(args)
+        return "ok"
+
+    monkeypatch.setattr(dmr, "run_docker_model", fake_run)
+
+    assert await dmr.run_model("hf.co/Qwen/Qwen3-0.6B", 8192) == "ok"
+    assert calls == [
+        ("configure", "--context-size", "8192", "hf.co/Qwen/Qwen3-0.6B"),
+        ("run", "--detach", "hf.co/Qwen/Qwen3-0.6B"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_model_job_reports_completion_and_keeps_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifica o comportamento de model job reports completion and keeps output."""
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    dmr._jobs.clear()
+    dmr._job_tasks.clear()
+    dmr._jobs_loaded = False
+    calls: list[tuple[str, ...]] = []
+
+    async def fake_run(*args: str, command_timeout: float = 120.0) -> str:
+        """Executa a operação fake run."""
+        calls.append(args)
+        return "ok"
+
+    monkeypatch.setattr(dmr, "run_docker_model", fake_run)
+    monkeypatch.setattr(
+        dmr,
+        "probe_dmr",
+        AsyncMock(
+            return_value=dmr.DmrProbe(True, "openai", ("hf.co/Qwen/Qwen3-0.6B",))
+        ),
+    )
+    monkeypatch.setattr(dmr, "probe_dmr_inference", AsyncMock(return_value=True))
+    job = await dmr.create_model_job("hf.co/Qwen/Qwen3-0.6B", "start")
+    for _ in range(100):
+        if job.status not in {"queued", "running"}:
+            break
+        await asyncio.sleep(0.01)
+    assert job.status == "completed"
+    assert job.output == "ok\nok"
+    assert calls == [
+        ("pull", "hf.co/Qwen/Qwen3-0.6B"),
+        ("run", "--detach", "hf.co/Qwen/Qwen3-0.6B"),
+        ("inspect", "hf.co/Qwen/Qwen3-0.6B"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_model_job_fails_when_readiness_inference_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verifica o comportamento de model job fails when readiness inference fails."""
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    dmr._jobs.clear()
+    dmr._job_tasks.clear()
+    dmr._jobs_loaded = False
+
+    async def fake_run(*args: str, command_timeout: float = 120.0) -> str:
+        """Executa a operação fake run."""
+        return "ok"
+
+    monkeypatch.setattr(dmr, "run_docker_model", fake_run)
+    monkeypatch.setattr(
+        dmr,
+        "probe_dmr",
+        AsyncMock(return_value=dmr.DmrProbe(True, "openai", ("hf.co/model",))),
+    )
+    monkeypatch.setattr(dmr, "probe_dmr_inference", AsyncMock(return_value=False))
+    stop = AsyncMock(return_value="stopped")
+    monkeypatch.setattr(dmr, "stop_model", stop)
+    job = await dmr.create_model_job("hf.co/model", "start")
+    for _ in range(100):
+        if job.status not in {"queued", "running"}:
+            break
+        await asyncio.sleep(0.01)
+    assert job.status == "failed"
+    assert "readiness" in (job.error or "")
+    stop.assert_awaited_once_with("hf.co/model")
+
+
+@pytest.mark.asyncio
+async def test_model_jobs_are_recovered_as_interrupted_after_restart(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifica o comportamento de model jobs are recovered as interrupted after restart."""
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    dmr._jobs.clear()
+    dmr._job_tasks.clear()
+    dmr._jobs_loaded = False
+    job_id = "a" * 32
+    (tmp_path / "docker-model-runner-jobs.json").write_text(
+        '{"jobs":[{"id":"'
+        + job_id
+        + '","operation":"start","reference":"hf.co/Qwen/Qwen3-0.6B",'
+        '"status":"running","output":"pulling","metadata":{}}]}',
+        encoding="utf-8",
+    )
+
+    await dmr.restore_model_jobs()
+
+    job = dmr.get_model_job(job_id)
+    assert job is not None
+    assert job.status == "interrupted"
+    assert "reinício" in (job.error or "")
+
+    persisted = (tmp_path / "docker-model-runner-jobs.json").read_text(encoding="utf-8")
+    assert '"status":"interrupted"' in persisted
+
+
+@pytest.mark.asyncio
+async def test_persist_jobs_keeps_active_and_only_recent_terminal_jobs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verifica o comportamento de persist jobs keeps active and only recent terminal jobs."""
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    dmr._jobs.clear()
+    dmr._job_tasks.clear()
+    dmr._jobs_loaded = False
+    for index in range(dmr.MAX_PERSISTED_JOBS + 5):
+        job = dmr.DmrJob(
+            id=f"{index:032x}",
+            operation="prepare",
+            reference=f"hf.co/model-{index}",
+            context_size=None,
+            progress=100,
+            phase="completed",
+            status="completed",
+        )
+        dmr._jobs[job.id] = job
+    active = dmr.DmrJob(
+        id="f" * 32,
+        operation="start",
+        reference="hf.co/active",
+        context_size=None,
+        progress=50,
+        phase="starting",
+        status="running",
+    )
+    dmr._jobs[active.id] = active
+
+    await dmr._persist_jobs()
+
+    assert active.id in dmr._jobs
+    terminal = [job for job in dmr._jobs.values() if job.status == "completed"]
+    assert len(terminal) == dmr.MAX_PERSISTED_JOBS
+
+
+@pytest.mark.asyncio
+async def test_dmr_live_pull_run_and_infer_when_explicitly_enabled() -> None:
+    """Exercita pull, preload e inferência contra um DMR real.
+
+    O teste permanece opt-in porque requer Docker Model Runner local e baixa um
+    modelo. Quando habilitado, nenhum contrato HTTP é simulado.
+    """
+    if os.getenv("VECTORA_TEST_DMR_LIVE") != "1":
+        pytest.skip(
+            "ative VECTORA_TEST_DMR_LIVE=1 para testar Docker Model Runner real"
+        )
+    reference = os.getenv("VECTORA_TEST_DMR_MODEL", "hf.co/Qwen/Qwen3-0.6B")
+    base_url = os.getenv("DMR_BASE_URL")
+    available, detail = await dmr.docker_model_available()
+    assert available, detail
+    await dmr.prepare_model(reference)
+    try:
+        await dmr.run_model(reference)
+        result = await dmr.probe_dmr(base_url)
+        assert result.reachable, result.detail
+        assert result.contract in {"openai", "ollama"}
+        candidates = set(result.models)
+        expected = reference.removeprefix("hf.co/").removeprefix("docker.io/")
+
+        def matches_reference(candidate: str) -> bool:
+            """Executa a operação matches reference."""
+            normalized = candidate.removeprefix("docker.io/")
+            return (
+                normalized == expected or normalized.removesuffix(":latest") == expected
+            )
+
+        model = next(
+            (candidate for candidate in candidates if matches_reference(candidate)),
+            None,
+        )
+        assert model is not None, result.models
+        assert await dmr.probe_dmr_inference(base_url, result.contract, model), (
+            "DMR não concluiu uma inferência real"
+        )
+    finally:
+        with suppress(OSError, RuntimeError, ValueError):
+            await dmr.stop_model(reference)

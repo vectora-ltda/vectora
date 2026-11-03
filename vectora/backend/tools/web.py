@@ -17,8 +17,14 @@ import json
 import logging
 import time
 from typing import Any, Literal
+from urllib.parse import urljoin, urlparse
 
+import httpx
+
+from backend.services.egress_policy import EgressPolicy, async_is_url_allowed
+from backend.services.policy_compiler import PolicySnapshot
 from backend.settings import settings
+from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
 logger = logging.getLogger(__name__)
@@ -26,6 +32,7 @@ logger = logging.getLogger(__name__)
 #: `max_results` e `search_depth` agora são por chamada — o cliente nativo
 #: não os prende na construção como o pacote de integração de terceiros fazia.
 _MAX_RESULTS = 5
+_MAX_TOOL_CONTENT = 120_000
 
 
 def _tavily_client() -> Any:
@@ -51,6 +58,38 @@ def _get_extract_tool() -> Any:
     from backend.tools.search_registry import resolve_backend
 
     return resolve_backend()
+
+
+async def _check_egress_url(url: str, ctx: ToolContext | None = None) -> str | None:
+    """Apply the same resolved-DNS egress policy before any web provider call.
+
+    Tavily receives the target URL and can therefore be used to reach an
+    internal address unless we validate it locally first.  Keep this check in
+    the tool layer as a defence-in-depth boundary; the policy compiler is only
+    a preflight and cannot replace the asynchronous DNS resolution here.
+    """
+    policy = _egress_policy(ctx)
+    allowed, reason, _ = await async_is_url_allowed(url, policy)
+    if not allowed:
+        return reason or "destino recusado pela política de egress"
+    return None
+
+
+def _egress_policy(ctx: ToolContext | None = None) -> EgressPolicy:
+    """Retorna o snapshot de egress da execução, quando disponível.
+
+    A mesma política precisa governar o preflight e cada conexão HTTP. Sem
+    isso uma execução poderia validar a URL com um snapshot e conectar com a
+    configuração persistida mais recente, deixando uma janela de revogação.
+    """
+    snapshot = (
+        ctx._extra.get("policy_snapshot")
+        if ctx is not None and isinstance(ctx._extra, dict)
+        else None
+    )
+    if isinstance(snapshot, PolicySnapshot):
+        return snapshot.egress_policy
+    return EgressPolicy.for_workspace(ctx.workspace_id if ctx else None)
 
 
 async def _invoke_backend(tool: Any, payload: dict[str, Any]) -> Any:
@@ -112,7 +151,7 @@ async def _search_via_fallback(query: str) -> str:
 
 
 async def _fetch_via_fallback(url: str) -> str:
-    """Fallback sem API key para `fetch_url`: Chromium real (Playwright).
+    """Fallback sem API key para `fetch_url`: Chromium do Electron via CDP.
     Mesmo contrato de `_search_via_fallback` — nunca propaga."""
     try:
         from backend.browser.search_fallback import fetch_fallback
@@ -136,8 +175,125 @@ async def _fetch_via_fallback(url: str) -> str:
         logger.exception("fetch_url fallback failed", extra={"url": url})
         return (
             "Error: TAVILY_API_KEY not configured and the Chromium fallback "
-            "failed. Set TAVILY_API_KEY or run `playwright install chromium`."
+            "failed. Set TAVILY_API_KEY and start the Electron Browser Workbench."
         )
+
+
+async def _fetch_via_http(url: str, ctx: ToolContext | None = None) -> str:
+    """Busca uma URL diretamente quando o backend de extração falha."""
+    from backend.browser.ssrf_guard import is_url_ssrf_safe
+    from backend.services.prompt_injection import detect_injection, envelope_untrusted
+
+    headers = {
+        "User-Agent": "Vectora/1.0",
+        "Accept": "text/html,application/json,text/plain",
+    }
+    github_hosts = {"github.com", "www.github.com", "api.github.com"}
+    host = (urlparse(url).hostname or "").lower()
+    token: str | None = None
+    if urlparse(url).scheme == "https" and host in github_hosts and ctx is not None:
+        try:
+            from backend.tools.github import _github_token
+
+            token = await _github_token(ctx)
+            if token:
+                headers["Authorization"] = f"Bearer {token}"
+        except Exception:
+            logger.debug("fetch_url: token GitHub indisponível", exc_info=True)
+
+    max_bytes = 2_000_000
+
+    async def _read_limited(response: httpx.Response) -> str:
+        response.raise_for_status()
+        chunks: list[bytes] = []
+        size = 0
+        async for chunk in response.aiter_bytes():
+            size += len(chunk)
+            if size > max_bytes:
+                remaining = max_bytes - (size - len(chunk))
+                if remaining > 0:
+                    chunks.append(chunk[:remaining])
+                raise ValueError("resposta excede o limite de 2 MB")
+            chunks.append(chunk)
+        return b"".join(chunks).decode(response.encoding or "utf-8", errors="replace")
+
+    current_url = url
+    current_headers = headers
+    response_status = 0
+    for redirect_count in range(6):
+        allowed, reason, pinned_ip = await async_is_url_allowed(
+            current_url, _egress_policy(ctx)
+        )
+        if not allowed or pinned_ip is None:
+            raise ValueError(
+                "destino recusado pela política de egress: "
+                f"{reason or 'IP validado ausente'}"
+            )
+        # A conexão usa o IP obtido no mesmo preflight. Isso evita que uma
+        # segunda resolução feita pelo cliente HTTP atravesse a política após
+        # DNS rebinding; cada redirect passa pelo mesmo ciclo novamente.
+        from backend.tools.native.http_request import PinIPTransport
+
+        async with httpx.AsyncClient(
+            transport=PinIPTransport(pinned_ip), timeout=30.0, follow_redirects=False
+        ) as client:
+            async with client.stream(
+                "GET", current_url, headers=current_headers
+            ) as response:
+                response_status = response.status_code
+                if not 300 <= response.status_code < 400:
+                    content = await _read_limited(response)
+                    break
+                location = response.headers.get("location")
+                if not location:
+                    response.raise_for_status()
+                if redirect_count >= 5:
+                    raise ValueError("limite de redirects excedido")
+                redirected = urljoin(current_url, location)
+                if not is_url_ssrf_safe(redirected):
+                    raise ValueError("redirect recusado pelo SSRF guard")
+                redirect_egress_error = await _check_egress_url(redirected, ctx)
+                if redirect_egress_error is not None:
+                    raise ValueError(
+                        "redirect recusado pela política de egress: "
+                        f"{redirect_egress_error}"
+                    )
+                redirected_url = urlparse(redirected)
+                redirected_host = (redirected_url.hostname or "").lower()
+                current_headers = dict(current_headers)
+                if (
+                    redirected_url.scheme != "https"
+                    or redirected_host not in github_hosts
+                ):
+                    current_headers.pop("Authorization", None)
+                current_url = redirected
+    else:  # pragma: no cover - the loop raises at the sixth redirect
+        raise ValueError("limite de redirects excedido")
+    original_length = len(content)
+    if len(content) > _MAX_TOOL_CONTENT:
+        content = (
+            content[:_MAX_TOOL_CONTENT]
+            + f"\n\n[conteúdo truncado pelo Vectora: {original_length} bytes; "
+            f"limite {_MAX_TOOL_CONTENT}]"
+        )
+        logger.info(
+            "fetch_url content truncated",
+            extra={"url": url, "content_length": original_length},
+        )
+    if (pattern := detect_injection(content)) is not None:
+        logger.warning(
+            "fetch_url: padrão de prompt injection detectado (log-only)",
+            extra={"url": url, "pattern": pattern},
+        )
+    logger.info(
+        "fetch_url direct HTTP completed",
+        extra={
+            "url": url,
+            "content_length": len(content),
+            "status": response_status,
+        },
+    )
+    return envelope_untrusted(content, source=url)
 
 
 @vtool(
@@ -278,7 +434,7 @@ async def web_search(
         icon="link",
     )
 )
-async def fetch_url(url: str) -> str:
+async def fetch_url(url: str, ctx: ToolContext | None = None) -> str:
     """Busca e extrai conteúdo de texto de uma URL específica usando Tavily.
 
     Args:
@@ -291,6 +447,10 @@ async def fetch_url(url: str) -> str:
         logger.warning("fetch_url called with invalid URL", extra={"url": url})
         return "Error: URL must start with http:// or https://"
 
+    if (egress_error := await _check_egress_url(url, ctx)) is not None:
+        logger.warning("fetch_url refused by egress policy", extra={"url": url})
+        return f"Error: URL recusada pela política de egress: {egress_error}"
+
     from backend.browser.ssrf_guard import is_url_ssrf_safe
 
     if not is_url_ssrf_safe(url):
@@ -299,6 +459,21 @@ async def fetch_url(url: str) -> str:
             "Error: URL refused — resolves to a private/loopback/link-local/"
             "metadata IP address (blocked for security, SSRF)."
         )
+
+    # GitHub pages and API responses are public HTTP resources.  Resolve them
+    # directly instead of requiring Tavily or a local Electron browser; this
+    # keeps the public route usable in headless CI and when no provider key is
+    # configured.  The helper still applies the SSRF guard, size limit and
+    # optional integration token.
+    host = (urlparse(url).hostname or "").lower()
+    github_hosts = {"github.com", "www.github.com"}
+    if host == "api.github.com" or (
+        host in github_hosts and not settings.tavily_api_key
+    ):
+        try:
+            return await _fetch_via_http(url, ctx)
+        except Exception:
+            logger.exception("fetch_url GitHub HTTP path failed", extra={"url": url})
 
     if not settings.tavily_api_key:
         logger.warning("TAVILY_API_KEY not configured — usando fallback via Chromium")
@@ -314,7 +489,17 @@ async def fetch_url(url: str) -> str:
 
     try:
         client = _get_extract_tool()
-        results = await _invoke_backend(client, {"url": url})
+        try:
+            results = await _invoke_backend(client, {"url": url})
+        except AttributeError:
+            logger.warning(
+                "backend de busca não suporta extração; usando HTTP direto",
+                extra={
+                    "url": url,
+                    "backend": getattr(client, "name", type(client).__name__),
+                },
+            )
+            return await _fetch_via_http(url, ctx)
         if not results:
             logger.warning("fetch_url returned no content", extra={"url": url})
             if _tracer:
@@ -370,7 +555,10 @@ async def fetch_url(url: str) -> str:
             return await _fetch_via_fallback(url)
         if "no extracted results" in err.lower():
             return f"No content found at {url}"
-        return "Error occurred fetching URL. Please check logs."
+        return (
+            "Error occurred fetching URL. The configured extraction backend "
+            "failed; check its configuration or retry."
+        )
 
 
 @vtool(
@@ -386,6 +574,7 @@ async def web_crawl(
     max_depth: int = 1,
     limit: int = 20,
     instructions: str | None = None,
+    ctx: ToolContext | None = None,
 ) -> str:
     """Varre um site a partir de uma URL, seguindo links internos.
 
@@ -403,6 +592,11 @@ async def web_crawl(
     """
     if not url.startswith(("http://", "https://")):
         return json.dumps({"error": "URL deve começar com http:// ou https://"})
+    if (egress_error := await _check_egress_url(url, ctx)) is not None:
+        logger.warning("web_crawl refused by egress policy", extra={"url": url})
+        return json.dumps(
+            {"error": f"URL recusada pela política de egress: {egress_error}"}
+        )
     if not settings.tavily_api_key:
         return json.dumps(
             {"error": "web_crawl exige TAVILY_API_KEY — sem fallback para varredura"}
@@ -430,7 +624,7 @@ async def web_crawl(
         icon="globe",
     )
 )
-async def web_map(url: str, limit: int = 50) -> str:
+async def web_map(url: str, limit: int = 50, ctx: ToolContext | None = None) -> str:
     """Mapeia a estrutura de links de um site, sem extrair o conteúdo.
 
     Mais barato que `web_crawl` (não lê as páginas), mas ainda percorre o
@@ -445,6 +639,11 @@ async def web_map(url: str, limit: int = 50) -> str:
     """
     if not url.startswith(("http://", "https://")):
         return json.dumps({"error": "URL deve começar com http:// ou https://"})
+    if (egress_error := await _check_egress_url(url, ctx)) is not None:
+        logger.warning("web_map refused by egress policy", extra={"url": url})
+        return json.dumps(
+            {"error": f"URL recusada pela política de egress: {egress_error}"}
+        )
     if not settings.tavily_api_key:
         return json.dumps(
             {"error": "web_map exige TAVILY_API_KEY — sem fallback para mapeamento"}

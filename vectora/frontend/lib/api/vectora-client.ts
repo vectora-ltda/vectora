@@ -131,6 +131,7 @@ export type StreamEvent =
       tool_name: string;
       args_json: string;
       interrupt_id: string;
+      run_id?: string;
       /** Razão pela qual o modelo pediu aprovação (opcional). */
       reasoning?: string;
       /** Preview do diff antes/depois, formato unified (opcional). */
@@ -139,6 +140,8 @@ export type StreamEvent =
       affected_paths?: string[];
       /** Modo de permissão ativo (default/yolo/etc.) (opcional). */
       permission_mode?: string;
+      /** Workspace que originou a aprovação. */
+      workspace_id?: string;
       /** Anotação da aprovação inteligente — nunca decide sozinha. */
       pre_approved?: boolean;
       /** Escolhas estruturadas oferecidas pelo agente para esta aprovação. */
@@ -162,7 +165,12 @@ export type StreamEvent =
       citations: Array<{ index: number; source: string; chunk: string }>;
     }
   | { type: "error"; message: string; code?: string }
-  | { type: "done"; thread_id: string; run_id?: string }
+  | {
+      type: "done";
+      thread_id: string;
+      run_id?: string;
+      message_id?: number | null;
+    }
   | { type: "message_break" }
   | { type: "workbench_invalidate"; tabs: string[]; tool_name?: string }
   | {
@@ -279,6 +287,8 @@ export interface HistoryEditedFile {
 export interface HistoryMessage {
   role: "human" | "assistant";
   content: string;
+  /** ID numérico persistido no SessionStore; separado do ID visual local. */
+  message_id?: number;
   created_at?: string;
   /** Checkpoint pai (estado do thread imediatamente antes desta mensagem
    * existir) — alvo de fork pra "editar e reenviar"/"regenerar". Vazio
@@ -286,6 +296,8 @@ export interface HistoryMessage {
   checkpoint_id?: string;
   attachments?: HistoryAttachment[];
   edited_files?: HistoryEditedFile[];
+  /** Falha persistida; `null` é estado desconhecido e não marca erro. */
+  is_error?: boolean | null;
 }
 
 export interface ToolSchema {
@@ -488,11 +500,13 @@ export const transcribeAudio = (
   audioBase64: string,
   mimeType: string,
   filename = "recording.webm",
+  transcriptionMode: "local" | "remote" = "remote",
 ): Promise<{ text: string }> =>
   postRpc("/vectora.chat.v1.ChatService/TranscribeAudio", {
     audio_base64: audioBase64,
     mime_type: mimeType,
     filename,
+    transcription_mode: transcriptionMode,
   });
 
 export const getThread = (thread_id: string): Promise<Thread> =>
@@ -801,10 +815,13 @@ export async function submitFeedback(
   }
 }
 
-export async function markThreadRead(threadId: string): Promise<void> {
-  await postRpc<{ thread_id: string; unread_count: number }>(
+export async function markThreadRead(
+  threadId: string,
+  readMessageId?: number,
+): Promise<{ thread_id: string; unread_count: number }> {
+  return postRpc<{ thread_id: string; unread_count: number }>(
     `/threads/${encodeURIComponent(threadId)}/read`,
-    {},
+    readMessageId === undefined ? {} : { read_message_id: readMessageId },
   );
 }
 

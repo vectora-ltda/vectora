@@ -303,11 +303,8 @@ async def test_publish_memory_bucket_tool_publishes_with_token(monkeypatch):
     from backend.services import memory_buckets
 
     monkeypatch.setattr(license_service, "_get_token", lambda: "tok-123")
-    monkeypatch.setattr(
-        memory_buckets,
-        "publish_memory_bucket",
-        AsyncMock(return_value="remote-bucket-1"),
-    )
+    publish = AsyncMock(return_value="remote-bucket-1")
+    monkeypatch.setattr(memory_buckets, "publish_memory_bucket", publish)
 
     result = json.loads(
         await publish_memory_bucket_tool(
@@ -315,10 +312,26 @@ async def test_publish_memory_bucket_tool_publishes_with_token(monkeypatch):
             name="Docs 2024",
             description="# Docs",
             license="MIT",
+            ctx=ToolContext(user_id="local", workspace_id="ws1"),
         )
     )
 
     assert result == {"status": "published", "bucket_id": "remote-bucket-1"}
+    assert publish.await_args is not None
+    assert publish.await_args.kwargs["workspace_id"] == "ws1"
+
+    publish.reset_mock()
+    without_workspace = json.loads(
+        await publish_memory_bucket_tool(
+            bucket_id="docs-2024",
+            name="Docs 2024",
+            description="# Docs",
+            ctx=_ctx(),
+        )
+    )
+    assert without_workspace["status"] == "error"
+    assert "workspace" in without_workspace["error"]
+    publish.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -337,6 +350,7 @@ async def test_publish_memory_bucket_tool_no_token_returns_error_without_publish
             bucket_id="docs-2024",
             name="Docs 2024",
             description="# Docs",
+            ctx=ToolContext(user_id="local", workspace_id="ws1"),
         )
     )
 

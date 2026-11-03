@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import httpx
 import pytest
+import pytest_asyncio
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def live_backend(spawned_backend: tuple[str, int]) -> str:
     """``spawned_backend`` já configurado em modo local (sem auth obrigatória).
 

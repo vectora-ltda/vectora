@@ -291,7 +291,7 @@ async def set_user_tools(
         raise HTTPException(
             status_code=400, detail=f"Tools desconhecidas: {sorted(unknown)}"
         )
-    tool_policy.set_disabled(user_id, body.disabled)
+    await tool_policy.set_disabled(user_id, body.disabled)
     return {"status": "ok", "user_id": user_id, "disabled": body.disabled}
 
 
@@ -485,7 +485,7 @@ async def toggle_tool(request: Request, tool_name: str, body: ToolToggleBody) ->
         disabled.discard(tool_name)
     else:
         disabled.add(tool_name)
-    tool_policy.set_disabled(tool_policy.GLOBAL_SCOPE, sorted(disabled))
+    await tool_policy.set_disabled(tool_policy.GLOBAL_SCOPE, sorted(disabled))
 
     logger.info(
         "admin: tool '%s' %s globalmente por user_id=%s",

@@ -30,9 +30,10 @@ import { Switch } from "@/components/ui/switch";
 import { WorkspaceTrustDialog } from "@/components/sidebar/workspace-trust-dialog";
 import {
   RagSettingsButton,
-  RagSettingsSlidePanel,
   useRagSettings,
 } from "@/components/workbench/rag-settings-panel";
+import { WorkbenchSettingsSurface } from "@/components/workbench/settings/workbench-settings-surface";
+import { memorySettings } from "@/components/workbench/settings/workbench-settings-registry";
 import { m } from "@/lib/paraglide/messages";
 
 interface RagBucketEntry {
@@ -712,7 +713,15 @@ export function MemoryTab({ threadId }: MemoryTabProps) {
             onToggle={ragSettings.toggle}
           />
         </div>
-        <RagSettingsSlidePanel {...ragSettings} />
+        <WorkbenchSettingsSurface
+          descriptor={memorySettings}
+          context={{ threadId, workspaceId: activeWorkspaceId ?? null }}
+          open={ragSettings.open}
+          onOpenChange={(open) =>
+            open ? ragSettings.toggle() : ragSettings.close()
+          }
+          testId="rag-settings-panel"
+        />
         <div className="flex-1 space-y-4 overflow-auto px-3 py-3">
           <BucketsPanel />
           <JourneyPanel />
@@ -749,7 +758,15 @@ export function MemoryTab({ threadId }: MemoryTabProps) {
           onToggle={ragSettings.toggle}
         />
       </div>
-      <RagSettingsSlidePanel {...ragSettings} />
+      <WorkbenchSettingsSurface
+        descriptor={memorySettings}
+        context={{ threadId, workspaceId: activeWorkspaceId ?? null }}
+        open={ragSettings.open}
+        onOpenChange={(open) =>
+          open ? ragSettings.toggle() : ragSettings.close()
+        }
+        testId="rag-settings-panel"
+      />
       <div className="flex-1 space-y-4 overflow-auto px-3 pb-3 pt-3">
         <BucketsPanel />
         <JourneyPanel />

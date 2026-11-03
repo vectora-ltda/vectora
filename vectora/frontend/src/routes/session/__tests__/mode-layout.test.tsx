@@ -135,6 +135,10 @@ vi.mock("@/lib/queries/threads", () => ({
 vi.mock("@/lib/api/vectora-client", () => ({
   listThreads: vi.fn().mockResolvedValue([]),
   getHistory: vi.fn().mockResolvedValue({ messages: [] }),
+  // SessionPage marks an existing route as read on mount. Keep this mocked
+  // as a resolved idempotent RPC so layout tests exercise rendering rather
+  // than failing before the mode composition is committed.
+  markThreadRead: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock("../../../router", () => ({

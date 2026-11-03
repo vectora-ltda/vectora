@@ -1,7 +1,7 @@
 """Registry de backends de busca web.
 
 Antes deste módulo a escolha era binária e implícita: com `TAVILY_API_KEY`,
-Tavily; sem, o fallback DuckDuckGo/Playwright. Não havia como **escolher**
+Tavily; sem, o fallback DuckDuckGo/Chromium do Electron. Não havia como **escolher**
 pesquisar pelo browser embutido — ele só aparecia por falta de chave.
 
 Estrutura copiada do Hermes (`agent/web_search_registry.py:122` mantém uma
@@ -64,13 +64,7 @@ async def _search_ollama_web(query: str, max_results: int = 5) -> list[dict]:
 
 
 async def _search_browser(query: str, max_results: int = 5) -> list[dict]:
-    """Busca pelo Chromium real.
-
-    Hoje reaproveita a sessão isolada de `search_fallback`. O passo seguinte
-    é usar a sessão do workspace (`backend/browser/session.py`), que carrega
-    os logins do usuário — é o que diferencia "buscar pelo meu browser" de
-    "buscar por uma API sem chave".
-    """
+    """Busca no Chromium do Electron, reaproveitando os logins do usuário."""
     from backend.browser.search_fallback import search_fallback
 
     return search_fallback(query, max_results=max_results)
@@ -97,7 +91,7 @@ def _tem_ollama_cloud() -> bool:
 #: Ordem de preferência quando o usuário não escolheu. Backends com
 #: credencial vêm primeiro (quem configurou uma chave espera usá-la), e entre
 #: os sem credencial o DuckDuckGo vem antes do browser: é o default histórico
-#: e não sobe um Chromium só pra buscar. O browser é escolha explícita — é o
+#: e não conecta ao Electron só pra buscar. O browser é escolha explícita — é o
 #: caso em que os logins da sessão importam.
 _BACKENDS: tuple[SearchBackend, ...] = (
     SearchBackend(

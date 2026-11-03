@@ -11,7 +11,12 @@ import { persist, createJSONStorage } from "zustand/middleware";
 import type { BaseThemeColors, ThemePresetDef } from "@/lib/theme/presets";
 import { classifyMode } from "@/lib/theme/mode";
 import { getDefaultModel } from "@/lib/config/deployment-config";
-import { fetchPrefs, pushPrefs } from "@/lib/api/settings-prefs";
+import {
+  fetchPrefs,
+  fetchPrefsOrNull,
+  pushPrefs,
+} from "@/lib/api/settings-prefs";
+import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import {
   CHAT_SIDEBAR_OPEN_MIN_WIDTH,
   SIDE_COLUMN_MIN_WIDTH,
@@ -33,10 +38,70 @@ export type PermissionMode =
   "ask" | "accept_edits" | "plan" | "auto" | "bypass";
 /** Nível de esforço de raciocínio do modelo. */
 export type ReasoningEffort = "low" | "medium" | "high" | "max";
+/** Decision model providers exposed by the frontend selector. */
+export type DecisionModelProvider =
+  "clef-local" | "laya-local" | "clef-api" | "jev-api";
 /** Modo de interface dentro do Dev (chatMode=false): "assistant" é o layout
  *  padrão de chat+workbench; "ide" é o layout VS Code com editor docked;
  *  "kanban" é o board multi-agente. */
 export type UiMode = "assistant" | "ide" | "kanban";
+
+function activeDecisionWorkspaceId(): string | null {
+  return useWorkspacesStore.getState().active_id ?? null;
+}
+
+let settingsUserEpoch = 0;
+const decisionSaves = new Map<string, Promise<boolean>>();
+
+function pushDecisionPrefs(
+  changes: Parameters<typeof pushPrefs>[0],
+  workspaceId: string | null = null,
+): Promise<boolean> {
+  const userEpoch = settingsUserEpoch;
+  const key = JSON.stringify([userEpoch, workspaceId]);
+  const previous = decisionSaves.get(key);
+  const save = () =>
+    settingsUserEpoch === userEpoch
+      ? pushPrefs(changes, workspaceId)
+      : Promise.resolve(false);
+  const pending = previous ? previous.then(save, save) : save();
+  decisionSaves.set(key, pending);
+  void pending.finally(() => {
+    if (decisionSaves.get(key) === pending) decisionSaves.delete(key);
+  });
+  return pending;
+}
+
+let decisionHydrationEpoch = 0;
+let decisionScopeEpoch = 0;
+const decisionEdits = new Map<string, number>();
+const confirmedDecisionValues = new Map<string, unknown>();
+
+function decisionConfirmation(key: string, previous: unknown) {
+  const scope = JSON.stringify([
+    settingsUserEpoch,
+    activeDecisionWorkspaceId(),
+    key,
+  ]);
+  if (!confirmedDecisionValues.has(scope))
+    confirmedDecisionValues.set(scope, previous);
+  return {
+    saved: (value: unknown) => confirmedDecisionValues.set(scope, value),
+    previous: () => confirmedDecisionValues.get(scope),
+  };
+}
+
+function beginDecisionEdit(key: string): () => boolean {
+  ++decisionHydrationEpoch;
+  const revision = (decisionEdits.get(key) ?? 0) + 1;
+  decisionEdits.set(key, revision);
+  const workspace = activeDecisionWorkspaceId();
+  const scopeEpoch = decisionScopeEpoch;
+  return () =>
+    decisionEdits.get(key) === revision &&
+    decisionScopeEpoch === scopeEpoch &&
+    activeDecisionWorkspaceId() === workspace;
+}
 
 /** Fontes configuráveis por superfície. O valor é uma família CSS, não um
  * caminho de arquivo; isso permite usar fontes instaladas no sistema sem
@@ -113,6 +178,13 @@ export interface SettingsState {
   permissionMode: PermissionMode;
   /** Esforço de raciocínio do modelo */
   reasoningEffort: ReasoningEffort;
+  /** Enables a configured decision model for supported execution surfaces. */
+  decisionModelsEnabled: boolean;
+  /** Decision model selected for the next run. */
+  decisionModelProvider: DecisionModelProvider;
+  decisionModelSurfaces: Record<string, boolean>;
+  /** Dictation transcription route; local never sends audio to a provider. */
+  transcriptionMode: "local" | "remote";
   /** Largura da sidebar em px (desktop), arrastável pela borda direita. */
   sidebarWidth: number;
   /** Lado da sidebar de sessões; workbench fica no lado oposto. */
@@ -145,6 +217,11 @@ export interface SettingsState {
   monacoFontSize: number;
   /** Salva arquivos do editor automaticamente após uma pausa na edição. */
   editorAutoSave: boolean;
+  editorMinimap: boolean;
+  editorWordWrap: boolean;
+  editorFormatOnType: boolean;
+  editorQuickSuggestions: boolean;
+  editorLineNumbers: boolean;
   /** Família tipográfica do código no Monaco (Godot usa JetBrains Mono). */
   editorFontFamily: FontFamily;
   /** Família monoespaçada usada por terminais, diffs e blocos de código. */
@@ -157,6 +234,20 @@ export interface SettingsState {
   gitSignoffEnabled: boolean;
   /** Permite solicitar bypass de proteções Git no Workbench. */
   gitBypassEnabled: boolean;
+  /** Expande automaticamente itens de planos recém-abertos. */
+  planAutoExpand: boolean;
+  /** Ordem usada para listar itens do plano. */
+  planSort: "created" | "title";
+  /** Exibe notificações para tarefas em segundo plano. */
+  taskNotifications: boolean;
+  /** Exibe skills na Library. */
+  libraryShowSkills: boolean;
+  /** Exibe servidores MCP na Library. */
+  libraryShowMcp: boolean;
+  /** Permite que páginas abram pop-ups em novas janelas do Browser. */
+  browserAllowPopups: boolean;
+  /** Zoom das views Chromium do Browser, em percentual. */
+  browserZoomPercent: number;
 
   // Ações
   setShowToolCalls: (v: boolean) => void;
@@ -171,6 +262,10 @@ export interface SettingsState {
   setLanguage: (v: Lang) => void;
   setPermissionMode: (v: PermissionMode) => void;
   setReasoningEffort: (v: ReasoningEffort) => void;
+  setDecisionModelsEnabled: (v: boolean) => void;
+  setDecisionModelProvider: (v: DecisionModelProvider) => void;
+  setDecisionModelSurfaces: (v: Record<string, boolean>) => void;
+  setTranscriptionMode: (v: "local" | "remote") => void;
   setSidebarWidth: (v: number) => void;
   setSidebarPosition: (v: SidebarPosition) => void;
   setChatMode: (v: boolean) => void;
@@ -186,12 +281,24 @@ export interface SettingsState {
   setFontScaleMarkdown: (v: number) => void;
   setMonacoFontSize: (v: number) => void;
   setEditorAutoSave: (v: boolean) => void;
+  setEditorMinimap: (v: boolean) => void;
+  setEditorWordWrap: (v: boolean) => void;
+  setEditorFormatOnType: (v: boolean) => void;
+  setEditorQuickSuggestions: (v: boolean) => void;
+  setEditorLineNumbers: (v: boolean) => void;
   setEditorFontFamily: (v: FontFamily) => void;
   setMonoFontFamily: (v: FontFamily) => void;
   setUiFontFamily: (v: FontFamily) => void;
   setGitHooksEnabled: (v: boolean) => void;
   setGitSignoffEnabled: (v: boolean) => void;
   setGitBypassEnabled: (v: boolean) => void;
+  setPlanAutoExpand: (v: boolean) => void;
+  setPlanSort: (v: "created" | "title") => void;
+  setTaskNotifications: (v: boolean) => void;
+  setLibraryShowSkills: (v: boolean) => void;
+  setLibraryShowMcp: (v: boolean) => void;
+  setBrowserAllowPopups: (v: boolean) => void;
+  setBrowserZoomPercent: (v: number) => void;
   resetSettings: () => void;
 }
 
@@ -351,6 +458,10 @@ const DEFAULTS = {
   language: "en" as Lang, // Sobrescrito pelo detectLanguage() no create()
   permissionMode: "ask" as PermissionMode,
   reasoningEffort: "medium" as ReasoningEffort,
+  decisionModelsEnabled: false,
+  decisionModelProvider: "clef-local" as DecisionModelProvider,
+  decisionModelSurfaces: {},
+  transcriptionMode: "remote" as const,
   sidebarWidth: 280,
   sidebarPosition: "left" as SidebarPosition,
   chatMode: false,
@@ -366,12 +477,24 @@ const DEFAULTS = {
   fontScaleMarkdown: FONT_SCALE_BASE_PX,
   monacoFontSize: 13,
   editorAutoSave: false,
+  editorMinimap: true,
+  editorWordWrap: false,
+  editorFormatOnType: true,
+  editorQuickSuggestions: true,
+  editorLineNumbers: true,
   editorFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   monoFontFamily: '"JetBrains Mono", ui-monospace, monospace',
   uiFontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
   gitHooksEnabled: false,
   gitSignoffEnabled: false,
   gitBypassEnabled: false,
+  planAutoExpand: true,
+  planSort: "created" as "created" | "title",
+  taskNotifications: true,
+  libraryShowSkills: true,
+  libraryShowMcp: true,
+  browserAllowPopups: false,
+  browserZoomPercent: 100,
 };
 
 // ---------------------------------------------------------------------------
@@ -392,7 +515,7 @@ export function getStorageKey(userId?: string): string {
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       ...DEFAULTS,
       // Detecta idioma do browser como valor inicial — sobrescrito pelo
       // localStorage ao reidratar se o usuário já havia salvo uma preferência.
@@ -469,6 +592,82 @@ export const useSettingsStore = create<SettingsState>()(
         set({ reasoningEffort: v });
         void pushPrefs({ reasoningEffort: v });
       },
+      setDecisionModelsEnabled: (v) => {
+        const isCurrent = beginDecisionEdit("decisionModelsEnabled");
+        const confirmed = decisionConfirmation(
+          "decisionModelsEnabled",
+          get().decisionModelsEnabled,
+        );
+        set({ decisionModelsEnabled: v });
+        void pushDecisionPrefs(
+          { decisionModelsEnabled: v },
+          activeDecisionWorkspaceId(),
+        ).then((saved) => {
+          if (saved) confirmed.saved(v);
+          else if (isCurrent())
+            set({ decisionModelsEnabled: confirmed.previous() as boolean });
+        });
+      },
+      setDecisionModelProvider: (v) => {
+        const isCurrent = beginDecisionEdit("decisionModelProvider");
+        const confirmed = decisionConfirmation(
+          "decisionModelProvider",
+          get().decisionModelProvider,
+        );
+        set({ decisionModelProvider: v });
+        void pushDecisionPrefs(
+          { decisionModelProvider: v },
+          activeDecisionWorkspaceId(),
+        ).then((saved) => {
+          if (saved) confirmed.saved(v);
+          else if (isCurrent())
+            set({
+              decisionModelProvider:
+                confirmed.previous() as DecisionModelProvider,
+            });
+        });
+      },
+      setDecisionModelSurfaces: (v) => {
+        const isCurrent = beginDecisionEdit("decisionModelSurfaces");
+        const confirmed = decisionConfirmation(
+          "decisionModelSurfaces",
+          get().decisionModelSurfaces,
+        );
+        const safe = Object.fromEntries(
+          Object.entries(v).filter(
+            ([, enabled]) => typeof enabled === "boolean",
+          ),
+        );
+        set({ decisionModelSurfaces: safe });
+        void pushDecisionPrefs(
+          { decisionModelSurfaces: safe },
+          activeDecisionWorkspaceId(),
+        ).then((saved) => {
+          if (saved) confirmed.saved(safe);
+          else if (isCurrent())
+            set({
+              decisionModelSurfaces: confirmed.previous() as Record<
+                string,
+                boolean
+              >,
+            });
+        });
+      },
+      setTranscriptionMode: (v) => {
+        const isCurrent = beginDecisionEdit("transcriptionMode");
+        const confirmed = decisionConfirmation(
+          "transcriptionMode",
+          get().transcriptionMode,
+        );
+        set({ transcriptionMode: v });
+        void pushDecisionPrefs({ transcriptionMode: v }).then((saved) => {
+          if (saved) confirmed.saved(v);
+          else if (isCurrent())
+            set({
+              transcriptionMode: confirmed.previous() as "local" | "remote",
+            });
+        });
+      },
       setSidebarWidth: (v) =>
         set({
           sidebarWidth: Math.max(
@@ -518,12 +717,25 @@ export const useSettingsStore = create<SettingsState>()(
         set({ fontScaleMarkdown: clampFontScale(v) }),
       setMonacoFontSize: (v) => set({ monacoFontSize: clampMonacoFontSize(v) }),
       setEditorAutoSave: (v) => set({ editorAutoSave: v }),
+      setEditorMinimap: (v) => set({ editorMinimap: v }),
+      setEditorWordWrap: (v) => set({ editorWordWrap: v }),
+      setEditorFormatOnType: (v) => set({ editorFormatOnType: v }),
+      setEditorQuickSuggestions: (v) => set({ editorQuickSuggestions: v }),
+      setEditorLineNumbers: (v) => set({ editorLineNumbers: v }),
       setEditorFontFamily: (v) => set({ editorFontFamily: v }),
       setMonoFontFamily: (v) => set({ monoFontFamily: v }),
       setUiFontFamily: (v) => set({ uiFontFamily: v }),
       setGitHooksEnabled: (v) => set({ gitHooksEnabled: v }),
       setGitSignoffEnabled: (v) => set({ gitSignoffEnabled: v }),
       setGitBypassEnabled: (v) => set({ gitBypassEnabled: v }),
+      setPlanAutoExpand: (v) => set({ planAutoExpand: v }),
+      setPlanSort: (v) => set({ planSort: v }),
+      setTaskNotifications: (v) => set({ taskNotifications: v }),
+      setLibraryShowSkills: (v) => set({ libraryShowSkills: v }),
+      setLibraryShowMcp: (v) => set({ libraryShowMcp: v }),
+      setBrowserAllowPopups: (v) => set({ browserAllowPopups: v }),
+      setBrowserZoomPercent: (v) =>
+        set({ browserZoomPercent: Math.max(25, Math.min(500, Math.round(v))) }),
       resetSettings: () =>
         set({
           ...DEFAULTS,
@@ -533,11 +745,16 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: getStorageKey(), // Chave default; re-hidratada ao chamar loadUserSettings()
-      version: 6, // v6: adiciona fontes configuráveis por superfície
+      version: 7, // v7: adiciona a preferência de rota de transcrição
       // v4: clampa sidebarWidth/chatSidebarWidth pros limites atuais mesmo fora do default legado exato (teto do chat caiu de 800→480)
       migrate: (persistedState) => {
         const s = persistedState as Record<string, unknown>;
         if (s && typeof s === "object") {
+          if (
+            s.transcriptionMode !== "local" &&
+            s.transcriptionMode !== "remote"
+          )
+            s.transcriptionMode = "remote";
           if ("fontScaleUi" in s)
             s.fontScaleUi = migrateFontScaleValue(s.fontScaleUi);
           if ("fontScaleChat" in s)
@@ -587,6 +804,7 @@ export const useSettingsStore = create<SettingsState>()(
         language: state.language,
         permissionMode: state.permissionMode,
         reasoningEffort: state.reasoningEffort,
+        transcriptionMode: state.transcriptionMode,
         sidebarWidth: state.sidebarWidth,
         chatMode: state.chatMode,
         uiMode: state.uiMode,
@@ -598,12 +816,24 @@ export const useSettingsStore = create<SettingsState>()(
         fontScaleMarkdown: state.fontScaleMarkdown,
         monacoFontSize: state.monacoFontSize,
         editorAutoSave: state.editorAutoSave,
+        editorMinimap: state.editorMinimap,
+        editorWordWrap: state.editorWordWrap,
+        editorFormatOnType: state.editorFormatOnType,
+        editorQuickSuggestions: state.editorQuickSuggestions,
+        editorLineNumbers: state.editorLineNumbers,
         editorFontFamily: state.editorFontFamily,
         monoFontFamily: state.monoFontFamily,
         uiFontFamily: state.uiFontFamily,
         gitHooksEnabled: state.gitHooksEnabled,
         gitSignoffEnabled: state.gitSignoffEnabled,
         gitBypassEnabled: state.gitBypassEnabled,
+        planAutoExpand: state.planAutoExpand,
+        planSort: state.planSort,
+        taskNotifications: state.taskNotifications,
+        libraryShowSkills: state.libraryShowSkills,
+        libraryShowMcp: state.libraryShowMcp,
+        browserAllowPopups: state.browserAllowPopups,
+        browserZoomPercent: state.browserZoomPercent,
       }),
     },
   ),
@@ -617,6 +847,10 @@ export const useSettingsStore = create<SettingsState>()(
  *   loadUserSettings("user_abc123")
  */
 export function loadUserSettings(userId?: string): void {
+  ++settingsUserEpoch;
+  confirmedDecisionValues.clear();
+  ++decisionScopeEpoch;
+  ++decisionHydrationEpoch;
   const key = getStorageKey(userId);
   useSettingsStore.persist.setOptions({ name: key });
   void Promise.resolve(useSettingsStore.persist.rehydrate()).then(() => {
@@ -640,28 +874,97 @@ export function loadUserSettings(userId?: string): void {
  * usuário estiver resolvido (ver `__root.tsx`).
  */
 export async function hydrateFromBackend(): Promise<void> {
-  const prefs = await fetchPrefs();
-  const s = useSettingsStore.getState();
-  if (prefs.selectedModel) s.setSelectedModel(prefs.selectedModel);
-  if (prefs.theme) s.setTheme(prefs.theme as Theme);
-  if (prefs.language) s.setLanguage(prefs.language as Lang);
-  if (typeof prefs.chatMode === "boolean") s.setChatMode(prefs.chatMode);
+  const workspaceId = activeDecisionWorkspaceId();
+  const epoch = ++decisionHydrationEpoch;
+  ++decisionScopeEpoch;
+  const prefs = await fetchPrefs(workspaceId);
+  if (
+    epoch !== decisionHydrationEpoch ||
+    activeDecisionWorkspaceId() !== workspaceId
+  )
+    return;
+  confirmedDecisionValues.clear();
+  const update: Partial<SettingsState> = {};
+  if (prefs.selectedModel) update.selectedModel = prefs.selectedModel;
+  if (typeof prefs.decisionModelsEnabled === "boolean")
+    update.decisionModelsEnabled = prefs.decisionModelsEnabled;
+  if (
+    prefs.decisionModelProvider === "clef-local" ||
+    prefs.decisionModelProvider === "laya-local" ||
+    prefs.decisionModelProvider === "clef-api" ||
+    prefs.decisionModelProvider === "jev-api"
+  )
+    update.decisionModelProvider = prefs.decisionModelProvider;
+  if (
+    prefs.decisionModelSurfaces &&
+    typeof prefs.decisionModelSurfaces === "object"
+  )
+    update.decisionModelSurfaces = Object.fromEntries(
+      Object.entries(prefs.decisionModelSurfaces).filter(
+        ([, enabled]) => typeof enabled === "boolean",
+      ),
+    );
+  if (
+    prefs.transcriptionMode === "local" ||
+    prefs.transcriptionMode === "remote"
+  )
+    update.transcriptionMode = prefs.transcriptionMode;
+  if (prefs.theme) update.theme = prefs.theme as Theme;
+  if (
+    prefs.language === "en" ||
+    prefs.language === "es" ||
+    prefs.language === "pt"
+  )
+    update.language = prefs.language;
+  if (typeof prefs.chatMode === "boolean") update.chatMode = prefs.chatMode;
   if (prefs.permissionMode)
-    s.setPermissionMode(prefs.permissionMode as PermissionMode);
+    update.permissionMode = prefs.permissionMode as PermissionMode;
   if (prefs.reasoningEffort)
-    s.setReasoningEffort(prefs.reasoningEffort as ReasoningEffort);
+    update.reasoningEffort = prefs.reasoningEffort as ReasoningEffort;
   if (prefs.sidebarPosition)
-    s.setSidebarPosition(prefs.sidebarPosition as SidebarPosition);
+    update.sidebarPosition = prefs.sidebarPosition as SidebarPosition;
   if (typeof prefs.autoUpdateEnabled === "boolean")
-    s.setAutoUpdateEnabled(prefs.autoUpdateEnabled);
+    update.autoUpdateEnabled = prefs.autoUpdateEnabled;
   if (typeof prefs.weeklyInsightEnabled === "boolean")
-    s.setWeeklyInsightEnabled(prefs.weeklyInsightEnabled);
+    update.weeklyInsightEnabled = prefs.weeklyInsightEnabled;
   if (
     prefs.weeklyInsightWeeks === 1 ||
     prefs.weeklyInsightWeeks === 2 ||
     prefs.weeklyInsightWeeks === 4
   )
-    s.setWeeklyInsightWeeks(prefs.weeklyInsightWeeks);
+    update.weeklyInsightWeeks = prefs.weeklyInsightWeeks;
   if (typeof prefs.weeklyInsightDismissedWindow === "string")
-    s.setWeeklyInsightDismissedWindow(prefs.weeklyInsightDismissedWindow);
+    update.weeklyInsightDismissedWindow = prefs.weeklyInsightDismissedWindow;
+  useSettingsStore.setState(update);
+  if (update.language) {
+    const { setLocale, getLocale } = await import("@/lib/paraglide/runtime");
+    if (getLocale() !== update.language) setLocale(update.language);
+  }
+}
+
+/** Reload workspace-specific Decision Model controls after the active workspace changes. */
+export async function hydrateDecisionModelPreferences(
+  workspaceId: string | null = activeDecisionWorkspaceId(),
+): Promise<void> {
+  const epoch = ++decisionHydrationEpoch;
+  ++decisionScopeEpoch;
+  const prefs = await fetchPrefsOrNull(workspaceId);
+  if (prefs === null || epoch !== decisionHydrationEpoch) return;
+  if (activeDecisionWorkspaceId() !== workspaceId) return;
+  confirmedDecisionValues.clear();
+  useSettingsStore.setState({
+    decisionModelsEnabled: prefs.decisionModelsEnabled === true,
+    decisionModelProvider:
+      prefs.decisionModelProvider === "laya-local" ||
+      prefs.decisionModelProvider === "clef-api" ||
+      prefs.decisionModelProvider === "jev-api"
+        ? prefs.decisionModelProvider
+        : "clef-local",
+    decisionModelSurfaces:
+      prefs.decisionModelSurfaces &&
+      typeof prefs.decisionModelSurfaces === "object"
+        ? prefs.decisionModelSurfaces
+        : {},
+    transcriptionMode: prefs.transcriptionMode === "local" ? "local" : "remote",
+  });
 }

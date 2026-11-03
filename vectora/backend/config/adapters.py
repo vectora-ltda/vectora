@@ -82,8 +82,9 @@ class ConfigTomlAdapter:
 
 class RegisteredModelsTableAdapter:
     """Envolve as tabelas SQLite ad hoc de modelos registrados por gateway do
-    `provider_routing` (``ollama_registered_models`` / ``openrouter_registered_models``
-    / ``nine_router_registered_models``). Reusa o resolver de DB e as funções
+    `provider_routing` (``ollama_registered_models`` /
+    ``llamacpp_registered_models`` / ``openrouter_registered_models`` /
+    ``nine_router_registered_models``). Reusa o resolver de DB e as funções
     internas do handler — não duplica a lógica de tabela.
     """
 
@@ -240,7 +241,7 @@ class MemoryAdapter:
                 exc,
             )
             return None
-        import datetime
+        import datetime as dt
 
         from backend.tools.memory import _memory_namespace
 
@@ -249,7 +250,7 @@ class MemoryAdapter:
             "key": key,
             "content": content,
             "metadata": {},
-            "updated_at": datetime.datetime.now(datetime.UTC).isoformat(),
+            "updated_at": dt.datetime.now(dt.UTC).isoformat(),
             "category": None,
         }
         await store.aput(ns, key, value)

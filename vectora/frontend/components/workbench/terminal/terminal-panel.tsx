@@ -24,12 +24,8 @@ import {
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { XtermView } from "./xterm-view";
 import { m } from "@/lib/paraglide/messages";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
+import type { WorkbenchSettingsContext } from "@/lib/types/workbench-settings";
 import { Button } from "@/components/ui/button";
 import { apiFsCreateFile } from "@/components/workbench/files/files-api";
 import { apiUpdateFile, fetchFile } from "@/lib/api/fs-files";
@@ -95,16 +91,18 @@ function useSandboxStatus(workspaceId: string | undefined): {
   return { status, refetch };
 }
 
-function SandboxConfigDialog({
+function SandboxSettingsForm({
   workspaceId,
   diagnostic,
   open,
+  inline = false,
   onOpenChange,
   onInitDone,
 }: {
   workspaceId: string;
   diagnostic: string | null;
   open: boolean;
+  inline?: boolean;
   onOpenChange: (open: boolean) => void;
   onInitDone: () => void;
 }) {
@@ -112,7 +110,7 @@ function SandboxConfigDialog({
   const [loadingFile, setLoadingFile] = useState(false);
   const [savingFile, setSavingFile] = useState(false);
   const [fileExists, setFileExists] = useState(false);
-  const [content, setContent] = useState(DEFAULT_SANDBOX_TOML);
+  const [fileContent, setContent] = useState(DEFAULT_SANDBOX_TOML);
   const [fileSha256, setFileSha256] = useState<string | null>(null);
   const [initError, setInitError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -189,7 +187,7 @@ function SandboxConfigDialog({
         const result = await apiUpdateFile(
           workspaceId,
           "vectora.toml",
-          content,
+          fileContent,
           fileSha256,
         );
         if (!result.ok) {
@@ -205,7 +203,7 @@ function SandboxConfigDialog({
         const created = await apiFsCreateFile(
           workspaceId,
           "vectora.toml",
-          content,
+          fileContent,
         );
         if (!created.ok) {
           setSaveError(created.message ?? m.terminal_sandbox_init_error());
@@ -224,98 +222,129 @@ function SandboxConfigDialog({
     }
   }
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader>
-          <DialogTitle>{m.terminal_sandbox_dialog_title()}</DialogTitle>
-        </DialogHeader>
-        <p className="text-sm text-muted-foreground">{message}</p>
-        {initError && <p className="text-xs text-destructive">{initError}</p>}
-        <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs">
-          <div className="space-y-1">
-            <p className="font-medium text-foreground">
-              {m.terminal_sandbox_editor_title()}
-            </p>
-            <p className="text-muted-foreground">
-              {fileExists
-                ? m.terminal_sandbox_editor_existing_hint()
-                : m.terminal_sandbox_editor_new_hint()}
-            </p>
-          </div>
-          <div className="flex shrink-0 gap-2">
-            {diagnostic === "no_vectora_toml" && (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void handleInit()}
-                disabled={initializing || loadingFile}
-              >
-                {initializing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  m.terminal_sandbox_init_button()
-                )}
-              </Button>
-            )}
+  const content = (
+    <div className="space-y-4 p-4">
+      <p className="text-sm text-muted-foreground">{message}</p>
+      {initError && <p className="text-xs text-destructive">{initError}</p>}
+      <div className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-muted/20 px-3 py-2 text-xs">
+        <div className="space-y-1">
+          <p className="font-medium text-foreground">
+            {m.terminal_sandbox_editor_title()}
+          </p>
+          <p className="text-muted-foreground">
+            {fileExists
+              ? m.terminal_sandbox_editor_existing_hint()
+              : m.terminal_sandbox_editor_new_hint()}
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {diagnostic === "no_vectora_toml" && (
             <Button
               size="sm"
               variant="outline"
-              onClick={() => {
-                setContent(DEFAULT_SANDBOX_TOML);
-                setSaveError(null);
-                setSaveHint(null);
-              }}
-              disabled={loadingFile}
+              onClick={() => void handleInit()}
+              disabled={initializing || loadingFile}
             >
-              <RefreshCcw className="h-3.5 w-3.5" />
-              {m.terminal_sandbox_editor_reset()}
-            </Button>
-          </div>
-        </div>
-        <div className="space-y-2">
-          {loadingFile ? (
-            <div className="flex min-h-[18rem] items-center justify-center rounded-md border border-border/60 bg-muted/20">
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            </div>
-          ) : (
-            <textarea
-              className="min-h-[18rem] w-full resize-y rounded-md border border-border/60 bg-background p-3 font-mono text-xs outline-none focus:border-primary"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              spellCheck={false}
-            />
-          )}
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="min-h-4 text-xs">
-              {saveError ? (
-                <p className="text-destructive">{saveError}</p>
-              ) : saveHint ? (
-                <p className="text-emerald-600 dark:text-emerald-400">
-                  {saveHint}
-                </p>
-              ) : (
-                <p className="text-muted-foreground">
-                  {m.terminal_sandbox_editor_autosync_hint()}
-                </p>
-              )}
-            </div>
-            <Button
-              size="sm"
-              onClick={() => void handleSave()}
-              disabled={loadingFile || savingFile}
-            >
-              {savingFile ? (
+              {initializing ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : null}
-              {fileExists
-                ? m.terminal_sandbox_editor_save()
-                : m.terminal_sandbox_editor_create()}
+              ) : (
+                m.terminal_sandbox_init_button()
+              )}
             </Button>
-          </div>
+          )}
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setContent(DEFAULT_SANDBOX_TOML);
+              setSaveError(null);
+              setSaveHint(null);
+            }}
+            disabled={loadingFile}
+          >
+            <RefreshCcw className="h-3.5 w-3.5" />
+            {m.terminal_sandbox_editor_reset()}
+          </Button>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+      <div className="space-y-2">
+        {loadingFile ? (
+          <div className="flex min-h-[18rem] items-center justify-center rounded-md border border-border/60 bg-muted/20">
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <textarea
+            className="min-h-[18rem] w-full resize-y rounded-md border border-border/60 bg-background p-3 font-mono text-xs outline-none focus:border-primary"
+            value={fileContent}
+            onChange={(e) => setContent(e.target.value)}
+            spellCheck={false}
+          />
+        )}
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="min-h-4 text-xs">
+            {saveError ? (
+              <p className="text-destructive">{saveError}</p>
+            ) : saveHint ? (
+              <p className="text-emerald-600 dark:text-emerald-400">
+                {saveHint}
+              </p>
+            ) : (
+              <p className="text-muted-foreground">
+                {m.terminal_sandbox_editor_autosync_hint()}
+              </p>
+            )}
+          </div>
+          <Button
+            size="sm"
+            onClick={() => void handleSave()}
+            disabled={loadingFile || savingFile}
+          >
+            {savingFile ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : null}
+            {fileExists
+              ? m.terminal_sandbox_editor_save()
+              : m.terminal_sandbox_editor_create()}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+  if (inline) return content;
+  return (
+    <WorkbenchDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={m.terminal_sandbox_dialog_title()}
+      description={m.terminal_sandbox_editor_autosync_hint()}
+      testId="terminal-settings-panel"
+    >
+      {content}
+    </WorkbenchDialog>
+  );
+}
+
+/** Entrada do contrato global de configurações para o sandbox do Terminal. */
+export function TerminalSettings({ workspaceId }: WorkbenchSettingsContext) {
+  const { status, refetch } = useSandboxStatus(workspaceId ?? undefined);
+
+  if (!workspaceId) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        {m.workbench_settings_missing_workspace()}
+      </p>
+    );
+  }
+
+  return (
+    <SandboxSettingsForm
+      workspaceId={workspaceId}
+      diagnostic={status?.diagnostic ?? null}
+      open
+      inline
+      onOpenChange={() => undefined}
+      onInitDone={refetch}
+    />
   );
 }
 
@@ -338,20 +367,106 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
     useSandboxStatus(workspace?.id);
   const [sandboxDialogOpen, setSandboxDialogOpen] = useState(false);
 
-  // Abre 1 terminal automaticamente quando o painel monta sem nenhum.
-  // Lê o store inline (não a captura reativa) — Strict Mode roda effects
-  // 2× em dev e a captura levaria a abrir 2 shells.
+  // Reusa primeiro uma PTY já aberta no workspace (pelo usuário ou pelo
+  // agente). Criar uma aba antes dessa consulta causava duas shells na mesma
+  // Workbench: a UI não via a thread do agente e abria outra sessão.
   useEffect(() => {
-    const current = useTerminalsStore.getState().list(threadId);
-    if (current.length === 0 && workspace?.trusted) {
-      open(threadId, {
-        id: newId(),
-        title: m.terminal_tab_default(),
-        workspaceId: workspace.id,
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!workspace?.trusted) return;
+    let stopped = false;
+    const ensureTerminal = async () => {
+      const current = useTerminalsStore.getState().list(threadId);
+      if (current.length > 0) return;
+      try {
+        const params = new URLSearchParams({
+          thread_id: threadId,
+          workspace_id: workspace.id,
+        });
+        const response = await fetch(
+          `/vectora.terminal.v1/list?${params.toString()}`,
+          { credentials: "include" },
+        );
+        const payload = response.ok
+          ? ((await response.json()) as {
+              terminals?: Array<{ terminal_id?: string; alive?: boolean }>;
+            })
+          : null;
+        const existing = payload?.terminals?.find(
+          (terminal) => terminal.terminal_id && terminal.alive,
+        );
+        if (stopped) return;
+        if (useTerminalsStore.getState().list(threadId).length > 0) return;
+        open(threadId, {
+          id: existing?.terminal_id ?? newId(),
+          title: existing ? m.terminal_tab_shared() : m.terminal_tab_default(),
+          workspaceId: workspace.id,
+        });
+      } catch {
+        if (
+          !stopped &&
+          useTerminalsStore.getState().list(threadId).length === 0
+        ) {
+          open(threadId, {
+            id: newId(),
+            title: m.terminal_tab_default(),
+            workspaceId: workspace.id,
+          });
+        }
+      }
+    };
+    void ensureTerminal();
+    return () => {
+      stopped = true;
+    };
+  }, [open, threadId, workspace?.id, workspace?.trusted]);
+
+  // O agente também pode abrir PTYs. Sincroniza o registry do backend para
+  // que essas sessões apareçam como abas nesta mesma Workbench, inclusive
+  // quando várias forem criadas em paralelo.
+  useEffect(() => {
+    if (!workspace?.id || !workspace.trusted) return;
+    let stopped = false;
+    const syncAgentTerminals = async () => {
+      try {
+        const params = new URLSearchParams({
+          thread_id: threadId,
+          workspace_id: workspace.id,
+        });
+        const response = await fetch(
+          `/vectora.terminal.v1/list?${params.toString()}`,
+          { credentials: "include" },
+        );
+        if (!response.ok || stopped) return;
+        const payload = (await response.json()) as {
+          terminals?: Array<{ terminal_id?: string; alive?: boolean }>;
+        };
+        const current = useTerminalsStore.getState().list(threadId);
+        const known = new Set(current.map((terminal) => terminal.id));
+        for (const terminal of payload.terminals ?? []) {
+          if (
+            !terminal.terminal_id ||
+            !terminal.alive ||
+            known.has(terminal.terminal_id)
+          ) {
+            continue;
+          }
+          open(threadId, {
+            id: terminal.terminal_id,
+            title: m.terminal_tab_agent(),
+            workspaceId: workspace.id,
+          });
+          known.add(terminal.terminal_id);
+        }
+      } catch {
+        // A transient auth/startup failure must not break the terminal panel.
+      }
+    };
+    void syncAgentTerminals();
+    const timer = window.setInterval(() => void syncAgentTerminals(), 1500);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+    };
+  }, [open, threadId, workspace?.id, workspace?.trusted]);
 
   if (!workspace) {
     return (
@@ -440,7 +555,7 @@ export function TerminalPanel({ threadId }: TerminalPanelProps) {
         </div>
       )}
       {workspace && (
-        <SandboxConfigDialog
+        <SandboxSettingsForm
           workspaceId={workspace.id}
           diagnostic={sandboxStatus?.diagnostic ?? null}
           open={sandboxDialogOpen}

@@ -26,10 +26,15 @@ vocabulário nativo.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import hashlib
 import json
+import logging
+import math
 import time
 from dataclasses import dataclass, field, replace
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from backend.engine.guardrails import LoopCapConfig, TurnBudget
@@ -45,8 +50,28 @@ from backend.engine.stream_events import (
     ToolResult,
     WorkbenchInvalidate,
 )
-from backend.engine.tool_batch import _is_tool_error, execute_tool_batch
-from backend.services.context_compaction import compact_messages
+from backend.engine.tool_batch import (
+    _apply_post_execute,
+    _apply_pre_execute,
+    _has_structured_result,
+    _is_tool_error,
+    execute_tool_batch,
+)
+from backend.persistence.native.agent_run import AgentRunMetrics
+from backend.persistence.native.ledger import (
+    LedgerEventType,
+    LedgerEventTypeLiteral,
+    ThreadLedgerEvent,
+    make_agent_turn_started_key,
+    make_decision_model_decision_key,
+    make_run_completed_key,
+    make_run_failed_key,
+    make_tool_finished_key,
+    make_tool_started_key,
+)
+from backend.services.context_planner import compute_transcript_hash
+from backend.services.memory_store import MemoryRecord
+from backend.vtypes.contracts import ToolOption
 from backend.vtypes.message import ContentBlock, MessageRole, ToolCall, VMessage
 
 _REPEATED_CALL_THRESHOLD = 3
@@ -55,6 +80,398 @@ aviso de possível loop preso — inspirado na detecção de repetição do
 hermes-agent (`agent/tool_guardrails.py`), sem a classificação
 idempotente/mutante dele: aqui é só sinal, o LLM/HITL decide o resto."""
 
+_REPEATED_CALL_HARD_LIMIT = 6
+"""Limite de segurança antes de encerrar uma chamada de tool presa."""
+
+logger = logging.getLogger(__name__)
+
+
+async def _bind_decision_model_snapshot(
+    session_store: SessionStore,
+    ctx: ToolContext,
+    run_id: str | None,
+    policy_snapshot: PolicySnapshot,
+) -> None:
+    """Keep a run's decision settings stable across retries and resume."""
+    if not run_id or not hasattr(session_store, "get_agent_run"):
+        return
+    run = await session_store.get_agent_run(run_id)
+    if run is None:
+        return
+    if not isinstance(ctx._extra, dict):
+        ctx._extra = {}
+    from backend.llm.systemone.preferences import (
+        decision_model_preferences,
+        decision_model_runtime_fingerprint,
+    )
+    from backend.settings import settings
+    from backend.workspace.runtime_settings import runtime_settings
+
+    current = decision_model_preferences(ctx)
+    surfaces = current.get("surfaces")
+    effective = {
+        "enabled": current.get("enabled") is True,
+        "provider": current.get("provider"),
+        "surfaces": {str(name): enabled is True for name, enabled in surfaces.items()}
+        if isinstance(surfaces, dict)
+        else {},
+    }
+    provider = effective["provider"] if isinstance(effective["provider"], str) else None
+    model_by_provider = {
+        "clef-local": settings.systemone_local_model,
+        "laya-local": settings.systemone_laya_model,
+        "clef-api": settings.systemone_clef_api_model,
+        "jev-api": settings.systemone_jev_api_model,
+    }
+    runtime = {
+        "preferences_revision": await asyncio.to_thread(
+            runtime_settings.get_decision_model_revision,
+            ctx.user_id or "local",
+            ctx.workspace_id or None,
+        ),
+        "provider_config_fingerprint": decision_model_runtime_fingerprint(provider),
+        "model": model_by_provider.get(provider) if isinstance(provider, str) else None,
+        "systemone_enabled": settings.systemone_enabled,
+        "allow_remote_fallback": settings.systemone_allow_remote_fallback,
+        "risk_assessment_timeout_s": settings.systemone_risk_assessment_timeout_s,
+        "confidence_threshold_hitl": settings.systemone_confidence_threshold_hitl,
+        "policy_version": policy_snapshot.version,
+    }
+    evidence_id = f"decision-model-snapshot:{run_id}"
+    previous = next(
+        (
+            item
+            for item in run.evidence
+            if isinstance(item, dict) and item.get("evidence_id") == evidence_id
+        ),
+        None,
+    )
+    if previous is not None:
+        saved = previous.get("preferences")
+        if isinstance(saved, dict):
+            prior_snapshot = ctx._extra.get("decision_model_snapshot")
+            previously_revoked = (
+                isinstance(prior_snapshot, dict)
+                and prior_snapshot.get("run_id") == run_id
+                and ctx._extra.get("decision_model_revoked") is True
+            )
+            ctx._extra["decision_model_preferences"] = saved
+            if (
+                effective != saved
+                or any(previous.get(key) != value for key, value in runtime.items())
+                or previously_revoked
+            ):
+                ctx._extra["decision_model_revoked"] = True
+            else:
+                ctx._extra.pop("decision_model_revoked", None)
+            ctx._extra["decision_model_snapshot"] = previous
+        return
+    snapshot = {
+        "kind": "decision_model_snapshot",
+        "evidence_id": evidence_id,
+        "run_id": run_id,
+        "preferences": effective,
+        **runtime,
+    }
+    await session_store.record_run_evidence(run_id, evidence=snapshot)
+    persisted_run = await session_store.get_agent_run(run_id)
+    persisted = next(
+        (
+            item
+            for item in (persisted_run.evidence if persisted_run is not None else [])
+            if isinstance(item, dict) and item.get("evidence_id") == evidence_id
+        ),
+        None,
+    )
+    if not isinstance(persisted, dict):
+        raise RuntimeError("Decision Model snapshot was not durably recorded")
+    if persisted != snapshot:
+        ctx._extra["decision_model_revoked"] = True
+        snapshot = persisted
+        effective = persisted.get("preferences", effective)
+    else:
+        ctx._extra.pop("decision_model_revoked", None)
+    ctx._extra["decision_model_preferences"] = effective
+    ctx._extra["decision_model_snapshot"] = snapshot
+
+
+def _build_selected_decision_harness(ctx: ToolContext) -> Any | None:
+    """Build only the explicitly selected decision provider for this run."""
+    from backend.llm.systemone.preferences import selected_decision_model_provider
+
+    provider = selected_decision_model_provider(ctx)
+    if provider is None:
+        return None
+
+    from backend.tools.systemone_tools import _build_default_harness
+
+    return _build_default_harness(provider)
+
+
+async def _persist_decision_model_record(
+    session_store: SessionStore,
+    *,
+    run_id: str | None,
+    thread_id: str,
+    tool_call: ToolCall,
+    surface: str | tuple[str, ...],
+    record: dict[str, Any],
+) -> None:
+    """Persist a redacted decision in AgentRun and the thread ledger."""
+    if not run_id:
+        msg = "Decision Model requires a run_id for durable audit"
+        raise ValueError(msg)
+    if not hasattr(session_store, "record_run_evidence") or not hasattr(
+        session_store, "append_ledger_event"
+    ):
+        msg = "Decision Model audit storage is unavailable"
+        raise RuntimeError(msg)
+
+    from backend.engine.decision_record import DecisionRecord
+
+    record = DecisionRecord.model_validate(
+        {key: value for key, value in record.items() if key != "raw_response"}
+    ).model_dump(exclude_none=True)
+    args_digest = hashlib.sha256(
+        json.dumps(tool_call.args, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    call_id = tool_call.id or f"{tool_call.name}:{args_digest}"
+    payload = {
+        "tool_name": tool_call.name,
+        "tool_call_id": call_id,
+        "args_digest": args_digest,
+        "surface": list(surface) if isinstance(surface, tuple) else surface,
+        **{
+            key: record[key]
+            for key in (
+                "decision",
+                "reason",
+                "provider",
+                "model",
+                "confidence",
+                "risk_score",
+                "policy_version",
+                "decision_id",
+            )
+            if key in record
+        },
+    }
+    evidence = {
+        "type": "decision_model_decision",
+        "evidence_id": make_decision_model_decision_key(run_id, call_id),
+        "run_id": run_id,
+        "thread_id": thread_id,
+        **payload,
+    }
+    response_redacted = record.get("response_redacted")
+    if isinstance(response_redacted, dict):
+        evidence["response_redacted"] = response_redacted
+    await session_store.record_run_evidence(
+        run_id,
+        tool_used=tool_call.name,
+        evidence=evidence,
+    )
+    await session_store.append_ledger_event(
+        thread_id,
+        event_key=make_decision_model_decision_key(run_id, call_id),
+        event_type=LedgerEventType.DECISION_MODEL_DECISION,
+        run_id=run_id,
+        tool_call_id=call_id,
+        payload=payload,
+    )
+
+
+async def _preapproval_run_is_scoped(
+    session_store: SessionStore, *, workspace_id: str, thread_id: str, run_id: str
+) -> bool:
+    """Require a durable run bound to this exact thread and workspace."""
+    if not hasattr(session_store, "get_agent_run"):
+        return False
+    try:
+        run = await session_store.get_agent_run(run_id)
+    except Exception:
+        logger.exception("Falha ao validar AgentRun da concessão pré-aprovada")
+        return False
+    return bool(
+        run
+        and run.run_id == run_id
+        and run.thread_id == thread_id
+        and run.workspace_id == workspace_id
+    )
+
+
+def _plan_turn_fingerprint(history: list[VMessage]) -> str:
+    """Bind human approval to the immutable prefix ending at the last user input."""
+    last_user = max(
+        (index for index, msg in enumerate(history) if msg.role == MessageRole.USER),
+        default=-1,
+    )
+    return compute_transcript_hash(history[: last_user + 1])
+
+
+async def _hydrate_plan_approvals(
+    session_store: SessionStore,
+    ctx: ToolContext,
+    run_id: str | None,
+    history: list[VMessage],
+) -> None:
+    """Restore only human approvals persisted for this run, scope and user turn."""
+    ctx._extra["plan_approved_tool_call_ids"] = []
+    if not run_id or not hasattr(session_store, "get_agent_run"):
+        return
+    try:
+        run = await session_store.get_agent_run(run_id)
+        if (
+            not run
+            or run.thread_id != ctx.thread_id
+            or (run.workspace_id or "") != ctx.workspace_id
+            or run.user_id != ctx.user_id
+        ):
+            return
+        turn_key = _plan_turn_fingerprint(history)
+        ctx._extra["plan_approved_tool_call_ids"] = [
+            item["tool_call_id"]
+            for item in run.approvals
+            if item.get("source") == "human"
+            and item.get("decision") in {"approve", "edit", "option"}
+            and item.get("turn_key") == turn_key
+            and isinstance(item.get("tool_call_id"), str)
+        ]
+    except Exception:
+        logger.exception("Failed to restore audited Plan Mode approvals")
+
+
+async def _consume_preapproval_grant(
+    session_store: SessionStore,
+    *,
+    ctx: ToolContext,
+    run_id: str | None,
+    tool_call: ToolCall,
+) -> bool:
+    """Consume an exact one-use grant and durably audit it before execution."""
+    workspace_id = ctx.workspace_id
+    extra = ctx._extra if isinstance(ctx._extra, dict) else {}
+    if (
+        not workspace_id
+        or not run_id
+        or extra.get("decision_model_revoked") is True
+        or not hasattr(session_store, "record_run_evidence")
+        or not hasattr(session_store, "append_ledger_event")
+        or not await _preapproval_run_is_scoped(
+            session_store,
+            workspace_id=workspace_id,
+            thread_id=ctx.thread_id,
+            run_id=run_id,
+        )
+    ):
+        return False
+
+    from backend.engine.hitl import _risk_assessment_key
+    from backend.services.smart_approval import consume_run_grant
+
+    risk_key = _risk_assessment_key(tool_call.name, tool_call.args)
+    decisions = extra.get("systemone_decisions")
+    decision = decisions.get(risk_key) if isinstance(decisions, dict) else None
+    if isinstance(decision, dict) and decision.get("decision") in {
+        "deny",
+        "requires_human",
+    }:
+        return False
+
+    grant_id = await asyncio.to_thread(
+        consume_run_grant, workspace_id, run_id, tool_call.name, tool_call.args
+    )
+    if grant_id is None:
+        return False
+    args_digest = hashlib.sha256(
+        json.dumps(tool_call.args, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    call_id = tool_call.id or f"{tool_call.name}:{args_digest}"
+    event_key = hashlib.sha256(f"preapproval:{run_id}:{grant_id}".encode()).hexdigest()
+    evidence = {
+        "type": "hitl_preapproval_consumed",
+        "evidence_id": event_key,
+        "run_id": run_id,
+        "thread_id": ctx.thread_id,
+        "workspace_id": workspace_id,
+        "tool_name": tool_call.name,
+        "tool_call_id": call_id,
+        "args_digest": args_digest,
+        "grant_id": grant_id,
+        "decision": "preapproved",
+    }
+    try:
+        await session_store.record_run_evidence(
+            run_id, tool_used=tool_call.name, evidence=evidence
+        )
+        persisted_run = await session_store.get_agent_run(run_id)
+        if persisted_run is None or not any(
+            item.get("evidence_id") == event_key
+            for item in persisted_run.evidence
+            if isinstance(item, dict)
+        ):
+            raise RuntimeError("Preapproval audit was not durably recorded")
+        await session_store.append_ledger_event(
+            ctx.thread_id,
+            event_key=event_key,
+            event_type=LedgerEventType.APPROVAL_RESOLVED,
+            run_id=run_id,
+            tool_call_id=call_id,
+            payload={
+                "decision": "preapproved_grant_consumed",
+                "grant_id": grant_id,
+                "workspace_id": workspace_id,
+                "args_digest": args_digest,
+            },
+        )
+    except Exception:
+        logger.exception("Falha ao auditar concessão pré-aprovada; exigindo HITL")
+        return False
+    return True
+
+
+def _preserve_latest_tool_result(model_id: str) -> bool:
+    """Executa a operação  preserve latest tool result."""
+    normalized = model_id.strip().casefold()
+    return normalized.startswith(("ollama:", "llamacpp:", "dmr:"))
+
+
+async def _load_persistent_context_memories(ctx: ToolContext) -> list[MemoryRecord]:
+    """Executa a operação  load persistent context memories."""
+    if ctx.store is None or not hasattr(ctx.store, "asearch"):
+        return []
+    if ctx.user_id and ctx.user_id != "local":
+        owner = ctx.user_id
+    elif ctx.workspace_id:
+        owner = f"workspace_{ctx.workspace_id}"
+    elif ctx.thread_id:
+        owner = f"session_{ctx.thread_id}"
+    else:
+        owner = "local"
+    try:
+        from backend.tools.memory import _search_unexpired
+
+        items = await _search_unexpired(
+            ctx.store,
+            ("user", owner, "memories"),
+            query="",
+            limit=5,
+            initial_scan_limit=5,
+        )
+        from backend.services.context_planner import memory_records_from_backend_items
+
+        return [
+            record
+            for record in memory_records_from_backend_items(
+                items, default_scope_id=ctx.workspace_id or "global"
+            )
+            if record.active
+        ]
+    except Exception:
+        logger.exception("conversation_loop: falha ao carregar memórias persistentes")
+        return []
+
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -62,6 +479,7 @@ if TYPE_CHECKING:
     from backend.engine.stream_events import EventSink
     from backend.llm.base import ChatClient
     from backend.persistence.native.session_store import SessionStore
+    from backend.services.policy_compiler import PolicySnapshot
     from backend.tools.context import ToolContext
     from backend.tools.registry import ToolRegistry
 
@@ -97,7 +515,48 @@ class LoopResult:
 
 
 async def _noop_event(_event: object) -> None:
-    return None
+    """Executa a operação  noop event."""
+    return
+
+
+async def _safe_update_agent_run_status(
+    session_store: Any,
+    run_id: str | None,
+    *,
+    status: str,
+    detail: str | None = None,
+    error_code: str | None = None,
+    metrics: AgentRunMetrics | None = None,
+) -> None:
+    """Persiste o estado do run sem deixar falha do storage interromper o turno."""
+    if not run_id or not hasattr(session_store, "update_agent_run_status"):
+        return
+    try:
+        await session_store.update_agent_run_status(
+            run_id,
+            status=status,
+            detail=detail,
+            error_code=error_code,
+            metrics=metrics,
+        )
+    except Exception:
+        logger.exception(
+            "conversation_loop: falha ao persistir status do run %s", run_id
+        )
+
+
+async def _safe_record_run_evidence(
+    session_store: Any, run_id: str | None, **evidence: Any
+) -> None:
+    """Persiste evidências de forma best-effort, sem perder o resultado da tool."""
+    if not run_id or not hasattr(session_store, "record_run_evidence"):
+        return
+    try:
+        await session_store.record_run_evidence(run_id, **evidence)
+    except Exception:
+        logger.exception(
+            "conversation_loop: falha ao persistir evidência do run %s", run_id
+        )
 
 
 _ARGS_PREVIEW_MAX_CHARS = 80
@@ -180,7 +639,16 @@ def _parse_todos_result(texto: str) -> list[TodoItem] | None:
         status = item.get("status")
         if status not in ("pending", "in_progress", "completed"):
             return None
-        itens.append(TodoItem(content=str(item.get("content", "")), status=status))
+        step_id = item.get("step_id")
+        quality_gate = item.get("quality_gate")
+        itens.append(
+            TodoItem(
+                content=str(item.get("content", "")),
+                status=status,
+                step_id=str(step_id) if step_id is not None else None,
+                quality_gate=str(quality_gate) if quality_gate is not None else None,
+            )
+        )
     return itens
 
 
@@ -211,7 +679,42 @@ def _resolve_tool_calls(acumulado: dict[int, dict[str, Any]]) -> list[ToolCall]:
     return chamadas
 
 
-async def run_conversation(
+async def _workspace_changed_paths(ctx: ToolContext) -> set[str]:
+    """Obtém arquivos alterados do workspace, sem confiar nos argumentos da tool."""
+    root = getattr(ctx, "workspace_dir", None) or getattr(ctx, "cwd", None)
+    if not root:
+        return set()
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "status",
+            "--porcelain",
+            cwd=str(root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+        )
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=2.0)
+        if proc.returncode != 0:
+            return set()
+        paths: set[str] = set()
+        for line in (stdout or b"").decode("utf-8", errors="replace").splitlines():
+            if len(line) <= 3:
+                continue
+            path = line[3:].strip()
+            if " -> " in path:
+                path = path.split(" -> ", 1)[-1].strip()
+            if path:
+                paths.add(path)
+        return paths
+    except Exception:
+        logger.debug(
+            "conversation_loop: não foi possível obter arquivos alterados",
+            exc_info=True,
+        )
+        return set()
+
+
+async def run_conversation(  # noqa: PLR0911
     *,
     session_store: SessionStore,
     chat_client: ChatClient,
@@ -225,52 +728,285 @@ async def run_conversation(
     ]
     | None = None,
     approval_gate: ApprovalGate | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> LoopResult:
     # A origem de cobrança vem exclusivamente da credencial persistida do
     # usuário autenticado. O marcador é refeito a cada execução para impedir
     # que um contexto reidratado ou argumento de tool carregue uma isenção
     # não confirmada.
+    """Executa a operação run conversation."""
     from backend.services.media_billing import apply_media_billing_source
+    from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    if hasattr(session_store, "get_session") and not (
+        isinstance(ctx._extra, dict) and ctx._extra.get("untrusted_content")
+    ):
+        session_meta = await session_store.get_session(thread_id)
+        if session_meta and session_meta.get("mode") == "connect":
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
 
+    if hasattr(session_store, "list_agent_runs"):
+        runs = await session_store.list_agent_runs(thread_id, limit=5)
+        if any(
+            bool(
+                run.get("untrusted_content")
+                if isinstance(run, dict)
+                else getattr(run, "untrusted_content", False)
+            )
+            for run in runs
+        ):
+            if not isinstance(ctx._extra, dict):
+                ctx._extra = {}
+            ctx._extra["untrusted_content"] = True
+    refreshed_policy_snapshot = compile_policy_snapshot(ctx)
+    if policy_snapshot is None:
+        policy_snapshot = refreshed_policy_snapshot
+    await _bind_decision_model_snapshot(
+        session_store, ctx, config.run_id, policy_snapshot
+    )
+
+    if isinstance(ctx._extra, dict):
+        sub_deps = ctx._extra.get("subagent_deps")
+        if sub_deps is not None:
+            # The parent context can be reused for several goal turns. Refresh
+            # the dependency snapshot every time so RBAC and trust changes are
+            # visible to the next delegated call.
+            sub_deps.policy_snapshot = policy_snapshot
     emit = on_event or _noop_event
     tools = tool_registry.all()
     parent_id = await session_store.get_branch_head_id(thread_id)
-    assinaturas_anteriores: frozenset[tuple[str, str]] | None = None
+    # Uma identidade por invocação mantém retries correlacionados sem
+    # reutilizar IDs quando o runner não fornece run_id.
+    turn_identity: str = config.run_id or f"turn-{uuid4().hex}"
+
+    if config.run_id:
+        try:
+            if hasattr(session_store, "append_ledger_event"):
+                await session_store.append_ledger_event(
+                    thread_id,
+                    event_key=make_agent_turn_started_key(config.run_id),
+                    event_type="agent_turn_started",
+                    run_id=config.run_id,
+                    payload={"iteration": 1},
+                )
+            elif hasattr(session_store, "append_event"):
+                await session_store.append_event(
+                    thread_id,
+                    ThreadLedgerEvent(
+                        thread_id=thread_id,
+                        event_key=make_agent_turn_started_key(config.run_id),
+                        type="agent_turn_started",
+                        run_id=config.run_id,
+                        payload={"iteration": 1},
+                    ),
+                )
+        except Exception:
+            logger.exception(
+                "conversation_loop: falha ao registrar agent_turn_started no ledger para thread %s",
+                thread_id,
+            )
+    assinaturas_anteriores: tuple[tuple[str, str], ...] | None = None
     repeticoes_seguidas = 0
     turn_budget = TurnBudget(config=config.loop_caps)
     last_usage: dict[str, int] | None = None
     usage_models: set[str] = set()
     usage_records: list[tuple[str | None, dict[str, int]]] = []
     observed_tools: set[str] = set()
+    files_touched: list[str] = []
+    executed_step_gates: set[tuple[str, str]] = set()
+    manifest_recorded = False
+    projection_recorded = False
+
+    async def _persist_context_checkpoint(
+        raw_history: list[VMessage],
+        *,
+        phase: str,
+        iteration: int,
+        source_hash: str,
+        pending_tool_call_ids: tuple[str, ...] = (),
+        completed_tool_call_ids: tuple[str, ...] = (),
+    ) -> None:
+        """Executa a operação  persist context checkpoint."""
+        if not config.run_id or not hasattr(session_store, "save_context_checkpoint"):
+            return
+        await session_store.save_context_checkpoint(
+            thread_id,
+            config.run_id,
+            {
+                "checkpoint_id": f"{config.run_id}:seq:{len(raw_history)}:{phase}",
+                "last_sequence": len(raw_history),
+                "source_hash": source_hash,
+                "schema_version": "context.v1",
+                "state": {
+                    "iteration": iteration,
+                    "phase": phase,
+                    "policy_version": getattr(policy_snapshot, "version", ""),
+                    "pending_tool_call_ids": list(pending_tool_call_ids),
+                    "completed_tool_call_ids": list(completed_tool_call_ids),
+                },
+                "artifact_refs": [],
+            },
+        )
+
+    if config.run_id and hasattr(session_store, "get_latest_context_checkpoint"):
+        try:
+            checkpoint = await session_store.get_latest_context_checkpoint(
+                thread_id, run_id=config.run_id
+            )
+            raw_state = checkpoint.get("state", {}) if checkpoint else {}
+            state = (
+                cast("dict[str, Any]", raw_state) if isinstance(raw_state, dict) else {}
+            )
+            current_history = await session_store.get_history(thread_id)
+            checkpoint_sequence = (
+                int(cast("int", checkpoint.get("last_sequence", 0)))
+                if checkpoint is not None
+                else -1
+            )
+            checkpoint_hash_matches = bool(
+                checkpoint
+                and checkpoint_sequence >= 0
+                and checkpoint_sequence <= len(current_history)
+                and checkpoint.get("source_hash")
+                == compute_transcript_hash(current_history[:checkpoint_sequence])
+            )
+            checkpoint_is_current = bool(
+                checkpoint
+                and checkpoint.get("schema_version") == "context.v1"
+                and checkpoint_hash_matches
+            )
+            if (
+                checkpoint_is_current
+                and checkpoint is not None
+                and checkpoint.get("run_id") == config.run_id
+                and state.get("phase") == "tool_running"
+                and state.get("pending_tool_call_ids")
+            ):
+                await _safe_update_agent_run_status(
+                    session_store,
+                    config.run_id,
+                    status="recovery_required",
+                    detail="Execução interrompida durante tools; reconciliação necessária.",
+                    error_code="CHECKPOINT_TOOL_RECONCILIATION_REQUIRED",
+                )
+                return LoopResult(stopped_reason="recovery_required")
+        except Exception:
+            logger.exception(
+                "conversation_loop: falha ao carregar checkpoint de retomada"
+            )
 
     for _iteracao in range(config.max_iterations):
-        historico = compact_messages(
-            await session_store.get_history(thread_id),
-            max_tokens=(
-                config.context_max_tokens
-                if config.context_max_tokens is not None
-                else _default_context_tokens()
-            ),
-            enabled=config.context_compaction_enabled,
+        raw_history = await session_store.get_history(thread_id)
+        if ctx.permission_mode == "plan":
+            await _hydrate_plan_approvals(
+                session_store, ctx, config.run_id, raw_history
+            )
+        effective_max_tokens = (
+            config.context_max_tokens
+            if config.context_max_tokens is not None
+            else _default_context_tokens()
         )
+        from backend.services.context_planner import plan_context
+
+        planned_context = plan_context(
+            raw_history,
+            max_tokens=effective_max_tokens,
+            enabled=config.context_compaction_enabled,
+            preserve_latest_tool_result=_preserve_latest_tool_result(str(ctx.model)),
+            workspace_id=ctx.workspace_id or None,
+            policy_snapshot=policy_snapshot,
+            persistent_memory_records=await _load_persistent_context_memories(ctx),
+        )
+        historico = planned_context.messages
+        if config.run_id and hasattr(session_store, "record_run_evidence"):
+            try:
+                if planned_context.manifest and not manifest_recorded:
+                    await session_store.record_run_evidence(
+                        config.run_id,
+                        evidence={
+                            "run_id": config.run_id,
+                            "thread_id": thread_id,
+                            **planned_context.manifest.to_evidence_entry(),
+                        },
+                    )
+                    manifest_recorded = True
+                if planned_context.projection is not None and not projection_recorded:
+                    projection_entry = planned_context.projection.to_evidence_entry()
+                    await session_store.record_run_evidence(
+                        config.run_id,
+                        evidence={
+                            "run_id": config.run_id,
+                            "thread_id": thread_id,
+                            **projection_entry,
+                        },
+                    )
+                    if hasattr(session_store, "save_context_projection"):
+                        await session_store.save_context_projection(
+                            thread_id,
+                            config.run_id,
+                            cast("dict[str, Any]", projection_entry),
+                        )
+                    projection_recorded = True
+            except Exception:
+                logger.exception(
+                    "conversation_loop: falha ao persistir contexto planejado"
+                )
+        source_hash = (
+            planned_context.projection.source_transcript_hash
+            if planned_context.projection is not None
+            else compute_transcript_hash(raw_history)
+        )
+        with contextlib.suppress(Exception):
+            await _persist_context_checkpoint(
+                raw_history,
+                phase="provider_dispatch",
+                iteration=_iteracao,
+                source_hash=source_hash,
+            )
 
         partes_texto: list[str] = []
         tool_call_chunks_por_indice: dict[int, dict[str, Any]] = {}
+        chunk_count = 0
+        text_chunk_count = 0
+        reasoning_chars = 0
+        tool_chunk_count = 0
+        finish_reasons: list[str] = []
+
+        logger.info(
+            "llm_turn_started",
+            extra={
+                "thread_id": thread_id,
+                "run_id": config.run_id or "",
+                "iteration": _iteracao + 1,
+                "history_messages": len(historico),
+                "tool_count": len(tools),
+                "model": str(getattr(chat_client, "last_model_id", "") or ""),
+            },
+        )
 
         stream_usage: dict[str, int] | None = None
+        provider_started_at = time.monotonic()
         async for chunk in chat_client.astream(
             historico,
             tools=tools,
             temperature=config.temperature,
             max_tokens=config.max_tokens,
         ):
+            chunk_count += 1
+            if chunk.finish_reason:
+                finish_reasons.append(str(chunk.finish_reason))
             if chunk.usage:
-                stream_usage = dict(chunk.usage)
+                stream_usage = cast("dict[str, int]", dict(chunk.usage))
             if chunk.delta_text:
+                text_chunk_count += 1
                 partes_texto.append(chunk.delta_text)
                 await emit(MessageChunk(content=chunk.delta_text))
+
+            reasoning_chars += len(chunk.delta_reasoning or "")
+            tool_chunk_count += len(chunk.tool_call_chunks)
 
             for tc_chunk in chunk.tool_call_chunks:
                 acumulado = tool_call_chunks_por_indice.setdefault(
@@ -299,7 +1035,97 @@ async def run_conversation(
 
         texto_final = "".join(partes_texto)
         tool_calls = _resolve_tool_calls(tool_call_chunks_por_indice)
+        tool_calls = [
+            replace(
+                tool_call,
+                id=tool_call.id or f"{turn_identity}:tool:{_iteracao}:{index}",
+            )
+            for index, tool_call in enumerate(tool_calls)
+        ]
         observed_tools.update(tc.name for tc in tool_calls if tc.name)
+        from backend.settings import settings
+
+        if settings.evaluation_recording_enabled and config.run_id:
+            from backend.evaluation.recording import record_interaction
+
+            await record_interaction(
+                session_store,
+                run_id=config.run_id,
+                messages=historico,
+                response=texto_final,
+                tool_calls=tool_calls,
+                usage=stream_usage,
+                model=str(model_id or ctx.model),
+                duration_ms=int((time.monotonic() - provider_started_at) * 1000),
+                policy_digest=str(policy_snapshot.version),
+            )
+
+        logger.info(
+            "llm_turn_finished",
+            extra={
+                "thread_id": thread_id,
+                "run_id": config.run_id or "",
+                "iteration": _iteracao + 1,
+                "model": str(getattr(chat_client, "last_model_id", "") or ""),
+                "chunk_count": chunk_count,
+                "text_chunk_count": text_chunk_count,
+                "text_chars": len(texto_final),
+                "reasoning_chars": reasoning_chars,
+                "tool_chunk_count": tool_chunk_count,
+                "tool_call_count": len(tool_calls),
+                "finish_reasons": ",".join(finish_reasons),
+                "usage_present": stream_usage is not None,
+            },
+        )
+
+        if not texto_final and not tool_calls:
+            logger.warning(
+                "llm_empty_response",
+                extra={
+                    "thread_id": thread_id,
+                    "run_id": config.run_id or "",
+                    "iteration": _iteracao + 1,
+                    "model": str(getattr(chat_client, "last_model_id", "") or ""),
+                    "chunk_count": chunk_count,
+                    "reasoning_chars": reasoning_chars,
+                    "finish_reasons": ",".join(finish_reasons),
+                },
+            )
+            await emit(
+                ErrorSignal(
+                    code="EMPTY_MODEL_RESPONSE",
+                    message=(
+                        "O provedor LLM encerrou o stream sem retornar texto "
+                        "ou uma chamada de ferramenta. Tente novamente ou "
+                        "troque o modelo."
+                    ),
+                )
+            )
+            await emit(MessageBreak())
+            await _safe_update_agent_run_status(
+                session_store,
+                config.run_id,
+                status="failed",
+                detail="O provedor encerrou o stream sem texto ou tool call.",
+                error_code="EMPTY_MODEL_RESPONSE",
+            )
+            if config.run_id:
+                with contextlib.suppress(Exception):
+                    await session_store.append_ledger_event(
+                        thread_id,
+                        event_key=make_run_failed_key(config.run_id),
+                        event_type=LedgerEventType.RUN_FAILED,
+                        run_id=config.run_id,
+                        payload={"error": "EMPTY_MODEL_RESPONSE"},
+                    )
+            return LoopResult(
+                stopped_reason="stop",
+                final_message=None,
+                usage=last_usage,
+                usage_models=tuple(sorted(usage_models)),
+                usage_records=tuple(usage_records),
+                tool_names=tuple(sorted(observed_tools)),
+            )
 
         tool_calls_for_history = [_sanitize_tool_call(tc, ctx) for tc in tool_calls]
         assistant_msg = VMessage(
@@ -310,12 +1136,221 @@ async def run_conversation(
             tool_calls=tool_calls_for_history,
             finish_reason="tool_calls" if tool_calls else "stop",
         )
+
+        # Do not persist an assistant tool-call message when the repetition
+        # guard is about to stop the loop.  Persisting it would leave pending
+        # calls in the session history without matching tool results, causing
+        # the next run to replay an incomplete turn.
+        if tool_calls:
+            assinaturas_atual = tuple(_call_signature(tc) for tc in tool_calls)
+            if assinaturas_atual == assinaturas_anteriores:
+                repeticoes_seguidas += 1
+            else:
+                repeticoes_seguidas = 1
+            assinaturas_anteriores = assinaturas_atual
+            if repeticoes_seguidas == _REPEATED_CALL_THRESHOLD:
+                nomes = ", ".join(sorted({tc.name for tc in tool_calls}))
+                await emit(
+                    ErrorSignal(
+                        code="TOOL_CALL_REPEATED",
+                        message=(
+                            f"Mesma tool call ({nomes}) repetida "
+                            f"{_REPEATED_CALL_THRESHOLD}x seguidas com argumentos "
+                            "idênticos — possível loop preso."
+                        ),
+                    )
+                )
+            if repeticoes_seguidas >= _REPEATED_CALL_HARD_LIMIT:
+                nomes = ", ".join(sorted({tc.name for tc in tool_calls}))
+                mensagem = (
+                    f"Execução interrompida: a mesma chamada ({nomes}) foi repetida "
+                    f"{repeticoes_seguidas} vezes sem progresso."
+                )
+                logger.error(
+                    "tool_call_loop_stopped",
+                    extra={
+                        "thread_id": thread_id,
+                        "iteration": _iteracao + 1,
+                        "tool_names": nomes,
+                        "repetitions": repeticoes_seguidas,
+                    },
+                )
+                await emit(ErrorSignal(code="TOOL_CALL_REPEATED", message=mensagem))
+                await emit(MessageBreak())
+                await _safe_update_agent_run_status(
+                    session_store,
+                    config.run_id,
+                    status="failed",
+                    detail=mensagem,
+                    error_code="TOOL_CALL_REPEATED",
+                )
+                if config.run_id:
+                    with contextlib.suppress(Exception):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_run_failed_key(config.run_id),
+                            event_type=LedgerEventType.RUN_FAILED,
+                            run_id=config.run_id,
+                            payload={"error": "TOOL_CALL_REPEATED"},
+                        )
+                return LoopResult(
+                    stopped_reason="loop_cap_exceeded",
+                    final_message=None,
+                    usage=last_usage,
+                    usage_models=tuple(sorted(usage_models)),
+                    usage_records=tuple(usage_records),
+                    tool_names=tuple(sorted(observed_tools)),
+                )
+
         parent_id = await session_store.append_message(
             thread_id, assistant_msg, parent_message_id=parent_id, run_id=config.run_id
         )
         await emit(MessageBreak())
 
+        iter_metrics = AgentRunMetrics(
+            input_tokens=int(last_usage.get("input_tokens", 0) if last_usage else 0),
+            output_tokens=int(last_usage.get("output_tokens", 0) if last_usage else 0),
+            total_tokens=int(last_usage.get("total_tokens", 0) if last_usage else 0),
+        )
+
         if not tool_calls:
+            if config.run_id:
+                try:
+                    if hasattr(session_store, "append_ledger_event"):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_run_completed_key(config.run_id),
+                            event_type=LedgerEventType.RUN_COMPLETED,
+                            run_id=config.run_id,
+                            payload={"stopped_reason": "stop"},
+                        )
+                    elif hasattr(session_store, "append_event"):
+                        await session_store.append_event(
+                            thread_id,
+                            ThreadLedgerEvent(
+                                thread_id=thread_id,
+                                event_key=make_run_completed_key(config.run_id),
+                                type=cast(
+                                    "LedgerEventTypeLiteral",
+                                    LedgerEventType.RUN_COMPLETED,
+                                ),
+                                run_id=config.run_id,
+                                payload={"stopped_reason": "stop"},
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar RUN_COMPLETED no ledger para thread %s",
+                        thread_id,
+                    )
+                if hasattr(session_store, "update_agent_run_status"):
+                    verification_handled = True
+                    # 1. Transiciona atomicamente para o estado 'verifying'
+                    await _safe_update_agent_run_status(
+                        session_store,
+                        config.run_id,
+                        status="verifying",
+                        detail="Executando verificação de quality gates e snapshot criptográfico.",
+                        metrics=iter_metrics,
+                    )
+                    # 2. Despacha o motor de verificação pós-execução
+                    from backend.services.verification import run_verification
+
+                    ws_id = getattr(ctx, "workspace_id", None)
+                    ws_dir = getattr(ctx, "workspace_dir", None) or getattr(
+                        ctx, "cwd", None
+                    )
+                    v_res = None
+                    try:
+                        v_res = await run_verification(
+                            ws_id,
+                            ws_dir,
+                            files_touched=files_touched or None,
+                            run_id=config.run_id,
+                            policy_snapshot_id=getattr(
+                                policy_snapshot, "version", None
+                            ),
+                        )
+                    except Exception:
+                        logger.exception(
+                            "Falha ao executar verificação pós-execução para run %s (thread %s)",
+                            config.run_id,
+                            thread_id,
+                        )
+                        await _safe_update_agent_run_status(
+                            session_store,
+                            config.run_id,
+                            status="failed",
+                            detail="Erro interno durante a verificação pós-execução.",
+                            error_code="VERIFICATION_ERROR",
+                            metrics=iter_metrics,
+                        )
+
+                    # 3. Persiste o resultado da verificação e a evidência com SHA-256 no AgentRun
+                    if v_res is not None:
+                        try:
+                            if hasattr(session_store, "get_agent_run") and hasattr(
+                                session_store, "upsert_agent_run"
+                            ):
+                                agent_run = await session_store.get_agent_run(
+                                    config.run_id
+                                )
+                                if agent_run is not None:
+                                    v_entry = v_res.to_evidence_entry()
+                                    v_entry["artifact_refs"] = sorted(
+                                        {
+                                            str(artifact.get("artifact_id"))
+                                            for artifact in agent_run.artifacts
+                                            if isinstance(artifact, dict)
+                                            and artifact.get("artifact_id")
+                                        }
+                                    )
+                                    agent_run.evidence.append(v_entry)
+                                    agent_run.metrics = iter_metrics
+                                    agent_run.detail = (
+                                        "Verificação concluída com sucesso."
+                                        if v_res.passed
+                                        else f"Falha nos quality gates: {v_res.failure_feedback or ''}"
+                                    )
+                                    await session_store.upsert_agent_run(agent_run)
+                                    # A persistência da evidência não deve alterar a
+                                    # máquina de estados. O motor de verificação é a
+                                    # única fonte do desfecho terminal e a transição
+                                    # ocorre depois que a evidência está durável.
+                                    await _safe_update_agent_run_status(
+                                        session_store,
+                                        config.run_id,
+                                        status=v_res.status,
+                                        detail=agent_run.detail,
+                                        metrics=iter_metrics,
+                                    )
+                            else:
+                                await _safe_update_agent_run_status(
+                                    session_store,
+                                    config.run_id,
+                                    status=v_res.status,
+                                    detail=(
+                                        "Verificação concluída com sucesso."
+                                        if v_res.passed
+                                        else "Falha nos quality gates."
+                                    ),
+                                    metrics=iter_metrics,
+                                )
+                        except Exception:
+                            logger.exception(
+                                "Falha ao persistir evidências de verificação para run %s",
+                                config.run_id,
+                            )
+                else:
+                    verification_handled = False
+                if not verification_handled:
+                    await _safe_update_agent_run_status(
+                        session_store,
+                        config.run_id,
+                        status="passed",
+                        detail="Execução completada com sucesso.",
+                        metrics=iter_metrics,
+                    )
             return LoopResult(
                 stopped_reason="stop",
                 final_message=assistant_msg,
@@ -325,34 +1360,134 @@ async def run_conversation(
                 tool_names=tuple(sorted(observed_tools)),
             )
 
-        assinaturas_atual = frozenset(_call_signature(tc) for tc in tool_calls)
-        if assinaturas_atual == assinaturas_anteriores:
-            repeticoes_seguidas += 1
-        else:
-            repeticoes_seguidas = 1
-        assinaturas_anteriores = assinaturas_atual
-        if repeticoes_seguidas == _REPEATED_CALL_THRESHOLD:
-            nomes = ", ".join(sorted({tc.name for tc in tool_calls}))
-            await emit(
-                ErrorSignal(
-                    code="TOOL_CALL_REPEATED",
-                    message=(
-                        f"Mesma tool call ({nomes}) repetida "
-                        f"{_REPEATED_CALL_THRESHOLD}x seguidas com argumentos "
-                        "idênticos — possível loop preso."
-                    ),
-                )
+        # In auto and Plan Mode, an explicitly enabled Decision Model can raise
+        # the approval requirement or veto a sensitive call. It never removes
+        # an approval required by the static policy.
+        from backend.llm.systemone.preferences import (
+            decision_model_enabled_for,
+            decision_model_surfaces_for_tool,
+            selected_decision_model_provider,
+        )
+
+        if ctx.permission_mode in {"auto", "plan"}:
+            from backend.engine.hitl import (
+                call_requires_separate_approval,
+                precompute_tool_risk_assessment,
             )
 
+            decision_candidates = [
+                (candidate, decision_model_surfaces_for_tool(ctx, candidate.name))
+                for candidate in tool_calls
+                if call_requires_separate_approval(candidate.name, candidate.args)
+            ]
+            if decision_candidates:
+                from backend.engine.hitl import _risk_assessment_key
+
+                decision_harness = (
+                    _build_selected_decision_harness(ctx)
+                    if any(
+                        decision_model_enabled_for(ctx, surface)
+                        for _, surface in decision_candidates
+                    )
+                    else None
+                )
+                for candidate, decision_surface in decision_candidates:
+                    if not decision_model_enabled_for(ctx, decision_surface):
+                        from backend.llm.systemone.preferences import (
+                            decision_model_preferences,
+                        )
+
+                        preferences = decision_model_preferences(ctx)
+                        reason = (
+                            "decision_model_disabled"
+                            if preferences.get("enabled") is not True
+                            else "decision_model_surface_disabled"
+                        )
+                        ctx._extra.setdefault("systemone_decisions", {})[
+                            _risk_assessment_key(candidate.name, candidate.args)
+                        ] = {
+                            "decision": "unavailable",
+                            "reason": reason,
+                            "provider": preferences.get("provider"),
+                            "run_id": config.run_id,
+                            "thread_id": thread_id,
+                        }
+                    elif decision_harness is None:
+                        ctx._extra.setdefault("systemone_decisions", {})[
+                            _risk_assessment_key(candidate.name, candidate.args)
+                        ] = {
+                            "decision": "unavailable",
+                            "reason": "decision_model_unavailable",
+                            "run_id": config.run_id,
+                            "thread_id": thread_id,
+                        }
+                    else:
+                        await precompute_tool_risk_assessment(
+                            decision_harness,
+                            tool_name=candidate.name,
+                            ctx=ctx,
+                            args=candidate.args,
+                            surface=decision_surface,
+                        )
+                    record = ctx._extra.get("systemone_decisions", {}).get(
+                        _risk_assessment_key(candidate.name, candidate.args)
+                    )
+                    if isinstance(record, dict):
+                        try:
+                            await _persist_decision_model_record(
+                                session_store,
+                                run_id=config.run_id,
+                                thread_id=thread_id,
+                                tool_call=candidate,
+                                surface=decision_surface,
+                                record=record,
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Falha ao persistir decisão SystemOne do run %s",
+                                config.run_id,
+                            )
+                            record.update(
+                                {
+                                    "decision": "requires_human",
+                                    "reason": "decision_audit_unavailable",
+                                }
+                            )
+                            elevated = ctx._extra.setdefault(
+                                "systemone_risk_elevated_calls", set()
+                            )
+                            elevated.add(
+                                _risk_assessment_key(candidate.name, candidate.args)
+                            )
+                            ctx._extra["systemone_risk_requires_approval"] = True
+                            await _safe_record_run_evidence(
+                                session_store,
+                                config.run_id,
+                                tool_used=candidate.name,
+                                evidence={
+                                    "type": "decision_model_audit_failure",
+                                    "tool_call_id": candidate.id,
+                                    "reason": "decision_audit_unavailable",
+                                    "run_id": config.run_id,
+                                },
+                            )
+
         if should_require_approval is not None:
-            pendente = next(
-                (
-                    tc
-                    for tc in tool_calls
-                    if should_require_approval(tc.name, ctx, tc.args, historico)
-                ),
-                None,
-            )
+            pendente = None
+            for candidate in tool_calls:
+                if not should_require_approval(
+                    candidate.name, ctx, candidate.args, raw_history
+                ):
+                    continue
+                if await _consume_preapproval_grant(
+                    session_store,
+                    ctx=ctx,
+                    run_id=config.run_id,
+                    tool_call=candidate,
+                ):
+                    continue
+                pendente = candidate
+                break
             if pendente is not None:
                 interrupt_id = str(uuid4())
                 stable_call_id = (pendente.id or "").strip() or interrupt_id
@@ -398,22 +1533,29 @@ async def run_conversation(
                     approval_args = dict(approval_metadata)
                 args_json = json.dumps(approval_args, ensure_ascii=False)
                 raw_options = pendente.args.get("options", [])
-                options = (
-                    [
-                        {
-                            "label": str(item.get("label") or item["value"]),
-                            "value": str(item["value"]),
-                        }
-                        for item in raw_options
-                        if isinstance(item, dict) and item.get("value")
-                    ]
-                    if isinstance(raw_options, list)
-                    else []
-                )
+                options: list[ToolOption] = []
+                if isinstance(raw_options, list):
+                    for item in raw_options:
+                        if not isinstance(item, dict):
+                            continue
+                        raw_value = item.get("value")
+                        if not raw_value:
+                            continue
+                        raw_label = item.get("label") or raw_value
+                        options.append(
+                            {"label": str(raw_label), "value": str(raw_value)}
+                        )
+                raw_priority = pendente.args.get("approval_priority", 0)
                 try:
-                    priority = max(
-                        0, min(100, int(pendente.args.get("approval_priority", 0)))
-                    )
+                    if isinstance(raw_priority, (int, float, str)):
+                        numeric_priority = float(raw_priority)
+                        priority = (
+                            max(0, min(100, int(numeric_priority)))
+                            if math.isfinite(numeric_priority)
+                            else 0
+                        )
+                    else:
+                        priority = 0
                 except (TypeError, ValueError):
                     priority = 0
                 expires_at = pendente.args.get("approval_expires_at")
@@ -423,17 +1565,47 @@ async def run_conversation(
                         interrupt_id=interrupt_id,
                         tool_name=pendente.name,
                         tool_call_id=stable_call_id,
+                        run_id=config.run_id,
                         args=pendente.args,
                         options=options,
                         priority=priority,
                         expires_at=str(expires_at) if expires_at else None,
                         approval_metadata=approval_metadata,
                     )
+                # A falha na gravação de evidências ou atualização do run não pode impedir
+                # a emissão de HitlRequested para o cliente.
+                try:
+                    await _safe_record_run_evidence(
+                        session_store,
+                        config.run_id,
+                        approval={
+                            "interrupt_id": interrupt_id,
+                            "tool_name": pendente.name,
+                            "tool_call_id": stable_call_id,
+                            "options": options,
+                            "priority": priority,
+                        },
+                    )
+                    await _safe_update_agent_run_status(
+                        session_store,
+                        config.run_id,
+                        status="waiting_approval",
+                        detail=f"Aguardando aprovação para {pendente.name}",
+                        metrics=iter_metrics,
+                    )
+                except Exception:
+                    logger.exception(
+                        "conversation_loop: falha ao persistir evidência/status de aprovação para thread %s",
+                        thread_id,
+                    )
                 await emit(
                     HitlRequested(
                         tool_name=pendente.name,
                         args_json=args_json,
                         interrupt_id=interrupt_id,
+                        run_id=config.run_id,
+                        permission_mode=ctx.permission_mode or "ask",
+                        workspace_id=ctx.workspace_id,
                         options=options,
                         priority=priority,
                         expires_at=str(expires_at) if expires_at else None,
@@ -450,27 +1622,112 @@ async def run_conversation(
 
         tool_started_at: dict[str, float] = {}
         tool_args_previews: dict[str, str] = {}
-        for tc in tool_calls:
+
+        async def _record_tool_started(
+            tc: ToolCall,
+            *,
+            _started_at: dict[str, float] = tool_started_at,
+            _previews: dict[str, str] = tool_args_previews,
+        ) -> None:
+            """Persist and publish one start event immediately before execution."""
             spec = tool_registry.get(tc.name)
             extras = spec.extras if spec is not None else None
+            _started_at.setdefault(tc.id, time.monotonic())
+            preview = _previews.setdefault(tc.id, _args_preview(tc.args))
+            decision_data: dict[str, Any] = {}
+            try:
+                from backend.engine.hitl import _risk_assessment_key
+
+                decisions = ctx._extra.get("systemone_decisions", {})
+                candidate = decisions.get(_risk_assessment_key(tc.name, tc.args))
+                if isinstance(candidate, dict):
+                    decision_data = {
+                        "decision": candidate.get("decision"),
+                        "decision_reason": candidate.get("reason"),
+                        "decision_provider": candidate.get("provider"),
+                        "decision_model": candidate.get("model"),
+                        "decision_confidence": candidate.get("confidence"),
+                    }
+            except Exception:
+                logger.debug(
+                    "Não foi possível anexar decisão ao início da tool", exc_info=True
+                )
+            if config.run_id:
+                try:
+                    if hasattr(session_store, "append_ledger_event"):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_tool_started_key(config.run_id, tc.id),
+                            event_type=LedgerEventType.TOOL_STARTED,
+                            run_id=config.run_id,
+                            tool_call_id=tc.id,
+                            payload={
+                                "tool_name": tc.name,
+                                "args": _sanitize_tool_call(tc, ctx).args,
+                                **decision_data,
+                            },
+                        )
+                    elif hasattr(session_store, "append_event"):
+                        await session_store.append_event(
+                            thread_id,
+                            ThreadLedgerEvent(
+                                thread_id=thread_id,
+                                event_key=make_tool_started_key(config.run_id, tc.id),
+                                type=cast(
+                                    "LedgerEventTypeLiteral",
+                                    LedgerEventType.TOOL_STARTED,
+                                ),
+                                run_id=config.run_id,
+                                tool_call_id=tc.id,
+                                payload={
+                                    "tool_name": tc.name,
+                                    "args": _sanitize_tool_call(tc, ctx).args,
+                                    **decision_data,
+                                },
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar TOOL_STARTED no ledger para tool %s (thread %s)",
+                        tc.name,
+                        thread_id,
+                    )
+            try:
+                await emit(
+                    ToolCallStarted(
+                        tool_name=tc.name,
+                        tool_call_id=tc.id,
+                        args_json=json.dumps(tc.args, ensure_ascii=False),
+                        render_hint=extras.render_hint if extras else "json",
+                        category=extras.category if extras else "general",
+                        destructive=extras.destructive if extras else False,
+                        icon=extras.icon if extras else "tool",
+                        **decision_data,
+                    )
+                )
+                await emit(
+                    ToolActivity(
+                        tool_name=tc.name, tool_call_id=tc.id, args_preview=preview
+                    )
+                )
+            except Exception:
+                logger.exception(
+                    "Falha ao emitir TOOL_STARTED para tool %s (thread %s)",
+                    tc.name,
+                    thread_id,
+                )
+
+        for tc in tool_calls:
             tool_started_at[tc.id] = time.monotonic()
-            preview = _args_preview(tc.args)
-            tool_args_previews[tc.id] = preview
-            await emit(
-                ToolCallStarted(
-                    tool_name=tc.name,
-                    tool_call_id=tc.id,
-                    args_json=json.dumps(tc.args, ensure_ascii=False),
-                    render_hint=extras.render_hint if extras else "json",
-                    category=extras.category if extras else "general",
-                    destructive=extras.destructive if extras else False,
-                    icon=extras.icon if extras else "tool",
-                )
-            )
-            await emit(
-                ToolActivity(
-                    tool_name=tc.name, tool_call_id=tc.id, args_preview=preview
-                )
+            tool_args_previews[tc.id] = _args_preview(tc.args)
+
+        with contextlib.suppress(Exception):
+            await _persist_context_checkpoint(
+                raw_history,
+                phase="tool_running",
+                iteration=_iteracao,
+                source_hash=source_hash,
+                pending_tool_call_ids=tuple(call.id for call in tool_calls if call.id),
             )
 
         resultados = await execute_tool_batch(
@@ -479,17 +1736,78 @@ async def run_conversation(
             ctx=ctx,
             turn_budget=turn_budget,
             on_event=on_event,
+            on_tool_started=_record_tool_started,
+            policy_snapshot=policy_snapshot,
         )
         for resultado in resultados:
             parent_id = await session_store.append_message(
                 thread_id, resultado, parent_message_id=parent_id
             )
             call_id = resultado.tool_call_id or ""
+            if config.run_id and call_id:
+                try:
+                    if hasattr(session_store, "append_ledger_event"):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_tool_finished_key(config.run_id, call_id),
+                            event_type=LedgerEventType.TOOL_FINISHED,
+                            run_id=config.run_id,
+                            tool_call_id=call_id,
+                            payload={
+                                "tool_name": resultado.name,
+                                "is_error": resultado.is_error,
+                            },
+                        )
+                    elif hasattr(session_store, "append_event"):
+                        await session_store.append_event(
+                            thread_id,
+                            ThreadLedgerEvent(
+                                thread_id=thread_id,
+                                event_key=make_tool_finished_key(
+                                    config.run_id, call_id
+                                ),
+                                type=cast(
+                                    "LedgerEventTypeLiteral",
+                                    LedgerEventType.TOOL_FINISHED,
+                                ),
+                                run_id=config.run_id,
+                                tool_call_id=call_id,
+                                payload={
+                                    "tool_name": resultado.name,
+                                    "is_error": resultado.is_error,
+                                },
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar TOOL_FINISHED no ledger para tool_call %s (thread %s)",
+                        call_id,
+                        thread_id,
+                    )
+            if (
+                hasattr(session_store, "record_run_evidence")
+                and config.run_id
+                and resultado.name
+            ):
+                await _safe_record_run_evidence(
+                    session_store,
+                    config.run_id,
+                    tool_used=resultado.name,
+                    evidence={
+                        "type": "tool_result",
+                        "tool_name": resultado.name,
+                        "tool_call_id": call_id,
+                        "is_error": resultado.is_error,
+                        "result_digest": hashlib.sha256(
+                            resultado.text().encode()
+                        ).hexdigest(),
+                    },
+                )
             await emit(
                 ToolResult(
                     tool_call_id=call_id,
                     content_json=resultado.text(),
-                    is_error=resultado.is_error,
+                    is_error=bool(resultado.is_error),
                 )
             )
             started_at = tool_started_at.pop(call_id, None)
@@ -517,8 +1835,177 @@ async def run_conversation(
                 todos = _parse_todos_result(resultado.text())
                 if todos is not None:
                     await emit(TodosUpdated(todos=todos))
+                    if (
+                        config.run_id
+                        and hasattr(session_store, "get_agent_run")
+                        and hasattr(session_store, "upsert_agent_run")
+                    ):
+                        try:
+                            active_item = next(
+                                (t for t in todos if t.status == "in_progress"),
+                                None,
+                            )
+                            active_step_id = (
+                                (active_item.step_id or active_item.content)
+                                if active_item
+                                else None
+                            )
+                            agent_run = await session_store.get_agent_run(config.run_id)
+                            if agent_run is not None:
+                                agent_run.plan_step = active_step_id
+                                # Recupera gates já concluídos com sucesso para não reexecutar
+                                for ev in agent_run.evidence:
+                                    if (
+                                        isinstance(ev, dict)
+                                        and ev.get("kind")
+                                        == "quality_gate_verification"
+                                        and ev.get("passed")
+                                    ):
+                                        ev_step = ev.get("step_id")
+                                        ev_gate = ev.get("quality_gate")
+                                        if ev_step and ev_gate:
+                                            executed_step_gates.add(
+                                                (str(ev_step), str(ev_gate))
+                                            )
+
+                                # Executa quality gates específicos para etapas concluídas
+                                for item in todos:
+                                    if item.status == "completed" and item.quality_gate:
+                                        step_key = item.step_id or item.content
+                                        gate_key = item.quality_gate
+                                        pair = (step_key, gate_key)
+                                        if pair in executed_step_gates:
+                                            continue
+
+                                        try:
+                                            from backend.services.verification import (
+                                                run_verification,
+                                            )
+
+                                            ws_id = getattr(ctx, "workspace_id", None)
+                                            ws_dir = getattr(
+                                                ctx, "workspace_dir", None
+                                            ) or getattr(ctx, "cwd", None)
+                                            v_res = await run_verification(
+                                                ws_id,
+                                                ws_dir,
+                                                target_gate_ids=[item.quality_gate],
+                                                run_id=config.run_id,
+                                                policy_snapshot_id=getattr(
+                                                    policy_snapshot, "version", None
+                                                ),
+                                            )
+                                            v_entry = v_res.to_evidence_entry()
+                                            v_entry["artifact_refs"] = sorted(
+                                                {
+                                                    str(artifact.get("artifact_id"))
+                                                    for artifact in agent_run.artifacts
+                                                    if isinstance(artifact, dict)
+                                                    and artifact.get("artifact_id")
+                                                }
+                                            )
+                                            v_entry["step_id"] = step_key
+                                            v_entry["quality_gate"] = gate_key
+                                            agent_run.evidence.append(v_entry)
+                                            if v_res.passed:
+                                                executed_step_gates.add(pair)
+                                            # The verification result is
+                                            # persisted as evidence; the
+                                            # final verification pass owns the
+                                            # terminal AgentRun status.
+                                        except Exception as gate_exc:
+                                            logger.exception(
+                                                "Falha ao executar quality gate %s para step %s (run_id %s)",
+                                                gate_key,
+                                                step_key,
+                                                config.run_id,
+                                            )
+                                            agent_run.evidence.append(
+                                                {
+                                                    "kind": "quality_gate_verification",
+                                                    "step_id": step_key,
+                                                    "quality_gate": gate_key,
+                                                    "run_id": config.run_id,
+                                                    "policy_snapshot_id": getattr(
+                                                        policy_snapshot, "version", None
+                                                    ),
+                                                    "passed": False,
+                                                    "status": "failed",
+                                                    "outcome": "infra_error",
+                                                    "error": str(gate_exc),
+                                                }
+                                            )
+                                try:
+                                    await session_store.upsert_agent_run(agent_run)
+                                except Exception:
+                                    logger.exception(
+                                        "Falha ao persistir AgentRun atualizado com quality gates (run_id %s)",
+                                        config.run_id,
+                                    )
+                        except Exception:
+                            logger.exception(
+                                "Erro inesperado ao processar plano e quality gates para run_id %s",
+                                config.run_id,
+                            )
+
+        # Deriva a evidência do workspace após o lote. Isso exclui chamadas
+        # rejeitadas e leituras, e também detecta arquivos escritos via terminal.
+        for changed_path in await _workspace_changed_paths(ctx):
+            if changed_path not in files_touched:
+                files_touched.append(changed_path)
+
+        with contextlib.suppress(Exception):
+            await _persist_context_checkpoint(
+                raw_history,
+                phase="provider_dispatch",
+                iteration=_iteracao,
+                source_hash=source_hash,
+                completed_tool_call_ids=tuple(
+                    result.tool_call_id for result in resultados if result.tool_call_id
+                ),
+            )
 
         if turn_budget.exceeded is not None:
+            if config.run_id:
+                try:
+                    if hasattr(session_store, "append_ledger_event"):
+                        await session_store.append_ledger_event(
+                            thread_id,
+                            event_key=make_run_failed_key(config.run_id),
+                            event_type=LedgerEventType.RUN_FAILED,
+                            run_id=config.run_id,
+                            payload={
+                                "error": f"loop_cap_exceeded: {turn_budget.exceeded}"
+                            },
+                        )
+                    elif hasattr(session_store, "append_event"):
+                        await session_store.append_event(
+                            thread_id,
+                            ThreadLedgerEvent(
+                                thread_id=thread_id,
+                                event_key=make_run_failed_key(config.run_id),
+                                type=cast(
+                                    "LedgerEventTypeLiteral", LedgerEventType.RUN_FAILED
+                                ),
+                                run_id=config.run_id,
+                                payload={
+                                    "error": f"loop_cap_exceeded: {turn_budget.exceeded}"
+                                },
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "Falha ao registrar RUN_FAILED (loop_cap_exceeded) no ledger para thread %s",
+                        thread_id,
+                    )
+                if hasattr(session_store, "update_agent_run_status"):
+                    await session_store.update_agent_run_status(
+                        config.run_id,
+                        status="failed",
+                        detail=f"Teto de guardrail excedido: {turn_budget.exceeded}",
+                        error_code="LOOP_CAP_EXCEEDED",
+                        metrics=iter_metrics,
+                    )
             await emit(
                 ErrorSignal(
                     code="LOOP_CAP_EXCEEDED",
@@ -537,6 +2024,51 @@ async def run_conversation(
                 tool_names=tuple(sorted(observed_tools)),
             )
 
+    if config.run_id:
+        try:
+            if hasattr(session_store, "append_ledger_event"):
+                await session_store.append_ledger_event(
+                    thread_id,
+                    event_key=make_run_failed_key(config.run_id),
+                    event_type=LedgerEventType.RUN_FAILED,
+                    run_id=config.run_id,
+                    payload={"error": f"recursion_limit: {config.max_iterations}"},
+                )
+            elif hasattr(session_store, "append_event"):
+                await session_store.append_event(
+                    thread_id,
+                    ThreadLedgerEvent(
+                        thread_id=thread_id,
+                        event_key=make_run_failed_key(config.run_id),
+                        type=cast("LedgerEventTypeLiteral", LedgerEventType.RUN_FAILED),
+                        run_id=config.run_id,
+                        payload={"error": f"recursion_limit: {config.max_iterations}"},
+                    ),
+                )
+        except Exception:
+            logger.exception(
+                "Falha ao registrar RUN_FAILED (recursion_limit) no ledger para thread %s",
+                thread_id,
+            )
+        if hasattr(session_store, "update_agent_run_status"):
+            final_metrics = AgentRunMetrics(
+                input_tokens=int(
+                    last_usage.get("input_tokens", 0) if last_usage else 0
+                ),
+                output_tokens=int(
+                    last_usage.get("output_tokens", 0) if last_usage else 0
+                ),
+                total_tokens=int(
+                    last_usage.get("total_tokens", 0) if last_usage else 0
+                ),
+            )
+            await session_store.update_agent_run_status(
+                config.run_id,
+                status="failed",
+                detail=f"Limite de {config.max_iterations} iterações atingido.",
+                error_code="RECURSION_LIMIT",
+                metrics=final_metrics,
+            )
     await emit(
         ErrorSignal(
             code="RECURSION_LIMIT",
@@ -558,11 +2090,29 @@ async def _execute_single_call(
     tool_registry: ToolRegistry,
     ctx: ToolContext,
     on_event: EventSink | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> VMessage:
     """Mesma lógica de execução de ``tool_batch._run_one``, sem
     ``TurnBudget`` (o teto de volume é do turno que gerou o lote original,
     já contabilizado ou não antes da pausa — reaplicá-lo no resume duplicaria
     ou perderia contagem)."""
+    allowed, deny_reason = await asyncio.to_thread(
+        _apply_pre_execute, tool_call, ctx, policy_snapshot
+    )
+    if not allowed:
+        return VMessage(
+            role=MessageRole.TOOL,
+            content=[
+                ContentBlock(
+                    kind="text",
+                    text=f"Error: policy_denied: {deny_reason}",
+                )
+            ],
+            tool_call_id=tool_call.id,
+            name=tool_call.name,
+            is_error=True,
+        )
+
     spec = tool_registry.get(tool_call.name)
     if spec is None:
         texto = f"Error: tool '{tool_call.name}' não encontrada no registry"
@@ -584,7 +2134,8 @@ async def _execute_single_call(
             tool_call.args,
             call_context,
         )
-        is_error = _is_tool_error(texto)
+        texto = _apply_post_execute(texto)
+        is_error = _is_tool_error(texto, structured=_has_structured_result(spec))
         from backend.services.tool_usage import record_tool_usage
 
         await record_tool_usage(
@@ -611,6 +2162,7 @@ async def resume_conversation(
     interrupt_id: str | None = None,
     approval_gate: ApprovalGate | None = None,
     on_event: EventSink | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
 ) -> bool:
     """Executa o lote de tool calls que ``run_conversation`` pausou —
     ``decision`` é ``"approve"`` | ``"reject"`` | ``"edit"``, aplicada só à
@@ -630,8 +2182,29 @@ async def resume_conversation(
     cliente. ``True`` quando o lote foi executado e a pendência resolvida.
     """
     from backend.services.media_billing import apply_media_billing_source
+    from backend.services.policy_compiler import compile_policy_snapshot
 
     await apply_media_billing_source(ctx)
+    is_untrusted_thread = False
+    if hasattr(session_store, "get_session"):
+        session_meta = await session_store.get_session(thread_id)
+        if session_meta and session_meta.get("mode") == "connect":
+            is_untrusted_thread = True
+    if hasattr(session_store, "list_agent_runs"):
+        runs = await session_store.list_agent_runs(thread_id, limit=5)
+        paused_run = next(
+            (r for r in runs if r.status == "waiting_approval"),
+            runs[0] if runs else None,
+        )
+        if paused_run and paused_run.untrusted_content:
+            is_untrusted_thread = True
+    if is_untrusted_thread:
+        if not isinstance(ctx._extra, dict):
+            ctx._extra = {}
+        ctx._extra["untrusted_content"] = True
+
+    if policy_snapshot is None:
+        policy_snapshot = compile_policy_snapshot(ctx)
 
     emit = on_event or _noop_event
     requested_interrupt_id = interrupt_id
@@ -649,6 +2222,106 @@ async def resume_conversation(
         pending = await claim_pending(thread_id, interrupt_id=requested_interrupt_id)
     if pending is None:
         return False
+
+    # A retomada deve continuar o mesmo turno persistido, e não criar uma
+    # segunda identidade de execução. Isso mantém tool_started/tool_finished
+    # correlacionados com a aprovação original após uma pausa HITL.
+    resume_run_id = str(pending.get("run_id") or "") or None
+
+    async def _execute_resume_tool(
+        tc: ToolCall,
+        args: dict[str, Any] | None = None,
+        policy_snapshot: PolicySnapshot | None = None,
+        human_approved: bool = False,
+    ) -> VMessage:
+        """Executa a operação  execute resume tool."""
+        call = replace(tc, args=args) if args is not None else tc
+        call_id = call.id or f"{resume_run_id or thread_id}:tool:{uuid4().hex}"
+        call = replace(call, id=call_id)
+        sanitized = _sanitize_tool_call(call, ctx)
+
+        execution_ctx = ctx
+        if human_approved and isinstance(ctx._extra, dict):
+            from backend.engine.hitl import _risk_assessment_key
+
+            risk_key = _risk_assessment_key(call.name, call.args)
+            decisions = ctx._extra.get("systemone_decisions", {})
+            if (
+                isinstance(decisions, dict)
+                and isinstance(decisions.get(risk_key), dict)
+                and decisions[risk_key].get("decision") == "requires_human"
+            ):
+                remaining = dict(decisions)
+                remaining.pop(risk_key)
+                execution_ctx = replace(
+                    ctx,
+                    _extra={**ctx._extra, "systemone_decisions": remaining},
+                )
+
+        async def record(event_type: str, payload: dict[str, Any]) -> None:
+            """Executa a operação record."""
+            if not resume_run_id:
+                return
+            try:
+                if hasattr(session_store, "append_ledger_event"):
+                    await session_store.append_ledger_event(
+                        thread_id,
+                        event_key=(
+                            make_tool_started_key(resume_run_id, call_id)
+                            if event_type == "tool_started"
+                            else make_tool_finished_key(resume_run_id, call_id)
+                        ),
+                        event_type=cast("LedgerEventTypeLiteral", event_type),
+                        run_id=resume_run_id,
+                        tool_call_id=call_id,
+                        payload=payload,
+                    )
+                elif hasattr(session_store, "append_event"):
+                    await session_store.append_event(
+                        thread_id,
+                        ThreadLedgerEvent(
+                            thread_id=thread_id,
+                            event_key=(
+                                make_tool_started_key(resume_run_id, call_id)
+                                if event_type == "tool_started"
+                                else make_tool_finished_key(resume_run_id, call_id)
+                            ),
+                            type=cast("LedgerEventTypeLiteral", event_type),
+                            run_id=resume_run_id,
+                            tool_call_id=call_id,
+                            payload=payload,
+                        ),
+                    )
+            except Exception:
+                logger.exception(
+                    "Falha ao registrar %s da retomada no ledger para tool %s",
+                    event_type,
+                    call.name,
+                )
+
+        await record(
+            "tool_started",
+            {"tool_name": sanitized.name, "args": sanitized.args},
+        )
+        try:
+            result = await _execute_single_call(
+                call,
+                tool_registry=tool_registry,
+                ctx=execution_ctx,
+                on_event=on_event,
+                policy_snapshot=policy_snapshot,
+            )
+        except Exception as exc:
+            await record(
+                "tool_finished",
+                {"tool_name": call.name, "is_error": True, "error": str(exc)},
+            )
+            raise
+        await record(
+            "tool_finished",
+            {"tool_name": result.name, "is_error": result.is_error},
+        )
+        return result
 
     flagged_id = pending["tool_call_id"]
     historico = await session_store.get_history(thread_id)
@@ -701,9 +2374,9 @@ async def resume_conversation(
                     is_error=True,
                 )
             else:
-                from backend.engine.hitl import REQUIRE_APPROVAL
+                from backend.engine.hitl import call_requires_separate_approval
 
-                if tc.name in REQUIRE_APPROVAL:
+                if call_requires_separate_approval(tc.name, tc.args):
                     resultado = VMessage(
                         role=MessageRole.TOOL,
                         content=[
@@ -717,8 +2390,8 @@ async def resume_conversation(
                         is_error=True,
                     )
                 else:
-                    resultado = await _execute_single_call(
-                        tc, tool_registry=tool_registry, ctx=ctx
+                    resultado = await _execute_resume_tool(
+                        tc, policy_snapshot=policy_snapshot
                     )
         elif decision == "reject":
             resultado = VMessage(
@@ -734,11 +2407,22 @@ async def resume_conversation(
                 args = ephemeral_args
             if decision in {"edit", "option"} and edited_args is not None:
                 args = edited_args
-            resultado = await _execute_single_call(
+            call_snapshot = policy_snapshot
+            if (
+                tc.id == flagged_id
+                and tc.name == "git_push"
+                and bool(args.get("force", False))
+                and policy_snapshot is not None
+                and not policy_snapshot.allow_force_push
+            ):
+                from dataclasses import replace as dc_replace
+
+                call_snapshot = dc_replace(policy_snapshot, allow_force_push=True)
+
+            resultado = await _execute_resume_tool(
                 replace(tc, args=args),
-                tool_registry=tool_registry,
-                ctx=ctx,
-                on_event=on_event,
+                policy_snapshot=call_snapshot,
+                human_approved=tc.id == flagged_id,
             )
 
         parent_id = await session_store.append_message(
@@ -748,7 +2432,7 @@ async def resume_conversation(
             ToolResult(
                 tool_call_id=resultado.tool_call_id or "",
                 content_json=resultado.text(),
-                is_error=resultado.is_error,
+                is_error=bool(resultado.is_error),
             )
         )
         spec = tool_registry.get(resultado.name or "")
@@ -773,6 +2457,21 @@ async def resume_conversation(
             options=list(pending.get("options", [])),
             priority=int(pending.get("priority", 0)),
             expires_at=pending.get("expires_at"),
+        )
+    if decision in {"approve", "edit", "option"} and any(
+        tc.id == flagged_id for tc in tool_calls
+    ):
+        await _safe_record_run_evidence(
+            session_store,
+            resume_run_id,
+            approval={
+                "source": "human",
+                "decision": decision,
+                "interrupt_id": str(pending["interrupt_id"]),
+                "tool_call_id": flagged_id,
+                "tool_name": str(pending["tool_name"]),
+                "turn_key": _plan_turn_fingerprint(historico),
+            },
         )
     if media_tool:
         from backend.persistence.telemetry import telemetry

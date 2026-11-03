@@ -8,12 +8,14 @@ travar a chamada de tool inteira.
 
 from __future__ import annotations
 
+import json
 import sys
 
 import pytest
 
+from backend.services.pty_registry import pty_registry
 from backend.tools.context import ctx_from_config
-from backend.tools.fs import _pending_terminal, terminal
+from backend.tools.fs import _pending_terminal, _terminal_submit_suffix, terminal
 from backend.workspace.workspace import WorkspaceRegistry
 
 
@@ -92,3 +94,51 @@ async def test_terminal_without_command_or_stdin_input_returns_error(_workspace)
     result = await terminal(ctx=ctx_from_config(_config(_workspace.id, "t2")))
 
     assert result.startswith("Error:")
+
+
+@pytest.mark.asyncio
+async def test_terminal_reuses_attached_workbench_pty(monkeypatch, _workspace):
+    """Depois do attach, a tool terminal escreve no PTY que a UI exibe."""
+
+    class SharedSession:
+        terminal_id = "workbench-terminal"
+        thread_id = "shared-thread"
+
+        def write_input(self, data, request_id):
+            self.data = data
+            self.request_id = request_id
+            return {"status": "accepted", "terminal_id": self.terminal_id}
+
+    session = SharedSession()
+    monkeypatch.setattr(
+        pty_registry,
+        "list_for_user_workspace",
+        lambda **_kwargs: [session],
+    )
+    result = await terminal(
+        command="git status",
+        ctx=ctx_from_config(_config(_workspace.id, "shared-thread")),
+    )
+    data = json.loads(result)
+    assert data["shared"] is True
+    expected_suffix = b"\r" if sys.platform == "win32" else b"\n"
+    assert session.data == b"git status" + expected_suffix
+
+
+def test_shared_terminal_uses_enter_for_windows_pty(monkeypatch) -> None:
+    """ConPTY receives CR so a dispatched command is actually submitted."""
+    monkeypatch.setattr("backend.tools.fs.platform.system", lambda: "Windows")
+    assert _terminal_submit_suffix() == "\r"
+
+
+@pytest.mark.asyncio
+async def test_terminal_accepts_output_line_larger_than_asyncio_limit(_workspace):
+    """Saída sem newline dentro do limite do StreamReader não quebra o tool."""
+    script = "print('x' * 200000, end='')"
+    command = f'{sys.executable} -c "{script}"'
+
+    result = await terminal(
+        command=command, ctx=ctx_from_config(_config(_workspace.id, "large-line"))
+    )
+
+    assert len(result) == 200000

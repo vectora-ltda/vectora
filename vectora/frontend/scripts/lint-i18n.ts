@@ -221,6 +221,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
       baseRef && /^[A-Za-z0-9._/-]+$/.test(baseRef)
         ? `origin/${baseRef}...HEAD`
         : "HEAD";
+    const maxBuffer = 64 * 1024 * 1024;
     ({ stdout } = await execFileAsync(
       "git",
       [
@@ -231,12 +232,12 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
         "--",
         "vectora/frontend",
       ],
-      { cwd: repoRoot },
+      { cwd: repoRoot, maxBuffer },
     ));
     const diff = await execFileAsync(
       "git",
       ["diff", "--unified=0", diffRef, "--", "vectora/frontend"],
-      { cwd: repoRoot },
+      { cwd: repoRoot, maxBuffer },
     );
     changedLines = changedLinesFromDiff(diff.stdout);
     paths = stdout

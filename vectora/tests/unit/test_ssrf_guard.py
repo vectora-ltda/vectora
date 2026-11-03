@@ -28,6 +28,8 @@ class TestIsBlockedIp:
             "::1",  # loopback IPv6
             "fe80::1",  # link-local IPv6
             "fc00::1",  # unique local IPv6 (is_private)
+            "100.64.0.1",  # CGNAT (RFC 6598)
+            "64:ff9b::c000:0201",  # NAT64 embedding 192.0.2.1
         ],
     )
     def test_blocks_private_and_special_ranges(self, ip):
@@ -68,6 +70,13 @@ class TestIsUrlSsrfSafe:
             "socket.getaddrinfo", return_value=[(2, 1, 6, "", ("10.0.0.5", 80))]
         ):
             assert is_url_ssrf_safe("http://attacker-controlled.example/") is False
+
+    def test_dns_rebinding_domain_resolving_to_cgnat_is_blocked(self):
+        """CGNAT não é público só porque ``ipaddress`` não o chama privado."""
+        with patch(
+            "socket.getaddrinfo", return_value=[(2, 1, 6, "", ("100.64.0.1", 80))]
+        ):
+            assert is_url_ssrf_safe("http://internal-carrier.example/") is False
 
     def test_url_without_hostname_is_blocked(self):
         assert is_url_ssrf_safe("not-a-valid-url") is False

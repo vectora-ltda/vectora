@@ -1,4 +1,4 @@
-# Config só pra testes locais (vitest-pool-workers/miniflare) — nunca usado
+# Config só pra testes locais (vitest-plugin/miniflare) — nunca usado
 # em deploy real (isso é `wrangler.toml`). Cópia de `wrangler.toml` com uma
 # única diferença: `[[migrations]]` aqui só declara a classe atual, sem o
 # histórico completo — miniflare valida localmente que toda `renamed_classes`

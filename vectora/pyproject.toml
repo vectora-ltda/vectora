@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vectora"
-version = "0.2.0"
+version = "0.3.0"
 description = "Vectora - Advanced AI Assistant"
 readme = "README.md"
 authors = [{name = "Vectora Ltda", email = "contato@vectora.company"}]
@@ -16,6 +16,7 @@ classifiers = [
 
 dependencies = [
     "fastapi>=0.138.0",
+    "defusedxml>=0.7.1",
     "uvicorn[standard]>=0.49.0",
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
@@ -53,7 +54,7 @@ dependencies = [
     "slowapi>=0.1.10",
     "keyring>=25.7.0",
     "pykeepass>=4.1.1",
-    "gitpython>=3.1.50",
+    "gitpython>=3.2.1",
     "httpx>=0.28.1",
     "pywinpty>=3.0.5 ; sys_platform == 'win32'",
     "ptyprocess>=0.7 ; sys_platform != 'win32'",
@@ -63,7 +64,7 @@ dependencies = [
     "scons>=4.10.1",
     "send2trash>=2.1.0",
     "pystray>=0.19.5",
-    "pillow>=12.2.0",
+    "pillow>=13.0.0",
     "pyautogui-next>=0.9.55",
     "redis[hiredis]>=7.4.1",
     "asyncpg>=0.31.0",
@@ -100,7 +101,7 @@ dependencies = [
     # Parsers de documento reais para `ingest_docs`/`context_graph/detect.py`
     # (antes só existiam atrás de `try/except ImportError` — nunca rodavam
     # em nenhuma instalação real, PDF/DOCX/XLSX viravam lixo binário no RAG).
-    "pypdf>=6.16.2",
+    "pypdf>=6.21.4",
     "python-docx>=1.2.0",
     "openpyxl>=3.1.5",
     # YouTube/outras plataformas (backend/tools/youtube.py) — captions
@@ -223,6 +224,8 @@ ignore = [
 # S105 é falso positivo do nome da variável); muitos returns é inerente a um
 # parser de sintaxe com vários formatos de token (campo/índice/wildcard/seleção).
 "backend/persistence/native/store.py" = ["S105", "PLR0911"]
+# Contratos de schema JSON e TypeScript de settings.json usam camelCase canônico.
+"backend/contracts/models.py" = ["N815"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -318,7 +321,7 @@ venvPath = "."
 executionEnvironments = [{ root = "vectora" }]
 
 [tool.pytest.ini_options]
-addopts = "--color=yes --tb=short"
+addopts = "--color=yes --tb=short -m 'not live'"
 testpaths = ["tests"]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
@@ -383,15 +386,25 @@ markers = [
     "stress: testes de carga e concorrência — sem APIs externas, apenas infra local",
     "storage: testes de integração de storage — Postgres, Redis, Qdrant, SQLite, LanceDB (sobe docker automaticamente)",
     "singularity: testes de escape real do sandbox Singularity/Apptainer — requer binário instalado, deselecionado por padrão no CI (roda local com 'singularity'/'apptainer' presentes)",
-    "browser: testes que sobem Chromium real via Playwright — requer 'playwright install chromium'",
+    "browser: testes que conectam ao Chromium do Electron via CDP — requer Electron ativo",
     "frontend_build: testes que sobem o backend real servindo frontend/dist — requer 'pnpm --dir frontend build'",
     "electron_dev: testes que sobem o Electron dev build real — requer 'scons frontend' (ou 'pnpm --dir vectora/frontend install && pnpm --dir vectora/frontend run electron:build')",
     "live: testes sem mock que chamam LLM/Tavily reais — custam API real, só via 'scons tests-live'",
+    "local_llm: teste de integração contra um llama.cpp real iniciado pelo workflow local-llm",
     "real_lancedb: testes que chamam lancedb.connect_async() real (sem mock) — travam de forma determinística no Linux CI, rodam em step isolado do workflow (ver comentário do timeout acima)",
+    "benchmark: benchmarks locais opt-in de persistência, sem APIs externas",
 ]
 
 [dependency-groups]
 dev = [
     "pyinstaller>=6.21.0",
     "pytest-asyncio>=1.3.0",
+]
+
+[tool.uv]
+constraint-dependencies = [
+    "certifi>=2026.10.18",
+    "filelock>=4.2.1",
+    "pyasn1>=0.6.5",
+    "setuptools>=84.1.0",
 ]

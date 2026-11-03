@@ -56,6 +56,11 @@ def _to_payload(event: EngineEvent) -> schemas.StreamChatEventPayload:  # noqa: 
             category=event.category,
             destructive=event.destructive,
             icon=event.icon,
+            decision=event.decision,
+            decision_reason=event.decision_reason,
+            decision_provider=event.decision_provider,
+            decision_model=event.decision_model,
+            decision_confidence=event.decision_confidence,
         )
     if isinstance(event, ToolResult):
         return schemas.ToolResultEvent(
@@ -100,6 +105,8 @@ def _to_payload(event: EngineEvent) -> schemas.StreamChatEventPayload:  # noqa: 
             tool_name=event.tool_name,
             args_json=event.args_json,
             interrupt_id=event.interrupt_id,
+            permission_mode=event.permission_mode,
+            workspace_id=event.workspace_id,
             reasoning=event.reasoning,
             affected_paths=event.affected_paths,
             diff_preview=event.diff_preview,

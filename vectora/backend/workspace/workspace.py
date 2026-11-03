@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -39,11 +40,14 @@ def _session_workspaces_root() -> Path:
     """Pasta base dos workspaces criados automaticamente por sessão.
 
     Por padrão mora em ``~/Documents/vectora`` (visível ao usuário no
-    Explorer/Finder). Deriva de ``settings.vectora_home.parent`` em vez de
-    ``Path.home()`` direto para respeitar ``VECTORA_HOME``: quando setado
-    para um diretório isolado (testes), o Documents derivado cai dentro
-    dessa mesma árvore isolada em vez de vazar para o home real.
+    Explorer/Finder). ``VECTORA_WORKSPACES_ROOT`` permite separar essa
+    localização da raiz de runtime (por exemplo, manter o runtime e modelos
+    em um SSD enquanto os workspaces ficam em Documentos). Sem a variável,
+    preservamos o isolamento derivado de ``VECTORA_HOME`` usado pelos testes.
     """
+    configured = os.environ.get("VECTORA_WORKSPACES_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
     return settings.vectora_home.parent / "Documents" / "vectora"
 
 
@@ -184,6 +188,24 @@ class WorkspaceRegistry:
         """Retorna workspace por ID ou None se não existir."""
         self._load()
         return self._workspaces.get(workspace_id)
+
+    def claim_if_unowned(self, workspace_id: str, user_id: str) -> Workspace | None:
+        """Atomically claim a legacy workspace for its first tool caller.
+
+        Older registries may contain workspaces without ``owner_id``.  A
+        caller that addresses one explicitly must establish ownership before
+        Git tools use its repository; later callers are rejected by the normal
+        owner check.  Existing owners are never changed.
+        """
+        # Resolve through ``get`` so embedders and tests that provide a
+        # workspace backend continue to participate in the ownership check.
+        ws = self.get(workspace_id)
+        if ws is None:
+            return None
+        if ws.owner_id is None:
+            ws.owner_id = user_id
+            self._save()
+        return ws
 
     def list_all(self) -> list[Workspace]:
         """Lista todos os workspaces registrados."""

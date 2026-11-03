@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
@@ -26,6 +26,13 @@ class TodoItemArg(BaseModel):
 
     content: str
     status: Literal["pending", "in_progress", "completed"]
+    step_id: str | None = Field(
+        default=None, description="ID estável da etapa do plano."
+    )
+    quality_gate: str | None = Field(
+        default=None,
+        description="ID de um quality gate configurado no perfil do workspace; omita se não houver.",
+    )
 
 
 @vtool(extras=ToolExtras(category="planning", icon="list-checks"))
@@ -36,7 +43,18 @@ async def write_todos(todos: list[TodoItemArg], ctx: ToolContext) -> str:
 
     Args:
         todos: lista completa e atualizada de tarefas, cada uma com
-            content (descrição curta) e status (pending/in_progress/completed).
+            content (descrição curta), status (pending/in_progress/completed),
+            step_id opcional (identificador estável da etapa) e quality_gate
+            opcional (referência a um ID de quality gate existente no perfil do
+            workspace; omita quando não houver gate configurado).
     """
-    payload = [{"content": t.content, "status": t.status} for t in todos]
+    payload = [
+        {
+            "content": t.content,
+            "status": t.status,
+            **({"step_id": t.step_id} if t.step_id is not None else {}),
+            **({"quality_gate": t.quality_gate} if t.quality_gate is not None else {}),
+        }
+        for t in todos
+    ]
     return json.dumps(payload, ensure_ascii=False)

@@ -76,6 +76,8 @@ import type { CanvasDocumentDescriptor } from "@/lib/stores/windows-store";
 import type { PlanItem } from "@/lib/stores/workbench-store";
 import type { EditedFile } from "@/lib/types";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
+import { useActiveWorkbenchContextStore } from "@/lib/stores/active-workbench-context-store";
+import { resolveBrowserProfileId } from "@/lib/browser-profile";
 import {
   listThreads,
   getHistory,
@@ -163,6 +165,8 @@ function SessionPage() {
   const userId = useAuthStore((s) => s.user?.id);
   const pushMention = useChatInputStore((s) => s.pushMention);
   const pushDraft = useChatInputStore((s) => s.pushDraft);
+
+  // A conversa também pode ser aberta por deep-link, restauração de sessão ou
   const canvasDocuments = useWindowsStore((s) => s.canvasDocuments);
   const activeCanvasDocumentId = useWindowsStore(
     (s) => s.activeCanvasDocumentId,
@@ -693,6 +697,33 @@ function SessionPage() {
 
   // Threads do workspace ativo (para o session switcher do IDE mode).
   const activeWorkspaceId = useWorkspacesStore((s) => s.active_id);
+  const workspaces = useWorkspacesStore((s) => s.workspaces);
+  const setActiveWorkbenchContext = useActiveWorkbenchContextStore(
+    (s) => s.setContext,
+  );
+  const clearActiveWorkbenchContext = useActiveWorkbenchContextStore(
+    (s) => s.clear,
+  );
+  const hydratedWorkspaceId = workspaces.some(
+    (workspace) => workspace.id === activeWorkspaceId,
+  )
+    ? activeWorkspaceId
+    : null;
+
+  useEffect(() => {
+    setActiveWorkbenchContext({
+      threadId,
+      workspaceId: hydratedWorkspaceId,
+      browserProfileId: resolveBrowserProfileId(threadId, hydratedWorkspaceId),
+    });
+    return clearActiveWorkbenchContext;
+  }, [
+    clearActiveWorkbenchContext,
+    hydratedWorkspaceId,
+    setActiveWorkbenchContext,
+    threadId,
+  ]);
+
   const visibleCanvasDocuments = useMemo(
     () =>
       canvasDocuments.filter((document) =>
@@ -1346,17 +1377,21 @@ function SessionPage() {
                         : undefined,
                   },
                   center: { label: "Chat" },
-                  right: assistantWorkbenchVisible
-                    ? {
-                        kind: "workbench",
-                        label: m.layout_workbench_column(),
-                        visibility: "visible",
-                        width: splitSize + WORKBENCH_RAIL_WIDTH,
-                        minWidth:
-                          WORKBENCH_CONTENT_MIN_WIDTH + WORKBENCH_RAIL_WIDTH,
-                        maxWidth:
-                          WORKBENCH_CONTENT_MAX_WIDTH + WORKBENCH_RAIL_WIDTH,
-                        resize: {
+                  right: {
+                    kind: "workbench",
+                    label: m.layout_workbench_column(),
+                    visibility: "visible",
+                    width: workbenchOpen
+                      ? splitSize + WORKBENCH_RAIL_WIDTH
+                      : WORKBENCH_RAIL_WIDTH,
+                    minWidth: workbenchOpen
+                      ? WORKBENCH_CONTENT_MIN_WIDTH + WORKBENCH_RAIL_WIDTH
+                      : WORKBENCH_RAIL_WIDTH,
+                    maxWidth: workbenchOpen
+                      ? WORKBENCH_CONTENT_MAX_WIDTH + WORKBENCH_RAIL_WIDTH
+                      : WORKBENCH_RAIL_WIDTH,
+                    resize: workbenchOpen
+                      ? {
                           ariaLabel: m.resize_workbench(),
                           value: splitSize,
                           min: WORKBENCH_CONTENT_MIN_WIDTH,
@@ -1366,15 +1401,9 @@ function SessionPage() {
                           onPointerMove: onWorkbenchResizeMove,
                           onPointerUp: onWorkbenchResizeUp,
                           onPointerCancel: onWorkbenchResizeUp,
-                        },
-                      }
-                    : {
-                        kind: "workbench",
-                        label: m.layout_workbench_column(),
-                        visibility: "collapsed",
-                        onExpand: openWorkbench,
-                        expandLabel: m.layout_open_workbench(),
-                      },
+                        }
+                      : undefined,
+                  },
                 }}
               />
 

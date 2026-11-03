@@ -56,6 +56,34 @@ async def test_each_chunk_emits_one_token_in_order():
 
 
 @pytest.mark.asyncio
+async def test_loop_cap_exceeded_persists_failed_terminal_outcome():
+    """Um limite de segurança não pode deixar o AgentRun preso em ``running``."""
+    store = MagicMock()
+    store.get_session = AsyncMock(return_value=object())
+    store.start_run = AsyncMock()
+    store.upsert_agent_run = AsyncMock()
+    store.update_run = AsyncMock()
+    store.update_agent_run_status = AsyncMock()
+    store.get_message_id_by_turn_id = AsyncMock(return_value=None)
+    store.get_branch_head_id = AsyncMock(return_value=None)
+    store.append_message = AsyncMock()
+
+    async def run(_on_event):
+        return "loop_cap_exceeded"
+
+    with patch(
+        "backend.services.agent_factory.get_session_store",
+        new=AsyncMock(return_value=store),
+    ):
+        _ = [_parse(s) async for s in stream_engine_events(run, thread_id="tid")]
+
+    store.update_agent_run_status.assert_awaited_once()
+    call = store.update_agent_run_status.call_args
+    assert call is not None
+    assert call.kwargs["status"] == "failed"
+
+
+@pytest.mark.asyncio
 async def test_thread_event_carries_resolved_workspace_id():
     """Frontend sincroniza o seletor de workspace a partir desse campo (ver
     use-stream-handler.ts) — sem ele, um workspace criado via

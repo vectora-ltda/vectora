@@ -13,11 +13,12 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, cast
 
 from backend.scheduling import background_tasks, kanban
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
+from backend.vtypes.plan import BlockKind, DecompositionNode, KanbanCard, KanbanStatus
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ _DECOMPOSE_SYSTEM_PROMPT = (
 )
 
 
-def _parse_decomposition(raw_text: str) -> list[dict[str, Any]]:
+def _parse_decomposition(raw_text: str) -> list[DecompositionNode]:
     """Faz o parse tolerante da proposta do modelo — nunca levanta exceção.
 
     Formato malformado (JSON inválido, não é uma lista, item sem `name`/
@@ -58,7 +59,7 @@ def _parse_decomposition(raw_text: str) -> list[dict[str, Any]]:
     if not isinstance(bruto, list):
         return []
 
-    nos: list[dict[str, Any]] = []
+    nos: list[DecompositionNode] = []
     for item in bruto:
         if not isinstance(item, dict):
             continue
@@ -120,13 +121,13 @@ async def kanban_list(
             )
 
         tasks = await background_tasks.list_tasks(session_id)
-        cards = [
+        cards: list[KanbanCard] = [
             {
                 "task_id": t.id,
                 "name": t.name,
                 "kind": t.kind,
-                "status": t.status,
-                "block_kind": t.block_kind,
+                "status": cast("KanbanStatus", t.status),
+                "block_kind": cast("BlockKind | None", t.block_kind),
                 "block_reason": t.block_reason,
                 "agent_profile_id": t.agent_profile_id,
                 "last_run_at": t.last_run_at,

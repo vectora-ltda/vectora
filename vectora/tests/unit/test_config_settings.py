@@ -59,6 +59,12 @@ def test_settings_set_model_updates_nine_router_default():
     assert s.nine_router_default_model == "cx/gpt-5.6-luna"
 
 
+def test_settings_set_model_updates_llamacpp_model():
+    s = Settings()
+    s.set_model("llamacpp", "local-model")
+    assert s.llamacpp_model == "local-model"
+
+
 def test_settings_vectora_app_secret_vem_do_defaults_env(monkeypatch):
     """Fixo por produto (backend/defaults.env) — não é auto-gerado por
     instalação, precisa bater com o mesmo valor configurado no Worker via
@@ -150,6 +156,19 @@ def test_cohere_not_available_without_api_key(monkeypatch):
     # Se cohere_api_key não está setado no env, não deve aparecer
     if not s.cohere_api_key:
         assert "cohere" not in providers
+
+
+def test_available_providers_includes_configured_local_runtimes() -> None:
+    settings = Settings()
+    object.__setattr__(settings, "ollama_base_url", "http://127.0.0.1:11434")
+    object.__setattr__(settings, "llamacpp_base_url", "http://127.0.0.1:18080/v1")
+    object.__setattr__(settings, "dmr_base_url", "http://127.0.0.1:12434")
+    object.__setattr__(settings, "nine_router_base_url", "http://127.0.0.1:8000")
+    object.__setattr__(settings, "nine_router_api_key", "local-key")
+
+    providers = settings.get_available_providers()
+
+    assert {"ollama", "llamacpp", "dmr", "nine_router"}.issubset(providers)
 
 
 def test_set_model_cohere():
@@ -270,6 +289,20 @@ def test_voyage_key_independent_from_cohere(monkeypatch):
 class TestConfiguredLlmProviders:
     """configured_llm_providers: só providers com credencial (model selector)."""
 
+    @pytest.fixture(autouse=True)
+    def isolate_local_provider_environment(self, monkeypatch):
+        """Não deixe runtimes locais do host vazarem para estes contratos."""
+        for key in (
+            "LLAMACPP_BASE_URL",
+            "LLAMACPP_MODEL",
+            "LLAMACPP_API_KEY",
+            "DMR_BASE_URL",
+            "DMR_MODEL",
+            "DMR_CONTRACT",
+        ):
+            monkeypatch.delenv(key, raising=False)
+        monkeypatch.setenv("LLAMACPP_MODE", "external")
+
     def test_only_configured_providers_listed(self):
         s = Settings()
         s.google_api_key = "g-key"
@@ -278,6 +311,8 @@ class TestConfiguredLlmProviders:
         s.cohere_api_key = "c-key"
         s.openrouter_api_key = None
         s.ollama_base_url = None
+        s.llamacpp_base_url = None
+        s.dmr_base_url = None
         assert s.configured_llm_providers() == ["google-genai", "cohere"]
 
     def test_no_keys_returns_empty(self):
@@ -288,6 +323,8 @@ class TestConfiguredLlmProviders:
         s.cohere_api_key = None
         s.openrouter_api_key = None
         s.ollama_base_url = None
+        s.llamacpp_base_url = None
+        s.dmr_base_url = None
         # COHERE_API_KEY do ambiente pode existir; isola para o caso vazio.
         import os as _os
 
@@ -306,6 +343,8 @@ class TestConfiguredLlmProviders:
         s.cohere_api_key = None
         s.openrouter_api_key = None
         s.ollama_base_url = None
+        s.llamacpp_base_url = None
+        s.dmr_base_url = None
         import os as _os
 
         prev = _os.environ.pop("COHERE_API_KEY", None)
@@ -323,6 +362,8 @@ class TestConfiguredLlmProviders:
         s.cohere_api_key = None
         s.openrouter_api_key = None
         s.ollama_base_url = "http://localhost:11434"
+        s.llamacpp_base_url = None
+        s.dmr_base_url = None
         import os as _os
 
         prev = _os.environ.pop("COHERE_API_KEY", None)

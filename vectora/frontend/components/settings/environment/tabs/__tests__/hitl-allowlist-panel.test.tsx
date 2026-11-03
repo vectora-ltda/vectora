@@ -110,6 +110,7 @@ describe("HitlAllowlistPanel", () => {
           toolName: "terminal",
           argsJson: '{"command":"pwd"}',
           interruptId: "interrupt-1",
+          runId: "run-1",
           workspaceId: "ws-1",
         }}
         onDecision={vi.fn()}
@@ -120,5 +121,12 @@ describe("HitlAllowlistPanel", () => {
     fireEvent.click(allowButton);
     await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
     expect(allowButton).not.toBeDisabled();
+    expect(global.fetch).toHaveBeenCalledWith(
+      "/smart-approval/allowlist",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.stringContaining('"run_id":"run-1"'),
+      }),
+    );
   });
 });

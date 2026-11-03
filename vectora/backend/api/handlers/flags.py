@@ -21,6 +21,9 @@ nem modo.
 
 from __future__ import annotations
 
+import asyncio
+import sqlite3
+
 from fastapi import APIRouter, HTTPException, Request
 
 from backend.api.middleware.auth import _auth_enabled
@@ -57,7 +60,21 @@ async def get_prefs(request: Request) -> dict:
     """
     from backend.workspace.runtime_settings import runtime_settings
 
-    return runtime_settings.get_frontend_prefs(_user_id_from_request(request))
+    workspace_id = request.query_params.get("workspace_id")
+    if workspace_id:
+        from backend.api.handlers.workspaces import require_workspace_access
+
+        require_workspace_access(workspace_id, request)
+    try:
+        return await asyncio.to_thread(
+            runtime_settings.get_frontend_prefs,
+            _user_id_from_request(request),
+            workspace_id,
+        )
+    except (sqlite3.Error, ValueError) as exc:
+        raise HTTPException(
+            status_code=503, detail="Préférences indisponíveis"
+        ) from exc
 
 
 @router.patch("/prefs")
@@ -73,4 +90,24 @@ async def update_prefs(request: Request) -> dict:
     body = await request.json()
     if not isinstance(body, dict):
         raise HTTPException(status_code=422, detail="Corpo deve ser um objeto JSON.")
-    return runtime_settings.set_frontend_prefs(_user_id_from_request(request), body)
+    changes = dict(body)
+    workspace_id = changes.pop("workspace_id", None)
+    if workspace_id is not None and (
+        not isinstance(workspace_id, str) or not workspace_id.strip()
+    ):
+        raise HTTPException(status_code=422, detail="workspace_id inválido.")
+    if workspace_id:
+        from backend.api.handlers.workspaces import require_workspace_access
+
+        require_workspace_access(workspace_id, request)
+    try:
+        return await asyncio.to_thread(
+            runtime_settings.set_frontend_prefs,
+            _user_id_from_request(request),
+            changes,
+            workspace_id=workspace_id,
+        )
+    except (sqlite3.Error, ValueError) as exc:
+        raise HTTPException(
+            status_code=503, detail="Não foi possível persistir preferências"
+        ) from exc

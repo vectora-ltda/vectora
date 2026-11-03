@@ -67,7 +67,7 @@ async function saveImageFallbackModel(model: string): Promise<void> {
   });
 }
 
-function ImageFallbackModelSection() {
+export function ImageFallbackModelSection() {
   const [model, setModel] = useState<string>(IMAGE_FALLBACK_NONE);
   const [models, setModels] = useState<ProviderModelInfo[]>([]);
 
@@ -127,7 +127,11 @@ function ImageFallbackModelSection() {
   );
 }
 
-export function FallbacksTab() {
+export function FallbacksTab({
+  includeImageFallback = true,
+}: {
+  includeImageFallback?: boolean;
+}) {
   const [order, setOrder] = useState<string[]>([]);
   const [addModel, setAddModel] = useState<string>("");
   const [catalogModels, setCatalogModels] = useState<ProviderModelInfo[]>([]);
@@ -187,13 +191,22 @@ export function FallbacksTab() {
 
   const available = (
     catalogModels.length > 0
-      ? catalogModels.filter((item) => item.available).map((item) => item.id)
+      ? catalogModels
+          // Local runtimes remain valid fallback targets while their daemon
+          // is booting. Persisting the choice lets the next request retry it
+          // after readiness without forcing the user to reconfigure the UI.
+          .filter(
+            (item) =>
+              item.available ||
+              ["ollama", "llamacpp", "dmr"].includes(item.provider),
+          )
+          .map((item) => item.id)
       : getAllowedModels()
   ).filter((mid) => !order.includes(mid));
 
   return (
     <div className="space-y-6">
-      <ImageFallbackModelSection />
+      {includeImageFallback && <ImageFallbackModelSection />}
       <div className="space-y-2">
         <Label>{m.prefs_fallback_order_title()}</Label>
         <p className="text-xs text-muted-foreground">

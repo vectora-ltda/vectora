@@ -16,7 +16,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from backend.llm.fallback_chat_client import load_chat_client
 from backend.services.utils import load_native_llm
+from backend.settings import settings
 from backend.workspace.runtime_settings import runtime_settings
 
 
@@ -82,3 +84,22 @@ def test_model_id_explicito_nunca_depende_de_runtime_settings():
     with _mock_load_chat_client() as mock_load:
         load_native_llm("anthropic:claude-opus-5")
     mock_load.assert_called_once_with("anthropic:claude-opus-5")
+
+
+@pytest.mark.parametrize(
+    ("contract", "expected_type"),
+    [
+        ("openai", "OpenRouterChatClient"),
+        ("ollama", "OllamaChatClient"),
+    ],
+)
+def test_dmr_chat_client_respeita_contrato_anunciado(
+    monkeypatch: pytest.MonkeyPatch,
+    contract: str,
+    expected_type: str,
+) -> None:
+    """O cliente DMR deve usar o contrato descoberto, não sempre OpenAI."""
+    monkeypatch.setattr(settings, "dmr_base_url", "http://127.0.0.1:12434")
+    monkeypatch.setattr(settings, "dmr_contract", contract)
+    client = load_chat_client("dmr:hf.co/Qwen/Qwen3-0.6B")
+    assert type(client).__name__ == expected_type

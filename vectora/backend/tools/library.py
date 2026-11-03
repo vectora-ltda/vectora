@@ -289,10 +289,12 @@ async def publish_memory_bucket_tool(
     bucket_id: str,
     name: str,
     description: str,
+    ctx: ToolContext,
     license: str = "CC-BY-4.0",  # noqa: A002 — nome de campo do domínio (licença)
 ) -> str:
     """Publica um bucket RAG local na Vectora Memory Buckets remota — exige
-    conta vectora.company conectada (`VECTORA_TOKEN`).
+    conta vectora.company conectada (`VECTORA_TOKEN`). Só publica buckets do
+    workspace do turno atual.
 
     Args:
         bucket_id: id do bucket local a publicar (de `list_buckets`).
@@ -306,6 +308,13 @@ async def publish_memory_bucket_tool(
         publish_memory_bucket,
     )
 
+    if not ctx.workspace_id:
+        return json.dumps(
+            {
+                "status": "error",
+                "error": "Publicação de bucket exige um workspace ativo.",
+            }
+        )
     token = license_service._get_token()
     if not token:
         return json.dumps(
@@ -316,7 +325,12 @@ async def publish_memory_bucket_tool(
         )
     try:
         remote_bucket_id = await publish_memory_bucket(
-            bucket_id, name, description, license, session_token=token
+            bucket_id,
+            name,
+            description,
+            license,
+            workspace_id=ctx.workspace_id,
+            session_token=token,
         )
         return json.dumps({"status": "published", "bucket_id": remote_bucket_id})
     except MemoryBucketsError as exc:

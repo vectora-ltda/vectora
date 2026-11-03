@@ -31,7 +31,7 @@ vi.mock("@/lib/i18n-dyn", () => ({
 
 // Store real (Zustand puro, sem rede/backend) — mais simples e robusto do
 // que recriar à mão todos os selectors que WorkbenchNavBar/Content usam
-// (badges por aba, pending de files/diff, etc.).
+// (badges por aba, pending de files/Git, etc.).
 import {
   useWorkbenchStore,
   type WorkbenchTab,
@@ -172,7 +172,7 @@ describe("WorkbenchContent — troca de aba nunca trava no conteúdo anterior (r
   const ALL_TABS: WorkbenchTab[] = [
     "terminal",
     "files",
-    "diff",
+    "git",
     "plan",
     "browser",
     "storage",
@@ -183,7 +183,7 @@ describe("WorkbenchContent — troca de aba nunca trava no conteúdo anterior (r
   const STUB_TEXT: Record<WorkbenchTab, string> = {
     terminal: "stub-terminal",
     files: "stub-files",
-    diff: "stub-git",
+    git: "stub-git",
     plan: "stub-plan",
     browser: "stub-browser",
     storage: "stub-memory",
@@ -213,7 +213,7 @@ describe("WorkbenchContent — troca de aba nunca trava no conteúdo anterior (r
     const { rerender } = renderContent({ threadId: "t-rapido" });
     expect(screen.getByText("stub-files")).toBeInTheDocument();
 
-    act(() => setActiveTab("t-rapido", "diff"));
+    act(() => setActiveTab("t-rapido", "git"));
     rerender(
       <TooltipProvider>
         <WorkbenchContent threadId="t-rapido" />

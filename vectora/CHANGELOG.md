@@ -1,6 +1,96 @@
 # Changelog
 
-Este changelog registra as capacidades identificadas na implementação atual do Vectora. O conteúdo é um ponto de partida histórico anterior à versão 0.2.0 e não atribui cada recurso a uma versão específica.
+Este arquivo registra as mudanças do Vectora. A seção da linha 0.3 é um inventário do conteúdo em preparação e não representa uma versão publicada; a versão só existe quando a tag e os artefatos correspondentes forem publicados.
+
+## Linha 0.3 (em preparação)
+
+Esta seção reúne o conteúdo integrado à branch `release/0.3` e o conteúdo empilhado sobre ela que ainda depende de integração. Itens marcados como dependentes do PR #404 só fazem parte da linha depois que esse PR for integrado.
+
+### Features
+
+Os recursos da linha 0.3 são listados abaixo, organizados por área funcional.
+
+#### Vectora App
+
+Esta seção reúne as capacidades do aplicativo na linha 0.3.
+
+##### Execuções e histórico (AgentRun)
+
+Cada execução do agente passa a ter identidade e estado persistentes.
+
+- Associa cada execução a um `run_id`, estado, evidências e relações entre agente principal e subagentes ([#382](https://github.com/vectora-ltda/vectora/pull/382)).
+- Usa os estados `planned`, `admitted`, `running`, `waiting_approval`, `waiting_provider`, `tool_running`, `verifying`, `passed`, `degraded`, `failed`, `cancelled` e `recovery_required`.
+- Expõe a execução e sua linha do tempo pelas rotas `/runs/{run_id}`, `/runs/{run_id}/timeline` e `/threads/{thread_id}/runs`.
+- Deriva o histórico da thread de um ledger de eventos idempotente e mantém paridade de persistência entre SQLite e PostgreSQL ([#382](https://github.com/vectora-ltda/vectora/pull/382), [#400](https://github.com/vectora-ltda/vectora/pull/400)).
+
+##### Plan Mode e subagentes
+
+O planejamento passa a gerar etapas executáveis e delegação persistente.
+
+- Ativa o Plan Mode quando a mensagem começa com `/plan`; no modo de permissão `plan`, a aprovação de plano é pedida uma vez por turno para ações sujeitas ao HITL. Com isolamento nativo do worker confirmado, `terminal`, `file_write` e `file_edit` são dispensadas, inclusive na primeira ação.
+- Executa subagentes por DAG, com dependências entre etapas, e organiza tarefas em background no Kanban ([#382](https://github.com/vectora-ltda/vectora/pull/382)).
+
+##### Decisões e HITL
+
+As decisões de aprovação ficam registradas e, com o PR #404, podem consultar Decision Models.
+
+- Registra as decisões humanas de aprovar, rejeitar, escolher opção e editar argumentos.
+- Avalia o acesso a servidores MCP com `McpPolicyDecision` (`allowed`, `blocked` ou `policy_unavailable`); a política do workspace tem precedência sobre a da instância, e uma falha ao carregar a política nega o acesso.
+- Dependente do PR #404: Decision Models (Clef, Laya, JEV) configuráveis por superfície, com decisões estruturadas `allow`, `deny` ou `requires_human`, preferências em **Configurações → Modelos de IA** e no chat, e pré-aprovações de uso único ([#404](https://github.com/vectora-ltda/vectora/pull/404)).
+
+##### Verificação e Evaluation Lab
+
+Os resultados das execuções passam a ser verificados e reproduzíveis.
+
+- Avalia resultados com perfis de quality gates por workspace, com políticas `block`, `degrade` e `inform` e resultados `passed`, `failed`, `infra_error`, `not_run`, `blocked`, `degraded` e `unverified` ([#382](https://github.com/vectora-ltda/vectora/pull/382), [#414](https://github.com/vectora-ltda/vectora/pull/414)).
+- Com gravação habilitada, exporta interações registradas no AgentRun com `vectora eval export-run`; permite replay e comparação com `vectora eval run` e `vectora eval compare`. A ocultação cobre campos e padrões conhecidos de credenciais, não todo código privado ou dado pessoal; revise os arquivos e restrinja o acesso antes de compartilhar.
+
+##### Políticas e egress
+
+As chamadas de rede das ferramentas passam a seguir uma política de saída por workspace.
+
+- Compila um snapshot de política por execução antes das tools.
+- Aplica a política de egress (hosts permitidos e negados, portas, bloqueio de IPs privados e resolução de DNS validada) às tools de web baseadas em URL (`fetch`, `crawl`, `map`) e à navegação inicial do Browser Workbench ([#382](https://github.com/vectora-ltda/vectora/pull/382), [#400](https://github.com/vectora-ltda/vectora/pull/400)).
+
+##### Contexto, memória e RAG
+
+O contexto passa a ser planejado a partir de domínios de memória separados.
+
+- Integra Context Planner, Context Graph, projeções de contexto, domínios de memória e buckets para RAG ([#382](https://github.com/vectora-ltda/vectora/pull/382)).
+
+##### Browser Workbench e providers
+
+A navegação usa o Chromium distribuído com o Electron.
+
+- Usa Chromium no Browser Workbench e no fallback de `fetch_url` sem chave ou após quota/rate limit; a busca consulta o provider configurado e pode recorrer à API DuckDuckGo, enquanto `web_crawl` e `web_map` exigem `TAVILY_API_KEY`, sem fallback Chromium ([#382](https://github.com/vectora-ltda/vectora/pull/382), [#355](https://github.com/vectora-ltda/vectora/pull/355)).
+- Ajusta o fluxo de release e os testes locais de providers ([#408](https://github.com/vectora-ltda/vectora/pull/408)).
+
+As correções abaixo complementam os recursos descritos.
+
+### Bug Fixes
+
+As correções incluídas na linha 0.3 são listadas abaixo.
+
+- Corrige a consistência de sequência e cursor do histórico, mensagens órfãs e a persistência de estado de erro.
+- Corrige a comparação de contratos para referências, enums, limites e combinadores de schema.
+- Libera os guards de navegação, filtra cópias expiradas de memória e protege a restauração de checkpoints contra links simbólicos.
+- Declara o contrato de motivos de quality gate ([#414](https://github.com/vectora-ltda/vectora/pull/414)).
+
+Considere as restrições de plataforma e de integração ao usar esses recursos.
+
+### Limitações conhecidas
+
+Os limites abaixo valem para a linha 0.3 e devem ser considerados antes de depender de cada recurso.
+
+- Sem `vectora.toml`, o sandbox liga sozinho no Linux com `bwrap` e no Windows com WSL2; em ambientes sem esse suporte, e sempre no macOS, fica desligado. Com `vectora.toml` sem seção `[sandbox]`, ou com `[sandbox] enabled = false` (padrão do modelo), fica desligado.
+- O backend `local` do sandbox (bubblewrap e Landlock) funciona no Linux nativo e no Windows via WSL2. No Windows sem WSL2, ou sem `bwrap` na distribuição, o worker cai no modo soft, sem isolamento de rede.
+- `lockdown = true` nega toda a rede do worker (`--unshare-net`) somente quando ele roda sob `bwrap`; no modo soft do Windows, a rede continua aberta.
+- `allow_tcp_ports` restringe TCP somente com Landlock ABI V4 (kernel 6.7 ou superior); em kernels sem suporte, a restrição não é aplicada e o worker sinaliza a falha. Uma lista vazia não restringe a rede.
+- `web_search` não passa pela política de egress; no fallback Chromium de `fetch_url` (sem chave ou após erro de quota/rate limit), redirecionamentos não são reavaliados e o IP não é fixado.
+- A política de egress é lida das configurações de runtime (`egress_policy`); não há tela nem endpoint dedicado para editá-la.
+- O mapeamento de capacidade de egress por backend de sandbox existe, mas ainda não recusa a execução quando o backend não consegue aplicar a restrição exigida.
+- Testes live de providers que aparecem como `skipped` não comprovam funcionamento live; replay de cassetes não substitui teste de integração com provider ou Browser Workbench real.
+- O conteúdo marcado como dependente do PR #404 só faz parte da linha depois da integração desse PR.
 
 ## Capacidades anteriores à 0.2.0
 

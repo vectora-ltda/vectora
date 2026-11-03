@@ -19,7 +19,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import secrets
 import signal
+import socket
 import sys
 from collections.abc import Callable
 
@@ -37,6 +39,8 @@ logger = logging.getLogger(__name__)
 _proc: asyncio.subprocess.Process | None = None
 _log_task: asyncio.Task | None = None
 _watch_task: asyncio.Task | None = None
+_window_task: asyncio.Task | None = None
+_startup_failed = False
 _spawn_lock = LazyLock()
 _backend_shutdown_callback: Callable[[], None] | None = None
 
@@ -48,6 +52,45 @@ _job_handle: int | None = None
 # Exit status used by Electron to request a backend-managed restart. A normal
 # exit remains an intentional shutdown signal (for example, tray "Sair").
 ELECTRON_RESTART_EXIT_CODE = 42
+
+#: Linha que o Electron imprime no stdout quando a janela principal aparece
+#: (``frontend/electron/src/main.ts``). Sem ela dentro do prazo, o desktop
+#: não abriu e `vectora start` encerra em vez de seguir como servidor web.
+WINDOW_READY_MARKER = "VECTORA_ELECTRON_WINDOW_READY"
+_DEFAULT_WINDOW_TIMEOUT_S = 120.0
+
+
+def _ensure_electron_cdp_port() -> str:
+    """Reserve a loopback port value shared by backend and Electron."""
+    configured = os.environ.get("VECTORA_ELECTRON_CDP_PORT", "").strip()
+    if configured.isdigit() and 1 <= int(configured) <= 65535:
+        return configured
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = str(probe.getsockname()[1])
+    os.environ["VECTORA_ELECTRON_CDP_PORT"] = port
+    return port
+
+
+def _ensure_electron_cdp_proxy_port() -> str:
+    """Choose the authenticated proxy port without reusing a fixed default."""
+    configured = os.environ.get("VECTORA_ELECTRON_CDP_PROXY_PORT", "").strip()
+    if configured.isdigit() and 1 <= int(configured) <= 65535:
+        return configured
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = str(probe.getsockname()[1])
+    os.environ["VECTORA_ELECTRON_CDP_PROXY_PORT"] = port
+    return port
+
+
+def _ensure_electron_cdp_auth_token() -> str:
+    """Create a per-process bearer token for the Electron CDP proxy."""
+    token = os.environ.get("VECTORA_ELECTRON_CDP_AUTH_TOKEN", "").strip()
+    if not token:
+        token = secrets.token_urlsafe(32)
+        os.environ["VECTORA_ELECTRON_CDP_AUTH_TOKEN"] = token
+    return token
 
 
 def set_backend_shutdown_callback(callback: Callable[[], None] | None) -> None:
@@ -81,6 +124,63 @@ def should_spawn_electron() -> bool:
     return resolve_electron_launch() is not None
 
 
+def desktop_build_missing() -> bool:
+    """True quando `vectora start` deveria abrir o desktop e não consegue.
+
+    Há display, o processo não é headless nem foi lançado pelo Electron, e
+    nenhum build do Electron resolve. Sem display (VPS/Docker) ou com
+    ``--headless`` o servidor puro continua sendo o modo correto.
+    """
+    if os.environ.get("VECTORA_DESKTOP") or os.environ.get("VECTORA_HEADLESS"):
+        return False
+    if not has_display():
+        return False
+    return resolve_electron_launch() is None
+
+
+def startup_failed() -> bool:
+    """True quando o backend encerrou porque a janela do Electron não abriu."""
+    return _startup_failed
+
+
+def _window_timeout_s() -> float:
+    """Prazo para a janela abrir; ``VECTORA_ELECTRON_WINDOW_TIMEOUT_S`` > 0."""
+    raw = os.environ.get("VECTORA_ELECTRON_WINDOW_TIMEOUT_S", "").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return _DEFAULT_WINDOW_TIMEOUT_S
+    return value if value > 0 else _DEFAULT_WINDOW_TIMEOUT_S
+
+
+async def _watch_window_ready(
+    proc: asyncio.subprocess.Process, ready: asyncio.Event, timeout_s: float
+) -> None:
+    """Encerra o backend se o Electron não mostrar a janela dentro do prazo."""
+    global _startup_failed
+
+    try:
+        await asyncio.wait_for(ready.wait(), timeout_s)
+        return
+    except TimeoutError:
+        pass
+    if _proc is not proc or proc.returncode is not None:
+        return
+    _startup_failed = True
+    logger.error(
+        "electron_sidecar: o Electron (pid=%d) não abriu a janela em %.0fs — "
+        "encerrando o Vectora. Verifique se o binário do Electron executa "
+        "(disco lento, antivírus bloqueando) ou use `vectora web` para abrir "
+        "pelo navegador.",
+        proc.pid,
+        timeout_s,
+    )
+    if _backend_shutdown_callback is not None:
+        _backend_shutdown_callback()
+    else:
+        os.kill(os.getpid(), signal.SIGTERM)
+
+
 async def ensure_electron_sidecar() -> asyncio.subprocess.Process | None:
     """Sobe o Electron (dev) como sidecar, se ainda não estiver rodando.
 
@@ -91,7 +191,7 @@ async def ensure_electron_sidecar() -> asyncio.subprocess.Process | None:
     próprio processo — nunca lança, retorna ``None`` em qualquer falha (o
     backend segue de pé sem janela).
     """
-    global _proc, _log_task, _watch_task
+    global _proc, _log_task, _watch_task, _window_task
 
     async with _spawn_lock.get():
         if _proc is not None and _proc.returncode is None:
@@ -102,7 +202,16 @@ async def ensure_electron_sidecar() -> asyncio.subprocess.Process | None:
             return None
         exe, exe_args = launch
 
-        env = {**os.environ, "VECTORA_EXTERNAL_BACKEND": "1"}
+        cdp_port = _ensure_electron_cdp_port()
+        cdp_proxy_port = _ensure_electron_cdp_proxy_port()
+        cdp_auth_token = _ensure_electron_cdp_auth_token()
+        env = {
+            **os.environ,
+            "VECTORA_EXTERNAL_BACKEND": "1",
+            "VECTORA_ELECTRON_CDP_PORT": cdp_port,
+            "VECTORA_ELECTRON_CDP_PROXY_PORT": cdp_proxy_port,
+            "VECTORA_ELECTRON_CDP_AUTH_TOKEN": cdp_auth_token,
+        }
         try:
             proc = await asyncio.create_subprocess_exec(
                 exe,
@@ -119,10 +228,25 @@ async def ensure_electron_sidecar() -> asyncio.subprocess.Process | None:
         logger.info("electron_sidecar: Electron (dev) spawnado, pid=%d", proc.pid)
         _proc = proc
         _assign_to_job_object_best_effort(proc.pid)
+        window_ready = asyncio.Event()
+
+        def _on_line(line: str) -> None:
+            if WINDOW_READY_MARKER in line:
+                window_ready.set()
+
         _log_task = asyncio.create_task(
-            pipe_to_logger(proc.stdout, logger, prefix="electron")
+            pipe_to_logger(proc.stdout, logger, prefix="electron", on_line=_on_line)
         )
         _watch_task = asyncio.create_task(_watch_for_unexpected_exit(proc))
+        if _window_task is not None:
+            _window_task.cancel()
+            _window_task = None
+        # `vectora web` mantém o Electron oculto de propósito: não há janela a
+        # esperar nesse modo.
+        if not os.environ.get("VECTORA_WEB_MODE"):
+            _window_task = asyncio.create_task(
+                _watch_window_ready(proc, window_ready, _window_timeout_s())
+            )
         return proc
 
 
@@ -192,7 +316,7 @@ async def _watch_for_unexpected_exit(proc: asyncio.subprocess.Process) -> None:
 
 async def stop_electron_sidecar() -> None:
     """Encerra o sidecar Electron, se estiver rodando. Idempotente."""
-    global _proc, _log_task, _watch_task
+    global _proc, _log_task, _watch_task, _window_task
 
     _spawn_lock.reset()  # mesmo motivo do nats_sidecar: solta o lock preso ao loop
 
@@ -202,6 +326,9 @@ async def stop_electron_sidecar() -> None:
     if _watch_task is not None:
         _watch_task.cancel()
         _watch_task = None
+    if _window_task is not None and _window_task is not asyncio.current_task():
+        _window_task.cancel()
+    _window_task = None
 
     if _proc is None:
         # S0-7: se uma janela do Electron ainda estiver na tela quando este
@@ -229,7 +356,7 @@ async def stop_electron_sidecar() -> None:
         proc, timeout_seconds=10.0, logger=logger, log_prefix="electron_sidecar"
     )
     logger.info(
-        "electron_sidecar: processo pid=%d encerrado (code=%s)",
+        "electron_sidecar: processo pid=%d encerrado durante shutdown (code=%s)",
         proc.pid,
         proc.returncode,
     )

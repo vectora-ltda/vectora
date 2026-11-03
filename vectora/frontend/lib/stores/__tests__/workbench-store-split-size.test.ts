@@ -9,6 +9,7 @@ import {
   LEGACY_SPLIT_SIZE_DEFAULT,
   SPLIT_SIZE_DEFAULT,
   migrateSplitSize,
+  migrateWorkbenchState,
 } from "../workbench-store";
 
 describe("workbench-store — migrateSplitSize", () => {
@@ -26,9 +27,29 @@ describe("workbench-store — migrateSplitSize", () => {
     expect(migrateSplitSize(350, 1)).toBe(350);
   });
 
+  it("usa o default atual quando o estado persistido não tem splitSize", () => {
+    expect(migrateSplitSize(undefined, 2)).toBe(SPLIT_SIZE_DEFAULT);
+  });
+
   it("já na versão atual (2) não sofre nenhuma transformação", () => {
     expect(migrateSplitSize(LEGACY_SPLIT_SIZE_DEFAULT, 2)).toBe(
       LEGACY_SPLIT_SIZE_DEFAULT,
     );
+  });
+
+  it("migra a aba diff persistida para Git", () => {
+    const migrated = migrateWorkbenchState(
+      {
+        activeTabByThread: {
+          legacy: "diff",
+          current: "files",
+        } as Record<string, "diff" | "files">,
+      },
+      2,
+    );
+    expect(migrated.activeTabByThread).toEqual({
+      legacy: "git",
+      current: "files",
+    });
   });
 });

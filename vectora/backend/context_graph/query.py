@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import networkx as nx
 from networkx.readwrite import json_graph
+
+from backend.vtypes.context_graph import GraphDocument, GraphEdge, GraphNode
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +53,10 @@ def _nx_from_data(data: dict[str, Any]) -> nx.DiGraph:
 
 
 def query_nodes(
-    data: dict[str, Any],
+    data: GraphDocument | Mapping[str, Any],
     question: str,
     top_k: int = 10,
-) -> tuple[list[dict], list[dict]]:
+) -> tuple[list[GraphNode], list[GraphEdge]]:
     """Consulta nós do grafo por pergunta livre.
 
     Tenta resolve_seed primeiro (resolução robusta); fallback para substring de label/id.
@@ -61,8 +64,8 @@ def query_nodes(
     """
     from .affected import resolve_seed
 
-    nodes: list[dict] = data.get("nodes", [])
-    edges: list[dict] = data.get("edges", [])
+    nodes = cast("list[GraphNode]", data.get("nodes", []))
+    edges = cast("list[GraphEdge]", data.get("edges", []))
 
     if not nodes:
         return [], []
@@ -94,10 +97,10 @@ def query_nodes(
 
 
 def explain_node(
-    data: dict[str, Any],
+    data: GraphDocument | Mapping[str, Any],
     node_id: str,
     depth: int = 1,
-) -> tuple[dict | None, list[dict], list[dict]]:
+) -> tuple[GraphNode | None, list[GraphNode], list[GraphEdge]]:
     """Explica um nó mostrando vizinhança e conexões até `depth` saltos.
 
     Aceita ID exato ou label via resolve_seed.
@@ -105,8 +108,8 @@ def explain_node(
     """
     from .affected import resolve_seed
 
-    nodes: list[dict] = data.get("nodes", [])
-    edges: list[dict] = data.get("edges", [])
+    nodes = cast("list[GraphNode]", data.get("nodes", []))
+    edges = cast("list[GraphEdge]", data.get("edges", []))
     nodes_by_id = {n.get("id"): n for n in nodes if n.get("id")}
 
     g = _nx_from_data(data)

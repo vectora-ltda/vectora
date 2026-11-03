@@ -10,6 +10,8 @@ Cobre:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import time
 from pathlib import Path
@@ -52,6 +54,7 @@ def _write_artifact(home: Path, session_id: str, slug: str, content: str) -> Pat
 class TestListArtifacts:
     @pytest.mark.asyncio
     async def test_empty_for_unknown_session(self, fake_home):
+        """Verifica o comportamento de empty for unknown session."""
         from backend.api.handlers.artifacts import list_artifacts
 
         resp = await list_artifacts(session_id="never-existed")
@@ -59,6 +62,7 @@ class TestListArtifacts:
 
     @pytest.mark.asyncio
     async def test_empty_for_blank_session_id(self, fake_home):
+        """Verifica o comportamento de empty for blank session id."""
         from backend.api.handlers.artifacts import list_artifacts
 
         resp = await list_artifacts(session_id="")
@@ -66,6 +70,7 @@ class TestListArtifacts:
 
     @pytest.mark.asyncio
     async def test_lists_existing_artifacts(self, fake_home):
+        """Verifica o comportamento de lists existing artifacts."""
         from backend.api.handlers.artifacts import list_artifacts
 
         _write_artifact(fake_home, "sess1", "plano-x", "# Plano X\n\ncorpo")
@@ -105,6 +110,7 @@ class TestListArtifacts:
 
     @pytest.mark.asyncio
     async def test_exposes_artifact_type_from_sidecar(self, fake_home):
+        """Verifica o comportamento de exposes artifact type from sidecar."""
         from backend.api.handlers.artifacts import list_artifacts
 
         path = _write_artifact(fake_home, "typed", "plano-x", "conteudo")
@@ -112,6 +118,28 @@ class TestListArtifacts:
 
         resp = await list_artifacts(session_id="typed")
         assert resp.artifacts[0].artifact_type == "plan"
+
+    async def test_exposes_integrity_metadata(self, fake_home):
+        """Verifica o comportamento de exposes integrity metadata."""
+        from backend.api.handlers.artifacts import list_artifacts
+
+        path = _write_artifact(fake_home, "integrity-1", "plan", "conteúdo verificável")
+        path.with_suffix(".artifact.json").write_text(
+            json.dumps(
+                {
+                    "byte_size": path.stat().st_size,
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "retention_class": "run",
+                }
+            ),
+            encoding="utf-8",
+        )
+        response = await list_artifacts(session_id="integrity-1")
+
+        artifact = next(item for item in response.artifacts if item.path == str(path))
+        assert artifact.byte_size == path.stat().st_size
+        assert len(artifact.sha256) == 64
+        assert artifact.retention_class == "run"
 
     @pytest.mark.asyncio
     async def test_legacy_artifact_without_sidecar_defaults_to_other(self, fake_home):
@@ -145,6 +173,7 @@ class TestListArtifacts:
 
     @pytest.mark.asyncio
     async def test_authenticated_owner_can_list_artifacts(self, fake_home):
+        """Verifica o comportamento de authenticated owner can list artifacts."""
         from backend.api.handlers.artifacts import list_artifacts
 
         _write_artifact(fake_home, "owned", "plan", "conteudo")
@@ -163,6 +192,7 @@ class TestListArtifacts:
 
     @pytest.mark.asyncio
     async def test_unauthenticated_artifact_request_is_rejected(self, fake_home):
+        """Verifica o comportamento de unauthenticated artifact request is rejected."""
         from backend.api.handlers.artifacts import list_artifacts
 
         request = cast("Request", SimpleNamespace(state=SimpleNamespace(user=None)))
@@ -173,6 +203,7 @@ class TestListArtifacts:
 
     @pytest.mark.asyncio
     async def test_different_authenticated_user_cannot_list_artifacts(self, fake_home):
+        """Verifica o comportamento de different authenticated user cannot list artifacts."""
         from backend.api.handlers.artifacts import list_artifacts
 
         request = cast(
@@ -201,6 +232,7 @@ class TestListArtifacts:
 class TestGetArtifact:
     @pytest.mark.asyncio
     async def test_returns_content(self, fake_home):
+        """Verifica o comportamento de returns content."""
         from backend.api.handlers.artifacts import get_artifact
 
         _write_artifact(fake_home, "g1", "meu-plano", "# Conteúdo\n\nlinha")
@@ -212,6 +244,7 @@ class TestGetArtifact:
 
     @pytest.mark.asyncio
     async def test_returns_artifact_type_from_sidecar(self, fake_home):
+        """Verifica o comportamento de returns artifact type from sidecar."""
         from backend.api.handlers.artifacts import get_artifact
 
         path = _write_artifact(fake_home, "g2", "spec-y", "detalhe")
@@ -222,6 +255,7 @@ class TestGetArtifact:
 
     @pytest.mark.asyncio
     async def test_returns_empty_for_missing(self, fake_home):
+        """Verifica o comportamento de returns empty for missing."""
         from backend.api.handlers.artifacts import get_artifact
 
         resp = await get_artifact("nao-existe", session_id="g1")
@@ -245,6 +279,7 @@ class TestGetArtifact:
 
     @pytest.mark.asyncio
     async def test_session_id_traversal_is_stripped_in_get(self, fake_home):
+        """Verifica o comportamento de session id traversal is stripped in get."""
         from backend.api.handlers.artifacts import get_artifact
 
         # Cria o "secreto" fora da pasta esperada.
@@ -265,6 +300,7 @@ class TestMediaNaListagem:
 
     @pytest.mark.asyncio
     async def test_media_aparece_junto_dos_documentos(self, monkeypatch, tmp_path):
+        """Verifica o comportamento de media aparece junto dos documentos."""
         from backend.api.handlers import artifacts as mod
 
         base = tmp_path / "sessao-1"
@@ -288,6 +324,8 @@ class TestMediaNaListagem:
         # bytes, que encheria a lista de lixo.
         media = [a for a in out.artifacts if a.artifact_type == "media"]
         assert all(a.content_preview is None for a in media)
+        # Listagem de mídia não deve reabrir e hashear payloads binários.
+        assert all(a.sha256 == "" for a in media)
 
     @pytest.mark.asyncio
     async def test_sessao_sem_media_nao_quebra(self, monkeypatch, tmp_path):
@@ -316,6 +354,7 @@ class TestMediaNaListagem:
         monkeypatch.setattr(mod, "_artifacts_dir", lambda _s: base)
 
         def _explode(_self):
+            """Executa a operação  explode."""
             raise OSError("sem permissão")
 
         monkeypatch.setattr(mod.Path, "iterdir", _explode)
@@ -333,6 +372,7 @@ class TestGetMediaArtifact:
 
     @pytest.mark.asyncio
     async def test_serve_arquivo_existente(self, monkeypatch, tmp_path):
+        """Verifica o comportamento de serve arquivo existente."""
         from backend.api.handlers import artifacts as mod
         from backend.settings import settings
 

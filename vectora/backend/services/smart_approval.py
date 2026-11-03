@@ -1,36 +1,36 @@
-"""Aprovação inteligente de comandos — avaliador auxiliar + allowlist.
+"""Aprovação auxiliar e concessões pré-aprovadas de uso único.
 
-Camada de UX sobre o HITL já vinculante do produto, nunca um substituto:
-`evaluate_command` devolve só um booleano de anotação (`pre_approved`) pro
-`HITLEvent` — quem decide se a tool executa continua sendo
-`REQUIRE_APPROVAL`/`should_require_approval` em `backend/engine/hitl.py`, que
-nem importa este módulo. O humano sempre confirma; no máximo o clique fica
-marcado como reconhecido antes.
-
-Duas fontes de pré-aprovação, nesta ordem:
-
-1. **Allowlist persistente por workspace** — usuário marcou "sempre permitir
-   isso" pra um padrão específico (comando exato do terminal, ou a tool
-   inteira pras demais). Determinístico, sem custo de LLM.
-2. **Avaliador auxiliar** — um LLM leve classifica o comando como
-   reconhecido/seguro ou "precisa de humano". Só entra em jogo pras tools já
-   em `_REQUIRE_APPROVAL` (não expande o que já era livre).
-
-Falha em qualquer uma das duas nunca propaga — degrada pra `False` (sem
-pré-aprovação, HITL normal), regra 11 do CLAUDE.md.
+O avaliador de linguagem só produz uma anotação visual. Uma concessão explícita
+do usuário é diferente: autoriza uma chamada idêntica uma única vez, dentro do
+mesmo workspace e run, antes do prazo. Ferramentas irreversíveis não aceitam
+concessões. Falhas de armazenamento degradam para o HITL normal.
 """
 
 from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _ALLOWLIST_KEY_PREFIX = "smart_approval_allowlist"
+_DEFAULT_GRANT_TTL_SECONDS = 900
+_GRANTABLE_TOOLS = frozenset(
+    {
+        "terminal",
+        "terminal_tool",
+        "file_write",
+        "file_write_tool",
+        "file_edit",
+        "kanban_create",
+        "kanban_update_status",
+    }
+)
 
 #: Comando fora deste conjunto nunca é reconhecido automaticamente pelo
 #: avaliador auxiliar como "seguro" — mesmo que o LLM diga que sim, o prompt
@@ -60,16 +60,15 @@ def _allowlist_key(workspace_id: str) -> str:
 
 
 def _signature(tool_name: str, args: dict) -> str:
-    """Assinatura determinística do comando pra comparar com a allowlist.
+    """Hash determinístico dos argumentos completos da chamada."""
+    payload = json.dumps(args, sort_keys=True, separators=(",", ":"), default=str)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"{tool_name}:{digest}"
 
-    Terminal usa o comando exato — comparar só pelo nome da tool liberaria
-    qualquer comando futuro assim que um for aprovado uma vez. As demais
-    tools usam o nome: seus args não têm um "comando" livre equivalente, e
-    a chamada em si já é a unidade de risco.
-    """
-    if tool_name in ("terminal", "terminal_tool"):
-        return f"{tool_name}:{str(args.get('command', '')).strip()}"
-    return tool_name
+
+def args_digest(tool_name: str, args: dict) -> str:
+    """Return the hash of a tool call's complete canonical arguments."""
+    return _signature(tool_name, args).partition(":")[2]
 
 
 def allowlist_id(signature: str) -> str:
@@ -82,33 +81,68 @@ def rule_id(tool_name: str, args: dict) -> str:
     return allowlist_id(_signature(tool_name, args))
 
 
+def run_grant_id(workspace_id: str, run_id: str, tool_name: str, args: dict) -> str:
+    """Return the opaque id used to audit and revoke this exact run grant."""
+    return allowlist_id(f"{workspace_id}:{run_id}:{_signature(tool_name, args)}")
+
+
 def get_allowlist(workspace_id: str) -> list[str]:
-    """Assinaturas pré-aprovadas do workspace. Workspace desconhecido/vazio
-    devolve lista vazia, nunca lança."""
+    """Lista IDs opacos de concessões ainda válidas do workspace."""
     if not workspace_id:
         return []
     raw = _runtime_settings().get(_allowlist_key(workspace_id), [])
-    return [str(s) for s in raw] if isinstance(raw, list) else []
+    if not isinstance(raw, list):
+        return []
+    return [
+        str(item["grant_id"])
+        for item in raw
+        if isinstance(item, dict)
+        and item.get("grant_id")
+        and not _is_expired_grant(item)
+    ]
 
 
-def add_to_allowlist(workspace_id: str, tool_name: str, args: dict) -> list[str]:
-    """Persiste a assinatura de `(tool_name, args)` na allowlist do workspace."""
+def add_to_allowlist(
+    workspace_id: str,
+    tool_name: str,
+    args: dict,
+    *,
+    run_id: str,
+    ttl_seconds: int = _DEFAULT_GRANT_TTL_SECONDS,
+) -> list[str]:
+    """Create a one-use grant scoped to exact arguments, workspace and run."""
     if not workspace_id:
         msg = "workspace_id vazio — allowlist é sempre por workspace"
         raise ValueError(msg)
+    if not run_id.strip():
+        raise ValueError("run_id vazio — concessões precisam pertencer a uma execução")
+    if tool_name not in _GRANTABLE_TOOLS:
+        raise ValueError("esta ferramenta não aceita concessão pré-aprovada")
+    if not 1 <= ttl_seconds <= 3600:
+        raise ValueError("ttl_seconds deve estar entre 1 e 3600")
     sig = _signature(tool_name, args)
+    grant_id = run_grant_id(workspace_id, run_id, tool_name, args)
+    expires_at = (datetime.now(UTC) + timedelta(seconds=ttl_seconds)).isoformat()
+    grant = {
+        "grant_id": grant_id,
+        "workspace_id": workspace_id,
+        "tool_name": tool_name,
+        "args_hash": sig.partition(":")[2],
+        "run_id": run_id,
+        "expires_at": expires_at,
+    }
 
     def append_once(current: list[object]) -> list[object]:
-        if sig not in current:
-            current.append(sig)
+        current[:] = [item for item in current if not _is_expired_grant(item)]
+        if not any(
+            isinstance(item, dict) and item.get("grant_id") == grant_id
+            for item in current
+        ):
+            current.append(grant)
         return current
 
-    return [
-        str(item)
-        for item in _runtime_settings().update_list(
-            _allowlist_key(workspace_id), append_once
-        )
-    ]
+    _runtime_settings().update_list(_allowlist_key(workspace_id), append_once)
+    return get_allowlist(workspace_id)
 
 
 def remove_from_allowlist(workspace_id: str, signature: str) -> list[str]:
@@ -117,14 +151,14 @@ def remove_from_allowlist(workspace_id: str, signature: str) -> list[str]:
         return []
 
     def remove_matching(current: list[object]) -> list[object]:
-        return [item for item in current if str(item) != signature]
+        return [
+            item
+            for item in current
+            if not (isinstance(item, dict) and item.get("grant_id") == signature)
+        ]
 
-    return [
-        str(item)
-        for item in _runtime_settings().update_list(
-            _allowlist_key(workspace_id), remove_matching
-        )
-    ]
+    _runtime_settings().update_list(_allowlist_key(workspace_id), remove_matching)
+    return get_allowlist(workspace_id)
 
 
 def remove_from_allowlist_by_id(workspace_id: str, rule_id: str) -> list[str]:
@@ -136,21 +170,64 @@ def remove_from_allowlist_by_id(workspace_id: str, rule_id: str) -> list[str]:
         return [
             item
             for item in current
-            if not hmac.compare_digest(allowlist_id(str(item)), rule_id)
+            if not (
+                isinstance(item, dict)
+                and isinstance(item.get("grant_id"), str)
+                and hmac.compare_digest(item["grant_id"], rule_id)
+            )
         ]
 
-    return [
-        str(item)
-        for item in _runtime_settings().update_list(
-            _allowlist_key(workspace_id), remove_matching_id
-        )
-    ]
+    _runtime_settings().update_list(_allowlist_key(workspace_id), remove_matching_id)
+    return get_allowlist(workspace_id)
 
 
 def is_allowlisted(workspace_id: str, tool_name: str, args: dict) -> bool:
-    if not workspace_id:
-        return False
-    return _signature(tool_name, args) in get_allowlist(workspace_id)
+    """Legacy visual recognition is not an execution grant."""
+    return False
+
+
+def _is_expired_grant(item: object) -> bool:
+    if not isinstance(item, dict):
+        return True
+    expires_at = item.get("expires_at")
+    if not isinstance(expires_at, str):
+        return True
+    try:
+        return datetime.fromisoformat(expires_at) <= datetime.now(UTC)
+    except (TypeError, ValueError):
+        return True
+
+
+def consume_run_grant(
+    workspace_id: str, run_id: str, tool_name: str, args: dict
+) -> str | None:
+    """Atomically consume one exact, unexpired pre-approval grant."""
+    if not workspace_id or not run_id or tool_name not in _GRANTABLE_TOOLS:
+        return None
+    args_hash = args_digest(tool_name, args)
+    consumed: str | None = None
+
+    def consume(current: list[object]) -> list[object]:
+        nonlocal consumed
+        retained: list[object] = []
+        for item in current:
+            if _is_expired_grant(item):
+                continue
+            if (
+                consumed is None
+                and isinstance(item, dict)
+                and item.get("workspace_id") == workspace_id
+                and item.get("run_id") == run_id
+                and item.get("tool_name") == tool_name
+                and item.get("args_hash") == args_hash
+            ):
+                consumed = str(item.get("grant_id") or "")
+                continue
+            retained.append(item)
+        return retained
+
+    _runtime_settings().update_list(_allowlist_key(workspace_id), consume)
+    return consumed or None
 
 
 async def _default_ask_llm(tool_name: str, args: dict) -> bool:
@@ -176,7 +253,7 @@ async def evaluate_command(
     workspace_id: str,
     ask_llm: _AskLLM | None = None,
 ) -> bool:
-    """`True` = pré-aprovado (a UI mostra reconhecido; o HITL pausa igual).
+    """Classify a call for the UI; this result never authorizes execution.
 
     Nunca lança — qualquer falha (allowlist ilegível, LLM fora do ar) degrada
     pra `False`, que é o comportamento de hoje sem esta camada.
@@ -197,10 +274,13 @@ async def evaluate_command(
 __all__ = [
     "add_to_allowlist",
     "allowlist_id",
+    "args_digest",
+    "consume_run_grant",
     "evaluate_command",
     "get_allowlist",
     "is_allowlisted",
     "remove_from_allowlist",
     "remove_from_allowlist_by_id",
     "rule_id",
+    "run_grant_id",
 ]

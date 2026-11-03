@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from backend.services.media_quota import MediaQuota
+from backend.services.media_quota import MediaQuota, QuotaReservation
 
 
 def _quota(path: Path) -> MediaQuota:
@@ -111,6 +111,51 @@ async def test_reserva_finalizada_preserva_estado_e_nao_reautoriza_operacao(
     assert repeated is not None
     assert repeated.state == "finalized"
     assert (await quota.summary("u1"))["used"] == 1
+
+
+@pytest.mark.asyncio
+async def test_finalize_usa_o_backend_da_reserva_mesmo_com_configuracao_trocada(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Uma reserva SQLite não pode ser finalizada no Postgres após um hot switch."""
+    quota = _quota(tmp_path / "quota.sqlite3")
+    reservation = await quota.reserve(
+        user_id="u1", operation="generate_image", idempotency_key="backend-switch"
+    )
+    assert reservation is not None
+
+    local_finalize = []
+    monkeypatch.setattr(quota, "_postgres_enabled", lambda: True)
+    monkeypatch.setattr(
+        quota,
+        "_finalize",
+        lambda reservation_id, state: local_finalize.append((reservation_id, state)),
+    )
+
+    async def should_not_run(*_args):
+        pytest.fail("reserva SQLite roteada para Postgres")
+
+    monkeypatch.setattr(quota, "_finalize_postgres", should_not_run)
+    await quota.finalize(reservation, state="finalized")
+
+    assert local_finalize == [(reservation.id, "finalized")]
+
+
+@pytest.mark.asyncio
+async def test_finalize_postgres_preserva_falha_para_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    quota = _quota(tmp_path / "quota.sqlite3")
+    reservation = QuotaReservation(
+        "remote-1", "u1", "2026-10", "generate_image", 1, backend="postgres"
+    )
+
+    async def unavailable(*_args):
+        raise ConnectionError("offline")
+
+    monkeypatch.setattr(quota, "_finalize_postgres", unavailable)
+    with pytest.raises(ConnectionError):
+        await quota.finalize(reservation, state="failed")
 
 
 @pytest.mark.asyncio

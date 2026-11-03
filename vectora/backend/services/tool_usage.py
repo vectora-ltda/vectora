@@ -16,6 +16,16 @@ _sqlite_pools: dict[str, AsyncConnectionPool] = {}
 _sqlite_locks: dict[str, asyncio.Lock] = {}
 
 
+def _drop_idle_sqlite_lock(path: str, lock: asyncio.Lock) -> None:
+    """Remove an initialization lock only after all waiters have left it."""
+    if _sqlite_locks.get(path) is not lock or lock.locked():
+        return
+    waiters = getattr(lock, "_waiters", None)
+    if waiters:
+        return
+    _sqlite_locks.pop(path, None)
+
+
 async def _sqlite() -> AsyncConnectionPool:
     """Retorna o pool SQLite compartilhado para o banco de uso atual.
 
@@ -34,6 +44,7 @@ async def _sqlite() -> AsyncConnectionPool:
                 pool = AsyncConnectionPool(path, min_size=1, max_size=4)
                 await pool.open()
                 _sqlite_pools[path] = pool
+        _drop_idle_sqlite_lock(path, lock)
 
     async with pool.acquire() as conn:
         await conn.execute(

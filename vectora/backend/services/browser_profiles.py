@@ -7,7 +7,7 @@ import importlib
 import json
 import tempfile
 import uuid
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -72,7 +72,7 @@ class BrowserProfileStore:
         self._lock = asyncio.Lock()
 
     @contextmanager
-    def _process_lock(self) -> Iterator[None]:
+    def _process_lock(self) -> Generator[None]:
         self._root.mkdir(parents=True, exist_ok=True)
         with self._lock_path.open("a+b") as handle:
             if _fcntl is not None:

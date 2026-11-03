@@ -16,7 +16,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Send, TriangleAlert } from "lucide-react";
+import { Play, Send, TriangleAlert } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -30,6 +30,7 @@ import { UrlPreviewCard } from "./features/url-preview-card";
 import { VoiceInputButton } from "./features/voice-input-button";
 import { PermissionModeMenu } from "./features/permission-mode-menu";
 import { EffortMenu } from "./features/effort-menu";
+import { DecisionModelMenu } from "./features/decision-model-menu";
 import { PlusMenu } from "./features/plus-menu";
 import { UsagePopover } from "./features/usage-popover";
 import { SlashCommandMenu } from "./features/slash-command-menu";
@@ -135,6 +136,7 @@ interface ChatInputProps {
 
   // Queued messages
   queuedMessages?: { content: string; id: string }[];
+  onRunQueuedNow?: (messageId: string) => void;
 
   // Context meter
   tokensUsed?: number;
@@ -374,6 +376,7 @@ export function ChatInput({
   onVoiceToggle,
   voiceError,
   queuedMessages = EMPTY_QUEUED_MESSAGES,
+  onRunQueuedNow,
   tokensUsed,
   modelId,
   agentConfig,
@@ -596,6 +599,25 @@ export function ChatInput({
                   <span className="text-foreground/80 truncate">
                     {msg.content}
                   </span>
+                  {onRunQueuedNow && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="ml-auto h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-primary"
+                          aria-label={m.input_run_queued_now()}
+                          onClick={() => onRunQueuedNow(msg.id)}
+                        >
+                          <Play className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">
+                        {m.input_run_queued_now()}
+                      </TooltipContent>
+                    </Tooltip>
+                  )}
                 </div>
               ))}
             </div>
@@ -785,6 +807,7 @@ export function ChatInput({
                 <ControlGroup compact>
                   <PermissionModeMenu compact />
                   <EffortMenu compact />
+                  <DecisionModelMenu compact />
                   {agentConfig && onAgentConfigChange && (
                     <ModelSelector
                       value={agentConfig.model}
@@ -815,6 +838,7 @@ export function ChatInput({
                   <PermissionModeMenu />
                   <div data-control-spacer aria-hidden="true" />
                   <EffortMenu />
+                  <DecisionModelMenu compact />
                   {agentConfig && onAgentConfigChange && (
                     <div
                       data-testid="wide-model-controls"

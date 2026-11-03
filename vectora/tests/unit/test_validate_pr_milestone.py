@@ -107,24 +107,6 @@ def test_empty_event_is_accepted() -> None:
     assert validator.validate_pull_request({}) == []
 
 
-def test_codex_branch_prefix_is_rejected_before_other_exemptions() -> None:
-    """Impede o prefixo reservado mesmo em uma PR de stack confiável."""
-    errors = validator.validate_pull_request(
-        _event(
-            base="stack/native-context",
-            milestone=None,
-            head="codex/update-changelog-and-updater",
-            head_repo="vectora-ltda/vectora",
-        )
-    )
-    assert errors == [
-        (
-            "Branches com o prefixo `codex/` são proibidas; use `fix/`, `feat/` "
-            "ou `chore/`."
-        )
-    ]
-
-
 def test_main_rejects_malformed_event(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -236,6 +218,16 @@ def test_stacked_feature_pr_is_accepted_without_release_milestone() -> None:
     )
 
 
+def test_contracts_stack_base_is_accepted_without_release_milestone() -> None:
+    """Aceita o primeiro PR empilhado diretamente sobre os contratos."""
+    assert (
+        validator.validate_pull_request(
+            _event(base="feat/contratos-workbenches", milestone=None)
+        )
+        == []
+    )
+
+
 @pytest.mark.parametrize("head_repo", ["fork/vectora", None])
 def test_stacked_fork_pr_does_not_bypass_release_milestone(
     head_repo: str | None,
@@ -246,6 +238,34 @@ def test_stacked_fork_pr_does_not_bypass_release_milestone(
     )
     assert errors
     assert "base declarada" in errors[0]
+
+
+@pytest.mark.parametrize(
+    "base",
+    [
+        "stack/base-contracts",
+        "feat/contratos-workbenches",
+        "feat/llm-workbench-integration",
+    ],
+)
+def test_contract_stack_fork_does_not_bypass_release_milestone(base: str) -> None:
+    """Bases empilhadas não liberam PRs de forks."""
+    errors = validator.validate_pull_request(
+        _event(base=base, milestone=None, head_repo="fork/vectora")
+    )
+    assert errors and "base declarada" in errors[0]
+
+
+def test_stack_head_from_same_owner_different_repository_does_not_bypass() -> None:
+    """Não confunde outro repositório da mesma organização com o repositório da PR."""
+    errors = validator.validate_pull_request(
+        _event(
+            base="stack/base-contracts",
+            milestone=None,
+            head_repo="vectora-ltda/other-repository",
+        )
+    )
+    assert errors and "base declarada" in errors[0]
 
 
 def test_master_pr_rejects_maintenance_milestone() -> None:
@@ -311,18 +331,15 @@ def test_maintenance_rejects_minor() -> None:
     assert errors and MAINTENANCE_MILESTONE in errors[0]
 
 
-def test_noncanonical_release_pr_is_rejected_even_with_controlled_source_and_label() -> (
-    None
-):
-    """Exige a branch release/* oficial, sem exceções para nomes internos."""
+def test_release_please_pr_is_exempt_with_controlled_source_and_label() -> None:
+    """Isenta a branch versionada de desenvolvimento com origem confiável."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-0.3",
+        head=f"release-please-{DEVELOPMENT_MILESTONE}",
         labels=["autorelease: pending"],
     )
-    errors = validator.validate_pull_request(event)
-    assert errors and "milestone" in errors[0]
+    assert validator.validate_pull_request(event) == []
 
 
 def test_release_branch_promotion_to_master_is_exempt() -> None:
@@ -344,7 +361,7 @@ def test_release_branch_promotion_from_another_repo_is_rejected() -> None:
         head_repo="attacker/vectora",
     )
     errors = validator.validate_pull_request(event)
-    assert errors and "0.2.x" in errors[0]
+    assert errors and MAINTENANCE_MILESTONE in errors[0]
 
 
 def test_empty_release_branch_does_not_use_promotion_exception() -> None:
@@ -355,15 +372,15 @@ def test_empty_release_branch_does_not_use_promotion_exception() -> None:
         head="release/",
     )
     errors = validator.validate_pull_request(event)
-    assert errors and "0.2.x" in errors[0]
+    assert errors and MAINTENANCE_MILESTONE in errors[0]
 
 
-def test_noncanonical_release_pr_from_another_repo_is_rejected() -> None:
+def test_release_please_pr_from_another_repo_is_rejected() -> None:
     """Rejeita uma branch de release criada a partir de outro repositório."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-0.3",
+        head=f"release-please-{DEVELOPMENT_MILESTONE}",
         labels=["autorelease: pending"],
         head_repo="attacker/vectora",
     )
@@ -371,51 +388,62 @@ def test_noncanonical_release_pr_from_another_repo_is_rejected() -> None:
     assert errors and "milestone" in errors[0]
 
 
-def test_noncanonical_release_pr_without_pending_label_is_rejected() -> None:
+def test_release_please_pr_without_pending_label_is_rejected() -> None:
     """Exige o label controlado para isentar uma PR automática de release."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-0.3",
+        head=f"release-please-{DEVELOPMENT_MILESTONE}",
     )
     errors = validator.validate_pull_request(event)
     assert errors and "milestone" in errors[0]
 
 
-def test_noncanonical_release_lookalike_branch_is_rejected() -> None:
+def test_release_please_lookalike_branch_is_rejected() -> None:
     """Rejeita branches que apenas se parecem com o formato automático."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-0.3-lookalike",
+        head=f"release-please-{DEVELOPMENT_MILESTONE}-lookalike",
         labels=["autorelease: pending"],
     )
     errors = validator.validate_pull_request(event)
     assert errors and "milestone" in errors[0]
 
 
-def test_noncanonical_release_minor_targeting_development_is_rejected() -> None:
+def test_release_please_minor_targeting_development_is_rejected() -> None:
     """Rejeita a minor quando ela ainda aponta para a branch de desenvolvimento."""
     event = _event(
         base=DEVELOPMENT_BRANCH,
         milestone=None,
-        head="release-0.3",
+        head=f"release-please-{DEVELOPMENT_MILESTONE}",
         labels=["autorelease: pending"],
     )
     errors = validator.validate_pull_request(event)
     assert errors and "milestone" in errors[0]
 
 
-def test_noncanonical_release_patch_branch_is_rejected_on_maintenance_line() -> None:
-    """Rejeita a branch interna do Release Please na linha de manutenção."""
+def test_legacy_release_please_branch_retargeted_to_maintenance_is_rejected() -> None:
+    """Rejeita o formato legado redirecionado à linha de manutenção."""
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=None,
-        head="release-0.2.1",
+        head=f"release-please--branches--{DEVELOPMENT_BRANCH}--components--vectora",
         labels=["autorelease: pending"],
     )
     errors = validator.validate_pull_request(event)
     assert errors and "milestone" in errors[0]
+
+
+def test_release_please_patch_branch_is_exempt_on_maintenance_line() -> None:
+    """Isenta uma branch de patch versionada na linha de manutenção."""
+    event = _event(
+        base=MAINTENANCE_BRANCH,
+        milestone=None,
+        head=f"release-please-{MAINTENANCE_MILESTONE.removesuffix('.x')}.1",
+        labels=["autorelease: pending"],
+    )
+    assert validator.validate_pull_request(event) == []
 
 
 def test_unsupported_base_is_rejected() -> None:

@@ -21,10 +21,11 @@ vi.mock("@/lib/paraglide/messages", () => ({
   m: new Proxy(
     {},
     {
-      get:
-        (_t, prop) =>
-        (..._args: unknown[]) =>
-          String(prop),
+      get: (_t, prop) => (args?: { n?: number }) => {
+        if (prop === "graph_nodes_count") return `${args?.n ?? 0} nós`;
+        if (prop === "graph_edges_count") return `${args?.n ?? 0} arestas`;
+        return String(prop);
+      },
     },
   ),
 }));
@@ -245,7 +246,9 @@ describe("ContextGraphTab", () => {
     it("exibe mensagem genérica se error é null", () => {
       setup({ status: { status: "error", error: null } });
       render(<ContextGraphTab threadId="t1" />);
-      expect(screen.getByText("Erro desconhecido")).toBeTruthy();
+      expect(
+        screen.getByText(/Erro desconhecido|workbench_settings_unknown_error/),
+      ).toBeTruthy();
     });
   });
 

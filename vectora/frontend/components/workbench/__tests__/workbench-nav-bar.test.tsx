@@ -184,6 +184,7 @@ describe("WorkbenchNavBar — prop side (layout IDE vs Assistente)", () => {
 
 vi.mock("@/components/workbench/terminal/terminal-panel", () => ({
   TerminalPanel: () => null,
+  TerminalSettings: () => null,
 }));
 vi.mock("@/components/workbench/files/files-tab", () => ({
   FilesTab: () => null,

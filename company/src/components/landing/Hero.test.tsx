@@ -3,6 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+let localizedSubtitle: string | undefined;
 
 import Hero from "./Hero";
 
@@ -13,7 +17,9 @@ vi.mock("#/paraglide/messages", () => ({
       get:
         (_t, prop) =>
         (..._args: unknown[]) =>
-          String(prop),
+          prop === "hero_subtitle" && localizedSubtitle
+            ? localizedSubtitle
+            : String(prop),
     },
   ),
 }));
@@ -45,6 +51,7 @@ function renderWithClient(ui: ReactNode) {
 const fetchMock = vi.fn();
 
 beforeEach(() => {
+  localizedSubtitle = undefined;
   fetchMock.mockReset();
   fetchMock.mockResolvedValue({ ok: false, json: async () => ({}) });
   vi.stubGlobal("fetch", fetchMock);
@@ -55,6 +62,22 @@ afterEach(() => {
 });
 
 describe("Hero", () => {
+  it("renders the German subtitle with correct plural agreement", () => {
+    const messages = JSON.parse(
+      readFileSync(
+        join(import.meta.dirname, "../../../messages/de.json"),
+        "utf-8",
+      ),
+    ) as Record<string, string>;
+    localizedSubtitle = messages.hero_subtitle;
+    renderWithClient(<Hero />);
+    expect(screen.getByText(localizedSubtitle)).toBeInTheDocument();
+    expect(localizedSubtitle).toContain("Du und der Agent teilen");
+    expect(
+      screen.queryByText(/Du und der Agent teilt /),
+    ).not.toBeInTheDocument();
+  });
+
   it("mostra o gif de demo quando carrega com sucesso", () => {
     renderWithClient(<Hero />);
     const img = screen.getByRole("img", { name: "hero_gif_alt" });

@@ -20,6 +20,9 @@ Uso (PowerShell / cmd, a partir da raiz do monorepo):
     scons clean         → remove outputs de build
 
 Pré-requisitos: uv, pnpm, nuitka (incluído no uv.lock), Hugo (extended) no PATH
+O runtime de produção usa exclusivamente o Chromium distribuído pelo pacote
+Electron. Playwright é somente o cliente CDP do backend; os browsers baixados
+por `playwright install` pertencem aos testes E2E e não são empacotados.
 Instalar SCons: pip install scons (ou uv add --dev scons)
 
 Subprojetos cobertos por lint e tests:
@@ -174,6 +177,13 @@ def _run(
         raise SystemExit(rc)
 
 
+#: `_run` fecha o stdin, então o pnpm não pode perguntar antes de recriar um
+#: node_modules incompatível (troca de store/versão do pnpm). Sem
+#: `confirmModulesPurge=false` ele aborta com
+#: ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY em vez de reinstalar.
+PNPM_INSTALL = ["install", "--frozen-lockfile", "--config.confirmModulesPurge=false"]
+
+
 def _open_log(name: str):
     logdir = os.path.join(ROOT, ".scons-logs")
     os.makedirs(logdir, exist_ok=True)
@@ -186,7 +196,7 @@ def _open_log(name: str):
 def _action_build_chat(target, source, env):
     frontend_dir = os.path.join(VECTORA, "frontend")
     node_env = {"NODE_NO_WARNINGS": "1"}
-    _run([PNPM, "install", "--frozen-lockfile"], env=node_env, cwd=frontend_dir)
+    _run([PNPM, *PNPM_INSTALL], env=node_env, cwd=frontend_dir)
     _run([PNPM, "build"], env=node_env, cwd=frontend_dir)
 
     dist = os.path.join(VECTORA, "frontend", "dist")
@@ -372,7 +382,7 @@ def _action_install_desktop(target, source, env):
     # existe como node separado só pra manter a árvore de dependências do
     # SConstruct explícita (_build_desktop depende deste node, não do
     # build-chat, que pode não ter rodado no pipeline de release).
-    _run([PNPM, "--dir", "vectora/frontend", "install", "--frozen-lockfile"])
+    _run([PNPM, "--dir", "vectora/frontend", *PNPM_INSTALL])
     _ensure_electron_binary()
 
 
@@ -504,7 +514,7 @@ def _pnpm_install_if_needed(pkg_dir: str, log) -> None:
         or not os.path.isfile(stamp)
         or (os.path.isfile(lock) and os.path.getmtime(lock) > os.path.getmtime(stamp))
     ):
-        _run([PNPM, "--dir", pkg_dir, "install", "--frozen-lockfile"], log=log)
+        _run([PNPM, "--dir", pkg_dir, *PNPM_INSTALL], log=log)
         open(stamp, "w").close()  # noqa: PTH123 WPS515
 
 
@@ -625,10 +635,17 @@ def _run_vectora_suite(log, *, coverage: bool):
     _run(vitest_cmd, log=log)
 
     # ── vectora/backend ───────────────────────────────────────────────────────
-    # "-m not live" exclui os testes sem mock que chamam LLM/Tavily reais
-    # (marker `live`) — só rodam via `scons tests-live`, nunca aqui
-    # (custariam API real a cada `scons tests`/`scons coverage`).
-    pytest_cmd = ["uv", "run", "pytest", "tests", "-q", "--tb=short", "-m", "not live"]
+    # Testes live e benchmarks são opt-in; não entram no ciclo padrão.
+    pytest_cmd = [
+        "uv",
+        "run",
+        "pytest",
+        "tests",
+        "-q",
+        "--tb=short",
+        "-m",
+        "not live and not benchmark",
+    ]
     if coverage:
         pytest_cmd += [
             "--cov=backend",
@@ -1220,6 +1237,7 @@ def _action_help(target, source, env):
 
   Build
     scons frontend         só o build do frontend (vectora/frontend/dist/)
+    scons install          instala dependências do frontend e o binário do Electron
     scons docker           sobe infraestrutura (PostgreSQL, Redis, Qdrant)
 
   Qualidade
@@ -1416,6 +1434,7 @@ def _action_build_chat_and_electron(target, source, env):
 
 
 _cmd("frontend", _action_build_chat_and_electron)
+_cmd("install", _action_install_desktop)
 
 _build_chat    = _node("build-chat",      _action_build_chat)
 # O binário nats-server precisa estar em vectora/resources/ ANTES tanto do

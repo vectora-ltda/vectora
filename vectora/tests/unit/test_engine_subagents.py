@@ -499,6 +499,47 @@ class TestDedupPorCorrelationId:
         assert resultados == ["resultado único", "resultado único"]
         assert client.chamadas == 1
 
+    async def test_correlation_id_reaproveita_so_dentro_da_mesma_identidade(
+        self, session_store, ctx
+    ):
+        """Par de erro: o mesmo `correlation_id` vindo de usuários diferentes
+        não reaproveita a execução um do outro; cada identidade recebe o
+        próprio resultado e o chat client é chamado duas vezes."""
+        client = _ScriptedChatClient(
+            [[_texto_chunk("para alice")], [_texto_chunk("para bob")]]
+        )
+        spec = replace(_spec(), correlation_id=CorrelationId("corr-multi-tenant"))
+        ctx_bob = ToolContext(
+            user_id="bob",
+            thread_id="thread-bob",
+            permission_mode="ask",
+            tool_call_id="call-2",
+        )
+
+        resultados = await asyncio.gather(
+            run_subagent(
+                spec,
+                "tarefa da alice",
+                session_store=session_store,
+                chat_client=client,
+                ctx=ctx,
+                parent_thread_id="thread-pai",
+                should_require_approval=None,
+            ),
+            run_subagent(
+                spec,
+                "tarefa do bob",
+                session_store=session_store,
+                chat_client=client,
+                ctx=ctx_bob,
+                parent_thread_id="thread-pai",
+                should_require_approval=None,
+            ),
+        )
+
+        assert sorted(resultados) == ["para alice", "para bob"]
+        assert client.chamadas == 2
+
     async def test_correlation_id_diferente_roda_delegacoes_independentes(
         self, session_store, ctx
     ):

@@ -7,15 +7,127 @@ Supports multiple log levels, file rotation, and console output.
 import json
 import logging
 import os
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+_LOG_EXTRA_FIELDS: frozenset[str] = frozenset(
+    {
+        "tool",
+        "command",
+        "url",
+        "endpoint",
+        "operation",
+        "repo",
+        "owner",
+        "pr_number",
+        "issue_number",
+        "workspace_id",
+        "thread_id",
+        "tab_id",
+        "transport",
+        "exit_code",
+        "output_length",
+        "status",
+        "passed",
+        "argument_keys",
+        "provider",
+        "topic",
+        "query",
+        "error",
+        "correlation_id",
+        "request_id",
+    }
+)
+_SECRET_KEY_RE = re.compile(
+    r"(?:token|secret|password|passwd|authorization|api[_-]?key|private[_-]?key|signature)",
+    re.IGNORECASE,
+)
+_COMMAND_SECRET_RE = re.compile(
+    r"(?i)(--?(?:token|password|api[-_]?key|secret))(?:\s+|=)([^\s'\"]+)"
+    r"|(\b(?:GH_TOKEN|GITHUB_TOKEN|OPENAI_API_KEY|TAVILY_API_KEY)\s*=)([^\s'\"]+)"
+    r"|(Authorization:\s*Bearer\s+)([^\s'\"]+)"
+)
+
+_shutdown_requested = False
+
+
+def mark_shutdown_requested() -> None:
+    """Marca o início do encerramento coordenado do processo.
+
+    Uvicorn/Starlette pode registrar ``CancelledError`` como erro enquanto
+    interrompe uma resposta streaming ou o lifespan. O marcador permite
+    filtrar somente esse ruído esperado, mantendo cancelamentos reais visíveis
+    durante a operação normal.
+    """
+    global _shutdown_requested
+    _shutdown_requested = True
+
+
+class _ShutdownCancellationFilter(logging.Filter):
+    """Oculta traceback de cancelamento causado por shutdown explícito."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not _shutdown_requested or not record.exc_info:
+            return True
+        exception = record.exc_info[1]
+        return type(exception).__name__ != "CancelledError"
+
+
+def _redact_url(value: str) -> str:
+    """Remove credential-like query parameters while preserving the URL target."""
+    try:
+        parts = urlsplit(value)
+        query = [
+            (key, "[REDACTED]" if _SECRET_KEY_RE.search(key) else item)
+            for key, item in parse_qsl(parts.query, keep_blank_values=True)
+        ]
+        return urlunsplit(
+            (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+        )
+    except ValueError:
+        return value
+
+
+def _safe_log_value(key: str, value: Any) -> Any:
+    """Return an allowlisted, bounded log value without credentials."""
+    if value is None:
+        return None
+    if _SECRET_KEY_RE.search(key):
+        return "[REDACTED]"
+    if isinstance(value, str):
+        result = _redact_url(value) if key in {"url", "endpoint"} else value
+        result = _COMMAND_SECRET_RE.sub(
+            lambda match: (
+                (match.group(1) or match.group(3) or match.group(5) or "")
+                + "[REDACTED]"
+            ),
+            result,
+        )
+        return result[:300]
+    if isinstance(value, (int, float, bool)):
+        return value
+    if isinstance(value, (list, tuple, set)):
+        return [_safe_log_value(key, item) for item in list(value)[:20]]
+    return str(value)[:300]
+
+
+def _structured_extras(record: logging.LogRecord) -> dict[str, Any]:
+    """Select safe structured context; arbitrary LogRecord extras are excluded."""
+    return {
+        key: _safe_log_value(key, getattr(record, key))
+        for key in _LOG_EXTRA_FIELDS
+        if hasattr(record, key)
+    }
 
 
 class JSONFormatter(logging.Formatter):
     """Format logs as JSON for structured logging."""
 
     def format(self, record: logging.LogRecord) -> str:
+        """Executa a operação format."""
         log_obj: dict[str, Any] = {
             "timestamp": datetime.now(UTC).isoformat(),
             "level": record.levelname,
@@ -40,6 +152,8 @@ class JSONFormatter(logging.Formatter):
         if hasattr(record, "routing_decision"):
             log_obj["routing_decision"] = record.routing_decision
 
+        log_obj.update(_structured_extras(record))
+
         return json.dumps(log_obj, ensure_ascii=False)
 
 
@@ -47,12 +161,20 @@ class TextFormatter(logging.Formatter):
     """Format logs as readable text for development."""
 
     def format(self, record: logging.LogRecord) -> str:
+        """Executa a operação format."""
         prefix = f"[{record.levelname:8}] {record.name:20} | "
 
         if hasattr(record, "thread_id"):
             prefix += f"thread={record.thread_id:>3} | "
 
         msg = record.getMessage()
+        extras = _structured_extras(record)
+        if extras:
+            rendered = " ".join(
+                f"{key}={json.dumps(value, ensure_ascii=False)}"
+                for key, value in sorted(extras.items())
+            )
+            msg += f" | {rendered}"
         if record.exc_info:
             msg += "\n" + self.formatException(record.exc_info)
 
@@ -87,6 +209,7 @@ class _BackgroundConsoleFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         # Deixa WARNING+ sempre passar (erros devem ser visíveis)
+        """Executa a operação filter."""
         if record.levelno >= logging.WARNING:
             return True
         return record.name not in self._CONSOLE_NOISY
@@ -137,6 +260,7 @@ def setup_logging(
     handler_console = logging.StreamHandler()
     handler_console.setFormatter(formatter_text)
     handler_console.setLevel(getattr(logging, log_level))
+    handler_console.addFilter(_ShutdownCancellationFilter())
 
     # Silencia libs externas verbosas por padrão (QUIET_MODE)
     quiet_mode = os.getenv("QUIET_MODE", "true").lower() == "true"
@@ -160,7 +284,6 @@ def setup_logging(
             "cohere",
             "cohere.client",
             "cohere.base_client",
-            "aiosqlite",
             "huggingface_hub",
             "huggingface_hub.utils",
             "huggingface_hub.utils._http",
@@ -169,6 +292,14 @@ def setup_logging(
         ]
         for logger_name in silent_loggers:
             logging.getLogger(logger_name).setLevel(logging.CRITICAL)
+
+        # Garante que SQLite, LanceDB e Sidecars tenham nível INFO ativo para observabilidade centralizada
+        for active_logger in [
+            "aiosqlite",
+            "backend.storage",
+            "backend.services.llamacpp_sidecar",
+        ]:
+            logging.getLogger(active_logger).setLevel(logging.INFO)
 
     root_logger.addHandler(handler_console)
 
@@ -180,4 +311,5 @@ def setup_logging(
     handler_file = logging.FileHandler(log_file_path, mode="a", encoding="utf-8")
     handler_file.setFormatter(formatter_json)
     handler_file.setLevel(getattr(logging, log_level))
+    handler_file.addFilter(_ShutdownCancellationFilter())
     root_logger.addHandler(handler_file)

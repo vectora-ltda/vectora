@@ -35,7 +35,7 @@ const mockWorkbench = {
     expandedDirs: [] as string[],
     fetchedAt: {} as Record<string, number>,
   }),
-  getDiff: (_: string) => ({
+  getGit: (_: string) => ({
     summary: null,
     summaryFetchedAt: 0,
     openFiles: [],
@@ -51,7 +51,7 @@ const mockWorkbench = {
   viewerHeight: 280,
   setViewerHeight: vi.fn(),
   clearPending: vi.fn(),
-  setDiffSummary: vi.fn(),
+  setGitSummary: vi.fn(),
   pinnedFiles: {},
   setPinnedFiles: vi.fn(),
   loadPins: vi.fn(),

@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
@@ -33,6 +34,7 @@ async def _gh_run(
     args: list[str],
     cwd: str | None = None,
     input_data: str | None = None,
+    user_id: str | None = None,
 ) -> dict:
     """Executa `gh <args>` e retorna dict com status + dados.
 
@@ -44,6 +46,46 @@ async def _gh_run(
 
     timeout = get_settings().git_cli_timeout
     cmd = ["gh", *args]
+    logger.info(
+        "github_cli_command_started",
+        extra={
+            "tool": "gh_cli",
+            "operation": " ".join(args[:3]),
+            "command": "gh " + " ".join(args),
+            "status": "started",
+        },
+    )
+    env = os.environ.copy()
+    if user_id:
+        # Nunca permita que uma credencial global seja usada em nome de outro
+        # usuário. O contexto autenticado deve ser explícito ou anônimo.
+        # Em GitHub Actions, porém, GH_TOKEN é a credencial nativa do job e
+        # não representa outro usuário Vectora. Preserve-a para que o gh CLI
+        # consiga operar no mesmo contrato autenticado dos demais caminhos.
+        native_ci_token = (
+            env.get("GH_TOKEN", "").strip() if env.get("CI") == "true" else ""
+        )
+        if not native_ci_token and env.get("CI") == "true":
+            native_ci_token = env.get("GITHUB_TOKEN", "").strip()
+        env.pop("GH_TOKEN", None)
+        env.pop("GITHUB_TOKEN", None)
+        try:
+            from backend.rbac.auth import get_env_overrides
+
+            token = (await get_env_overrides(user_id)).get("GITHUB_TOKEN", "").strip()
+            if token:
+                env["GH_TOKEN"] = token
+                env["GITHUB_TOKEN"] = token
+            elif native_ci_token:
+                env["GH_TOKEN"] = native_ci_token
+                env["GITHUB_TOKEN"] = native_ci_token
+        except Exception:
+            if native_ci_token:
+                env["GH_TOKEN"] = native_ci_token
+                env["GITHUB_TOKEN"] = native_ci_token
+            logger.debug(
+                "gh: não foi possível carregar o token do usuário", exc_info=True
+            )
     try:
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -51,6 +93,7 @@ async def _gh_run(
             stdin=asyncio.subprocess.PIPE if input_data is not None else None,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=env,
         )
     except FileNotFoundError:
         return {
@@ -79,12 +122,33 @@ async def _gh_run(
     stderr = stderr_b.decode(errors="replace").strip()
 
     if proc.returncode != 0:
+        logger.warning(
+            "github_cli_command_failed",
+            extra={
+                "tool": "gh_cli",
+                "operation": " ".join(args[:3]),
+                "command": "gh " + " ".join(args),
+                "exit_code": proc.returncode,
+                "status": "error",
+            },
+        )
         return {
             "status": "error",
             "message": stderr or stdout,
             "code": proc.returncode,
         }
 
+    logger.info(
+        "github_cli_command_completed",
+        extra={
+            "tool": "gh_cli",
+            "operation": " ".join(args[:3]),
+            "command": "gh " + " ".join(args),
+            "exit_code": proc.returncode,
+            "output_length": len(stdout),
+            "status": "ok",
+        },
+    )
     return {"status": "ok", "output": stdout}
 
 
@@ -132,6 +196,7 @@ async def gh_pr_list(
             "number,title,state,author,createdAt,headRefName,baseRefName",
         ],
         cwd=cwd,
+        user_id=ctx.user_id,
     )
     if result["status"] != "ok":
         return json.dumps(result)
@@ -173,7 +238,7 @@ async def gh_pr_create(
     args = ["pr", "create", "--title", title, "--body", body, "--base", base]
     if draft:
         args.append("--draft")
-    result = await _gh_run(args, cwd=cwd)
+    result = await _gh_run(args, cwd=cwd, user_id=ctx.user_id)
     return json.dumps(result)
 
 
@@ -208,6 +273,7 @@ async def gh_pr_view(
             "number,title,state,body,author,createdAt,files,reviews",
         ],
         cwd=cwd,
+        user_id=ctx.user_id,
     )
     if result["status"] != "ok":
         return json.dumps(result)
@@ -245,7 +311,9 @@ async def gh_pr_merge(
     if not pr_number:
         return json.dumps({"status": "error", "message": "Número do PR é obrigatório."})
     result = await _gh_run(
-        ["pr", "merge", str(pr_number), f"--{method}", "--auto"], cwd=cwd
+        ["pr", "merge", str(pr_number), f"--{method}", "--auto"],
+        cwd=cwd,
+        user_id=ctx.user_id,
     )
     return json.dumps(result)
 
@@ -282,7 +350,7 @@ async def gh_issue_list(
     ]
     if labels:
         args += ["--label", labels]
-    result = await _gh_run(args, cwd=cwd)
+    result = await _gh_run(args, cwd=cwd, user_id=ctx.user_id)
     if result["status"] != "ok":
         return json.dumps(result)
     try:
@@ -323,7 +391,7 @@ async def gh_issue_create(
     args = ["issue", "create", "--title", title, "--body", body]
     if labels:
         args += ["--label", labels]
-    result = await _gh_run(args, cwd=cwd)
+    result = await _gh_run(args, cwd=cwd, user_id=ctx.user_id)
     return json.dumps(result)
 
 
@@ -360,6 +428,7 @@ async def gh_issue_view(
             "number,title,state,body,author,createdAt,labels,comments",
         ],
         cwd=cwd,
+        user_id=ctx.user_id,
     )
     if result["status"] != "ok":
         return json.dumps(result)
@@ -401,6 +470,8 @@ async def gh_issue_comment(
             {"status": "error", "message": "Corpo do comentário é obrigatório."}
         )
     result = await _gh_run(
-        ["issue", "comment", str(issue_number), "--body", body], cwd=cwd
+        ["issue", "comment", str(issue_number), "--body", body],
+        cwd=cwd,
+        user_id=ctx.user_id,
     )
     return json.dumps(result)

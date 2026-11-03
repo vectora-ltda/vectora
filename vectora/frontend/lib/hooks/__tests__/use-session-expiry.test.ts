@@ -170,20 +170,20 @@ describe("useSessionExpiry — agendamento", () => {
   });
 });
 
-describe("useSessionExpiry — ação Renovar", () => {
-  function fireToast(): { onClick: () => Promise<void> } {
-    setExp(20 * 60);
-    renderHook(() => useSessionExpiry());
-    act(() => {
-      vi.advanceTimersByTime(15 * 60 * 1000 + 100);
-    });
-    return (
-      toastWarning.mock.calls[0][1] as {
-        action: { onClick: () => Promise<void> };
-      }
-    ).action;
-  }
+function fireToast(): { onClick: () => Promise<void> } {
+  setExp(20 * 60);
+  renderHook(() => useSessionExpiry());
+  act(() => {
+    vi.advanceTimersByTime(15 * 60 * 1000 + 100);
+  });
+  return (
+    toastWarning.mock.calls[0][1] as {
+      action: { onClick: () => Promise<void> };
+    }
+  ).action;
+}
 
+describe("useSessionExpiry — ação Renovar", () => {
   it("Renovar com refresh+me ok mostra toast de sucesso", async () => {
     vi.stubGlobal(
       "fetch",
