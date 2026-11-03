@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -244,7 +245,9 @@ class TestWsl2Spawn:
     @pytest.mark.asyncio
     async def test_sem_wsl2_faz_fallback_pro_sandbox_soft(self, monkeypatch):
         """Sem WSL2 elegível: não bloqueia — degrada pro sandbox soft nativo
-        do Windows (worker em subprocess puro, env limpo, cwd no workspace)."""
+        do Windows (worker em subprocess puro, env limpo, cwd no workspace).
+        Com `lockdown`, o modo soft só propaga o perfil de rlimits: não há
+        `--unshare-net`, então a rede do worker não é bloqueada."""
         proc = _fake_proc()
         spawn_mock = AsyncMock(return_value=proc)
         monkeypatch.setattr(wj.asyncio, "create_subprocess_exec", spawn_mock)
@@ -253,7 +256,9 @@ class TestWsl2Spawn:
         manager = wj.WorkspaceJailManager()
 
         worker = await manager.get_or_spawn(
-            "ws-1", r"C:\Users\dev\projeto", SandboxPolicy(enabled=True)
+            "ws-1",
+            r"C:\Users\dev\projeto",
+            SandboxPolicy(enabled=True, lockdown=True),
         )
 
         assert spawn_mock.await_args is not None
@@ -261,16 +266,18 @@ class TestWsl2Spawn:
         assert argv[0] == wj.sys.executable
         assert argv[1:3] == ("-m", "backend.sandbox.worker")
         assert "bwrap" not in argv
+        assert "--unshare-net" not in argv
         kwargs = spawn_mock.await_args.kwargs
         assert kwargs["cwd"] == r"C:\Users\dev\projeto"
         assert kwargs["env"]["VECTORA_SANDBOX_SOFT"] == "1"
+        assert kwargs["env"]["VECTORA_SANDBOX_LOCKDOWN"] == "1"
         assert kwargs["pass_fds"] == ()
         assert worker.job_handle == 1234
 
     @pytest.mark.asyncio
     async def test_wsl2_sem_bwrap_dentro_da_distro_faz_fallback_pro_soft(
-        self, monkeypatch
-    ):
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
         """WSL2 presente mas sem bwrap: idem — fallback soft em vez de bloquear."""
         proc = _fake_proc()
         spawn_mock = AsyncMock(return_value=proc)
@@ -282,14 +289,37 @@ class TestWsl2Spawn:
         monkeypatch.setattr(wj, "assign_job_object_kill_on_close", lambda pid: 5678)
         manager = wj.WorkspaceJailManager()
 
-        worker = await manager.get_or_spawn(
-            "ws-1", r"C:\Users\dev\projeto", SandboxPolicy(enabled=True)
-        )
+        from backend.sandbox import policy as policy_module
+
+        monkeypatch.setattr(policy_module, "_wsl2_distro_cache", "Ubuntu")
+        policy = policy_module.parse_policy(tmp_path / "vectora.toml")
+        assert policy.enabled is True
+        assert policy.backend == "local"
+        worker = await manager.get_or_spawn("ws-1", r"C:\Users\dev\projeto", policy)
 
         assert spawn_mock.await_args is not None
+        argv = spawn_mock.await_args.args
+        assert argv[:3] == (wj.sys.executable, "-m", "backend.sandbox.worker")
+        assert "bwrap" not in argv
+        assert "--unshare-net" not in argv
         kwargs = spawn_mock.await_args.kwargs
         assert kwargs["env"]["VECTORA_SANDBOX_SOFT"] == "1"
         assert worker.job_handle == 5678
+        assert worker.isolation_enforced is False
+        assert manager.has_effective_isolation("ws-1") is False
+        from types import SimpleNamespace
+
+        from backend.engine.hitl import should_require_approval
+        from backend.tools.context import ToolContext
+        from backend.workspace.workspace import workspace_registry
+
+        monkeypatch.setattr(
+            workspace_registry, "get", lambda _wid: SimpleNamespace(cwd=str(tmp_path))
+        )
+        monkeypatch.setattr(wj.jail_manager, "_workers", manager._workers)
+        ctx = ToolContext(user_id="local", workspace_id="ws-1", permission_mode="plan")
+        for tool in ("terminal", "file_write", "file_edit"):
+            assert should_require_approval(tool, ctx, {}, []) is True
 
 
 @pytest.mark.asyncio
@@ -348,3 +378,23 @@ async def test_worker_travado_e_morto_no_timeout_e_respawna_depois(
     )
 
     assert resultado is not worker
+
+
+@pytest.mark.asyncio
+async def test_hitl_native_proof_cannot_be_replaced_by_a_soft_worker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager = wj.WorkspaceJailManager()
+    native = wj.JailedWorker("ws-isolated", _fake_proc(), isolation_enforced=True)
+    manager._workers["ws-isolated"] = native
+    assert manager.has_effective_isolation("ws-isolated") is True
+    await manager.close("ws-isolated")
+    soft_process = _fake_proc()
+    soft = wj.JailedWorker("ws-isolated", soft_process, isolation_enforced=False)
+    monkeypatch.setattr(manager, "_spawn", AsyncMock(return_value=soft))
+    with pytest.raises(wj.WorkerSpawnError, match="refusing a soft replacement"):
+        await manager.get_or_spawn(
+            "ws-isolated", str(tmp_path), SandboxPolicy(enabled=True)
+        )
+    soft_process.terminate.assert_called_once()
+    assert "ws-isolated" not in manager._workers

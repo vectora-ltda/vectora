@@ -142,7 +142,7 @@ def test_cassette_save_and_load_with_redaction(tmp_path: Path):
                         "content": "minha chave e sk-1234567890abcdef12345678",
                     }
                 ],
-                response_text="Resposta segura",
+                response_text="Código privado da empresa: def segredo_interno(): return 42",
                 systemone_decision="allow api_key=private-decision-key",
                 duration_ms=120,
                 usage={"input": 50, "output": 10},
@@ -156,6 +156,9 @@ def test_cassette_save_and_load_with_redaction(tmp_path: Path):
     assert "sk-1234567890abcdef12345678" not in raw_content
     assert "private-decision-key" not in raw_content
     assert "[REDACTED]" in raw_content
+    # A ocultação de credenciais não anonimiza código nem dados pessoais.
+    assert "segredo_interno" in raw_content
+    assert "minha chave e [REDACTED]" in raw_content
 
     loaded = Cassette.load(target)
     assert loaded.cassette_id == "cas-001"
@@ -617,6 +620,17 @@ def test_cli_eval_run(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> Non
     assert code_json == 0
     captured_json = capsys.readouterr()
     assert '"suite_id": "my-suite"' in captured_json.out
+
+    # `--suite` aponta para um único cassette; uma lista de cassettes é recusada.
+    list_path = tmp_path / "list.json"
+    list_path.write_text(
+        f"[{suite_path.read_text(encoding='utf-8')}]", encoding="utf-8"
+    )
+    code_list = handle_eval(
+        argparse.Namespace(action="run", suite=str(list_path), output="human")
+    )
+    assert code_list == 1
+    assert "Erro ao carregar cassete" in capsys.readouterr().err
 
 
 def test_cli_eval_missing_suite(capsys: pytest.CaptureFixture[str]) -> None:

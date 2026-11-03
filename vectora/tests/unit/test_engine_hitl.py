@@ -7,6 +7,7 @@ restart, sobre o SessionStore).
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 
 import pytest
 
@@ -153,8 +154,14 @@ class TestShouldRequireApproval:
                 role=MessageRole.TOOL,
                 content=[ContentBlock(kind="text", text="feito")],
                 name="file_write",
+                tool_call_id="approved-write",
             ),
         ]
+        assert (
+            should_require_approval("file_write", ctx, {}, historico_ja_aprovado)
+            is True
+        )
+        ctx._extra["plan_approved_tool_call_ids"] = ["approved-write"]
         assert (
             should_require_approval("file_write", ctx, {}, historico_ja_aprovado)
             is False
@@ -198,6 +205,19 @@ class TestShouldRequireApproval:
         assert should_require_approval("terminal", ctx, {}, []) is False
         assert should_require_approval("file_write", ctx, {}, []) is False
         # git/install continuam pedindo aprovação mesmo jailed.
+        assert should_require_approval("install_learned_skill", ctx, {}, []) is True
+
+    @pytest.mark.parametrize("tool", ["terminal", "file_write", "file_edit"])
+    @pytest.mark.parametrize("jailed", [True, False])
+    def test_plan_first_action_respects_sandbox_exemption(
+        self, monkeypatch: pytest.MonkeyPatch, tool: str, jailed: bool
+    ) -> None:
+        """A primeira ação sem histórico só é dispensada quando há sandbox."""
+        monkeypatch.setattr(
+            "backend.engine.hitl._workspace_is_jailed", lambda _wsid: jailed
+        )
+        ctx = _ctx(permission_mode="plan", workspace_id="ws-1")
+        assert should_require_approval(tool, ctx, {}, []) is not jailed
         assert should_require_approval("install_learned_skill", ctx, {}, []) is True
 
     def test_workspace_nao_jailed_continua_pedindo_aprovacao(self, monkeypatch):
@@ -369,3 +389,69 @@ def test_call_requires_separate_approval():
 
     # Tool de leitura segura
     assert call_requires_separate_approval("file_read", {"path": "a.txt"}) is False
+
+
+@pytest.mark.parametrize("tool", ["terminal", "file_write", "file_edit"])
+@pytest.mark.parametrize(
+    ("isolated", "alive", "expected"),
+    [(False, True, True), (True, True, False), (True, False, True)],
+)
+def test_plan_sandbox_exemption_requires_a_live_isolated_worker(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tool: str,
+    isolated: bool,
+    alive: bool,
+    expected: bool,
+) -> None:
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from backend.sandbox.workspace_jail import JailedWorker, jail_manager
+    from backend.workspace.workspace import workspace_registry
+
+    (tmp_path / "vectora.toml").write_text(
+        "[sandbox]\nenabled=true\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        workspace_registry, "get", lambda _wid: SimpleNamespace(cwd=str(tmp_path))
+    )
+    worker = JailedWorker(
+        workspace_id="ws-soft",
+        proc=MagicMock(returncode=None if alive else 1),
+        isolation_enforced=isolated,
+    )
+    monkeypatch.setattr(jail_manager, "_workers", {"ws-soft": worker})
+    monkeypatch.setattr(jail_manager, "_isolation_required", set())
+    ctx = _ctx(permission_mode="plan", workspace_id="ws-soft")
+    assert should_require_approval(tool, ctx, {}, []) is expected
+    assert should_require_approval("git_push", ctx, {}, []) is True
+
+
+def test_worker_startup_does_not_change_policy_snapshot_identity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from backend.sandbox.workspace_jail import JailedWorker, jail_manager
+    from backend.services.policy_compiler import compile_policy_snapshot
+    from backend.workspace.workspace import workspace_registry
+
+    (tmp_path / "vectora.toml").write_text(
+        "[sandbox]\nenabled=true\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        workspace_registry, "get", lambda _wid: SimpleNamespace(cwd=str(tmp_path))
+    )
+    monkeypatch.setattr(jail_manager, "_workers", {})
+    monkeypatch.setattr(jail_manager, "_isolation_required", set())
+    ctx = _ctx(permission_mode="plan", workspace_id="ws-stable")
+    before = compile_policy_snapshot(ctx)
+    assert should_require_approval("file_write", ctx, {}, []) is True
+    jail_manager._workers[ctx.workspace_id] = JailedWorker(
+        ctx.workspace_id, MagicMock(returncode=None), isolation_enforced=True
+    )
+    after = compile_policy_snapshot(ctx)
+    assert before.version == after.version
+    assert should_require_approval("file_write", ctx, {}, []) is False

@@ -101,6 +101,65 @@ class TestFetchUrlFallback:
         assert "conteúdo extraído" in result
         assert result.startswith('<untrusted_content source="https://example.com">')
 
+    @pytest.mark.parametrize(
+        "provider_error",
+        [
+            "429 Too Many Requests",
+            "quota exceeded",
+            "rate limit exceeded",
+            "invalid credentials",
+        ],
+    )
+    async def test_configured_provider_quota_uses_chromium_only_on_quota(
+        self, provider_error: str
+    ) -> None:
+        backend = MagicMock()
+        backend.invoke = AsyncMock(side_effect=RuntimeError(provider_error))
+        with (
+            patch("backend.tools.web.settings") as settings,
+            patch(
+                "backend.tools.web._check_egress_url", new=AsyncMock(return_value=None)
+            ) as preflight,
+            patch("backend.browser.ssrf_guard.is_url_ssrf_safe", return_value=True),
+            patch("backend.tools.web._get_extract_tool", return_value=backend),
+            patch(
+                "backend.browser.search_fallback.fetch_fallback",
+                return_value="fallback content",
+            ) as fallback,
+        ):
+            settings.tavily_api_key = "configured-key"
+            result = await fetch_url(url="https://example.com")
+        preflight.assert_awaited_once_with("https://example.com", None)
+        backend.invoke.assert_awaited_once_with({"url": "https://example.com"})
+        if provider_error == "invalid credentials":
+            fallback.assert_not_called()
+            assert result.startswith("Error")
+        else:
+            fallback.assert_called_once_with("https://example.com")
+            assert '<untrusted_content source="https://example.com">' in result
+            assert "fallback content" in result
+
+    async def test_localhost_allowlist_does_not_bypass_fetch_ssrf_guard(self) -> None:
+        from backend.services.egress_policy import EgressPolicy
+
+        policy = EgressPolicy(allow_localhost_dev_ports=[3000])
+        with (
+            patch("backend.tools.web._egress_policy", return_value=policy),
+            patch(
+                "backend.services.egress_policy.socket.getaddrinfo",
+                return_value=[(2, 1, 6, "", ("127.0.0.1", 3000))],
+            ),
+            patch("backend.tools.web._get_extract_tool") as extract,
+            patch("backend.tools.web._fetch_via_fallback", new=AsyncMock()) as fallback,
+        ):
+            from backend.tools.web import _check_egress_url
+
+            assert await _check_egress_url("http://localhost:3000", None) is None
+            result = await fetch_url(url="http://localhost:3000")
+        assert "SSRF" in result
+        extract.assert_not_called()
+        fallback.assert_not_awaited()
+
     async def test_sem_tavily_e_fallback_tambem_falha_retorna_erro_textual(self):
         with (
             patch("backend.tools.web.settings") as ms,
