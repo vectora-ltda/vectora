@@ -555,16 +555,66 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Export Windows signing cert
-        # electron-builder só pula a assinatura quando CSC_LINK está
-        # ausente (undefined) — setado como string vazia ainda conta
-        # como "certificado fornecido" e quebra o keychain no mac/linux.
-        # $GITHUB_ENV só é escrito neste step (matrix.target == 'win'),
-        # deixando a var genuinamente ausente nos outros SOs.
         if: matrix.target == 'win'
-        shell: bash
+        working-directory: .
+        shell: pwsh
+        env:
+          WIN_CERTIFICATE_BASE64: ${{ secrets.WIN_CERTIFICATE_BASE64 }}
+          WIN_CERTIFICATE_PASSWORD: ${{ secrets.WIN_CERTIFICATE_PASSWORD }}
         run: |
-          echo "CSC_LINK=${{ secrets.WIN_CERTIFICATE_BASE64 }}" >> "$GITHUB_ENV"
-          echo "CSC_KEY_PASSWORD=${{ secrets.WIN_CERTIFICATE_PASSWORD }}" >> "$GITHUB_ENV"
+          if (-not $env:WIN_CERTIFICATE_BASE64 -or -not $env:WIN_CERTIFICATE_PASSWORD) {
+            Write-Host "Trusted Windows signing certificate is not configured; installers will remain unsigned."
+            exit 0
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'vectora-signing.pfx'
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WIN_CERTIFICATE_BASE64))
+          $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName | Select-Object -Last 1 -ExpandProperty FullName
+          if (-not $signTool) { throw 'Windows SDK signtool.exe was not found.' }
+          $binaryRoots = @('dist/vectora', 'vectora/resources')
+          $binaries = Get-ChildItem $binaryRoots -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in '.exe', '.dll', '.pyd' }
+          foreach ($binary in $binaries) {
+            & $signTool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $certificatePath /p $env:WIN_CERTIFICATE_PASSWORD $binary.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed for $($binary.FullName)" }
+          }
+          "CSC_LINK=$certificatePath" >> $env:GITHUB_ENV
+          "CSC_KEY_PASSWORD=$env:WIN_CERTIFICATE_PASSWORD" >> $env:GITHUB_ENV
+      - name: Sign macOS sidecars ad-hoc when Apple credentials are absent
+        if: matrix.target == 'mac'
+        working-directory: .
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$APPLE_ID" && -n "$APPLE_APP_SPECIFIC_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
+            echo "Apple Developer credentials are configured; electron-builder will sign nested code and notarize the app."
+            exit 0
+          fi
+          echo "Apple credentials are incomplete; applying ad-hoc signatures to Mach-O sidecars. First launch may require the documented Gatekeeper override."
+          for root in dist/vectora vectora/resources; do
+            [[ -d "$root" ]] || continue
+            while IFS= read -r -d '' binary; do
+              if file -b "$binary" | grep -q 'Mach-O'; then
+                codesign --force --sign - --timestamp=none "$binary"
+              fi
+            done < <(find "$root" -type f -print0)
+          done
+      - name: Prepare macOS signing configuration
+        if: matrix.target == 'mac'
+        working-directory: vectora/frontend
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          BUILDER_CONFIG: ${{ runner.temp }}/electron-builder.yml
+        run: node electron/prepare-builder-config.cjs electron/electron-builder.yml "$BUILDER_CONFIG"
+      - name: Test conditional macOS signing configuration
+        working-directory: vectora/frontend
+        run: node --test electron/prepare-builder-config.test.cjs
       - name: Verifica sincronia de versão (pyproject.toml vs frontend/package.json)
         # release-please só bumpa vectora/pyproject.toml por padrão --
         # frontend/package.json precisa ser sincronizado via extra-files em
@@ -596,7 +646,15 @@ jobs:
         run: |
           pnpm --dir frontend install --frozen-lockfile
           pnpm --dir frontend run electron:build
-          pnpm --dir frontend exec electron-builder --config electron/electron-builder.yml --${{ matrix.target }} --publish never
+          if [ "${{ matrix.target }}" = "mac" ]; then
+            pnpm --dir frontend exec electron-builder --config "$RUNNER_TEMP/electron-builder.yml" --${{ matrix.target }} --publish never
+          else
+            pnpm --dir frontend exec electron-builder --config electron/electron-builder.yml --${{ matrix.target }} --publish never
+          fi
+      - name: Remove temporary Windows signing certificate
+        if: always() && matrix.target == 'win'
+        shell: pwsh
+        run: Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'vectora-signing.pfx') -Force -ErrorAction SilentlyContinue
       - name: Upload installers
         uses: actions/upload-artifact@v7
         with:
@@ -653,6 +711,12 @@ jobs:
           pattern: vectora-*
           path: dist-electron-all
           merge-multiple: true
+      - name: Create release checksums and optional GPG signatures
+        working-directory: .
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: bash utils/signing/sign-release-artifacts.sh dist-electron-all
       - name: Install services deps
         working-directory: services
         run: pnpm install --frozen-lockfile
@@ -739,6 +803,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -770,6 +835,12 @@ jobs:
         with:
           name: gha-bot-cli-linux-x64
           path: dist-release/gha-bot-cli
+      - name: Create release checksums and optional GPG signatures
+        working-directory: .
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: bash utils/signing/sign-release-artifacts.sh dist-release
       - name: Create tag after successful distribution
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -804,3 +875,6 @@ jobs:
             gh release upload "$TAG" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" --clobber
           fi
+          gh workflow run rotate-release-lines.yml \
+            --repo "$GITHUB_REPOSITORY" --ref master \
+            --field "release_tag=$TAG" --field "target_branch=master"

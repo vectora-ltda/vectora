@@ -183,6 +183,15 @@ def _event_values(event_path: Path) -> tuple[str, str | None]:
     event = json.loads(event_path.read_text(encoding="utf-8"))
     if not isinstance(event, dict):
         raise ValueError("release event must be an object")  # noqa: TRY004
+    if event.get("inputs") is not None:
+        inputs = event["inputs"]
+        if not isinstance(inputs, dict):
+            raise ValueError("workflow_dispatch inputs must be an object")  # noqa: TRY004
+        tag = inputs.get("release_tag")
+        target = inputs.get("target_branch", "master")
+        if not isinstance(tag, str) or not tag:
+            raise ValueError("workflow_dispatch is missing release_tag")
+        return tag, target if isinstance(target, str) else None
     release = event.get("release")
     if not isinstance(release, dict):
         raise ValueError("release event is missing release metadata")  # noqa: TRY004

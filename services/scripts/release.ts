@@ -49,6 +49,8 @@ const CONTENT_TYPES: Record<string, string> = {
   rpm: "application/x-rpm",
   yml: "application/x-yaml",
   blockmap: "application/octet-stream",
+  asc: "application/pgp-signature",
+  SUMS: "text/plain; charset=utf-8",
 };
 
 // `Vectora-0.1.1-win-x64.exe` → { version: "0.1.1", os: "win", arch: "x64", ext: "exe" }
@@ -68,6 +70,35 @@ export function normalizeInstallerArch(
   if (arch === "x86_64" || arch === "amd64") return "x64";
   if (arch === "x64" || arch === "arm64" || arch === "universal") return arch;
   throw new Error(`Arquitetura de instalador não suportada: ${arch}`);
+}
+
+/** Maps integrity artifacts to a versioned R2 location without treating them as installers. */
+export function releaseSupportAsset(
+  channel: string,
+  version: string,
+  filename: string,
+): { key: string; contentType: string } | null {
+  if (filename === "SHA256SUMS") {
+    return {
+      key: `${channel}/all/all/${version}/${filename}`,
+      contentType: CONTENT_TYPES.SUMS,
+    };
+  }
+  if (filename === "SHA256SUMS.asc" || filename === "vectora-release-key.asc") {
+    return {
+      key: `${channel}/all/all/${version}/${filename}`,
+      contentType: CONTENT_TYPES.asc,
+    };
+  }
+  if (!filename.endsWith(".asc")) return null;
+  const match = INSTALLER_RE.exec(filename.slice(0, -4));
+  if (!match?.groups || match.groups.version !== version) return null;
+  const { os, arch: rawArch } = match.groups;
+  const arch = normalizeInstallerArch(rawArch);
+  return {
+    key: `${channel}/${os}/${arch}/${version}/${filename}`,
+    contentType: CONTENT_TYPES.asc,
+  };
 }
 
 /** Todos os formatos de instalador aceitos pelo canal de distribuição. */
@@ -630,6 +661,18 @@ async function main(): Promise<void> {
       const key = `${channel}/${os}/${arch}/${version}/${file}`;
       await uploadFile(bucket, key, join(dist, file), CONTENT_TYPES.blockmap);
       uploadedKeys.push(key);
+      continue;
+    }
+
+    const supportAsset = releaseSupportAsset(channel, version, file);
+    if (supportAsset) {
+      await uploadFile(
+        bucket,
+        supportAsset.key,
+        join(dist, file),
+        supportAsset.contentType,
+      );
+      uploadedKeys.push(supportAsset.key);
       continue;
     }
 

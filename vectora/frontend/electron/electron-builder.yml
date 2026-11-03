@@ -1,13 +1,15 @@
 # electron-builder config
 #
-# Gera instaladores nativos assinados (Win .exe via NSIS, macOS .dmg notarized,
-# Linux .AppImage/.deb/.rpm). Cada instalador empacota a shell Electron
+# Gera instaladores nativos (Win .exe via NSIS, macOS .dmg, Linux
+# .AppImage/.deb/.rpm). A assinatura/notarização é configurada pelo workflow
+# segundo as credenciais disponíveis. Cada instalador empacota a shell Electron
 # + o binário Nuitka como extraResource.
 #
 # Pre-req:
-# - Win: CSC_LINK + CSC_KEY_PASSWORD (cert EV Azure Trusted Signing).
-# - macOS: APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID.
-# - Linux: nada (não assinamos AppImage).
+# - Win: CSC_LINK + CSC_KEY_PASSWORD (certificado Authenticode confiável).
+# - macOS: identidade Developer ID e credenciais Apple para notarização;
+#   sem elas, assinatura ad-hoc e instruções de abertura manual.
+# - Linux: SHA256SUMS e assinatura GPG destacada quando a chave estiver configurada.
 #
 # Publish: vectora-services (Cloudflare Worker + R2), não GitHub Releases — o
 # repo é privado (Vectora é vendido, não open source) e o Free precisa baixar
@@ -113,7 +115,6 @@ mac:
   category: public.app-category.developer-tools
   hardenedRuntime: true
   gatekeeperAssess: false
-  notarize: true
 
 dmg:
   title: ${productName} ${version}

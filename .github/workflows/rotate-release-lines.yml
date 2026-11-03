@@ -6,6 +6,17 @@ name: Rotate release lines
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Published release tag to rotate from (for GITHUB_TOKEN-created releases)
+        required: true
+        type: string
+      target_branch:
+        description: Stable branch containing the published release
+        required: false
+        default: master
+        type: string
 
 concurrency:
   group: release-line-rotation-${{ github.repository }}-${{ github.event.release.tag_name }}
@@ -15,10 +26,11 @@ permissions:
   contents: write
   issues: write
   pull-requests: write
+  actions: write
 
 jobs:
   rotate:
-    if: github.event.release.prerelease == false
+    if: github.event_name == 'workflow_dispatch' || github.event.release.prerelease == false
     runs-on: ubuntu-24.04
     steps:
       - name: Check out the trusted default branch
@@ -218,3 +230,8 @@ jobs:
                 `Falha ao migrar ${migrationErrors.length} PR(s): ${migrationErrors.join("; ")}`,
               );
             }
+      - name: Queue the next release evaluation
+        if: always() && steps.rotation.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run release-please.yml --repo "$GITHUB_REPOSITORY" --ref master

@@ -22,6 +22,7 @@ import {
   selectManifestInstaller,
   BLOCKMAP_RE,
   readReleaseNotes,
+  releaseSupportAsset,
 } from "../../scripts/release";
 
 describe("parseArgs", () => {
@@ -166,6 +167,42 @@ describe("INSTALLER_RE", () => {
         )?.groups?.ext,
       ).toBe(extension);
     }
+  });
+});
+
+describe("release integrity assets", () => {
+  it("places checksums and public keys in the version-scoped shared prefix", () => {
+    expect(releaseSupportAsset("latest", "0.3.1", "SHA256SUMS")).toEqual({
+      key: "latest/all/all/0.3.1/SHA256SUMS",
+      contentType: "text/plain; charset=utf-8",
+    });
+    expect(
+      releaseSupportAsset("latest", "0.3.1", "vectora-release-key.asc"),
+    ).toEqual({
+      key: "latest/all/all/0.3.1/vectora-release-key.asc",
+      contentType: "application/pgp-signature",
+    });
+  });
+
+  it("uploads installer signatures beside the matching artifact", () => {
+    expect(
+      releaseSupportAsset(
+        "maintenance",
+        "0.3.1",
+        "Vectora-0.3.1-win-x64.exe.asc",
+      ),
+    ).toEqual({
+      key: "maintenance/win/x64/0.3.1/Vectora-0.3.1-win-x64.exe.asc",
+      contentType: "application/pgp-signature",
+    });
+  });
+
+  it("rejects signatures for other versions and arbitrary files", () => {
+    expect(
+      releaseSupportAsset("latest", "0.3.1", "Vectora-0.3.0-win-x64.exe.asc"),
+    ).toBeNull();
+    expect(releaseSupportAsset("latest", "0.3.1", "unknown.asc")).toBeNull();
+    expect(releaseSupportAsset("latest", "0.3.1", "SHA256SUMS.txt")).toBeNull();
   });
 });
 

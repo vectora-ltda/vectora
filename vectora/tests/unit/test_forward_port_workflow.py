@@ -281,6 +281,44 @@ def test_release_mutations_are_serialized_and_leased() -> None:
     assert '"${{ steps.release-line.outputs.maintenance_branch }}"' not in content
 
 
+def test_release_automation_uses_current_line_tags_and_manual_dispatch() -> None:
+    """Tags from old release lines cannot rewind the version or stall automation."""
+    content = (WORKFLOW.parent / "release-please.yml").read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in content
+    assert "github.event_name == 'workflow_dispatch'" in content
+    assert '"v${release_major_minor}.*"' in content
+    assert '"v*" --sort=-version:refname' not in content
+    assert "chore(master): release $manifest_version" in content
+    assert "prepare_release_line_config.py" in content
+    assert (
+        ".release-please-manifest.maintenance.json .github/release-lines.json"
+        in content
+    )
+
+
+def test_release_pr_uses_maintenance_milestone_for_master_base() -> None:
+    """A release PR to master must satisfy the trusted base-line milestone gate."""
+    content = (WORKFLOW.parent / "release-please.yml").read_text(encoding="utf-8")
+    assert 'pr_milestone="$maintenance_milestone"' in content
+    assert (
+        "RELEASE_MILESTONE: ${{ steps.release-line.outputs.pr_milestone }}" in content
+    )
+
+
+def test_release_pipeline_dispatches_rotation_after_github_token_release() -> None:
+    """A tag created with GITHUB_TOKEN explicitly dispatches downstream workflows."""
+    app = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+    rotation = (WORKFLOW.parent / "rotate-release-lines.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "actions: write" in app
+    assert "gh workflow run rotate-release-lines.yml" in app
+    assert "workflow_dispatch:" in rotation
+    assert "release_tag" in rotation
+    assert "gh workflow run release-please.yml" in rotation
+
+
 def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     """Mantém a criação pós-publicação limitada à branch e aos milestones."""
     workflow = WORKFLOW.parent / "rotate-release-lines.yml"
