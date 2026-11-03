@@ -614,7 +614,7 @@ jobs:
         run: node electron/prepare-builder-config.cjs electron/electron-builder.yml "$BUILDER_CONFIG"
       - name: Test conditional macOS signing configuration
         working-directory: vectora/frontend
-        run: node --test electron/prepare-builder-config.test.cjs
+        run: node --test electron/prepare-builder-config.node.cjs
       - name: Verifica sincronia de versão (pyproject.toml vs frontend/package.json)
         # release-please só bumpa vectora/pyproject.toml por padrão --
         # frontend/package.json precisa ser sincronizado via extra-files em
