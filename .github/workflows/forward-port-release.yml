@@ -76,6 +76,16 @@ jobs:
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin "refs/heads/$DEVELOPMENT_BRANCH" >/dev/null; then
+            :
+          else
+            status=$?
+            if [[ "$status" -eq 2 ]]; then
+              echo "::notice::Active development branch $DEVELOPMENT_BRANCH is not created yet; release rotation will seed it from $STABLE_BRANCH."
+              exit 0
+            fi
+            exit "$status"
+          fi
           for attempt in 1 2 3; do
             git fetch origin "$DEVELOPMENT_BRANCH" "$STABLE_BRANCH"
             git switch --force-create sync-release-promotion "origin/$DEVELOPMENT_BRANCH"

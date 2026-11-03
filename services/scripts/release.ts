@@ -44,9 +44,12 @@ const CONTENT_TYPES: Record<string, string> = {
   exe: "application/x-msdownload",
   msi: "application/x-msi",
   dmg: "application/x-apple-diskimage",
+  zip: "application/zip",
   AppImage: "application/x-executable",
   deb: "application/vnd.debian.binary-package",
   rpm: "application/x-rpm",
+  flatpak: "application/vnd.flatpak",
+  gz: "application/gzip",
   yml: "application/x-yaml",
   blockmap: "application/octet-stream",
   asc: "application/pgp-signature",
@@ -57,11 +60,11 @@ const CONTENT_TYPES: Record<string, string> = {
 // Manifests (`latest.yml`, `latest-mac.yml`, `latest-linux.yml`) não seguem
 // esse padrão — tratados à parte via MANIFEST_OS abaixo.
 export const INSTALLER_RE =
-  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>exe|msi|dmg|AppImage|deb|rpm)$/;
+  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>pkg\.tar\.zst|tar\.gz|flatpak|AppImage|exe|msi|dmg|zip|deb|rpm|apk)$/;
 
 /** Blockmaps are required for electron-updater differential downloads. */
 export const BLOCKMAP_RE =
-  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>exe|msi|dmg|AppImage|deb|rpm)\.blockmap$/;
+  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>pkg\.tar\.zst|tar\.gz|flatpak|AppImage|exe|msi|dmg|zip|deb|rpm|apk)\.blockmap$/;
 
 /** Electron-builder uses several spellings for the x64 Linux architecture. */
 export function normalizeInstallerArch(
@@ -106,9 +109,14 @@ export const INSTALLER_EXTENSIONS = [
   "exe",
   "msi",
   "dmg",
+  "zip",
   "AppImage",
   "deb",
   "rpm",
+  "pkg.tar.zst",
+  "apk",
+  "flatpak",
+  "tar.gz",
 ] as const;
 
 export const MANIFEST_OS: Record<string, string> = {

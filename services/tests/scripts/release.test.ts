@@ -159,12 +159,23 @@ describe("INSTALLER_RE", () => {
     ).toBe("amd64");
   });
 
-  it("aceita todos os formatos publicados pela página de downloads", () => {
-    for (const extension of ["exe", "msi", "dmg", "AppImage", "deb", "rpm"]) {
+  it("aceita todos os formatos publicados para cada plataforma", () => {
+    const formats = [
+      ["win", "exe"],
+      ["win", "msi"],
+      ["mac", "dmg"],
+      ["mac", "zip"],
+      ["linux", "AppImage"],
+      ["linux", "deb"],
+      ["linux", "rpm"],
+      ["linux", "pkg.tar.zst"],
+      ["linux", "apk"],
+      ["linux", "flatpak"],
+      ["linux", "tar.gz"],
+    ] as const;
+    for (const [os, extension] of formats) {
       expect(
-        INSTALLER_RE.exec(
-          `Vectora-1.0.0-${extension === "dmg" ? "mac" : extension === "AppImage" || extension === "deb" || extension === "rpm" ? "linux" : "win"}-x64.${extension}`,
-        )?.groups?.ext,
+        INSTALLER_RE.exec(`Vectora-1.0.0-${os}-x64.${extension}`)?.groups?.ext,
       ).toBe(extension);
     }
   });
@@ -486,12 +497,14 @@ describe("buildArchManifest / resolveInstaller — regressão do manifesto cross
     writeFileSync(join(dir, "Vectora-0.1.1-linux-x64.AppImage"), "appimage");
     writeFileSync(join(dir, "Vectora-0.1.1-linux-x64.deb"), "deb");
     writeFileSync(join(dir, "Vectora-0.1.1-linux-x64.rpm"), "rpm");
+    writeFileSync(join(dir, "Vectora-0.1.1-linux-x64.pkg.tar.zst"), "pacman");
 
     const installers = indexInstallersByOsArch(
       [
         "Vectora-0.1.1-linux-x64.deb",
         "Vectora-0.1.1-linux-x64.AppImage",
         "Vectora-0.1.1-linux-x64.rpm",
+        "Vectora-0.1.1-linux-x64.pkg.tar.zst",
       ],
       dir,
       "0.1.1",
@@ -502,6 +515,7 @@ describe("buildArchManifest / resolveInstaller — regressão do manifesto cross
     expect(installers.get("linux/x64")?.availableFiles).toEqual([
       "Vectora-0.1.1-linux-x64.AppImage",
       "Vectora-0.1.1-linux-x64.deb",
+      "Vectora-0.1.1-linux-x64.pkg.tar.zst",
       "Vectora-0.1.1-linux-x64.rpm",
     ]);
   });

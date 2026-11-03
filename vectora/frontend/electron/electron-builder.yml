@@ -1,7 +1,7 @@
 # electron-builder config
 #
-# Gera instaladores nativos (Win .exe via NSIS, macOS .dmg, Linux
-# .AppImage/.deb/.rpm). A assinatura/notarização é configurada pelo workflow
+# Gera instaladores nativos (Windows NSIS .exe + MSI, macOS .dmg/.zip e Linux
+# AppImage, DEB, RPM, Pacman, APK e Flatpak). A assinatura/notarização é configurada pelo workflow
 # segundo as credenciais disponíveis. Cada instalador empacota a shell Electron
 # + o binário Nuitka como extraResource.
 #
@@ -94,10 +94,8 @@ publish:
 
 win:
   target:
-    - target: nsis
-      arch: [x64, arm64]
-    - target: msi-wrapped
-      arch: [x64, arm64]
+    - nsis
+    - msi
   icon: public/vectora.ico
   # Sem opções de assinatura fixas: o electron-builder assina automaticamente
   # quando CSC_LINK + CSC_KEY_PASSWORD estão no env (CI, cert EV em base64) e
@@ -107,8 +105,8 @@ win:
 
 mac:
   target:
-    - target: dmg
-      arch: [x64, arm64]
+    - dmg
+    - zip
   # electron-builder gera o .icns a partir de um .svg/.png — .ico não é
   # aceito nesse pipeline (icon-tool.js só lê .png/.svg/.icns).
   icon: public/vectora.svg
@@ -135,12 +133,13 @@ dmg:
 
 linux:
   target:
-    - target: AppImage
-      arch: [x64, arm64]
-    - target: deb
-      arch: [x64, arm64]
-    - target: rpm
-      arch: [x64, arm64]
+    - AppImage
+    - deb
+    - rpm
+    - pacman
+    - apk
+    - flatpak
+    - tar.gz
   icon: public/favicon-600x600.png
   category: Development
   # electron-builder 26: as chaves do .desktop ficam sob `desktop.entry`.
@@ -172,6 +171,13 @@ deb:
 # ainda) — electron-builder falha o build do AppImage se `license:` apontar
 # pra um arquivo inexistente. Reintroduzir aqui quando houver um EULA real.
 appImage: {}
+
+flatpak:
+  # O pacote é um bundle instalável localmente; publicação no Flathub exigiria
+  # um repositório e revisão próprios, fora deste pipeline de downloads.
+  runtime: org.freedesktop.Platform
+  runtimeVersion: "24.08"
+  sdk: org.freedesktop.Sdk
 
 nsis:
   # ManifestDPIAware true vem de build-resources/installer.nsh (hook customHeader,

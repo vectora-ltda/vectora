@@ -37,10 +37,9 @@ jobs:
         with:
           ref: ${{ github.workflow_sha }}
           persist-credentials: false
-      - name: Assign release milestone from base branch
+      - name: Ensure release milestone matches base branch
         id: assign-milestone
-        if: >-
-          github.event.pull_request.milestone == null
+        if: github.event.pull_request != null
         uses: actions/github-script@v8
         with:
           # O token dedicado continua preferido, mas o GITHUB_TOKEN com

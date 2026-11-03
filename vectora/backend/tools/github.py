@@ -109,12 +109,17 @@ async def github_fetch_pr_diff(
                 {"status": "error", "error": "GitHub não retornou resposta."}
             )
         if resp.status_code != 200:
-            return json.dumps(
-                {
-                    "status": "error",
-                    "error": f"GitHub API respondeu {resp.status_code}; verifique o repositório e o número do PR.",
-                }
-            )
+            error: dict[str, str | bool] = {
+                "status": "error",
+                "error": f"GitHub API respondeu {resp.status_code}; verifique o repositório e o número do PR.",
+            }
+            response_text = resp.text.lower()
+            remaining_requests = resp.headers.get("x-ratelimit-remaining")
+            if resp.status_code in {403, 429} and (
+                remaining_requests == "0" or "rate limit" in response_text
+            ):
+                error["rate_limited"] = True
+            return json.dumps(error)
         logger.info(
             "github_api_request_completed",
             extra={

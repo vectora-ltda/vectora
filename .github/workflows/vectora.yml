@@ -426,11 +426,20 @@ jobs:
           - os: ubuntu-24.04
             arch: x64
             target: linux
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            target: linux
           - os: macos-26
             arch: arm64
             target: mac
+          - os: macos-26-intel
+            arch: x64
+            target: mac
           - os: windows-latest
             arch: x64
+            target: win
+          - os: windows-11-arm
+            arch: arm64
             target: win
     runs-on: ${{ matrix.os }}
     steps:
@@ -464,6 +473,12 @@ jobs:
             Linux) sudo apt-get update -qq && sudo apt-get install -y ccache ;;
             macOS) brew install ccache ;;
           esac
+      - name: Install Linux package build dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ccache flatpak flatpak-builder fuse3
+          flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
       - name: Cache ccache (Nuitka C compilation)
         uses: actions/cache@v6
         with:
@@ -536,14 +551,14 @@ jobs:
         # reusa o MESMO backend.pyd já compilado pelo Nuitka acima (build
         # hybrid), só um passo extra de PyInstaller sem Electron/chat_static.
         # Só linux/x64 porque é o único alvo que um runner comum do GHA usa.
-        if: matrix.target == 'linux'
+        if: matrix.target == 'linux' && matrix.arch == 'x64'
         working-directory: .
         env:
           VECTORA_BUILD_CLI: "1"
         run: python build-hybrid.py --jobs 4
         shell: bash
       - name: Upload vectora-cli artifact
-        if: matrix.target == 'linux'
+        if: matrix.target == 'linux' && matrix.arch == 'x64'
         uses: actions/upload-artifact@v7
         with:
           # Nome fora do padrão "vectora-*" DE PROPÓSITO -- publish-update-channel
@@ -647,10 +662,41 @@ jobs:
           pnpm --dir frontend install --frozen-lockfile
           pnpm --dir frontend run electron:build
           if [ "${{ matrix.target }}" = "mac" ]; then
-            pnpm --dir frontend exec electron-builder --config "$RUNNER_TEMP/electron-builder.yml" --${{ matrix.target }} --publish never
+            pnpm --dir frontend exec electron-builder --config "$RUNNER_TEMP/electron-builder.yml" --${{ matrix.target }} --${{ matrix.arch }} --publish never
           else
-            pnpm --dir frontend exec electron-builder --config electron/electron-builder.yml --${{ matrix.target }} --publish never
+            pnpm --dir frontend exec electron-builder --config electron/electron-builder.yml --${{ matrix.target }} --${{ matrix.arch }} --publish never
           fi
+      - name: Verify required platform artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="frontend/dist-electron"
+          require_one() {
+            local pattern="$1"
+            compgen -G "$output/$pattern" >/dev/null || {
+              echo "::error::Missing required release artifact: $pattern"
+              exit 1
+            }
+          }
+          case "${{ matrix.target }}" in
+            win)
+              require_one "Vectora-*-win-${{ matrix.arch }}.exe"
+              require_one "Vectora-*-win-${{ matrix.arch }}.msi"
+              ;;
+            mac)
+              require_one "Vectora-*-mac-${{ matrix.arch }}.dmg"
+              require_one "Vectora-*-mac-${{ matrix.arch }}.zip"
+              ;;
+            linux)
+              require_one "Vectora-*-linux-${{ matrix.arch }}.AppImage"
+              require_one "Vectora-*-linux-${{ matrix.arch }}.deb"
+              require_one "Vectora-*-linux-${{ matrix.arch }}.rpm"
+              require_one "Vectora-*-linux-${{ matrix.arch }}.pkg.tar.zst"
+              require_one "Vectora-*-linux-${{ matrix.arch }}.apk"
+              require_one "Vectora-*-linux-${{ matrix.arch }}.flatpak"
+              require_one "Vectora-*-linux-${{ matrix.arch }}.tar.gz"
+              ;;
+          esac
       - name: Remove temporary Windows signing certificate
         if: always() && matrix.target == 'win'
         shell: pwsh
@@ -663,9 +709,14 @@ jobs:
             vectora/frontend/dist-electron/*.exe
             vectora/frontend/dist-electron/*.msi
             vectora/frontend/dist-electron/*.dmg
+            vectora/frontend/dist-electron/*.zip
             vectora/frontend/dist-electron/*.AppImage
             vectora/frontend/dist-electron/*.deb
             vectora/frontend/dist-electron/*.rpm
+            vectora/frontend/dist-electron/*.pkg.tar.zst
+            vectora/frontend/dist-electron/*.apk
+            vectora/frontend/dist-electron/*.flatpak
+            vectora/frontend/dist-electron/*.tar.gz
             vectora/frontend/dist-electron/latest*.yml
             vectora/frontend/dist-electron/*.blockmap
           if-no-files-found: warn

@@ -85,6 +85,20 @@ def test_pr_milestone_workflow_assigns_milestone_from_base() -> None:
     assert "github.event.action == 'opened'" not in content
     assert "context.payload.pull_request.milestone?.title" in content
     assert 'core.setOutput("current_milestone", payloadMilestone)' in content
+    assert "if: github.event.pull_request != null" in content
+    assert "if: github.event.pull_request.milestone == null" not in content
+
+
+def test_stable_sync_skips_until_development_branch_exists() -> None:
+    """A publicação não falha quando a rotação ainda está criando a branch nova."""
+    content = (WORKFLOW.parent / "forward-port-release.yml").read_text(encoding="utf-8")
+
+    assert (
+        'git ls-remote --exit-code --heads origin "refs/heads/$DEVELOPMENT_BRANCH"'
+        in content
+    )
+    assert '[[ "$status" -eq 2 ]]' in content
+    assert "release rotation will seed it" in content
 
 
 def test_release_please_uses_trusted_config_for_branch_gate() -> None:

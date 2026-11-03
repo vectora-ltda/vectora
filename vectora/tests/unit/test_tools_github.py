@@ -104,6 +104,38 @@ class TestGithubFetchPrDiff:
         assert "404" in result["error"]
 
     @pytest.mark.asyncio
+    async def test_rate_limit_publico_e_identificado_sem_confundir_permissao(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+        rate_limited = MagicMock(
+            status_code=403,
+            text='{"message":"API rate limit exceeded"}',
+            headers={"x-ratelimit-remaining": "0"},
+        )
+        forbidden = MagicMock(
+            status_code=403,
+            text='{"message":"Resource not accessible by integration"}',
+            headers={"x-ratelimit-remaining": "4999"},
+        )
+
+        with patch(
+            "httpx.AsyncClient",
+            side_effect=[_mock_httpx(rate_limited), _mock_httpx(forbidden)],
+        ):
+            rate_limit_result = json.loads(
+                await github_fetch_pr_diff(owner="vectora", repo="vectora", pr_number=1)
+            )
+            permission_result = json.loads(
+                await github_fetch_pr_diff(owner="vectora", repo="vectora", pr_number=1)
+            )
+
+        assert rate_limit_result["status"] == "error"
+        assert rate_limit_result["rate_limited"] is True
+        assert permission_result["status"] == "error"
+        assert "rate_limited" not in permission_result
+
+    @pytest.mark.asyncio
     async def test_erro_de_rede_nunca_propaga(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

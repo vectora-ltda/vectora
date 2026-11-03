@@ -39,6 +39,8 @@ async def test_agent_dispatches_public_github_without_token(
         ToolContext(user_id="live-anonymous"),
     )
     payload = json.loads(result)
+    if payload.get("rate_limited") is True:
+        pytest.skip("GitHub limitou a API pública anônima deste runner")
     assert payload["status"] == "ok"
     assert "diff --git" in payload["diff"]
 
