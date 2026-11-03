@@ -108,6 +108,52 @@ describe("getFeatureCategories", () => {
       const egress = messages.features_egress_policies_desc;
       expect(egress, locale).toContain("6.7+");
       expect(egress, locale).not.toContain("6.5+");
+      const exclusions: Record<string, [string, string, string]> = {
+        en: [
+          "without applying the egress policy",
+          "redirects are not revalidated",
+          "IP is not pinned",
+        ],
+        pt: [
+          "sem aplicar a política de egress",
+          "redirects não são revalidados",
+          "IP de destino não é fixado",
+        ],
+        es: [
+          "sin aplicar la política de egress",
+          "no se revalidan las redirecciones",
+          "ni se fija la IP",
+        ],
+        de: [
+          "ohne die Egress-Richtlinie anzuwenden",
+          "Weiterleitungen werden nicht erneut validiert",
+          "Ziel-IP wird nicht festgelegt",
+        ],
+        fr: [
+          "sans appliquer la politique d'egress",
+          "redirections ne sont pas revalidées",
+          "IP de destination n'est pas fixée",
+        ],
+        it: [
+          "senza applicare la policy di egress",
+          "reindirizzamenti non vengono riconvalidati",
+          "IP di destinazione non viene fissato",
+        ],
+        ru: [
+          "без применения политики egress",
+          "перенаправления не проверяются повторно",
+          "IP назначения не фиксируется",
+        ],
+      };
+      const [searchException, redirectException, ipException] =
+        exclusions[locale];
+      expect(messages.features_browser_desc, locale).toContain("fetch, crawl");
+      expect(messages.features_browser_desc, locale).toContain("Search");
+      expect(messages.features_browser_desc, locale).toContain(searchException);
+      expect(egress, locale).toContain("fetch_url");
+      expect(egress, locale).toContain(redirectException);
+      expect(egress, locale).toContain(ipException);
+
       const sandbox = messages.capability_sandbox_desc;
       expect(messages.features_sandbox_desc, locale).toBe(sandbox);
       expect(sandbox, locale).toContain("macOS");
@@ -150,5 +196,11 @@ describe("localized approval terminology", () => {
     expect(description).toContain("этапами согласования перед действиями");
     expect(description).toContain("контрольные точки");
     expect(description).not.toContain("контрольными точками перед действиями");
+    expect(messages.features_decision_models_desc).toContain(
+      "этапы согласования",
+    );
+    expect(messages.features_decision_models_desc).not.toContain(
+      "контрольные точки",
+    );
   });
 });

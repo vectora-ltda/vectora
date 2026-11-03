@@ -92,6 +92,7 @@ class JailedWorker:
     #: Handle do Job Object do Windows no modo "soft" (fallback sem bwrap) —
     #: fechado em `close()`/`_kill_now()` pra derrubar a árvore de processos.
     job_handle: int | None = None
+    isolation_enforced: bool = False
 
     async def request(
         self, op: str, timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S, **kwargs: Any
@@ -154,6 +155,7 @@ class WorkspaceJailManager:
 
     def __init__(self, idle_timeout_s: float = DEFAULT_IDLE_TIMEOUT_S) -> None:
         self._workers: dict[str, JailedWorker] = {}
+        self._isolation_required: set[str] = set()
         self._spawn_lock = asyncio.Lock()
         self._idle_timeout_s = idle_timeout_s
 
@@ -167,6 +169,14 @@ class WorkspaceJailManager:
             if existing is not None and existing.is_alive():
                 return existing
             worker = await self._spawn(workspace_id, workspace_dir, policy)
+            if (
+                workspace_id in self._isolation_required
+                and not worker.isolation_enforced
+            ):
+                await worker.close()
+                raise WorkerSpawnError(
+                    "Native isolation was required by HITL; refusing a soft replacement worker."
+                )
             self._workers[workspace_id] = worker
             return worker
 
@@ -244,7 +254,12 @@ class WorkspaceJailManager:
         job_handle: int | None = None
         if soft_env is not None and proc.pid:
             job_handle = assign_job_object_kill_on_close(proc.pid)
-        return JailedWorker(workspace_id=workspace_id, proc=proc, job_handle=job_handle)
+        return JailedWorker(
+            workspace_id=workspace_id,
+            proc=proc,
+            job_handle=job_handle,
+            isolation_enforced=soft_env is None and policy.backend == "local",
+        )
 
     @staticmethod
     def _soft_worker_env(policy: SandboxPolicy) -> dict[str, str]:
@@ -284,6 +299,16 @@ class WorkspaceJailManager:
             policy, wsl_workspace_dir, ["python3", "-m", "backend.sandbox.worker"]
         )
         return ["wsl.exe", "-d", distro, "--", *bwrap_argv]
+
+    def has_effective_isolation(self, workspace_id: str) -> bool:
+        """Only a live worker started under native isolation can relax HITL."""
+        worker = self._workers.get(workspace_id)
+        isolated = bool(worker and worker.is_alive() and worker.isolation_enforced)
+        if isolated:
+            # Once HITL relies on native isolation, expiry/restart cannot silently
+            # replace the worker with a soft process before the tool dispatch.
+            self._isolation_required.add(workspace_id)
+        return isolated
 
     async def close(self, workspace_id: str) -> None:
         worker = self._workers.pop(workspace_id, None)

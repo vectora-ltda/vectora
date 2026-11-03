@@ -49,7 +49,7 @@ Adicione documentos ao workspace, aguarde o processamento da fila de embeddings 
 
 ### Browser Workbench e policy/egress
 
-Quando o sidecar Electron e a sessão preparada pela UI estão ativos, o runtime usa o Chromium integrado para pesquisa e navegação. Fetch, crawl e map verificam a URL de destino na política de egress; a busca envia uma consulta, e as requisições do provider e do fallback não passam por essa política; limites de páginas, profundidade e origem restringem a coleta. O fallback HTTP não é a mesma sessão do navegador e não herda cookies.
+A navegação do Browser Workbench usa Chromium do Electron quando o sidecar e a sessão do workspace preparada pela UI estão disponíveis. No caminho padrão Tavily, `fetch_url` usa Chromium como fallback sem chave de API ou após erros de quota/rate limit. `web_search` envia consultas ao provider configurado (por exemplo Tavily) e pode recorrer à API do DuckDuckGo. `web_crawl` e `web_map` exigem `TAVILY_API_KEY` e não têm fallback Chromium. Fetch, crawl e map verificam a URL inicial na política de egress; Search não aplica essa política de destino. O fallback Chromium não revalida redirects nem fixa o IP de destino.
 
 Policy snapshots e verificações de egress aplicam regras aos caminhos de ferramentas conectados. A cobertura é específica de cada adapter; uma integração não conectada não herda controles por estar descrita nesta página. Consulte [Políticas de egress](../egress-policies), [workbench](../using-the-workbench) e [segurança](../../security).
 

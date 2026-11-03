@@ -300,6 +300,47 @@ async def _preapproval_run_is_scoped(
     )
 
 
+def _plan_turn_fingerprint(history: list[VMessage]) -> str:
+    """Bind human approval to the immutable prefix ending at the last user input."""
+    last_user = max(
+        (index for index, msg in enumerate(history) if msg.role == MessageRole.USER),
+        default=-1,
+    )
+    return compute_transcript_hash(history[: last_user + 1])
+
+
+async def _hydrate_plan_approvals(
+    session_store: SessionStore,
+    ctx: ToolContext,
+    run_id: str | None,
+    history: list[VMessage],
+) -> None:
+    """Restore only human approvals persisted for this run, scope and user turn."""
+    ctx._extra["plan_approved_tool_call_ids"] = []
+    if not run_id or not hasattr(session_store, "get_agent_run"):
+        return
+    try:
+        run = await session_store.get_agent_run(run_id)
+        if (
+            not run
+            or run.thread_id != ctx.thread_id
+            or (run.workspace_id or "") != ctx.workspace_id
+            or run.user_id != ctx.user_id
+        ):
+            return
+        turn_key = _plan_turn_fingerprint(history)
+        ctx._extra["plan_approved_tool_call_ids"] = [
+            item["tool_call_id"]
+            for item in run.approvals
+            if item.get("source") == "human"
+            and item.get("decision") in {"approve", "edit", "option"}
+            and item.get("turn_key") == turn_key
+            and isinstance(item.get("tool_call_id"), str)
+        ]
+    except Exception:
+        logger.exception("Failed to restore audited Plan Mode approvals")
+
+
 async def _consume_preapproval_grant(
     session_store: SessionStore,
     *,
@@ -859,6 +900,10 @@ async def run_conversation(  # noqa: PLR0911
 
     for _iteracao in range(config.max_iterations):
         raw_history = await session_store.get_history(thread_id)
+        if ctx.permission_mode == "plan":
+            await _hydrate_plan_approvals(
+                session_store, ctx, config.run_id, raw_history
+            )
         effective_max_tokens = (
             config.context_max_tokens
             if config.context_max_tokens is not None
@@ -1431,7 +1476,7 @@ async def run_conversation(  # noqa: PLR0911
             pendente = None
             for candidate in tool_calls:
                 if not should_require_approval(
-                    candidate.name, ctx, candidate.args, historico
+                    candidate.name, ctx, candidate.args, raw_history
                 ):
                     continue
                 if await _consume_preapproval_grant(
@@ -2412,6 +2457,21 @@ async def resume_conversation(
             options=list(pending.get("options", [])),
             priority=int(pending.get("priority", 0)),
             expires_at=pending.get("expires_at"),
+        )
+    if decision in {"approve", "edit", "option"} and any(
+        tc.id == flagged_id for tc in tool_calls
+    ):
+        await _safe_record_run_evidence(
+            session_store,
+            resume_run_id,
+            approval={
+                "source": "human",
+                "decision": decision,
+                "interrupt_id": str(pending["interrupt_id"]),
+                "tool_call_id": flagged_id,
+                "tool_name": str(pending["tool_name"]),
+                "turn_key": _plan_turn_fingerprint(historico),
+            },
         )
     if media_tool:
         from backend.persistence.telemetry import telemetry

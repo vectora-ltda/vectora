@@ -25,7 +25,7 @@ Controlam o quão automático o agente age antes de pedir sua aprovação:
 
 `Perguntar sempre`, `Aceitar edições`, `Autônomo`, `Plano` e `Bypass` são modos de permissão, não níveis de confiança no modelo. Algumas operações, como controle do desktop, ainda podem exigir confirmação em qualquer modo. Em `Plano`, uma aprovação anterior no mesmo turno permite continuar o plano; isso não transforma a aprovação em uma autorização permanente. Veja [Plan Mode, AgentRun e decisões](../plan-mode-and-agentrun) para o prefixo `/plan` e a diferença entre o Plan Mode e a aba Plan da workbench.
 
-Com sandbox ativo, o gate HITL dispensa aprovação para `terminal`, `file_write` e `file_edit`, inclusive na primeira ação do modo Plano. As demais restrições de policy e das tools continuam valendo.
+Com isolamento nativo do worker confirmado, o gate HITL dispensa aprovação para `terminal`, `file_write` e `file_edit`, inclusive na primeira ação do modo Plano. As demais restrições de policy e das tools continuam valendo.
 
 Uma pré-aprovação é uma concessão separada e explícita. Ela vale uma única vez para uma ferramenta e seus argumentos exatos, dentro do mesmo workspace e `run_id`, e expira em prazo limitado. Ferramentas irreversíveis não aceitam essa concessão.
 

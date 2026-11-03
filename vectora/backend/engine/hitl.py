@@ -118,11 +118,8 @@ _ALWAYS_INTERRUPT: frozenset[str] = frozenset(
 )
 
 
-def _workspace_is_jailed(workspace_id: str) -> bool:
-    """True se `workspace_id` tem `[sandbox]` habilitado em `vectora.toml`.
-
-    Defensivo: qualquer erro de I/O ou workspace desconhecida volta `False`
-    — nunca relaxa HITL por engano."""
+def _workspace_sandbox_enabled(workspace_id: str) -> bool:
+    """Read stable sandbox configuration, independently of worker lifecycle."""
     if not workspace_id:
         return False
     try:
@@ -133,12 +130,19 @@ def _workspace_is_jailed(workspace_id: str) -> bool:
 
         ws = workspace_registry.get(workspace_id)
         cwd = getattr(ws, "cwd", None)
-        if not cwd:
-            return False
-        return parse_policy(Path(cwd) / "vectora.toml").enabled
+        return bool(cwd and parse_policy(Path(cwd) / "vectora.toml").enabled)
     except Exception:
-        logger.debug("hitl: falha ao checar sandbox da workspace %s", workspace_id)
+        logger.debug("hitl: failed to read sandbox policy for %s", workspace_id)
         return False
+
+
+def _workspace_is_jailed(workspace_id: str) -> bool:
+    """Require both an enabled policy and a live worker with native isolation."""
+    if not _workspace_sandbox_enabled(workspace_id):
+        return False
+    from backend.sandbox.workspace_jail import jail_manager
+
+    return jail_manager.has_effective_isolation(workspace_id)
 
 
 def _is_self_kanban_update(
@@ -156,22 +160,28 @@ def _is_self_kanban_update(
     return bool(call_task_id) and call_task_id == bg_task_id
 
 
-def _plan_mode_ja_passou_neste_turno(history: list[VMessage]) -> bool:
-    """Varre `history` de trás pra frente até a última mensagem USER; se já
-    existe uma mensagem TOOL de uma tool de `REQUIRE_APPROVAL` depois dela,
-    o gate já foi passado neste turno — não interrompe de novo."""
-    last_user_idx = -1
-    for idx, msg in enumerate(history):
+def _plan_mode_ja_passou_neste_turno(
+    history: list[VMessage], approved_tool_call_ids: frozenset[str] = frozenset()
+) -> bool:
+    """Only a result tied to an audited human approval satisfies the turn gate."""
+    for msg in reversed(history):
         if msg.role == MessageRole.USER:
-            last_user_idx = idx
-
-    for msg in history[last_user_idx + 1 :]:
-        if msg.role == MessageRole.TOOL and _tool_requires_approval(msg.name or ""):
+            break
+        if (
+            msg.role == MessageRole.TOOL
+            and msg.tool_call_id in approved_tool_call_ids
+            and _tool_requires_approval(msg.name or "")
+        ):
             return True
     return False
 
 
-def _mode_should_interrupt(mode: str, tool_name: str, history: list[VMessage]) -> bool:
+def _mode_should_interrupt(
+    mode: str,
+    tool_name: str,
+    history: list[VMessage],
+    approved_tool_call_ids: frozenset[str] = frozenset(),
+) -> bool:
     """Política canônica dos 5 modos — fonte única de verdade do HITL nativo."""
     requires_approval = _tool_requires_approval(tool_name)
     always_interrupt = tool_name in _ALWAYS_INTERRUPT
@@ -184,7 +194,9 @@ def _mode_should_interrupt(mode: str, tool_name: str, history: list[VMessage]) -
         # aprovação; um resultado anterior nunca autoriza outra cobrança.
         decision = tool_name in {"generate_image", "text_to_speech", "generate_video"}
         if not decision:
-            decision = not _plan_mode_ja_passou_neste_turno(history)
+            decision = not _plan_mode_ja_passou_neste_turno(
+                history, approved_tool_call_ids
+            )
     else:
         decision = True  # "ask" ou desconhecido → mais restritivo
     return requires_approval and (always_interrupt or decision)
@@ -347,7 +359,13 @@ def should_require_approval(  # noqa: PLR0911
             reason="workspace_jailed",
         )
         return False
-    decision = _mode_should_interrupt(mode, tool_name, history)
+    approved_ids = ctx._extra.get("plan_approved_tool_call_ids", [])
+    approved_ids = (
+        frozenset(value for value in approved_ids if isinstance(value, str))
+        if isinstance(approved_ids, list)
+        else frozenset()
+    )
+    decision = _mode_should_interrupt(mode, tool_name, history, approved_ids)
     reason = "policy"
     if not decision:
         extra = getattr(ctx, "_extra", None)

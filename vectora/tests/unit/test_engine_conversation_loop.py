@@ -2487,3 +2487,179 @@ async def test_preapproval_audit_failure_does_not_authorize_or_reuse_grant(
         session_store, ctx=ctx, run_id=run_id, tool_call=call
     )
     restarted._conn.close()
+
+
+@pytest.mark.asyncio
+async def test_plan_sandbox_write_does_not_authorize_push_and_human_approval_survives_reload(
+    session_store: SessionStore, ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from backend.engine.conversation_loop import _hydrate_plan_approvals
+    from backend.engine.hitl import should_require_approval
+    from backend.persistence.native.agent_run import AgentRun
+
+    monkeypatch.setattr(TOOL_REGISTRY, "_tools", {})
+    monkeypatch.setattr("backend.engine.hitl._workspace_is_jailed", lambda _wid: True)
+    effects: list[str] = []
+
+    @vtool(extras=ToolExtras(destructive=True))
+    async def file_write(ctx: ToolContext) -> str:
+        """Write a controlled fixture file."""
+        effects.append("write")
+        return "written"
+
+    @vtool(extras=ToolExtras(destructive=True))
+    async def git_push(ctx: ToolContext) -> str:
+        """Publish a controlled fixture change."""
+        effects.append("push")
+        return "pushed"
+
+    registry = ToolRegistry()
+    _register(registry, "file_write")
+    _register(registry, "git_push")
+    ctx.permission_mode = "plan"
+    run_id = "plan-human-proof"
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id=run_id,
+            thread_id=ctx.thread_id,
+            user_id=ctx.user_id,
+            workspace_id=ctx.workspace_id,
+            status="running",
+        )
+    )
+    await session_store.append_message(
+        ctx.thread_id,
+        VMessage(
+            role=MessageRole.USER,
+            content=[ContentBlock(kind="text", text="write then push")],
+        ),
+    )
+    client = _ScriptedChatClient(
+        [
+            [
+                _tool_call_chunk(
+                    index=0, id="write-exempt", name="file_write", args="{}"
+                )
+            ],
+            [_tool_call_chunk(index=0, id="push-approved", name="git_push", args="{}")],
+        ]
+    )
+    gate = ApprovalGate(session_store)
+    result = await run_conversation(
+        session_store=session_store,
+        chat_client=client,
+        tool_registry=registry,
+        ctx=ctx,
+        thread_id=ctx.thread_id,
+        config=LoopConfig(run_id=run_id),
+        should_require_approval=should_require_approval,
+        approval_gate=gate,
+    )
+    assert result.stopped_reason == "interrupted"
+    assert effects == ["write"]
+    pending = await session_store.get_pending_approval(ctx.thread_id)
+    assert pending and pending["tool_name"] == "git_push"
+    assert await resume_conversation(
+        session_store=session_store,
+        tool_registry=registry,
+        ctx=ctx,
+        thread_id=ctx.thread_id,
+        decision="approve",
+        approval_gate=gate,
+    )
+    assert effects == ["write", "push"]
+    run = await session_store.get_agent_run(run_id)
+    assert run is not None
+    assert any(
+        item.get("source") == "human" and item.get("tool_call_id") == "push-approved"
+        for item in run.approvals
+    )
+
+    # A fresh context must obtain the proof from durable state, not a previous object.
+    fresh = ToolContext(
+        user_id=ctx.user_id, thread_id=ctx.thread_id, permission_mode="plan"
+    )
+    continued = await run_conversation(
+        session_store=session_store,
+        chat_client=_ScriptedChatClient(
+            [
+                [_tool_call_chunk(index=0, id="push-next", name="git_push", args="{}")],
+                [_texto_chunk("done")],
+            ]
+        ),
+        tool_registry=registry,
+        ctx=fresh,
+        thread_id=ctx.thread_id,
+        config=LoopConfig(run_id=run_id),
+        should_require_approval=should_require_approval,
+        approval_gate=gate,
+    )
+    assert continued.stopped_reason == "stop"
+    assert effects == ["write", "push", "push"]
+    await session_store.append_message(
+        ctx.thread_id,
+        VMessage(
+            role=MessageRole.USER,
+            content=[ContentBlock(kind="text", text="another turn")],
+        ),
+    )
+    history = await session_store.get_history(ctx.thread_id)
+    await _hydrate_plan_approvals(session_store, fresh, run_id, history)
+    assert fresh._extra["plan_approved_tool_call_ids"] == []
+    assert should_require_approval("git_push", fresh, {}, history) is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid", ["actor", "workspace", "turn", "rejected", "automatic", "storage"]
+)
+async def test_plan_approval_reload_discards_stale_or_untrusted_proof(
+    session_store: SessionStore,
+    ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+    invalid: str,
+) -> None:
+    from unittest.mock import AsyncMock
+
+    from backend.engine.conversation_loop import (
+        _hydrate_plan_approvals,
+        _plan_turn_fingerprint,
+    )
+    from backend.persistence.native.agent_run import AgentRun
+
+    history = [
+        VMessage(
+            role=MessageRole.USER,
+            content=[ContentBlock(kind="text", text="current request")],
+        )
+    ]
+    approval: JsonObject = {
+        "source": "human",
+        "decision": "approve",
+        "tool_call_id": "approved",
+        "turn_key": _plan_turn_fingerprint(history),
+    }
+    if invalid == "turn":
+        approval["turn_key"] = "another-turn"
+    elif invalid == "rejected":
+        approval["decision"] = "reject"
+    elif invalid == "automatic":
+        approval["source"] = "systemone"
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id="approval-proof",
+            thread_id=ctx.thread_id,
+            user_id="other" if invalid == "actor" else ctx.user_id,
+            workspace_id="other" if invalid == "workspace" else ctx.workspace_id,
+            approvals=[approval],
+        )
+    )
+    if invalid == "storage":
+        monkeypatch.setattr(
+            session_store,
+            "get_agent_run",
+            AsyncMock(side_effect=OSError("unavailable")),
+        )
+    ctx._extra["plan_approved_tool_call_ids"] = ["stale"]
+    await _hydrate_plan_approvals(session_store, ctx, "approval-proof", history)
+    assert ctx._extra["plan_approved_tool_call_ids"] == []

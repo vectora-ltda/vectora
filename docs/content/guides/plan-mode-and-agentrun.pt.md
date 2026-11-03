@@ -24,9 +24,11 @@ Esta seção mostra como iniciar o Plan Mode, o que um AgentRun registra e quais
 O Plan Mode tem duas formas de uso:
 
 - **Prefixo `/plan`:** uma mensagem que começa com `/plan` é enviada em modo de planejamento. O prefixo é removido do texto antes de chegar ao agente.
-- **Modo de permissão `Plano`:** o agente pausa na primeira ação protegida do turno e pede sua aprovação. Depois que você aprova, o plano continua no mesmo turno. A aprovação não vale para turnos seguintes. Com sandbox ativo, `should_require_approval` dispensa aprovação para `terminal`, `file_write` e `file_edit`; até a primeira dessas ações pode executar sem aprovação humana no modo de permissão Plano. As demais restrições de policy e das tools continuam valendo.
+- **Modo de permissão `Plano`:** o agente pausa na primeira ação protegida do turno e pede sua aprovação. Depois que você aprova, o plano continua no mesmo turno. A aprovação não vale para turnos seguintes. Com isolamento nativo do worker confirmado, `should_require_approval` dispensa aprovação para `terminal`, `file_write` e `file_edit`; até a primeira dessas ações pode executar sem aprovação humana no modo de permissão Plano. As demais restrições de policy e das tools continuam valendo.
 
 O Plan Mode não é a aba **Plan** da workbench. A aba mostra os artifacts e a checklist da sessão; o Plan Mode controla quando o agente pausa. Veja [Usando o chat](../using-the-chat) para todos os modos de permissão.
+
+Uma política de sandbox habilitada não basta para dispensar aprovação humana: o worker precisa já estar vivo com isolamento nativo efetivo. Até essa confirmação, e no modo soft, valem as regras normais de HITL. Um resultado de tool dispensada pelo sandbox nunca cumpre o gate do Plano para uma ação protegida posterior; apenas uma aprovação humana auditada na mesma execução e no mesmo turno do usuário o cumpre.
 
 ### AgentRun
 
@@ -44,7 +46,7 @@ Os estados possíveis são:
 | `passed`, `degraded`, `failed`, `cancelled` | Estados finais |
 | `recovery_required` | A execução foi interrompida e precisa de reconciliação antes de continuar |
 
-As rotas abaixo exigem autenticação:
+Quando a autenticação está ativada, as rotas abaixo exigem autenticação; quando está desativada, o modo local usa um usuário local virtual:
 
 - `GET /runs/{run_id}`: estado e evidências de uma execução.
 - `GET /runs/{run_id}/timeline`: linha do tempo de eventos da execução.

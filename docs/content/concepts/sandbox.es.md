@@ -40,6 +40,8 @@ En el backend `local` (Linux, o Windows mediante WSL2), el worker corre bajo `bw
 
 En Windows, la activación automática comprueba una distribución WSL2 elegible, no la presencia de `bwrap` dentro de ella. Si falta `bwrap`, el worker usa un proceso soft nativo sin aislamiento de filesystem ni red, incluso con `lockdown = true`. En macOS no hay activación automática: el worker local persistente intenta usar `bwrap`, no Seatbelt (`sandbox-exec`).
 
+El modo soft no permite una exención de HITL por sandbox. Hasta confirmar un worker activo con aislamiento efectivo, se aplican las reglas normales de aprobación; después de que HITL dependa de ese aislamiento, se rechaza un reemplazo soft.
+
 Los demás backends (`docker`, `ssh`, `modal`) corren el mismo modelo de worker contra su respectivo primitivo de aislamiento; `docker` además niega el acceso a red bajo `lockdown`.
 
 ## Limitación conocida: terminal interactiva

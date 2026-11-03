@@ -24,9 +24,11 @@ This section covers how to start Plan Mode, what an AgentRun records, and which 
 Plan Mode can be used in two ways:
 
 - **`/plan` prefix:** a message that starts with `/plan` is sent in planning mode. The prefix is removed before the text reaches the agent.
-- **`Plan` permission mode:** the agent pauses at the first protected action of the turn and asks for your approval. Once you approve, the plan continues in the same turn. The approval does not carry over to later turns. With an active sandbox, `should_require_approval` exempts `terminal`, `file_write` and `file_edit`; even the first such action can run without human approval in Plan permission mode. Other policy and tool restrictions still apply.
+- **`Plan` permission mode:** the agent pauses at the first protected action of the turn and asks for your approval. Once you approve, the plan continues in the same turn. The approval does not carry over to later turns. With confirmed native worker isolation, `should_require_approval` exempts `terminal`, `file_write` and `file_edit`; even the first such action can run without human approval in Plan permission mode. Other policy and tool restrictions still apply.
 
 Plan Mode is not the workbench **Plan** tab. The tab shows the session's artifacts and checklist; Plan Mode controls when the agent pauses. See [Using the chat](../using-the-chat) for all permission modes.
+
+A sandbox policy being enabled is not sufficient to waive human approval: the worker must already be alive with effective native isolation. Until that is confirmed, and in soft mode, the normal HITL rules apply. A sandbox-exempt tool result never satisfies the Plan approval gate for a later protected action; only an audited human approval in the same run and user turn does.
 
 ### AgentRun
 
@@ -44,7 +46,7 @@ The possible states are:
 | `passed`, `degraded`, `failed`, `cancelled` | Final states |
 | `recovery_required` | The run was interrupted and needs reconciliation before it continues |
 
-These routes require authentication:
+When authentication is enabled, the following routes require authentication; with authentication disabled, local mode uses a virtual local user:
 
 - `GET /runs/{run_id}`: state and evidence of a run.
 - `GET /runs/{run_id}/timeline`: the run's event timeline.

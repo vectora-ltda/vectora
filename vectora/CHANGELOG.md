@@ -27,7 +27,7 @@ Cada execução do agente passa a ter identidade e estado persistentes.
 
 O planejamento passa a gerar etapas executáveis e delegação persistente.
 
-- Ativa o Plan Mode quando a mensagem começa com `/plan`; no modo de permissão `plan`, a aprovação de plano é pedida uma vez por turno para ações sujeitas ao HITL. Com sandbox ativo, `terminal`, `file_write` e `file_edit` são dispensadas, inclusive na primeira ação.
+- Ativa o Plan Mode quando a mensagem começa com `/plan`; no modo de permissão `plan`, a aprovação de plano é pedida uma vez por turno para ações sujeitas ao HITL. Com isolamento nativo do worker confirmado, `terminal`, `file_write` e `file_edit` são dispensadas, inclusive na primeira ação.
 - Executa subagentes por DAG, com dependências entre etapas, e organiza tarefas em background no Kanban ([#382](https://github.com/vectora-ltda/vectora/pull/382)).
 
 ##### Decisões e HITL
@@ -62,7 +62,7 @@ O contexto passa a ser planejado a partir de domínios de memória separados.
 
 A navegação usa o Chromium distribuído com o Electron.
 
-- Executa busca, fetch, crawl e map no Browser Workbench com limites de páginas, profundidade e origem ([#382](https://github.com/vectora-ltda/vectora/pull/382), [#355](https://github.com/vectora-ltda/vectora/pull/355)).
+- Usa Chromium no Browser Workbench e no fallback de `fetch_url` sem chave ou após quota/rate limit; a busca consulta o provider configurado e pode recorrer à API DuckDuckGo, enquanto `web_crawl` e `web_map` exigem `TAVILY_API_KEY`, sem fallback Chromium ([#382](https://github.com/vectora-ltda/vectora/pull/382), [#355](https://github.com/vectora-ltda/vectora/pull/355)).
 - Ajusta o fluxo de release e os testes locais de providers ([#408](https://github.com/vectora-ltda/vectora/pull/408)).
 
 As correções abaixo complementam os recursos descritos.

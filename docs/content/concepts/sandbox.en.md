@@ -40,6 +40,8 @@ On the `local` backend (Linux, or Windows through WSL2), the worker runs under `
 
 On Windows, automatic activation checks for an eligible WSL2 distribution, not for `bwrap` inside it. If `bwrap` is missing, the worker falls back to a native soft process with no filesystem or network isolation, even with `lockdown = true`. macOS does not automatically enable isolation: the persistent local worker attempts `bwrap`, not Seatbelt (`sandbox-exec`).
 
+Soft mode does not qualify for a sandbox HITL exemption. Until a live worker with effective isolation has been confirmed, ordinary approval rules apply; after HITL relies on native isolation, a soft replacement is refused.
+
 Other backends (`docker`, `ssh`, `modal`) run the same worker model against their respective isolation primitive; `docker` additionally denies network access under `lockdown`.
 
 ## Known limitation: interactive terminal
