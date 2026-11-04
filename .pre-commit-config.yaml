@@ -39,10 +39,7 @@ exclude: |
     (^|/)build/.*|
     (^|/)coverage/.*|
     (^|/)\.pytest_cache/.*|
-    (^|/)__pycache__/.*|
-    # Gerado por `wrangler types` — reformatar aqui é churn inútil, o
-    # arquivo é sobrescrito no próximo `wrangler types`.
-    services/worker-configuration\.d\.ts
+    (^|/)__pycache__/.*
   )$
 
 repos:
@@ -142,7 +139,7 @@ repos:
         entry: prettier --write
         # `language: system` resolvia o "prettier" do PATH de quem disparava o
         # commit — terminal (nvm4w, 3.8.3), GitHub Desktop (git embutido, PATH
-        # próprio) e company/package.json (^3.9.5) todos resolviam binários
+        # próprio) e o frontend resolviam binários
         # DIFERENTES, cada um formatando um pouco diferente (ex.: quebra de
         # linha em declaração CSS na borda do printWidth) → o hook reformatava
         # de novo a cada commit dependendo de qual cliente disparou, ping-pong
@@ -197,7 +194,7 @@ repos:
         name: Ordenação das chaves de tradução
         entry: uv run python utils/sort_translation_keys.py --check
         language: system
-        files: ^(frontend/messages|company/messages)/.*\.json$
+        files: ^frontend/messages/.*\.json$
 
       - id: oxlint
         name: JS/TS Lint (oxlint)
@@ -226,18 +223,6 @@ repos:
         entry: pnpm --dir frontend run typecheck
         language: system
         files: ^frontend/.*\.(ts|tsx)$
-        pass_filenames: false
-
-  # ==========================================
-  # Type Checking — TypeScript (services, Cloudflare Worker)
-  # ==========================================
-  - repo: local
-    hooks:
-      - id: tsc-services
-        name: Type Check — TypeScript (services)
-        entry: pnpm --dir services exec tsc --noEmit
-        language: system
-        files: ^services/.*\.ts$
         pass_filenames: false
 
   # ==========================================

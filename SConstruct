@@ -1,18 +1,16 @@
 """
 Vectora — SConstruct (SCons build file)
 
-Uso (PowerShell / cmd, a partir da raiz do monorepo):
+Uso (PowerShell / cmd, a partir da raiz do repositório):
     scons               → exibe ajuda
     scons release       → build completo + instalador para o SO atual
     scons smoke         → builda o binário híbrido e confirma que /health sobe de verdade
-    scons prod          → deploy de produção: docs + company (Vercel) + services (Worker)
-    scons tests         → só o app Vectora (frontend + backend, sem cobertura)
-    scons tests-edge    → docs (build) + company + services (sem cobertura)
+    scons prod          → deploy de produção das docs (Vercel)
+    scons tests         → frontend + backend (sem cobertura)
     scons coverage      → scons tests com relatório de cobertura
-    scons coverage-edge → scons tests-edge com relatório de cobertura
-    scons lint          → todos os subprojetos: ruff+ty+bandit+tsc+oxlint
-    scons update        → atualiza deps: uv (backend) + pnpm (frontend/company/
-                          services) + hugo mod (docs), respeitando ranges/lockfiles
+    scons lint          → ruff+ty+bandit (backend) + tsc+oxlint (frontend) + build das docs
+    scons update        → atualiza deps: uv (backend) + pnpm (frontend) + hugo mod
+                          (docs), respeitando ranges/lockfiles
     scons update --latest → mesma coisa, mas ignora ranges/lockfiles (pnpm
                           --latest cruza majors) — usar só antes de uma migração
                           grande, seguido de revisão manual de cada breaking change
@@ -25,17 +23,12 @@ Electron. Playwright é somente o cliente CDP do backend; os browsers baixados
 por `playwright install` pertencem aos testes E2E e não são empacotados.
 Instalar SCons: pip install scons (ou uv add --dev scons)
 
-Subprojetos cobertos por lint e tests:
-    vectora/        Python (ruff, ty, bandit) + TS frontend (tsc, oxlint, vitest)
-                    — inclui frontend/electron/ (Electron: cookie-utils
-                    e lifecycle puro), fundido no package.json do frontend, sem
-                    pacote npm próprio (só tsconfig de compilação separado)
-    company/        TypeScript (oxlint, tsc, vitest)
-    docs/           Hugo + Hextra (build check via `hugo --gc --minify`) — sem
-                    testes; era Docusaurus, migrado pra Hugo
-    services/       TypeScript (tsc, vitest) — gateway + updates unificados
-                    (era relay/ (renomeado gateway) + update-server/, ver Fase A do plano de
-                    unificação)
+Cobertura de lint e tests:
+    backend/        Python (ruff, ty, bandit) + pytest
+    frontend/       TypeScript (tsc, oxlint, vitest) — inclui frontend/electron/,
+                    fundido no package.json do frontend (só o tsconfig de
+                    compilação do Electron é separado)
+    docs/           Hugo + Hextra (build check via `hugo --gc --minify`)
 """
 
 import base64
@@ -47,9 +40,9 @@ import subprocess
 import sys
 import tempfile
 import time
-from typing import TextIO
 import urllib.error
 import urllib.request
+from typing import TextIO
 
 AddOption(
     "--latest",
@@ -63,11 +56,8 @@ AddOption(
 
 ROOT = Dir(".").abspath
 
-# Subprojetos
 VECTORA  = ROOT
-COMPANY  = os.path.join(ROOT, "company")
 DOCS     = os.path.join(ROOT, "docs")
-SERVICES = os.path.join(ROOT, "services")
 
 _ANSI_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -114,7 +104,6 @@ def _find_hugo() -> str:
 
 HUGO     = _find_hugo()
 VERCEL   = _find_bin("vercel")
-WRANGLER = _find_bin("wrangler")
 
 
 def _run(
@@ -319,7 +308,7 @@ def _action_smoke(target, source, env):
                     "antes do /health responder -- ver stdout/stderr acima."
                 )
             try:
-                with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310  # nosec B310
+                with urllib.request.urlopen(url, timeout=2) as resp:  # nosec B310
                     if resp.status == 200:
                         print(f">> smoke test ok: {url} respondeu 200")
                         return
@@ -515,7 +504,7 @@ def _pnpm_install_if_needed(pkg_dir: str, log) -> None:
         or (os.path.isfile(lock) and os.path.getmtime(lock) > os.path.getmtime(stamp))
     ):
         _run([PNPM, "--dir", pkg_dir, *PNPM_INSTALL], log=log)
-        open(stamp, "w").close()  # noqa: PTH123 WPS515
+        open(stamp, "w").close()  # noqa:
 
 
 def _action_lint(target, source, env):
@@ -540,10 +529,6 @@ def _action_lint(target, source, env):
         # `typecheck` = i18n:compile (paraglide) + tsr generate + tsc --noEmit
         _run([PNPM, "--dir", "frontend", "run", "typecheck"], log=log)
         _run([PNPM, "--dir", "frontend", "exec", "oxlint"], log=log)
-        # ── company ───────────────────────────────────────────────────────────
-        _pnpm_install_if_needed("company", log)
-        _run([PNPM, "--dir", "company", "exec", "oxlint"], log=log)
-        _run([PNPM, "--dir", "company", "run", "typecheck"], log=log)
         # ── electron (main process, TS puro — sem oxlint/eslint configurado).
         # Fundido no package.json do frontend (mesmo node_modules); só o
         # tsconfig de compilação (Node/NodeNext) segue separado. ───────────
@@ -556,9 +541,6 @@ def _action_lint(target, source, env):
         # já resolve o módulo Hextra pinado em go.mod sozinho — não rodar
         # `hugo mod get` aqui, que faz upgrade do pin como side-effect.
         _run([HUGO, "--gc", "--minify", "--destination", "public"], log=log, cwd=DOCS)
-        # ── services (gateway + updates unificados) ──────────────────────────────
-        _pnpm_install_if_needed("services", log)
-        _run([PNPM, "--dir", "services", "exec", "tsc", "--noEmit"], log=log)
     print("\n>> log completo (limpo) em .scons-logs/lint.txt")
 
 
@@ -604,10 +586,8 @@ def _action_tests_live(target, source, env):
 
 
 def _run_vectora_suite(log, *, coverage: bool):
-    """Suíte do app Vectora: frontend (vitest, inclui electron fundido) +
-    backend (pytest). Ciclo próprio, mais rápido — só o que `.github/
-    workflows/vectora.yml` cobre. Ver `_run_edge_suite` para docs/company/
-    services (ciclo `edge.yml`).
+    """Suíte do app: frontend (vitest, inclui electron fundido) + backend
+    (pytest) — o mesmo que `.github/workflows/vectora.yml` cobre.
 
     Com ``coverage=True``, ativa --coverage no vitest e --cov no pytest
     (relatórios em frontend/coverage/ e htmlcov/).
@@ -655,50 +635,10 @@ def _run_vectora_suite(log, *, coverage: bool):
     _run(pytest_cmd, log=log, cwd=VECTORA)
 
 
-def _run_edge_suite(log, *, coverage: bool):
-    """Suíte da borda web/edge: docs (Hugo, build-check — sem testes de
-    verdade) + company (vitest) + services (vitest — gateway + updates
-    unificados). Mesmo agrupamento de `.github/workflows/edge.yml`, num
-    ciclo separado do app Vectora (`_run_vectora_suite`) — mais rápido pra
-    quem só mexe no app, e vice-versa.
-
-    Com ``coverage=True``, ativa --coverage no vitest de company/services
-    (relatórios em company/coverage/ e services/coverage/).
-    """
-    # ── docs (Hugo + Hextra) ──────────────────────────────────────────────────
-    # Sem testes de verdade — o gate é o próprio build do site (mesmo comando
-    # de _action_lint). Incluído aqui porque faz parte do mesmo ciclo "edge".
-    _run([HUGO, "--gc", "--minify", "--destination", "public"], log=log, cwd=DOCS)
-
-    # ── company ───────────────────────────────────────────────────────────────
-    # `exec vitest run` (não `run test --`): `pnpm run test -- --coverage`
-    # repassa o "--" literal pro vitest em vez de servir só de separador —
-    # confirmado ao vivo, a cobertura nunca ativava (mesmo padrão já usado
-    # abaixo pro services).
-    _pnpm_install_if_needed("company", log)
-    company_test_cmd = [PNPM, "--dir", "company", "exec", "vitest", "run"]
-    if coverage:
-        company_test_cmd.append("--coverage")
-    _run(company_test_cmd, log=log)
-
-    # ── services (gateway + updates unificados; worker.ts + scripts/release.ts) ─
-    _pnpm_install_if_needed("services", log)
-    services_test_cmd = [PNPM, "--dir", "services", "exec", "vitest", "run"]
-    if coverage:
-        services_test_cmd.append("--coverage")
-    _run(services_test_cmd, log=log)
-
-
 def _action_tests(target, source, env):
     with _open_log("tests") as log:
         _run_vectora_suite(log, coverage=False)
     print("\n>> log completo (limpo) em .scons-logs/tests.txt")
-
-
-def _action_tests_edge(target, source, env):
-    with _open_log("tests-edge") as log:
-        _run_edge_suite(log, coverage=False)
-    print("\n>> log completo (limpo) em .scons-logs/tests-edge.txt")
 
 
 def _action_coverage(target, source, env):
@@ -706,13 +646,6 @@ def _action_coverage(target, source, env):
         _run_vectora_suite(log, coverage=True)
     print("\n>> log completo (limpo) em .scons-logs/coverage.txt")
     print(">> cobertura HTML: frontend/coverage/index.html, htmlcov/index.html")
-
-
-def _action_coverage_edge(target, source, env):
-    with _open_log("coverage-edge") as log:
-        _run_edge_suite(log, coverage=True)
-    print("\n>> log completo (limpo) em .scons-logs/coverage-edge.txt")
-    print(">> cobertura HTML: company/coverage/index.html, services/coverage/index.html")
 
 
 # ── Update (deps) ─────────────────────────────────────────────────────────────
@@ -745,8 +678,6 @@ def _action_update(target, source, env):
         _run([PNPM, "--dir", "frontend", *pnpm_update_args], log=log)
         _run([HUGO, "mod", "get", "-u"], log=log, cwd=DOCS)
         _run([HUGO, "mod", "tidy"], log=log, cwd=DOCS)
-        _run([PNPM, "--dir", "company", *pnpm_update_args], log=log)
-        _run([PNPM, "--dir", "services", *pnpm_update_args], log=log)
     print("\n>> log completo em .scons-logs/update.txt")
     if latest:
         print(
@@ -754,7 +685,7 @@ def _action_update(target, source, env):
             "major bump contra changelog/docs antes de commitar"
         )
     else:
-        print(">> revise uv.lock / pnpm-lock.yaml (x3) / go.mod+go.sum antes de commitar")
+        print(">> revise uv.lock / frontend/pnpm-lock.yaml / docs/go.mod+go.sum antes de commitar")
 
 
 # ── Docker ────────────────────────────────────────────────────────────────────
@@ -765,7 +696,7 @@ def _action_docker(target, source, env):
 
     O Vectora em si NÃO roda como container. O backend roda no host.
     """
-    probe = subprocess.run(  # noqa: S603 S607
+    probe = subprocess.run(
         ["docker", "info"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.PIPE,
@@ -833,53 +764,10 @@ def _action_clean(target, source, env):
 
 
 # ── Prod (deploy) ─────────────────────────────────────────────────────────────
-# `scons prod` — deploy de produção da borda web/edge do monorepo: docs
-# (Vercel, docs.vectora.company), company (Vercel, vectora.company) e services
-# (Cloudflare Worker único: gateway + updates). Bump de versão, build do
+# `scons prod` — publica as docs na Vercel. Bump de versão, build do
 # instalador e publicação no canal de update rodam só via GitHub Actions
-# (.github/workflows/vectora.yml), disparados por "[up-release]" na mensagem
-# do commit.
-#
-# Requer `vercel` e `wrangler` autenticados localmente (ambos já usados nesta
-# máquina) e os projetos docs/company já linkados via `vercel link`
-# (`.vercel/project.json` — gitignored, um link por máquina de dev).
-
-
-def _check_wrangler_auth() -> None:
-    """Falha cedo e claro se o wrangler não estiver autenticado na Cloudflare.
-
-    Sem isto, um CLOUDFLARE_API_TOKEN inválido/sem escopo só estoura no meio do
-    deploy (no `d1 migrations apply`), com erro críptico da API — e depois de
-    já ter publicado docs+company no Vercel. Este preflight checa `whoami`
-    antes de qualquer passo Cloudflare.
-    """
-    # encoding/errors explícitos: o wrangler imprime emoji (⛅️) em UTF-8, e o
-    # `text=True` sozinho decodifica no code page do Windows (cp1252) — estoura
-    # UnicodeDecodeError na thread de leitura do subprocess. Só olhamos o
-    # returncode aqui, então errors="replace" basta.
-    result = subprocess.run(
-        [WRANGLER, "whoami"],
-        cwd=SERVICES,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    if result.returncode != 0:
-        print(
-            "\n[scons prod] wrangler não autenticado na Cloudflare.\n"
-            "  O deploy do Worker (services) precisa de credencial válida com\n"
-            "  permissão D1:Edit + Workers Scripts:Edit + R2:Edit.\n"
-            "  Opções:\n"
-            "    1) Regenere o CLOUDFLARE_API_TOKEN em\n"
-            "       dash.cloudflare.com > My Profile > API Tokens (template\n"
-            "       'Edit Cloudflare Workers' + adicione D1:Edit) e reexporte.\n"
-            "    2) Ou rode `wrangler login` (OAuth) e REMOVA\n"
-            "       CLOUDFLARE_API_TOKEN do ambiente (o env var tem prioridade\n"
-            "       e sombreia o login).\n"
-            "  Confirme com `wrangler whoami` antes de repetir `scons prod`.\n"
-        )
-        raise SystemExit(1)
+# (.github/workflows/vectora.yml). Requer `vercel` autenticado e docs/
+# linkado via `vercel link` (`.vercel/project.json`, gitignored).
 
 
 def _check_vercel_link(folder: str, expected_project: str) -> None:
@@ -887,7 +775,7 @@ def _check_vercel_link(folder: str, expected_project: str) -> None:
 
     `vercel --prod` publica no projeto gravado em `.vercel/project.json`
     (gitignored, um link por máquina de dev). Se a pasta foi linkada ao projeto
-    errado — ex.: `company` em vez de `vectora-company`, o que acontece se você
+    errado — ex.: `docs` em vez de `vectora-docs`, o que acontece se você
     aceitar o autolink pelo nome da pasta em `vercel link` — o deploy vai pro
     lugar errado E o `scons prod` termina "sem erros", enquanto o domínio de
     produção (vectora.company / docs.vectora.company) segue servindo o deploy
@@ -919,306 +807,13 @@ def _check_vercel_link(folder: str, expected_project: str) -> None:
         raise SystemExit(1)
 
 
-def _upgrade_d1_schema(
-    log: TextIO,
-    *,
-    skip_missing_tables: bool = False,
-    tables_filter: set[str] | None = None,
-) -> None:
-    """Adiciona colunas novas sem quebrar bancos D1 já existentes.
-
-    Quando executado antes do schema base, tabelas ainda inexistentes precisam
-    ser deixadas para o ``CREATE TABLE IF NOT EXISTS``. Em seguida o mesmo
-    preflight é executado novamente depois das migrations para cobrir tabelas
-    criadas durante o deploy.
-    """
-    columns: tuple[tuple[str, str, str], ...] = (
-        ("gha_bot_config", "self_hosted_enabled", "INTEGER NOT NULL DEFAULT 0"),
-        ("issues", "github_repo", "TEXT"),
-        ("issues", "github_number", "INTEGER"),
-        ("issues", "github_url", "TEXT"),
-        ("issues", "github_sync_state", "TEXT NOT NULL DEFAULT 'pending'"),
-        ("issues", "github_sync_error", "TEXT"),
-        ("issues", "core_repo", "TEXT"),
-        ("issues", "core_number", "INTEGER"),
-        ("issues", "core_url", "TEXT"),
-        ("issues", "approved_at", "TEXT"),
-        ("issues", "approved_by", "TEXT"),
-        ("issues", "promotion_lease_until", "TEXT"),
-        ("issues", "promotion_operation_token", "TEXT"),
-        ("issues", "response_version", "INTEGER NOT NULL DEFAULT 0"),
-        ("issues", "response_sync_lease_until", "TEXT"),
-        ("issues", "response_sync_operation_token", "TEXT"),
-        ("rag_packages", "package_name", "TEXT"),
-        ("rag_packages", "version", "TEXT NOT NULL DEFAULT '0.0.1'"),
-        ("rag_packages", "status", "TEXT NOT NULL DEFAULT 'ready'"),
-        ("rag_packages", "status_reason", "TEXT"),
-        ("rag_packages", "embed_model", "TEXT"),
-        ("rag_packages", "publisher_id", "TEXT"),
-        ("rag_packages", "verified", "INTEGER NOT NULL DEFAULT 0"),
-        ("rag_packages", "downloads_count", "INTEGER NOT NULL DEFAULT 0"),
-        ("rag_packages", "license", "TEXT"),
-        ("rag_packages", "description", "TEXT"),
-        ("rag_packages", "updated_at", "TEXT"),
-        ("skills_catalog", "package_name", "TEXT"),
-        ("skills_catalog", "version", "TEXT NOT NULL DEFAULT '0.0.1'"),
-        ("skills_catalog", "tags", "TEXT NOT NULL DEFAULT '[]'"),
-        ("skills_catalog", "category", "TEXT"),
-        ("skills_catalog", "catalog_source", "TEXT NOT NULL DEFAULT 'curated'"),
-        ("skills_catalog", "vectora_verified", "INTEGER NOT NULL DEFAULT 0"),
-        ("skills_catalog", "publisher_id", "TEXT"),
-        ("skills_catalog", "verified", "INTEGER NOT NULL DEFAULT 0"),
-        ("skills_catalog", "downloads_count", "INTEGER NOT NULL DEFAULT 0"),
-        ("skills_catalog", "updated_at", "TEXT"),
-        ("mcp_catalog", "icon_url", "TEXT"),
-        ("mcp_catalog", "publisher", "TEXT"),
-        ("mcp_catalog", "publisher_url", "TEXT"),
-        ("mcp_catalog", "stars_count", "INTEGER NOT NULL DEFAULT 0"),
-        ("mcp_catalog", "runtime_hint", "TEXT"),
-        ("mcp_catalog", "package_identifier", "TEXT"),
-        ("mcp_catalog", "transport", "TEXT NOT NULL DEFAULT 'stdio'"),
-        ("mcp_catalog", "server_url", "TEXT"),
-        ("mcp_catalog", "catalog_source", "TEXT NOT NULL DEFAULT 'curated'"),
-        ("mcp_catalog", "vectora_verified", "INTEGER NOT NULL DEFAULT 0"),
-        ("mcp_catalog", "downloads_count", "INTEGER NOT NULL DEFAULT 0"),
-        ("mcp_catalog", "snapshot_id", "TEXT"),
-        ("mcp_catalog", "last_seen_at", "TEXT"),
-        ("mcp_catalog", "catalog_status", "TEXT NOT NULL DEFAULT 'active'"),
-        ("mcp_catalog", "updated_at", "TEXT"),
-        ("issue_comments", "updated_at", "TEXT"),
-        ("issue_comments", "deleted_at", "TEXT"),
-        ("github_webhook_deliveries", "attempt_token", "TEXT"),
-        ("github_webhook_deliveries", "lease_until", "TEXT"),
-        ("gha_bot_review_jobs", "callback_secret_hash", "TEXT"),
-    )
-    if tables_filter is not None:
-        columns = tuple(row for row in columns if row[0] in tables_filter)
-    tables = {table for table, _, _ in columns}
-    existing: dict[str, set[str]] = {}
-    table_exists: dict[str, bool] = {}
-    for table in tables:
-        table_result = subprocess.run(
-            [
-                WRANGLER,
-                "d1",
-                "execute",
-                "vectora-db",
-                "--remote",
-                "--command",
-                f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table}' LIMIT 1",
-                "--json",
-            ],
-            cwd=SERVICES,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-        if table_result.returncode != 0:
-            raise SystemExit(
-                f"[scons prod] não foi possível consultar a existência da tabela D1: {table}"
-            )
-        table_exists[table] = re.search(
-            rf'"name"\s*:\s*"{re.escape(table)}"',
-            table_result.stdout,
-        ) is not None
-        if not table_exists[table]:
-            existing[table] = set()
-            continue
-        result = subprocess.run(
-            [
-                WRANGLER,
-                "d1",
-                "execute",
-                "vectora-db",
-                "--remote",
-                "--command",
-                f"PRAGMA table_info({table})",
-                "--json",
-            ],
-            cwd=SERVICES,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            check=False,
-        )
-        if result.returncode != 0:
-            raise SystemExit(
-                f"[scons prod] não foi possível consultar o schema D1: {table}"
-            )
-        existing[table] = set(
-            re.findall(r'"name"\s*:\s*"([^"]+)"', result.stdout)
-        )
-    for table, column, definition in columns:
-        if not table_exists[table]:
-            if skip_missing_tables:
-                continue
-            raise SystemExit(f"[scons prod] tabela D1 ausente: {table}")
-        if column in existing[table]:
-            continue
-        _run(
-            [
-                WRANGLER,
-                "d1",
-                "execute",
-                "vectora-db",
-                "--remote",
-                "--command",
-                f"ALTER TABLE {table} ADD COLUMN {column} {definition}",
-            ],
-            log=log,
-            cwd=SERVICES,
-        )
-
-    if table_exists.get("skills_catalog"):
-        # SQLite não permite DEFAULT(datetime('now')) em ALTER TABLE ADD
-        # COLUMN. Repare linhas legadas e preserve o default para inserts.
-        _run(
-            [
-                WRANGLER,
-                "d1",
-                "execute",
-                "vectora-db",
-                "--remote",
-                "--command",
-                "CREATE TRIGGER IF NOT EXISTS skills_catalog_updated_at_default AFTER INSERT ON skills_catalog WHEN NEW.updated_at IS NULL BEGIN UPDATE skills_catalog SET updated_at = datetime('now') WHERE id = NEW.id AND updated_at IS NULL; END",
-            ],
-            log=log,
-            cwd=SERVICES,
-        )
-
-        _run(
-            [
-                WRANGLER,
-                "d1",
-                "execute",
-                "vectora-db",
-                "--remote",
-                "--command",
-                "UPDATE skills_catalog SET updated_at = datetime('now') WHERE updated_at IS NULL",
-            ],
-            log=log,
-            cwd=SERVICES,
-        )
-
-    if table_exists.get("mcp_catalog"):
-        _run(
-            [
-                WRANGLER,
-                "d1",
-                "execute",
-                "vectora-db",
-                "--remote",
-                "--command",
-                "CREATE TRIGGER IF NOT EXISTS mcp_catalog_updated_at_default AFTER INSERT ON mcp_catalog WHEN NEW.updated_at IS NULL BEGIN UPDATE mcp_catalog SET updated_at = datetime('now') WHERE id = NEW.id AND updated_at IS NULL; END",
-            ],
-            log=log,
-            cwd=SERVICES,
-        )
-        _run(
-            [
-                WRANGLER,
-                "d1",
-                "execute",
-                "vectora-db",
-                "--remote",
-                "--command",
-                "UPDATE mcp_catalog SET updated_at = datetime('now') WHERE updated_at IS NULL",
-            ],
-            log=log,
-            cwd=SERVICES,
-        )
-
-
 def _action_prod(target, source, env):
-    # Preflights ANTES de publicar qualquer coisa: credencial Cloudflare válida
-    # e cada pasta linkada ao projeto Vercel certo — senão o deploy vai pro
-    # lugar errado / o Worker fica pra trás, sem erro visível no scons.
-    _check_wrangler_auth()
+    # Preflight antes de publicar: a pasta precisa estar linkada ao projeto
+    # Vercel certo, senão o deploy vai para o lugar errado sem erro visível.
     _check_vercel_link(DOCS, "vectora-docs")
-    _check_vercel_link(COMPANY, "vectora-company")
     with _open_log("prod") as log:
         _run([VERCEL, "--prod", "--yes"], log=log, cwd=DOCS)
-        _run([VERCEL, "--prod", "--yes"], log=log, cwd=COMPANY)
-        # Bancos antigos podem ter catálogos sem as colunas usadas pelo
-        # seed do schema base. Atualize tabelas já existentes antes de
-        # reaplicar 0001_schema.sql; tabelas novas são criadas pelo próprio
-        # schema e recebem uma segunda verificação após as migrations.
-        _upgrade_d1_schema(
-            log,
-            skip_missing_tables=True,
-            tables_filter={"skills_catalog", "mcp_catalog"},
-        )
-        # Migrations ANTES do deploy do worker: o código deployado assume o
-        # schema mais novo (ex.: users.role) — publicar worker sem aplicar as
-        # migrations quebra rotas em produção com SQLITE_ERROR.
-        # Sem flag de confirmação: `wrangler d1 migrations apply` moderno
-        # detecta stdin não-TTY sozinho (`_run()` já redireciona pra
-        # DEVNULL) e pula o prompt interativo automaticamente — uma flag
-        # `--skip-confirmation` chegou a existir numa versão anterior do
-        # wrangler mas não existe mais (`Unknown arguments`), então passá-la
-        # quebra o comando em vez de proteger contra o prompt.
-        #
-        # `0001_schema.sql` fica FORA do rastreamento de `d1 migrations apply`
-        # de propósito (arquivo único idempotente, reaplicado por completo a
-        # cada mudança de schema — ver o cabeçalho do próprio arquivo). Isso
-        # significa que `d1 migrations apply` sozinho NUNCA propaga uma tabela
-        # nova adicionada ali pra produção — só os arquivos numerados em
-        # `migrations/000N_*.sql` entram nesse rastreamento. Sem o `d1
-        # execute` abaixo, uma tabela como `gha_bot_config` (adicionada a
-        # `0001_schema.sql` no código, nunca reaplicada manualmente) fica
-        # inexistente em produção indefinidamente, e a migration numerada que
-        # depende dela (`ALTER TABLE gha_bot_config ADD COLUMN ...`) falha com
-        # `no such table` no primeiro deploy que tentar rodá-la. Reaplicar
-        # aqui, sempre, antes de `migrations apply`, é seguro (só `CREATE
-        # TABLE/INDEX IF NOT EXISTS`) e elimina esse modo de falha de vez.
-        _run(
-            [
-                WRANGLER,
-                "d1",
-                "execute",
-                "vectora-db",
-                "--remote",
-                "--file=migrations/0001_schema.sql",
-            ],
-            log=log,
-            cwd=SERVICES,
-        )
-        _run(
-            [
-                WRANGLER,
-                "d1",
-                "migrations",
-                "apply",
-                "vectora-db",
-                "--remote",
-            ],
-            log=log,
-            cwd=SERVICES,
-        )
-        # O upgrade aditivo só roda depois das migrations, que criam as
-        # tabelas auxiliares consultadas pelo preflight.
-        _upgrade_d1_schema(log)
-        _run(
-            [
-                WRANGLER,
-                "d1",
-                "execute",
-                "vectora-db",
-                "--remote",
-                "--command",
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_issues_github_identity ON issues(github_repo, github_number) WHERE github_repo IS NOT NULL AND github_number IS NOT NULL",
-            ],
-            log=log,
-            cwd=SERVICES,
-        )
-        _run([WRANGLER, "deploy"], log=log, cwd=SERVICES)
-    print(
-        "\n>> deploy de produção concluído: "
-        "docs.vectora.company + vectora.company + services (Cloudflare Worker)"
-    )
+    print("\n>> deploy de produção das docs concluído")
     print(">> log completo em .scons-logs/prod.txt")
 
 
@@ -1227,11 +822,11 @@ def _action_prod(target, source, env):
 
 def _action_help(target, source, env):
     sys.stdout.write("""
-  Vectora — alvos SCons  (rodar da raiz do monorepo)
+  Vectora — alvos SCons  (rodar da raiz do repositório)
 
   Produto final
     scons release          build completo + instalador para o SO atual
-    scons prod             deploy de produção: docs + company (Vercel) + services (Worker)
+    scons prod             deploy de produção das docs (Vercel)
     scons smoke            builda o binário híbrido (Nuitka+PyInstaller) e confirma
                            que `/health` responde de dentro dele — não só `--version`
 
@@ -1241,19 +836,15 @@ def _action_help(target, source, env):
     scons docker           sobe infraestrutura (PostgreSQL, Redis, Qdrant)
 
   Qualidade
-    scons tests             só o app Vectora: frontend (vitest) + backend (pytest)
-    scons tests-edge        docs (build Hugo) + company (vitest) + services (vitest)
+    scons tests             frontend (vitest) + backend (pytest)
     scons coverage          scons tests COM relatório de cobertura
-    scons coverage-edge     scons tests-edge COM relatório de cobertura
     scons tests-storage     só testes de storage (Postgres, Redis, Qdrant, SQLite, LanceDB)
     scons tests-live        só testes sem mock (LLM + Tavily reais) — custa API real
-    scons lint             vectora (ruff+ty+bandit+tsc+oxlint) + company (eslint+tsc)
-                           + docs (tsc) + services (tsc)
+    scons lint             backend (ruff+ty+bandit) + frontend (tsc+oxlint) + docs (build)
     scons clean            remove todos os outputs de build
 
   Manutenção
-    scons update           atualiza deps: uv (backend) + pnpm (frontend,
-                           company, services) + hugo mod (docs)
+    scons update           atualiza deps: uv (backend) + pnpm (frontend) + hugo mod (docs)
     scons update --latest  idem, mas ignora ranges/lockfiles (major bumps) —
                            só antes de migração grande, com revisão manual depois
     scons nats             baixa o binário nats-server pra resources/
@@ -1504,9 +1095,7 @@ _cmd("smoke", _action_smoke)
 _cmd("prod",           _action_prod)
 
 _cmd("tests",         _action_tests)
-_cmd("tests-edge",    _action_tests_edge)
 _cmd("coverage",      _action_coverage)
-_cmd("coverage-edge", _action_coverage_edge)
 _cmd("tests-storage", _action_tests_storage)
 _cmd("tests-live", _action_tests_live)
 _cmd("lint",          _action_lint)

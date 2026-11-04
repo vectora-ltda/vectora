@@ -477,20 +477,6 @@ class TestAutoEnableNativoLinuxMacos:
 
         assert result == DISABLED_POLICY
         assert policy_module._native_sandbox_available_sync() is False
-        import json
-
-        repo = Path(__file__).resolve().parents[2]
-        for locale in ("en", "pt", "es", "de", "fr", "it", "ru"):
-            messages = json.loads(
-                (repo / "company" / "messages" / f"{locale}.json").read_text(
-                    encoding="utf-8"
-                )
-            )
-            description = messages["capability_sandbox_desc"]
-            assert "macOS" in description
-            assert "sandbox-exec" in description
-            assert "bwrap" in description
-            assert "soft" in description.lower()
 
     def test_macos_sem_sandbox_exec_mantem_desabilitado(self, tmp_path, monkeypatch):
         monkeypatch.setattr(policy_module.sys, "platform", "darwin")
