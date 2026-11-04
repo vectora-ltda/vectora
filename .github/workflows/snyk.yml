@@ -1,0 +1,148 @@
+name: Snyk
+
+# Varredura de segurança com Snyk: dependências (npm/pnpm e Python) e código
+# (Snyk Code / SAST). Requer o secret SNYK_TOKEN; sem ele (PR de fork, por
+# exemplo) os jobs são pulados em vez de falhar.
+#
+# Política de bloqueio das dependências: falha só com severidade high ou
+# critical *e* correção disponível (--fail-on=upgradable). Achados sem
+# correção publicada aparecem no log e no painel do Snyk, mas não travam o PR.
+
+on:
+  pull_request:
+    branches: [master, "release/**"]
+  push:
+    branches: [master]
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: snyk-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  SNYK_CLI_VERSION: "1.1308.3"
+  PYTHON_VERSION: "3.13"
+  NODE_VERSION: "26"
+
+jobs:
+  preflight:
+    name: Verifica SNYK_TOKEN
+    runs-on: ubuntu-24.04
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: |
+          if [ -n "$SNYK_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::SNYK_TOKEN ausente; varredura Snyk pulada."
+          fi
+
+  node-deps:
+    name: Dependências npm (${{ matrix.project }})
+    needs: preflight
+    if: needs.preflight.outputs.enabled == 'true'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [".", company, services, vectora/frontend]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - uses: snyk/actions/setup@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
+        with:
+          snyk-version: v${{ env.SNYK_CLI_VERSION }}
+      # O Snyk resolve o grafo pelo pnpm-lock.yaml ao lado do package.json,
+      # sem precisar de node_modules instalado.
+      - name: snyk test
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: >-
+          snyk test
+          --file=${{ matrix.project }}/package.json
+          --severity-threshold=high
+          --fail-on=upgradable
+
+  python-deps:
+    name: Dependências Python (vectora)
+    needs: preflight
+    if: needs.preflight.outputs.enabled == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          all-extras: "true"
+          working-directory: vectora
+      # O plano gratuito do Snyk não lê uv.lock; o lock é exportado para
+      # requirements.txt e o plugin pip inspeciona o .venv sincronizado pelo
+      # setup-uv, que tem exatamente as versões travadas.
+      - name: Exporta uv.lock para requirements
+        working-directory: vectora
+        run: |
+          uv export --frozen --no-hashes --no-emit-project --all-extras \
+            --format requirements-txt -o snyk-requirements.txt
+          uv pip install --python .venv/bin/python setuptools
+      - uses: snyk/actions/setup@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
+        with:
+          snyk-version: v${{ env.SNYK_CLI_VERSION }}
+      - name: snyk test
+        working-directory: vectora
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: >-
+          snyk test
+          --file=snyk-requirements.txt
+          --package-manager=pip
+          --command=.venv/bin/python
+          --project-name=vectora-backend
+          --severity-threshold=high
+          --fail-on=upgradable
+
+  code:
+    name: Snyk Code (SAST)
+    needs: preflight
+    if: needs.preflight.outputs.enabled == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: snyk/actions/setup@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
+        with:
+          snyk-version: v${{ env.SNYK_CLI_VERSION }}
+      - name: snyk code test
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        run: >-
+          snyk code test
+          --severity-threshold=high
+          --sarif-file-output=snyk-code.sarif
+      # Publica os achados na aba Security > Code scanning mesmo quando o
+      # passo anterior falha por severidade.
+      - name: Envia SARIF para o code scanning
+        if: always() && hashFiles('snyk-code.sarif') != ''
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: snyk-code.sarif
+          category: snyk-code
