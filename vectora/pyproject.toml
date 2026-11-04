@@ -60,7 +60,10 @@ dependencies = [
     "google-genai>=2.16.0",
     "pyjwt>=2.13.0",
     "croniter>=6.2.2",
-    "psycopg[binary]>=3.3.4",
+    "psycopg>=3.3.4",
+    # psycopg-binary ainda não publica wheel para Windows ARM64. O backend
+    # SQLite continua funcional nesse alvo; PostgreSQL requer libpq externa.
+    "psycopg-binary>=3.3.4 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
     "networkx>=3.4",
     "numpy>=1.21",
     "rapidfuzz>=3.0",
