@@ -100,6 +100,13 @@ class VectoraContext:
     run_id: str = ""
     """ID da execução do agente (AgentRun)."""
 
+    artifact_session_id: str = ""
+    """Thread raiz à qual artifacts produzidos por subagentes pertencem.
+
+    Subthreads têm IDs próprios para persistência e rastreabilidade, mas seus
+    artifacts devem aparecer na sessão principal que o usuário está vendo.
+    Vazio significa usar ``thread_id`` (sessões normais e compatibilidade)."""
+
 
 def ctx_from_config(config: dict | None) -> VectoraContext:
     """Cria ``VectoraContext`` a partir de um dict ``{"configurable": {...}}``.

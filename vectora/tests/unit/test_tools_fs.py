@@ -466,6 +466,48 @@ class TestCreateArtifact:
         assert len(data["sha256"]) == 64
         assert Path(data["path"]).with_suffix(".artifact.json").exists()
 
+    async def test_subagent_artifact_is_saved_under_parent_session(
+        self, tmp_path, monkeypatch
+    ):
+        from backend.tools.fs import create_artifact
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        ctx = ctx_from_config(_cfg("parent-thread"))
+        ctx.thread_id = "parent-thread:planner:child-uuid"
+        ctx.artifact_session_id = "parent-thread"
+
+        result = json.loads(
+            await create_artifact(
+                artifact_type="plan",
+                title="Plano do jogo topdown",
+                content="# Plano\n\nPassos concretos.",
+                ctx=ctx,
+            )
+        )
+
+        assert result["session_id"] == "parent-thread"
+        assert Path(result["path"]).parent.name == "parent-thread"
+        assert Path(result["path"]).is_file()
+
+    async def test_rejects_invalid_artifact_session_path(self, tmp_path, monkeypatch):
+        from backend.tools.fs import create_artifact
+
+        monkeypatch.setattr(Path, "home", lambda: tmp_path)
+        ctx = ctx_from_config(_cfg("parent-thread"))
+        ctx.artifact_session_id = "..\\outside"
+
+        result = json.loads(
+            await create_artifact(
+                artifact_type="plan",
+                title="Plano de segurança",
+                content="# Plano",
+                ctx=ctx,
+            )
+        )
+
+        assert "error" in result
+        assert not (tmp_path.parent / "outside").exists()
+
     async def test_saved_under_session_dir(self, tmp_path, monkeypatch):
         """Verifica o comportamento de saved under session dir."""
         from backend.tools.fs import create_artifact

@@ -53,3 +53,19 @@ async def test_textos_distintos_nao_colidem(monkeypatch: pytest.MonkeyPatch) -> 
     b = await cache_embeddings.embed_query_cached("abcd", "m", embed)
     assert a == [3.0]
     assert b == [4.0]
+
+
+async def test_embedding_assincrono_nao_invoca_asyncio_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(cache_embeddings, "_redis_active", lambda: False)
+    calls = {"n": 0}
+
+    async def embed(text: str) -> list[float]:
+        calls["n"] += 1
+        return [float(len(text))]
+
+    result = await cache_embeddings.embed_query_cached("consulta", "m", embed)
+
+    assert result == [8.0]
+    assert calls["n"] == 1

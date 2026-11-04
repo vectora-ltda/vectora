@@ -602,7 +602,7 @@ export const MessageList = memo(function MessageList({
       `}</style>
 
       <div
-        className="flex-1 overflow-y-auto custom-scrollbar relative"
+        className="min-h-0 flex-1 overflow-y-auto custom-scrollbar relative"
         ref={scrollRef}
         onScroll={handleScroll}
         aria-live="polite"

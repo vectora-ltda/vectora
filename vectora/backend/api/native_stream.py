@@ -55,6 +55,19 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 _workspace_run_locks: dict[str, asyncio.Lock] = {}
+_active_run_tasks: dict[tuple[str, str], asyncio.Task[None]] = {}
+
+
+def cancel_active_runs(thread_id: str) -> int:
+    """Request cancellation of active native runs belonging to a thread."""
+    tasks = [
+        task
+        for (active_thread_id, _), task in tuple(_active_run_tasks.items())
+        if active_thread_id == thread_id and not task.done()
+    ]
+    for task in tasks:
+        task.cancel()
+    return len(tasks)
 
 
 def _workspace_run_lock(workspace_id: str) -> asyncio.Lock:
@@ -481,6 +494,8 @@ def stream_engine_events(
             nonlocal run_error, stopped_reason
             try:
                 stopped_reason = await run(on_event)
+            except asyncio.CancelledError:
+                stopped_reason = "cancelled"
             except BaseException as exc:
                 run_error = exc
                 stopped_reason = "error"
@@ -587,6 +602,14 @@ def stream_engine_events(
         register_terminal_output_callback(_on_terminal_line)
 
         run_task: asyncio.Task[None] = asyncio.ensure_future(_runner())
+        active_run_key = (thread_id, resolved_run_id)
+        _active_run_tasks[active_run_key] = run_task
+
+        def _remove_active_run(task: asyncio.Task[None]) -> None:
+            if _active_run_tasks.get(active_run_key) is task:
+                _active_run_tasks.pop(active_run_key, None)
+
+        run_task.add_done_callback(_remove_active_run)
         next_task: asyncio.Task[Any] = asyncio.ensure_future(queue.get())
         term_task: asyncio.Task[str] = asyncio.ensure_future(term_queue.get())
 

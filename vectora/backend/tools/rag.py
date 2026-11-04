@@ -556,7 +556,9 @@ async def vector_search(
         from backend.embedding.cache_embeddings import embed_query_cached
 
         query_vector = await embed_query_cached(
-            query, settings.embedding_model, embeddings_model.embed_query
+            query,
+            settings.embedding_model,
+            getattr(embeddings_model, "aembed_query", embeddings_model.embed_query),
         )
 
         fanned_out = [
