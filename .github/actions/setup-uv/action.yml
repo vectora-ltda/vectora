@@ -12,6 +12,10 @@ inputs:
   python-version:
     description: "Versão do Python (deve casar com requires-python / Nuitka)."
     required: true
+  architecture:
+    description: "Arquitetura do Python; pode ser x64 em runners Windows ARM64 sob emulação."
+    required: false
+    default: ""
   all-extras:
     description: "Se 'true', roda uv sync --all-extras (toolchain de dev/testes)."
     required: false
@@ -32,6 +36,7 @@ runs:
       uses: actions/setup-python@v6
       with:
         python-version: ${{ inputs.python-version }}
+        architecture: ${{ inputs.architecture }}
 
     - name: Install uv (cache nativo keyed em uv.lock)
       uses: astral-sh/setup-uv@v7

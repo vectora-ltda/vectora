@@ -459,32 +459,33 @@ def test_app_and_edge_workflows_validam_todo_pr_e_publicam_so_de_master() -> Non
     assert "pull_request" not in deploy
 
 
-def test_native_release_builds_lancedb_from_source_on_unsupported_platforms() -> None:
-    """Prepara Rust/protoc antes de sincronizar LanceDB sem wheel publicado."""
+def test_native_release_uses_supported_python_architectures_for_backend_deps() -> None:
+    """Usa x64 emulado no Windows ARM64, onde PyArrow não publica wheel."""
     content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+    setup_uv = (
+        WORKFLOW.parent.parent / "actions" / "setup-uv" / "action.yml"
+    ).read_text(encoding="utf-8")
 
     assert "actions-rust-lang/setup-rust-toolchain@v2" in content
     assert "toolchain: 1.97.0" in content
     assert "cache: false" in content
     assert "if: matrix.target == 'mac' && matrix.arch == 'x64'" in content
-    assert "if: matrix.target == 'win' && matrix.arch == 'arm64'" in content
     assert "brew install protobuf" in content
-    assert "choco install protoc --yes --no-progress" in content
-    assert "Install OpenSSL for source-built cryptography (Windows ARM64)" in content
-    assert "vcpkg.exe') install openssl:arm64-windows-static-md" in content
-    assert '"OPENSSL_DIR=$opensslRoot" >> $env:GITHUB_ENV' in content
-    assert '"VCPKGRS_TRIPLET=arm64-windows-static-md" >> $env:GITHUB_ENV' in content
+    assert "PyArrow has no win_arm64" in content
+    assert "Electron and the installer remain ARM64-native" in content
+    assert (
+        "architecture: ${{ matrix.target == 'win' && matrix.arch == 'arm64' && 'x64' || '' }}"
+        in content
+    )
+    assert "architecture:" in setup_uv
     assert 'sync: "false"' in content
     assert "repository: lancedb/lancedb" in content
     assert "ref: b1b080b97c3edd2fd9f2aae8a3b71ff19487b1f8" in content
     assert "persist-credentials: false" in content
     assert "if ! cmp -s ../LICENSE LICENSE; then cp ../LICENSE LICENSE; fi" in content
-    assert "Copy-Item ..\\LICENSE LICENSE" in content
     assert "uv build --wheel --out-dir ../../.lancedb-dist" in content
     assert "uv pip install --python vectora/.venv/bin/python" in content
-    assert "uv pip install --python vectora/.venv/Scripts/python.exe" in content
     assert '"UV_NO_SYNC=1" >> "$GITHUB_ENV"' in content
-    assert '"UV_NO_SYNC=1" >> $env:GITHUB_ENV' in content
     dependency = next(
         line
         for line in (WORKFLOW.parent.parent.parent / "vectora" / "pyproject.toml")
