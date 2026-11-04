@@ -10,6 +10,7 @@ headless usado pela Vectora Bot Action em runners de CI).
 """
 
 import os
+import shutil
 import subprocess  # nosec B404
 import sys
 from pathlib import Path
@@ -61,6 +62,27 @@ def run(cmd: list, cwd: Path, desc: str, env: dict | None = None) -> None:
     merged = {**os.environ, **(env or {})}
     if subprocess.run(cmd, cwd=str(cwd), env=merged).returncode != 0:  # noqa: S603  # nosec B603
         sys.exit(f"FALHA: {desc}")
+
+
+def _add_installed_test_runtime(dist_dir: Path) -> None:
+    """Ship uv and the black-box suite; pytest itself stays opt-in/downloaded."""
+    uv_binary = shutil.which("uv")
+    if not uv_binary:
+        sys.exit("uv não encontrado; o runtime instalado precisa dele para --tests.")
+    suite = VECTORA / "installed_tests" / "test_installed_runtime.py"
+    if not suite.is_file():
+        sys.exit(f"Suíte de instalação não encontrada: {suite}")
+    pytest_config = suite.parent / "pytest.ini"
+    if not pytest_config.is_file():
+        sys.exit(f"Configuração da suíte de instalação não encontrada: {pytest_config}")
+
+    runtime_dir = dist_dir / "vectora-test-runtime"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    uv_name = "uv.exe" if sys.platform == "win32" else "uv"
+    shutil.copy2(uv_binary, runtime_dir / uv_name)
+    shutil.copy2(suite, runtime_dir / suite.name)
+    shutil.copy2(pytest_config, runtime_dir / pytest_config.name)
+    print(f"Runtime de teste instalado preparado em {runtime_dir}")
 
 
 # Padrões de arquivo que nunca podem existir dentro de vectora/backend/ na
@@ -276,6 +298,7 @@ def main() -> None:
             f"{dist_dir} após o PyInstaller — as tools de mídia local vão "
             "degradar pro fallback de PATH do sistema em produção."
         )
+    _add_installed_test_runtime(dist_dir)
     total_mb = (
         sum(f.stat().st_size for f in dist_dir.rglob("*") if f.is_file()) / 1048576
     )

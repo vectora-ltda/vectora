@@ -10,6 +10,7 @@ import {
   waitForBackendReady,
   killBackendTree,
   backendPath,
+  isInstalledTestsMode,
   natsBinaryPath,
   resolveExternalBackendConnection,
 } from "../backend-lifecycle.js";
@@ -70,6 +71,14 @@ describe("getFreePort", () => {
 // ---------------------------------------------------------------------------
 // backendPath / natsBinaryPath — funções puras
 // ---------------------------------------------------------------------------
+
+describe("isInstalledTestsMode", () => {
+  it("detecta --tests sem confundir argumentos normais do Electron", () => {
+    expect(isInstalledTestsMode(["/app/Vectora", "--tests"])).toBe(true);
+    expect(isInstalledTestsMode(["/app/Vectora", "--version"])).toBe(false);
+    expect(isInstalledTestsMode(["/app/Vectora", "start"])).toBe(false);
+  });
+});
 
 describe("backendPath", () => {
   it("usa VECTORA_CORE_PATH quando setado (dev)", () => {

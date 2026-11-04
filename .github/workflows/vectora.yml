@@ -817,6 +817,15 @@ jobs:
                 echo "Vectora reported a fatal startup error in $DISTRO_IMAGE." >&2
                 exit 1
               fi
+              VECTORA_LICENSE_BYPASS=1 timeout --signal=TERM 300s \
+                xvfb-run -a "$executable" --no-sandbox --tests \
+                > /tmp/vectora-installed-tests.log 2>&1 || {
+                  status=$?
+                  cat /tmp/vectora-installed-tests.log
+                  echo "Installed Vectora test suite failed in $DISTRO_IMAGE (status $status)." >&2
+                  exit "$status"
+                }
+              cat /tmp/vectora-installed-tests.log
             '
 
   # Install the actual Windows/macOS packages (and both architectures), then
@@ -907,6 +916,8 @@ jobs:
           }
           Stop-Process -Id $process.Id -Force
           Get-Content $stdout, $stderr -ErrorAction SilentlyContinue
+          & $app --tests 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\vectora-installed-tests.log"
+          if ($LASTEXITCODE -ne 0) { throw "Installed Vectora test suite failed with exit code $LASTEXITCODE." }
       - name: Install and launch macOS installer
         if: matrix.platform == 'macOS'
         shell: bash
@@ -949,6 +960,13 @@ jobs:
           kill "$pid"
           wait "$pid" || true
           cat "$RUNNER_TEMP/vectora-startup.log"
+          VECTORA_LICENSE_BYPASS=1 "$executable" --tests > "$RUNNER_TEMP/vectora-installed-tests.log" 2>&1 || {
+            status=$?
+            cat "$RUNNER_TEMP/vectora-installed-tests.log"
+            echo "Installed Vectora test suite failed (status $status)." >&2
+            exit "$status"
+          }
+          cat "$RUNNER_TEMP/vectora-installed-tests.log"
       - name: Install and launch Linux package
         if: matrix.platform == 'Linux'
         shell: bash
@@ -982,6 +1000,15 @@ jobs:
             echo "Vectora reported a fatal startup error." >&2
             exit 1
           fi
+          VECTORA_LICENSE_BYPASS=1 timeout --signal=TERM 300s \
+            xvfb-run -a vectora --no-sandbox --tests \
+            > "$RUNNER_TEMP/vectora-installed-tests.log" 2>&1 || {
+              status=$?
+              cat "$RUNNER_TEMP/vectora-installed-tests.log"
+              echo "Installed Vectora test suite failed (status $status)." >&2
+              exit "$status"
+            }
+          cat "$RUNNER_TEMP/vectora-installed-tests.log"
 
   # ── 7. Publish to update channel (R2 + KV) ───────────────────────────────
   # Roda uma única vez, depois que TODA a matriz (linux/mac/win) terminou —

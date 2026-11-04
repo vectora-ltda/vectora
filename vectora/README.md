@@ -201,6 +201,10 @@ Opções de start:
   --host <host>        Host de escuta (padrão: 0.0.0.0)
   --port <n>           Porta (padrão: 8080)
   --ssl-certfile/-keyfile <pem>   TLS (serve em https://)
+
+Diagnóstico da instalação:
+  vectora --tests       Baixa pytest sob demanda e executa smoke tests contra o backend instalado.
+                        Requer rede na primeira execução; não altera o build público com deps de teste.
 ```
 
 ---

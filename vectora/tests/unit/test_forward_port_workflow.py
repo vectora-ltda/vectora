@@ -439,9 +439,14 @@ def test_app_and_edge_workflows_validam_todo_pr_e_publicam_so_de_master() -> Non
 
     app = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
     edge = (WORKFLOW.parent / "edge.yml").read_text(encoding="utf-8")
+    # These jobs only resolve metadata or build artifacts and must run on PRs
+    # so the package matrix is validated before merge. Only publication and
+    # tagging jobs are restricted to master.
+    for job in ("release-channel:", "release-native:"):
+        guard = app.split(f"\n  {job}\n", 1)[1].split("\n    steps:", 1)[0]
+        assert "github.event_name == 'pull_request'" in guard, job
+
     for job in (
-        "release-channel:",
-        "release-native:",
         "publish-update-channel:",
         "publish-gha-bot-cli:",
         "tag-release:",
