@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
 from release_plan import Commit, apply_plan, calculate_plan
 
 
@@ -44,7 +45,24 @@ def test_non_release_commits_do_not_create_plan() -> None:
     assert plan.bump == "none"
 
 
-def test_apply_updates_all_configured_versions_and_marked_lockfile(
+_LOCK_TEMPLATE = """version = 1
+
+[[package]]
+name = "pydantic"
+version = "0.3.0"
+source = { registry = "https://pypi.org/simple" }
+
+[[package]]
+name = "vectora"
+version = "0.3.0"
+source = { editable = "." }
+dependencies = [
+    { name = "pydantic" },
+]
+"""
+
+
+def test_apply_updates_all_configured_versions_and_lockfile(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "vectora").mkdir()
@@ -61,10 +79,8 @@ def test_apply_updates_all_configured_versions_and_marked_lockfile(
         target = tmp_path / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps({"version": "0.3.0"}), encoding="utf-8")
-    (tmp_path / "vectora" / "uv.lock").write_text(
-        'name = "vectora"\nversion = "0.3.0" # x-release-please-version\n',
-        encoding="utf-8",
-    )
+    lock_path = tmp_path / "vectora" / "uv.lock"
+    lock_path.write_text(_LOCK_TEMPLATE, encoding="utf-8")
     (tmp_path / "vectora" / "CHANGELOG.md").write_text(
         "# Changelog\n", encoding="utf-8"
     )
@@ -82,9 +98,9 @@ def test_apply_updates_all_configured_versions_and_marked_lockfile(
         ],
         manifest=".manifest.json",
     )
-    assert 'version = "0.3.1" # x-release-please-version' in (
-        tmp_path / "vectora" / "uv.lock"
-    ).read_text(encoding="utf-8")
+    assert lock_path.read_text(encoding="utf-8") == _LOCK_TEMPLATE.replace(
+        'name = "vectora"\nversion = "0.3.0"', 'name = "vectora"\nversion = "0.3.1"'
+    )
     assert '"version": "0.3.1"' in (tmp_path / "services/package.json").read_text(
         encoding="utf-8"
     )
@@ -92,3 +108,15 @@ def test_apply_updates_all_configured_versions_and_marked_lockfile(
         json.loads((tmp_path / ".manifest.json").read_text(encoding="utf-8"))["."]
         == "0.3.1"
     )
+
+    without_package = _LOCK_TEMPLATE.replace('name = "vectora"', 'name = "other"')
+    lock_path.write_text(without_package, encoding="utf-8")
+    with pytest.raises(ValueError, match="vectora"):
+        apply_plan(tmp_path, plan, ["vectora/uv.lock"])
+    assert lock_path.read_text(encoding="utf-8") == without_package
+
+    duplicated = _LOCK_TEMPLATE.replace('name = "pydantic"', 'name = "vectora"')
+    lock_path.write_text(duplicated, encoding="utf-8")
+    with pytest.raises(ValueError, match="vectora"):
+        apply_plan(tmp_path, plan, ["vectora/uv.lock"])
+    assert lock_path.read_text(encoding="utf-8") == duplicated

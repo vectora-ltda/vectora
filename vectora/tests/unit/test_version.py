@@ -11,6 +11,9 @@ from typing import NotRequired, TypedDict
 from backend.version import __version__
 
 _MONOREPO_ROOT = Path(__file__).resolve().parents[3]
+# O updater TOML do release-please embrulha cada valor como
+# {start, end, value}; por isso o filtro compara `@.name.value`, não `@.name`.
+_UV_LOCK_JSONPATH = "$.package[?(@.name.value==='vectora')].version"
 
 
 class _ExtraFile(TypedDict):
@@ -92,29 +95,19 @@ def test_release_please_config_sincroniza_todos_os_arquivos_de_versao() -> None:
     uv_entry = next(
         entry for entry in extra_files if entry["path"] == "vectora/uv.lock"
     )
-    assert uv_entry.get("type") == "generic"
-    lock_text = (_MONOREPO_ROOT / "vectora" / "uv.lock").read_text(encoding="utf-8")
-    package_blocks = re.split(
-        r"(?=^\[\[package\]\]\s*$)", lock_text, flags=re.MULTILINE
+    assert uv_entry.get("type") == "toml"
+    assert uv_entry.get("jsonpath") == _UV_LOCK_JSONPATH
+    lock = tomllib.loads(
+        (_MONOREPO_ROOT / "vectora" / "uv.lock").read_text(encoding="utf-8")
     )
-    vectora_block = next(
-        block
-        for block in package_blocks
-        if re.search(r'^name = "vectora"\s*$', block, re.MULTILINE)
-    )
-    lock_version = re.search(
-        r'^version = "([^"]+)"\s+# x-release-please-version\s*$',
-        vectora_block,
-        re.MULTILINE,
-    )
-    assert lock_version is not None, (
-        'O bloco [[package]] de "vectora" precisa marcar sua própria linha '
-        "version com # x-release-please-version."
-    )
+    vectora_packages = [
+        package for package in lock["package"] if package["name"] == "vectora"
+    ]
+    assert len(vectora_packages) == 1
     pyproject = tomllib.loads(
         (_MONOREPO_ROOT / "vectora" / "pyproject.toml").read_text(encoding="utf-8")
     )
-    assert lock_version.group(1) == pyproject["project"]["version"]
+    assert vectora_packages[0]["version"] == pyproject["project"]["version"]
     assert paths == {
         "vectora/pyproject.toml",
         "vectora/frontend/package.json",
