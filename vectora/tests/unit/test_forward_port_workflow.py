@@ -528,10 +528,35 @@ def test_linux_release_installs_native_package_build_tools() -> None:
     assert "libarchive-tools" in content
     assert '"$RUNNER_TEMP/snapcraft-compat"' in content
     assert '"${1:-}" == "snap"' in content
-    assert "sudo snap install lxd" in content
-    assert "sudo lxd init --auto" in content
-    assert 'exec sudo /snap/bin/snapcraft pack "$@"' in content
+    assert "os: ubuntu-22.04" in content
+    assert "os: ubuntu-22.04-arm" in content
+    assert "sudo snap install lxd" not in content
+    assert "sudo lxd init --auto" not in content
+    assert 'exec sudo /snap/bin/snapcraft pack --destructive-mode "$@"' in content
     assert "/snap/bin/snapcraft pack" in content
+
+
+def test_linux_release_validates_and_uploads_electron_builder_artifact_names() -> None:
+    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+
+    for extension in ("AppImage", "deb", "rpm", "snap", "pacman", "flatpak"):
+        assert f'"Vectora-*-linux-*.{extension}"' in content
+        assert f"vectora/frontend/dist-electron/*.{extension}" in content
+
+    assert '"Vectora-*-linux-*.tar.gz"' in content
+    assert "vectora/frontend/dist-electron/*.tar.gz" in content
+    assert "/artifacts/Vectora-*-linux-amd64.deb" in content
+    assert "/artifacts/Vectora-*-linux-x86_64.rpm" in content
+    assert "/artifacts/Vectora-*-linux-x64.pacman" in content
+
+
+def test_macos_intel_lancedb_source_build_reuses_cargo_cache() -> None:
+    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+
+    assert "Cache LanceDB Cargo build (macOS Intel)" in content
+    assert "~/.cargo/registry" in content
+    assert ".lancedb-src/target" in content
+    assert "CARGO_TARGET_DIR: ${{ github.workspace }}/.lancedb-src/target" in content
 
 
 def test_nats_release_download_retries_transient_network_failures() -> None:

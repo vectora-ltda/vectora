@@ -424,10 +424,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
+          # Snapcraft's project base is core22. Building on the matching host
+          # lets us use destructive mode and avoids a remote LXD image pull.
+          - os: ubuntu-22.04
             arch: x64
             target: linux
-          - os: ubuntu-24.04-arm
+          - os: ubuntu-22.04-arm
             arch: arm64
             target: linux
           - os: macos-26
@@ -472,6 +474,17 @@ jobs:
           ref: b1b080b97c3edd2fd9f2aae8a3b71ff19487b1f8
           path: .lancedb-src
           persist-credentials: false
+      - name: Cache LanceDB Cargo build (macOS Intel)
+        if: matrix.target == 'mac' && matrix.arch == 'x64'
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            .lancedb-src/target
+          key: lancedb-cargo-macos-intel-${{ hashFiles('.lancedb-src/Cargo.lock', '.lancedb-src/python/pyproject.toml') }}
+          restore-keys: |
+            lancedb-cargo-macos-intel-
       - name: Sync dependencies
         if: (matrix.target != 'mac' || matrix.arch != 'x64') && (matrix.target != 'win' || matrix.arch != 'arm64')
         working-directory: vectora
@@ -483,6 +496,8 @@ jobs:
       - name: Build LanceDB wheel from upstream source (macOS Intel)
         if: matrix.target == 'mac' && matrix.arch == 'x64'
         shell: bash
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/.lancedb-src/target
         run: |
           if ! cmp -s ../LICENSE LICENSE; then cp ../LICENSE LICENSE; fi
           uv build --wheel --out-dir ../../.lancedb-dist
@@ -523,8 +538,6 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ccache flatpak flatpak-builder fuse3 libarchive-tools snapd
-          sudo snap install lxd
-          sudo lxd init --auto
           sudo snap install snapcraft --classic
           # electron-builder still invokes `snapcraft snap`; current Snapcraft
           # releases renamed that subcommand to `pack`. Keep the .snap target
@@ -537,7 +550,9 @@ jobs:
             # electron-builder runs as the runner user, while the LXD socket
             # is root-owned on GitHub-hosted runners. Run Snapcraft as root so
             # craft-providers can use the initialized LXD daemon.
-            exec sudo /snap/bin/snapcraft pack "$@"
+            # The Linux matrix runs on Ubuntu 22.04, matching this project's
+            # core22 base. Build locally instead of asking LXD to fetch a base.
+            exec sudo /snap/bin/snapcraft pack --destructive-mode "$@"
           fi
           exec sudo /snap/bin/snapcraft "$@"
           EOF
@@ -754,13 +769,15 @@ jobs:
               require_one "Vectora-*-mac-${{ matrix.arch }}.zip"
               ;;
             linux)
-              require_one "Vectora-*-linux-${{ matrix.arch }}.AppImage"
-              require_one "Vectora-*-linux-${{ matrix.arch }}.deb"
-              require_one "Vectora-*-linux-${{ matrix.arch }}.rpm"
-              require_one "Vectora-*-linux-${{ matrix.arch }}.snap"
-              require_one "Vectora-*-linux-${{ matrix.arch }}.pkg.tar.zst"
-              require_one "Vectora-*-linux-${{ matrix.arch }}.flatpak"
-              require_one "Vectora-*-linux-${{ matrix.arch }}.tar.gz"
+              # electron-builder normalizes architecture names per target
+              # (x86_64, amd64, aarch64, x64); verify format presence instead.
+              require_one "Vectora-*-linux-*.AppImage"
+              require_one "Vectora-*-linux-*.deb"
+              require_one "Vectora-*-linux-*.rpm"
+              require_one "Vectora-*-linux-*.snap"
+              require_one "Vectora-*-linux-*.pacman"
+              require_one "Vectora-*-linux-*.flatpak"
+              require_one "Vectora-*-linux-*.tar.gz"
               ;;
           esac
       - name: Remove temporary Windows signing certificate
@@ -780,7 +797,7 @@ jobs:
             vectora/frontend/dist-electron/*.deb
             vectora/frontend/dist-electron/*.rpm
             vectora/frontend/dist-electron/*.snap
-            vectora/frontend/dist-electron/*.pkg.tar.zst
+            vectora/frontend/dist-electron/*.pacman
             vectora/frontend/dist-electron/*.flatpak
             vectora/frontend/dist-electron/*.tar.gz
             vectora/frontend/dist-electron/latest*.yml
@@ -843,17 +860,17 @@ jobs:
               case "$PACKAGE_FAMILY" in
                 deb)
                   apt-get update
-                  apt-get install -y xvfb /artifacts/Vectora-*-linux-x64.deb
+                  apt-get install -y xvfb /artifacts/Vectora-*-linux-amd64.deb
                   dpkg-query -s vectora | grep -F "Status: install ok installed"
                   ;;
                 rpm)
-                  dnf install -y xorg-x11-server-Xvfb /artifacts/Vectora-*-linux-x64.rpm
+                  dnf install -y xorg-x11-server-Xvfb /artifacts/Vectora-*-linux-x86_64.rpm
                   rpm -q vectora
                   ;;
                 pacman)
                   pacman -Sy --noconfirm
                   pacman -S --noconfirm xorg-server-xvfb
-                  pacman -U --noconfirm /artifacts/Vectora-*-linux-x64.pkg.tar.zst
+                  pacman -U --noconfirm /artifacts/Vectora-*-linux-x64.pacman
                   pacman -Q vectora
                   ;;
                 *) echo "Unsupported package family: $PACKAGE_FAMILY" >&2; exit 2 ;;
