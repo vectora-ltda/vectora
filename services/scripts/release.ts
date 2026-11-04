@@ -21,6 +21,7 @@
  */
 import {
   DeleteObjectsCommand,
+  HeadObjectCommand,
   ListObjectsV2Command,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -39,27 +40,37 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { stringify } from "yaml";
+import { REQUIRED_RELEASE_FORMATS } from "../src/updates/release-matrix";
+
+export { REQUIRED_RELEASE_FORMATS } from "../src/updates/release-matrix";
 
 const CONTENT_TYPES: Record<string, string> = {
   exe: "application/x-msdownload",
   msi: "application/x-msi",
   dmg: "application/x-apple-diskimage",
+  zip: "application/zip",
   AppImage: "application/x-executable",
   deb: "application/vnd.debian.binary-package",
   rpm: "application/x-rpm",
+  snap: "application/vnd.snap",
+  zst: "application/zstd",
+  flatpak: "application/vnd.flatpak",
+  gz: "application/gzip",
   yml: "application/x-yaml",
   blockmap: "application/octet-stream",
+  asc: "application/pgp-signature",
+  SUMS: "text/plain; charset=utf-8",
 };
 
 // `Vectora-0.1.1-win-x64.exe` → { version: "0.1.1", os: "win", arch: "x64", ext: "exe" }
 // Manifests (`latest.yml`, `latest-mac.yml`, `latest-linux.yml`) não seguem
 // esse padrão — tratados à parte via MANIFEST_OS abaixo.
 export const INSTALLER_RE =
-  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>exe|msi|dmg|AppImage|deb|rpm)$/;
+  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>pkg\.tar\.zst|tar\.gz|flatpak|AppImage|exe|msi|dmg|zip|deb|rpm|snap)$/;
 
 /** Blockmaps are required for electron-updater differential downloads. */
 export const BLOCKMAP_RE =
-  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>exe|msi|dmg|AppImage|deb|rpm)\.blockmap$/;
+  /^Vectora-(?<version>[^-]+)-(?<os>win|mac|linux)-(?<arch>x64|x86_64|amd64|arm64|universal)\.(?<ext>pkg\.tar\.zst|tar\.gz|flatpak|AppImage|exe|msi|dmg|zip|deb|rpm|snap)\.blockmap$/;
 
 /** Electron-builder uses several spellings for the x64 Linux architecture. */
 export function normalizeInstallerArch(
@@ -70,15 +81,82 @@ export function normalizeInstallerArch(
   throw new Error(`Arquitetura de instalador não suportada: ${arch}`);
 }
 
+/** Maps integrity artifacts to a versioned R2 location without treating them as installers. */
+export function releaseSupportAsset(
+  channel: string,
+  version: string,
+  filename: string,
+): { key: string; contentType: string } | null {
+  if (filename === "SHA256SUMS") {
+    return {
+      key: `${channel}/all/all/${version}/${filename}`,
+      contentType: CONTENT_TYPES.SUMS,
+    };
+  }
+  if (filename === "SHA256SUMS.asc" || filename === "vectora-release-key.asc") {
+    return {
+      key: `${channel}/all/all/${version}/${filename}`,
+      contentType: CONTENT_TYPES.asc,
+    };
+  }
+  if (!filename.endsWith(".asc")) return null;
+  const match = INSTALLER_RE.exec(filename.slice(0, -4));
+  if (!match?.groups || match.groups.version !== version) return null;
+  const { os, arch: rawArch } = match.groups;
+  const arch = normalizeInstallerArch(rawArch);
+  return {
+    key: `${channel}/${os}/${arch}/${version}/${filename}`,
+    contentType: CONTENT_TYPES.asc,
+  };
+}
+
 /** Todos os formatos de instalador aceitos pelo canal de distribuição. */
 export const INSTALLER_EXTENSIONS = [
   "exe",
   "msi",
   "dmg",
+  "zip",
   "AppImage",
   "deb",
   "rpm",
+  "pkg.tar.zst",
+  "snap",
+  "flatpak",
+  "tar.gz",
 ] as const;
+
+/** Bloqueia publicação parcial antes de promover o canal no R2/KV. */
+export function validateReleaseFormats(files: string[], version: string): void {
+  const available = new Map<string, Set<string>>();
+  for (const file of files) {
+    const match = INSTALLER_RE.exec(file);
+    if (!match?.groups || match.groups.version !== version) continue;
+    const arch = normalizeInstallerArch(match.groups.arch);
+    if (match.groups.os === "mac" && arch !== "arm64") {
+      throw new Error(
+        `Arquitetura macOS não suportada: ${arch}; somente Apple Silicon (arm64) é publicado`,
+      );
+    }
+    const key = `${match.groups.os}/${arch}`;
+    const formats = available.get(key) ?? new Set<string>();
+    formats.add(match.groups.ext);
+    available.set(key, formats);
+  }
+
+  const missing = Object.entries(REQUIRED_RELEASE_FORMATS).flatMap(
+    ([target, required]) => {
+      const actual = available.get(target) ?? new Set<string>();
+      return required
+        .filter((format) => !actual.has(format))
+        .map((format) => `${target}.${format}`);
+    },
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Release ${version} incompleta; publicação no R2 bloqueada. Artefatos ausentes: ${missing.join(", ")}`,
+    );
+  }
+}
 
 export const MANIFEST_OS: Record<string, string> = {
   "latest.yml": "win",
@@ -86,11 +164,11 @@ export const MANIFEST_OS: Record<string, string> = {
   "latest-linux.yml": "linux",
 };
 
-// Arquiteturas reais publicadas por SO (electron-builder.yml). Win, mac e
-// Linux publicam manifests separados para cada arquitetura suportada.
+// Arquiteturas reais publicadas por SO (electron-builder.yml). macOS é
+// publicado apenas para Apple Silicon; Windows e Linux publicam ambas.
 export const MANIFEST_ARCHES: Record<string, string[]> = {
   win: ["x64", "arm64"],
-  mac: ["x64", "arm64"],
+  mac: ["arm64"],
   linux: ["x64", "arm64"],
 };
 
@@ -269,6 +347,8 @@ export function parseArgs(argv: string[]): {
 }
 
 export function extOf(filename: string): string {
+  if (filename.endsWith(".pkg.tar.zst")) return "zst";
+  if (filename.endsWith(".tar.gz")) return "gz";
   const dot = filename.lastIndexOf(".");
   return dot === -1 ? "" : filename.slice(dot + 1);
 }
@@ -341,6 +421,23 @@ async function uploadBuffer(
     client: s3Client(),
     params: { Bucket: bucket, Key: key, Body: body, ContentType: contentType },
   }).done();
+}
+
+/** Confirms that every upload can be read from R2 before the KV channel moves. */
+export async function verifyR2Publication(
+  keys: string[],
+  headObject: (key: string) => Promise<unknown>,
+): Promise<void> {
+  for (const key of keys) {
+    try {
+      await headObject(key);
+    } catch (cause) {
+      throw new Error(
+        `Publicação no R2 não confirmada para ${key}; o canal não será atualizado.`,
+        { cause },
+      );
+    }
+  }
 }
 
 /** Delete uploaded objects in S3-compatible batches of at most 1,000 keys. */
@@ -592,6 +689,7 @@ async function main(): Promise<void> {
   );
 
   const installersByOsArch = indexInstallersByOsArch(files, dist, version);
+  validateReleaseFormats(files, version);
 
   const uploadedKeys: string[] = [];
   for (const file of files) {
@@ -633,6 +731,18 @@ async function main(): Promise<void> {
       continue;
     }
 
+    const supportAsset = releaseSupportAsset(channel, version, file);
+    if (supportAsset) {
+      await uploadFile(
+        bucket,
+        supportAsset.key,
+        join(dist, file),
+        supportAsset.contentType,
+      );
+      uploadedKeys.push(supportAsset.key);
+      continue;
+    }
+
     const match = INSTALLER_RE.exec(file);
     if (!match?.groups) continue;
     const { version: installerVersion, os, arch: rawArch } = match.groups;
@@ -654,6 +764,9 @@ async function main(): Promise<void> {
     throw new Error(`Nenhum instalador/manifesto reconhecido em ${dist}`);
   }
 
+  await verifyR2Publication(uploadedKeys, async (key) =>
+    s3Client().send(new HeadObjectCommand({ Bucket: bucket, Key: key })),
+  );
   await publishVersionAndPrune(bucket, channel, version, uploadedKeys);
   console.log(
     `✓ ${uploadedKeys.length} arquivo(s) publicados no canal "${channel}" v${version}`,

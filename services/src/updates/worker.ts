@@ -157,7 +157,10 @@ export function installerFilename(
 export function parseDownloadTarget(
   target: string,
 ): { os: string; arch: string; ext: string } | null {
-  const m = /^([a-z0-9]+)-([a-z0-9]+)\.([a-z0-9]+)$/i.exec(target);
+  const m =
+    /^([a-z0-9]+)-([a-z0-9]+)\.(pkg\.tar\.zst|tar\.gz|[a-z0-9]+)$/i.exec(
+      target,
+    );
   if (!m?.[1] || !m[2] || !m[3]) return null;
   return { os: m[1], arch: m[2], ext: m[3] };
 }

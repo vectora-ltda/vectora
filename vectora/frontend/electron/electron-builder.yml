@@ -1,13 +1,15 @@
 # electron-builder config
 #
-# Gera instaladores nativos assinados (Win .exe via NSIS, macOS .dmg notarized,
-# Linux .AppImage/.deb/.rpm). Cada instalador empacota a shell Electron
+# Gera instaladores nativos (Windows NSIS .exe + MSI, macOS .dmg/.zip e Linux
+# AppImage, DEB, RPM, Pacman e Flatpak). A assinatura/notarização é configurada pelo workflow
+# segundo as credenciais disponíveis. Cada instalador empacota a shell Electron
 # + o binário Nuitka como extraResource.
 #
 # Pre-req:
-# - Win: CSC_LINK + CSC_KEY_PASSWORD (cert EV Azure Trusted Signing).
-# - macOS: APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID.
-# - Linux: nada (não assinamos AppImage).
+# - Win: CSC_LINK + CSC_KEY_PASSWORD (certificado Authenticode confiável).
+# - macOS: identidade Developer ID e credenciais Apple para notarização;
+#   sem elas, assinatura ad-hoc e instruções de abertura manual.
+# - Linux: SHA256SUMS e assinatura GPG destacada quando a chave estiver configurada.
 #
 # Publish: vectora-services (Cloudflare Worker + R2), não GitHub Releases — o
 # repo é privado (Vectora é vendido, não open source) e o Free precisa baixar
@@ -92,10 +94,8 @@ publish:
 
 win:
   target:
-    - target: nsis
-      arch: [x64, arm64]
-    - target: msi-wrapped
-      arch: [x64, arm64]
+    - nsis
+    - msi
   icon: public/vectora.ico
   # Sem opções de assinatura fixas: o electron-builder assina automaticamente
   # quando CSC_LINK + CSC_KEY_PASSWORD estão no env (CI, cert EV em base64) e
@@ -105,15 +105,14 @@ win:
 
 mac:
   target:
-    - target: dmg
-      arch: [x64, arm64]
+    - dmg
+    - zip
   # electron-builder gera o .icns a partir de um .svg/.png — .ico não é
   # aceito nesse pipeline (icon-tool.js só lê .png/.svg/.icns).
   icon: public/vectora.svg
   category: public.app-category.developer-tools
   hardenedRuntime: true
   gatekeeperAssess: false
-  notarize: true
 
 dmg:
   title: ${productName} ${version}
@@ -134,12 +133,13 @@ dmg:
 
 linux:
   target:
-    - target: AppImage
-      arch: [x64, arm64]
-    - target: deb
-      arch: [x64, arm64]
-    - target: rpm
-      arch: [x64, arm64]
+    - AppImage
+    - deb
+    - rpm
+    - snap
+    - pacman
+    - flatpak
+    - tar.gz
   icon: public/favicon-600x600.png
   category: Development
   # electron-builder 26: as chaves do .desktop ficam sob `desktop.entry`.
@@ -154,15 +154,23 @@ linux:
 
 deb:
   depends:
-    - libgtk-3-0
+    # Ubuntu 24.04+/Debian 13 renomearam algumas bibliotecas durante a
+    # transição t64. As alternativas mantêm o mesmo pacote instalável também
+    # em Debian 12/Ubuntu 22.04, que ainda usam os nomes antigos.
+    - libgtk-3-0 | libgtk-3-0t64
     - libnotify4
     - libnss3
     - libxss1
     - libxtst6
     - xdg-utils
-    - libatspi2.0-0
+    - libatspi2.0-0 | libatspi2.0-0t64
+    - libasound2 | libasound2t64
+    - libuuid1
+    - libsecret-1-0
     - libdrm2
     - libgbm1
+  recommends:
+    - libappindicator3-1 | libayatana-appindicator3-1
   priority: optional
   afterInstall: electron/build-resources/linux-after-install.sh
   afterRemove: electron/build-resources/linux-after-remove.sh
@@ -171,6 +179,18 @@ deb:
 # ainda) — electron-builder falha o build do AppImage se `license:` apontar
 # pra um arquivo inexistente. Reintroduzir aqui quando houver um EULA real.
 appImage: {}
+
+flatpak:
+  # O pacote é um bundle instalável localmente; publicação no Flathub exigiria
+  # um repositório e revisão próprios, fora deste pipeline de downloads.
+  runtime: org.freedesktop.Platform
+  runtimeVersion: "24.08"
+  sdk: org.freedesktop.Sdk
+
+snapcraft:
+  base: core22
+  core22:
+    confinement: strict
 
 nsis:
   # ManifestDPIAware true vem de build-resources/installer.nsh (hook customHeader,

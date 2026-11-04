@@ -129,7 +129,7 @@
   "current_version_label": "Текущая версия",
   "downloads_cta": "Скачать",
   "downloads_footer": "Подписанные установщики для каждой платформы. Внешние провайдеры получают запросы, необходимые согласно настройкам.",
-  "downloads_install_linux": "AppImage: chmod +x Vectora-*.AppImage && ./Vectora-*.AppImage. Либо установите нативный пакет: sudo dpkg -i vectora_*.deb (Debian/Ubuntu) или sudo rpm -i vectora-*.rpm (Fedora/RHEL).",
+  "downloads_install_linux": "AppImage: chmod +x Vectora-*.AppImage && ./Vectora-*.AppImage. Также доступны пакеты для Debian/Ubuntu, Fedora/RHEL, Arch, Snap и Flatpak.",
   "downloads_install_macos": "Перетащите Vectora.app в папку Applications. Если Gatekeeper блокирует запуск, один раз выполните xattr -cr /Applications/Vectora.app в Терминале.",
   "downloads_install_windows": "Запустите .exe и следуйте инструкциям установщика. Если Windows SmartScreen выдаст предупреждение, нажмите «Подробнее» → «Выполнить в любом случае» (обычное дело для новых приложений, пока сертификат не наберёт репутацию). Нужна тихая установка? Используйте Vectora-Setup.exe /S. Файл .msi интегрируется с «Приложения и возможности».",
   "downloads_other_variants": "Другие версии",

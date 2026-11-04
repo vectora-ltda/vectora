@@ -24,6 +24,7 @@ import {
   getHistory,
   getThread,
   markThreadRead,
+  cancelRun,
   type HistoryMessage,
 } from "@/lib/api/vectora-client";
 import { queryClient } from "@/src/router";
@@ -1193,8 +1194,11 @@ export function ChatInterface({
     // próximo evento SSE chegasse (`shouldInterruptRef` só era checado
     // dentro do loop `for await`), o que podia demorar muito se o modelo
     // ainda não tivesse produzido nenhum token.
+    void cancelRun(threadId).catch((error: unknown) => {
+      console.error("Failed to cancel the active server run:", error);
+    });
     abort();
-  }, [uiDispatch, abort]);
+  }, [uiDispatch, abort, threadId]);
 
   const handleRunQueuedNow = useCallback(
     (messageId: string) => {

@@ -46,6 +46,7 @@ import { parseSetCookieHeader, buildCookieHeader } from "./cookie-utils.js";
 import {
   getFreePort,
   backendPath,
+  isInstalledTestsMode,
   natsBinaryPath,
   spawnBackendProcess,
   IpcPipeParser,
@@ -124,22 +125,27 @@ const electronCdpAuthToken =
   process.env.VECTORA_ELECTRON_CDP_AUTH_TOKEN ?? randomUUID();
 process.env.VECTORA_ELECTRON_CDP_PROXY_PORT = electronCdpProxyPort;
 process.env.VECTORA_ELECTRON_CDP_AUTH_TOKEN = electronCdpAuthToken;
-app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
-app.commandLine.appendSwitch("remote-debugging-port", electronCdpPort);
+const installedTestsMode = isInstalledTestsMode(process.argv);
+if (!installedTestsMode) {
+  app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
+  app.commandLine.appendSwitch("remote-debugging-port", electronCdpPort);
+}
 
 let electronCdpProxy: import("node:http").Server | null = null;
-void app.whenReady().then(async () => {
-  try {
-    await waitForElectronCdpTarget(Number(electronCdpPort));
-    electronCdpProxy = await startElectronCdpProxy(
-      Number(electronCdpPort),
-      Number(electronCdpProxyPort),
-      electronCdpAuthToken,
-    );
-  } catch (error) {
-    console.error("Falha ao validar o alvo CDP do Electron", error);
-  }
-});
+if (!installedTestsMode) {
+  void app.whenReady().then(async () => {
+    try {
+      await waitForElectronCdpTarget(Number(electronCdpPort));
+      electronCdpProxy = await startElectronCdpProxy(
+        Number(electronCdpPort),
+        Number(electronCdpProxyPort),
+        electronCdpAuthToken,
+      );
+    } catch (error) {
+      console.error("Falha ao validar o alvo CDP do Electron", error);
+    }
+  });
+}
 
 const ELECTRON_RESTART_EXIT_CODE = 42;
 
@@ -1380,7 +1386,8 @@ function registerIpc(): void {
 // pode coexistir com uma instância desktop antiga sem herdar o lock global do
 // Electron e encerrar o servidor HTTP por engano.
 const webSidecarMode = process.env.VECTORA_WEB_MODE === "1";
-const gotLock = webSidecarMode || app.requestSingleInstanceLock();
+const gotLock =
+  installedTestsMode || webSidecarMode || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 }
@@ -1411,6 +1418,30 @@ app.on("open-url", (event, url) => {
 (app as unknown as { isQuitting: boolean }).isQuitting = false;
 
 app.whenReady().then(async () => {
+  if (installedTestsMode) {
+    const executable = backendPath(
+      process.env,
+      process.platform,
+      _resourcesPath(),
+    );
+    const testRunner = spawnBackendProcess(executable, ["--tests"], {
+      ...process.env,
+      VECTORA_TEST_FROM_ELECTRON: "1",
+    });
+    testRunner.stdout?.on("data", (chunk: Buffer) =>
+      process.stdout.write(chunk),
+    );
+    testRunner.stderr?.on("data", (chunk: Buffer) =>
+      process.stderr.write(chunk),
+    );
+    testRunner.once("error", (error) => {
+      console.error("Não foi possível iniciar os testes da instalação", error);
+      app.exit(2);
+    });
+    testRunner.once("close", (code) => app.exit(code ?? 2));
+    return;
+  }
+
   registerDeepLinkProtocol();
   registerIpc();
   // Ponte IPC: serve a SPA e encaminha /auth, /vectora.*, /mcp, SSE… ao backend

@@ -22,6 +22,10 @@ import {
   selectManifestInstaller,
   BLOCKMAP_RE,
   readReleaseNotes,
+  releaseSupportAsset,
+  REQUIRED_RELEASE_FORMATS,
+  validateReleaseFormats,
+  verifyR2Publication,
 } from "../../scripts/release";
 
 describe("parseArgs", () => {
@@ -108,6 +112,90 @@ describe("extOf", () => {
   it("sem extensão → string vazia (edge)", () => {
     expect(extOf("semextensao")).toBe("");
   });
+
+  it("reconhece extensões compostas para metadados R2", () => {
+    expect(extOf("Vectora-0.3.1-linux-x64.pkg.tar.zst")).toBe("zst");
+    expect(extOf("Vectora-0.3.1-linux-x64.tar.gz")).toBe("gz");
+  });
+});
+
+describe("validateReleaseFormats", () => {
+  it("publica macOS apenas para Apple Silicon", () => {
+    expect(REQUIRED_RELEASE_FORMATS).not.toHaveProperty("mac/x64");
+    expect(REQUIRED_RELEASE_FORMATS["mac/arm64"]).toEqual(["dmg", "zip"]);
+  });
+
+  it("bloqueia artefatos macOS que não sejam Apple Silicon", () => {
+    expect(() =>
+      validateReleaseFormats(
+        ["Vectora-0.3.1-mac-x64.dmg", "Vectora-0.3.1-mac-x64.zip"],
+        "0.3.1",
+      ),
+    ).toThrow(/somente Apple Silicon/);
+  });
+
+  it("aceita apenas quando a matriz inteira de formatos está pronta para R2", () => {
+    const files = Object.entries(REQUIRED_RELEASE_FORMATS).flatMap(
+      ([target, formats]) => {
+        const [os, arch] = target.split("/");
+        return formats.map((format) => `Vectora-0.3.1-${os}-${arch}.${format}`);
+      },
+    );
+
+    expect(() => validateReleaseFormats(files, "0.3.1")).not.toThrow();
+  });
+
+  it("bloqueia a promoção quando falta um formato ou uma arquitetura", () => {
+    const files = Object.entries(REQUIRED_RELEASE_FORMATS)
+      .filter(([target]) => target !== "mac/arm64")
+      .flatMap(([target, formats]) => {
+        const [os, arch] = target.split("/");
+        return formats
+          .filter((format) => !(target === "linux/x64" && format === "rpm"))
+          .map((format) => `Vectora-0.3.1-${os}-${arch}.${format}`);
+      });
+
+    expect(() => validateReleaseFormats(files, "0.3.1")).toThrow(
+      /mac\/arm64\.dmg.*linux\/x64\.rpm/,
+    );
+  });
+
+  it("não usa artefatos antigos para completar a matriz da versão atual", () => {
+    const files = Object.entries(REQUIRED_RELEASE_FORMATS).flatMap(
+      ([target, formats]) => {
+        const [os, arch] = target.split("/");
+        return formats.map((format) => `Vectora-0.3.0-${os}-${arch}.${format}`);
+      },
+    );
+
+    expect(() => validateReleaseFormats(files, "0.3.1")).toThrow(
+      /Release 0\.3\.1 incompleta/,
+    );
+  });
+});
+
+describe("verifyR2Publication", () => {
+  it("confirma cada objeto antes da atualização do canal", async () => {
+    const checked: string[] = [];
+    await verifyR2Publication(
+      ["latest/win/x64/0.3.1/app.exe", "latest/latest.yml"],
+      async (key) => {
+        checked.push(key);
+      },
+    );
+    expect(checked).toEqual([
+      "latest/win/x64/0.3.1/app.exe",
+      "latest/latest.yml",
+    ]);
+  });
+
+  it("falha e identifica o objeto que não foi confirmado no R2", async () => {
+    await expect(
+      verifyR2Publication(["latest/linux/arm64/0.3.1/app.deb"], async () => {
+        throw new Error("NotFound");
+      }),
+    ).rejects.toThrow(/app\.deb; o canal não será atualizado/);
+  });
 });
 
 describe("INSTALLER_RE", () => {
@@ -158,14 +246,60 @@ describe("INSTALLER_RE", () => {
     ).toBe("amd64");
   });
 
-  it("aceita todos os formatos publicados pela página de downloads", () => {
-    for (const extension of ["exe", "msi", "dmg", "AppImage", "deb", "rpm"]) {
+  it("aceita todos os formatos publicados para cada plataforma", () => {
+    const formats = [
+      ["win", "exe"],
+      ["win", "msi"],
+      ["mac", "dmg"],
+      ["mac", "zip"],
+      ["linux", "AppImage"],
+      ["linux", "deb"],
+      ["linux", "rpm"],
+      ["linux", "pkg.tar.zst"],
+      ["linux", "flatpak"],
+      ["linux", "tar.gz"],
+    ] as const;
+    for (const [os, extension] of formats) {
       expect(
-        INSTALLER_RE.exec(
-          `Vectora-1.0.0-${extension === "dmg" ? "mac" : extension === "AppImage" || extension === "deb" || extension === "rpm" ? "linux" : "win"}-x64.${extension}`,
-        )?.groups?.ext,
+        INSTALLER_RE.exec(`Vectora-1.0.0-${os}-x64.${extension}`)?.groups?.ext,
       ).toBe(extension);
     }
+  });
+});
+
+describe("release integrity assets", () => {
+  it("places checksums and public keys in the version-scoped shared prefix", () => {
+    expect(releaseSupportAsset("latest", "0.3.1", "SHA256SUMS")).toEqual({
+      key: "latest/all/all/0.3.1/SHA256SUMS",
+      contentType: "text/plain; charset=utf-8",
+    });
+    expect(
+      releaseSupportAsset("latest", "0.3.1", "vectora-release-key.asc"),
+    ).toEqual({
+      key: "latest/all/all/0.3.1/vectora-release-key.asc",
+      contentType: "application/pgp-signature",
+    });
+  });
+
+  it("uploads installer signatures beside the matching artifact", () => {
+    expect(
+      releaseSupportAsset(
+        "maintenance",
+        "0.3.1",
+        "Vectora-0.3.1-win-x64.exe.asc",
+      ),
+    ).toEqual({
+      key: "maintenance/win/x64/0.3.1/Vectora-0.3.1-win-x64.exe.asc",
+      contentType: "application/pgp-signature",
+    });
+  });
+
+  it("rejects signatures for other versions and arbitrary files", () => {
+    expect(
+      releaseSupportAsset("latest", "0.3.1", "Vectora-0.3.0-win-x64.exe.asc"),
+    ).toBeNull();
+    expect(releaseSupportAsset("latest", "0.3.1", "unknown.asc")).toBeNull();
+    expect(releaseSupportAsset("latest", "0.3.1", "SHA256SUMS.txt")).toBeNull();
   });
 });
 
@@ -183,8 +317,8 @@ describe("MANIFEST_ARCHES", () => {
     expect(MANIFEST_ARCHES.linux).toEqual(["x64", "arm64"]);
   });
 
-  it("mac publica manifesto em x64 e arm64", () => {
-    expect(MANIFEST_ARCHES.mac).toEqual(["x64", "arm64"]);
+  it("mac publica manifesto apenas em Apple Silicon", () => {
+    expect(MANIFEST_ARCHES.mac).toEqual(["arm64"]);
   });
 });
 
@@ -449,12 +583,14 @@ describe("buildArchManifest / resolveInstaller — regressão do manifesto cross
     writeFileSync(join(dir, "Vectora-0.1.1-linux-x64.AppImage"), "appimage");
     writeFileSync(join(dir, "Vectora-0.1.1-linux-x64.deb"), "deb");
     writeFileSync(join(dir, "Vectora-0.1.1-linux-x64.rpm"), "rpm");
+    writeFileSync(join(dir, "Vectora-0.1.1-linux-x64.pkg.tar.zst"), "pacman");
 
     const installers = indexInstallersByOsArch(
       [
         "Vectora-0.1.1-linux-x64.deb",
         "Vectora-0.1.1-linux-x64.AppImage",
         "Vectora-0.1.1-linux-x64.rpm",
+        "Vectora-0.1.1-linux-x64.pkg.tar.zst",
       ],
       dir,
       "0.1.1",
@@ -465,6 +601,7 @@ describe("buildArchManifest / resolveInstaller — regressão do manifesto cross
     expect(installers.get("linux/x64")?.availableFiles).toEqual([
       "Vectora-0.1.1-linux-x64.AppImage",
       "Vectora-0.1.1-linux-x64.deb",
+      "Vectora-0.1.1-linux-x64.pkg.tar.zst",
       "Vectora-0.1.1-linux-x64.rpm",
     ]);
   });

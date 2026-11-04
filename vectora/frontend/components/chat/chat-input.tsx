@@ -489,7 +489,7 @@ export function ChatInput({
     // oxlint-disable-next-line react/exhaustive-effect-dependencies
   }, [compactMode, composerWidth, input, textareaRef]);
   return (
-    <div className="relative">
+    <div className="relative shrink-0">
       {/* Enhanced visibility layer */}
       <div className="absolute inset-0 pointer-events-none" />
 

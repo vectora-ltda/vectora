@@ -35,6 +35,25 @@ def test_parser_sem_subcomando_nao_define_command():
     assert getattr(args, "command", None) is None
 
 
+def test_parser_aceita_modo_de_testes_da_instalacao() -> None:
+    args = _build_parser().parse_args(["--tests"])
+    assert args.tests is True
+
+
+def test_modo_de_testes_delega_para_runner_e_propaga_exit_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from backend import main
+
+    monkeypatch.setattr("sys.argv", ["vectora", "--tests"])
+    monkeypatch.setattr(
+        "backend.cli.runtime_tests.run_installed_runtime_tests", lambda: 7
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        main.run()
+    assert exc_info.value.code == 7
+
+
 @pytest.mark.parametrize("argv", [["vectora"], ["vectora", "help"]])
 def test_sem_subcomando_e_help_imprimem_ajuda_sem_subir_servidor(
     monkeypatch: pytest.MonkeyPatch,

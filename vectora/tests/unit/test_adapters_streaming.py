@@ -56,6 +56,40 @@ async def test_each_chunk_emits_one_token_in_order():
 
 
 @pytest.mark.asyncio
+async def test_explicit_cancel_stops_server_run_and_finishes_stream():
+    """The stop action must cancel server work, not only disconnect SSE."""
+    from backend.api.native_stream import cancel_active_runs
+
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def slow_run(_on_event):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    gen = stream_engine_events(slow_run, thread_id="cancel-thread")
+    first = _parse(await gen.__anext__())
+    assert first["type"] == "thread"
+
+    async def drain() -> list[dict]:
+        return [_parse(line) async for line in gen]
+
+    drain_task = asyncio.create_task(drain())
+    await started.wait()
+
+    assert cancel_active_runs("another-thread") == 0
+    assert cancel_active_runs("cancel-thread") == 1
+    events = await drain_task
+
+    assert cancelled.is_set()
+    assert events[-1]["type"] == "done"
+    assert cancel_active_runs("cancel-thread") == 0
+
+
+@pytest.mark.asyncio
 async def test_loop_cap_exceeded_persists_failed_terminal_outcome():
     """Um limite de segurança não pode deixar o AgentRun preso em ``running``."""
     store = MagicMock()

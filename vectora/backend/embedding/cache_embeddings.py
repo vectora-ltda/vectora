@@ -14,9 +14,10 @@ Uso::
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 logger = logging.getLogger(__name__)
 
@@ -73,17 +74,23 @@ async def put_cached(
 
 
 async def embed_query_cached(
-    text: str, model: str, embed_fn: Callable[[str], list[float]]
+    text: str,
+    model: str,
+    embed_fn: Callable[[str], list[float] | Awaitable[list[float]]],
 ) -> list[float]:
     """Embedding de ``text`` com cache Redis quando disponível.
 
-    ``embed_fn`` é a função síncrona de embedding (ex.: ``embeddings.embed_query``);
-    só é chamada em caso de miss.
+    ``embed_fn`` pode ser síncrona ou assíncrona; só é chamada em caso de miss.
     """
     cached = await get_cached(text, model, kind="query")
     if cached is not None:
         logger.debug("cache_embeddings: hit (query)")
         return cached
-    vector = embed_fn(text)
+    vector_or_awaitable = embed_fn(text)
+    vector = (
+        await vector_or_awaitable
+        if inspect.isawaitable(vector_or_awaitable)
+        else vector_or_awaitable
+    )
     await put_cached(text, model, vector, kind="query")
     return vector

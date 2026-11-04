@@ -165,6 +165,10 @@ export class IpcPipeParser {
 // Spawn
 // ---------------------------------------------------------------------------
 
+export function isInstalledTestsMode(argv: string[]): boolean {
+  return argv.includes("--tests");
+}
+
 export function spawnBackendProcess(
   exePath: string,
   args: string[],

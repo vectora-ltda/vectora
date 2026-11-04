@@ -5,9 +5,8 @@ name: Vectora (app)
 # Fluxo PR-based: lint/security/frontend/build/testes rodam sempre — em
 # todo PR, qualquer que seja a base (master, release/*, ou branch de feature
 # em PRs empilhados), e em todo push em master/release/* (merge de PR) — sem
-# gate manual. A matriz nativa de release só roda no commit de uma PR de release
-# já mergeada em master (ou por workflow_dispatch manual). A própria matriz
-# publica os artefatos; a tag só é criada após a distribuição concluir.
+# gate manual. A matriz nativa também roda em PR para validar o empacotamento
+# por SO/arquitetura; R2/KV e tags continuam exclusivos do release em master.
 # `paths` restringe esse pipeline (caro: lint+security+frontend+build+testes)
 # a mudanças que realmente afetam o app Vectora — company/services/docs têm
 # ciclo próprio (.github/workflows/edge.yml), rodar os dois juntos em todo PR
@@ -371,6 +370,7 @@ jobs:
     name: Resolve release version and update channel
     needs: [test-unit, test-external]
     if: >-
+      github.event_name == 'pull_request' ||
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
@@ -397,14 +397,15 @@ jobs:
           CHANNEL=$(python utils/select_update_channel.py "${{ steps.version.outputs.value }}")
           echo "value=$CHANNEL" >> "$GITHUB_OUTPUT"
 
-  # ── 6. Release Native Binaries (Nuitka onefile + Electron installers) ───
-  # A matriz roda no commit de release já mergeado em master. A publicação
-  # externa e a tag só acontecem depois que todos os artefatos passam nesta
-  # matriz e nos jobs de distribuição abaixo.
+  # ── 6. Native package matrix (Nuitka + Electron installers) ──────────────
+  # Pull requests build and verify every native package without production
+  # credentials. R2/KV publication and tagging remain release-only and happen
+  # after the complete matrix succeeds.
   release-native:
     name: Release native (${{ matrix.target }}/${{ matrix.arch }})
     needs: [test-unit, test-external, release-channel]
     if: >-
+      github.event_name == 'pull_request' ||
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
@@ -423,8 +424,13 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
+          # Snapcraft's project base is core22. Building on the matching host
+          # lets us use destructive mode and avoids a remote LXD image pull.
+          - os: ubuntu-22.04
             arch: x64
+            target: linux
+          - os: ubuntu-22.04-arm
+            arch: arm64
             target: linux
           - os: macos-26
             arch: arm64
@@ -432,13 +438,24 @@ jobs:
           - os: windows-latest
             arch: x64
             target: win
+          - os: windows-11-arm
+            arch: arm64
+            target: win
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      # Windows ARM64 runs the backend under Windows' x64 emulation because
+      # PyArrow has no win_arm64 wheel; Electron and the installer remain ARM64-native.
       - uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          architecture: ${{ matrix.target == 'win' && matrix.arch == 'arm64' && 'x64' || '' }}
           all-extras: "false"
+          sync: "false"
+      - name: Sync dependencies
+        if: matrix.target != 'win' || matrix.arch != 'arm64'
+        working-directory: vectora
+        run: uv sync --frozen
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -464,6 +481,32 @@ jobs:
             Linux) sudo apt-get update -qq && sudo apt-get install -y ccache ;;
             macOS) brew install ccache ;;
           esac
+      - name: Install Linux package build dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ccache flatpak flatpak-builder fuse3 libarchive-tools snapd
+          sudo snap install snapcraft --classic
+          # electron-builder still invokes `snapcraft snap`; current Snapcraft
+          # releases renamed that subcommand to `pack`. Keep the .snap target
+          # while adapting only this legacy invocation.
+          mkdir -p "$RUNNER_TEMP/snapcraft-compat"
+          cat > "$RUNNER_TEMP/snapcraft-compat/snapcraft" <<'EOF'
+          #!/usr/bin/env bash
+          if [[ "${1:-}" == "snap" ]]; then
+            shift
+            # electron-builder runs as the runner user, while the LXD socket
+            # is root-owned on GitHub-hosted runners. Run Snapcraft as root so
+            # craft-providers can use the initialized LXD daemon.
+            # The Linux matrix runs on Ubuntu 22.04, matching this project's
+            # core22 base. Build locally instead of asking LXD to fetch a base.
+            exec sudo /snap/bin/snapcraft pack --destructive-mode "$@"
+          fi
+          exec sudo /snap/bin/snapcraft "$@"
+          EOF
+          chmod +x "$RUNNER_TEMP/snapcraft-compat/snapcraft"
+          echo "$RUNNER_TEMP/snapcraft-compat" >> "$GITHUB_PATH"
+          flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
       - name: Cache ccache (Nuitka C compilation)
         uses: actions/cache@v6
         with:
@@ -536,14 +579,14 @@ jobs:
         # reusa o MESMO backend.pyd já compilado pelo Nuitka acima (build
         # hybrid), só um passo extra de PyInstaller sem Electron/chat_static.
         # Só linux/x64 porque é o único alvo que um runner comum do GHA usa.
-        if: matrix.target == 'linux'
+        if: matrix.target == 'linux' && matrix.arch == 'x64'
         working-directory: .
         env:
           VECTORA_BUILD_CLI: "1"
         run: python build-hybrid.py --jobs 4
         shell: bash
       - name: Upload vectora-cli artifact
-        if: matrix.target == 'linux'
+        if: matrix.target == 'linux' && matrix.arch == 'x64'
         uses: actions/upload-artifact@v7
         with:
           # Nome fora do padrão "vectora-*" DE PROPÓSITO -- publish-update-channel
@@ -555,16 +598,66 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Export Windows signing cert
-        # electron-builder só pula a assinatura quando CSC_LINK está
-        # ausente (undefined) — setado como string vazia ainda conta
-        # como "certificado fornecido" e quebra o keychain no mac/linux.
-        # $GITHUB_ENV só é escrito neste step (matrix.target == 'win'),
-        # deixando a var genuinamente ausente nos outros SOs.
         if: matrix.target == 'win'
-        shell: bash
+        working-directory: .
+        shell: pwsh
+        env:
+          WIN_CERTIFICATE_BASE64: ${{ secrets.WIN_CERTIFICATE_BASE64 }}
+          WIN_CERTIFICATE_PASSWORD: ${{ secrets.WIN_CERTIFICATE_PASSWORD }}
         run: |
-          echo "CSC_LINK=${{ secrets.WIN_CERTIFICATE_BASE64 }}" >> "$GITHUB_ENV"
-          echo "CSC_KEY_PASSWORD=${{ secrets.WIN_CERTIFICATE_PASSWORD }}" >> "$GITHUB_ENV"
+          if (-not $env:WIN_CERTIFICATE_BASE64 -or -not $env:WIN_CERTIFICATE_PASSWORD) {
+            Write-Host "Trusted Windows signing certificate is not configured; installers will remain unsigned."
+            exit 0
+          }
+          $certificatePath = Join-Path $env:RUNNER_TEMP 'vectora-signing.pfx'
+          [IO.File]::WriteAllBytes($certificatePath, [Convert]::FromBase64String($env:WIN_CERTIFICATE_BASE64))
+          $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName | Select-Object -Last 1 -ExpandProperty FullName
+          if (-not $signTool) { throw 'Windows SDK signtool.exe was not found.' }
+          $binaryRoots = @('dist/vectora', 'vectora/resources')
+          $binaries = Get-ChildItem $binaryRoots -File -Recurse -ErrorAction SilentlyContinue |
+            Where-Object { $_.Extension -in '.exe', '.dll', '.pyd' }
+          foreach ($binary in $binaries) {
+            & $signTool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f $certificatePath /p $env:WIN_CERTIFICATE_PASSWORD $binary.FullName
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed for $($binary.FullName)" }
+          }
+          "CSC_LINK=$certificatePath" >> $env:GITHUB_ENV
+          "CSC_KEY_PASSWORD=$env:WIN_CERTIFICATE_PASSWORD" >> $env:GITHUB_ENV
+      - name: Sign macOS sidecars ad-hoc when Apple credentials are absent
+        if: matrix.target == 'mac'
+        working-directory: .
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$APPLE_ID" && -n "$APPLE_APP_SPECIFIC_PASSWORD" && -n "$APPLE_TEAM_ID" ]]; then
+            echo "Apple Developer credentials are configured; electron-builder will sign nested code and notarize the app."
+            exit 0
+          fi
+          echo "Apple credentials are incomplete; applying ad-hoc signatures to Mach-O sidecars. First launch may require the documented Gatekeeper override."
+          for root in dist/vectora vectora/resources; do
+            [[ -d "$root" ]] || continue
+            while IFS= read -r -d '' binary; do
+              if file -b "$binary" | grep -q 'Mach-O'; then
+                codesign --force --sign - --timestamp=none "$binary"
+              fi
+            done < <(find "$root" -type f -print0)
+          done
+      - name: Prepare macOS signing configuration
+        if: matrix.target == 'mac'
+        working-directory: vectora/frontend
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          BUILDER_CONFIG: ${{ runner.temp }}/electron-builder.yml
+        run: node electron/prepare-builder-config.cjs electron/electron-builder.yml "$BUILDER_CONFIG"
+      - name: Test conditional macOS signing configuration
+        working-directory: vectora/frontend
+        run: node --test electron/prepare-builder-config.node.cjs
       - name: Verifica sincronia de versão (pyproject.toml vs frontend/package.json)
         # release-please só bumpa vectora/pyproject.toml por padrão --
         # frontend/package.json precisa ser sincronizado via extra-files em
@@ -593,10 +686,52 @@ jobs:
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           GH_TOKEN: ${{ secrets.VECTORA_RELEASES_TOKEN }}
+        shell: bash
         run: |
           pnpm --dir frontend install --frozen-lockfile
           pnpm --dir frontend run electron:build
-          pnpm --dir frontend exec electron-builder --config electron/electron-builder.yml --${{ matrix.target }} --publish never
+          if [ "${{ matrix.target }}" = "mac" ]; then
+            pnpm --dir frontend exec electron-builder --config "$RUNNER_TEMP/electron-builder.yml" --${{ matrix.target }} --${{ matrix.arch }} --publish never
+          else
+            pnpm --dir frontend exec electron-builder --config electron/electron-builder.yml --${{ matrix.target }} --${{ matrix.arch }} --publish never
+          fi
+      - name: Verify required platform artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          output="frontend/dist-electron"
+          require_one() {
+            local pattern="$1"
+            compgen -G "$output/$pattern" >/dev/null || {
+              echo "::error::Missing required release artifact: $pattern"
+              exit 1
+            }
+          }
+          case "${{ matrix.target }}" in
+            win)
+              require_one "Vectora-*-win-${{ matrix.arch }}.exe"
+              require_one "Vectora-*-win-${{ matrix.arch }}.msi"
+              ;;
+            mac)
+              require_one "Vectora-*-mac-${{ matrix.arch }}.dmg"
+              require_one "Vectora-*-mac-${{ matrix.arch }}.zip"
+              ;;
+            linux)
+              # electron-builder normalizes architecture names per target
+              # (x86_64, amd64, aarch64, x64); verify format presence instead.
+              require_one "Vectora-*-linux-*.AppImage"
+              require_one "Vectora-*-linux-*.deb"
+              require_one "Vectora-*-linux-*.rpm"
+              require_one "Vectora-*-linux-*.snap"
+              require_one "Vectora-*-linux-*.pacman"
+              require_one "Vectora-*-linux-*.flatpak"
+              require_one "Vectora-*-linux-*.tar.gz"
+              ;;
+          esac
+      - name: Remove temporary Windows signing certificate
+        if: always() && matrix.target == 'win'
+        shell: pwsh
+        run: Remove-Item -LiteralPath (Join-Path $env:RUNNER_TEMP 'vectora-signing.pfx') -Force -ErrorAction SilentlyContinue
       - name: Upload installers
         uses: actions/upload-artifact@v7
         with:
@@ -605,13 +740,296 @@ jobs:
             vectora/frontend/dist-electron/*.exe
             vectora/frontend/dist-electron/*.msi
             vectora/frontend/dist-electron/*.dmg
+            vectora/frontend/dist-electron/*.zip
             vectora/frontend/dist-electron/*.AppImage
             vectora/frontend/dist-electron/*.deb
             vectora/frontend/dist-electron/*.rpm
+            vectora/frontend/dist-electron/*.snap
+            vectora/frontend/dist-electron/*.pacman
+            vectora/frontend/dist-electron/*.flatpak
+            vectora/frontend/dist-electron/*.tar.gz
             vectora/frontend/dist-electron/latest*.yml
             vectora/frontend/dist-electron/*.blockmap
-          if-no-files-found: warn
+          if-no-files-found: error
           retention-days: 30
+
+  # ── 7. Install Linux artifacts on supported distribution families ────────
+  # Build success alone does not prove package-manager dependencies resolve.
+  # Install the x64 artifacts in clean distro containers so a stale package
+  # name or broken dependency prevents the PR/release matrix from passing.
+  linux-package-install:
+    name: Linux install (${{ matrix.distro }})
+    needs: release-native
+    if: needs.release-native.result == 'success'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: Ubuntu 22.04
+            image: ubuntu:22.04
+            family: deb
+          - distro: Ubuntu 24.04
+            image: ubuntu:24.04
+            family: deb
+          - distro: Ubuntu 26.04
+            image: ubuntu:26.04
+            family: deb
+          - distro: Debian 12
+            image: debian:12
+            family: deb
+          - distro: Debian 13
+            image: debian:13
+            family: deb
+          - distro: Fedora
+            image: fedora:latest
+            family: rpm
+          - distro: Arch Linux
+            image: archlinux:latest
+            family: pacman
+    steps:
+      - name: Download Linux x64 installers
+        uses: actions/download-artifact@v8
+        with:
+          name: vectora-linux-x64
+          path: dist-electron
+      - name: Install package and verify runtime libraries
+        env:
+          DISTRO_IMAGE: ${{ matrix.image }}
+          PACKAGE_FAMILY: ${{ matrix.family }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --env PACKAGE_FAMILY \
+            --env DISTRO_IMAGE \
+            --volume "$GITHUB_WORKSPACE/dist-electron:/artifacts:ro" \
+            "$DISTRO_IMAGE" sh -euc '
+              case "$PACKAGE_FAMILY" in
+                deb)
+                  apt-get update
+                  apt-get install -y xvfb /artifacts/Vectora-*-linux-amd64.deb
+                  dpkg-query -s vectora | grep -F "Status: install ok installed"
+                  ;;
+                rpm)
+                  dnf install -y xorg-x11-server-Xvfb /artifacts/Vectora-*-linux-x86_64.rpm
+                  rpm -q vectora
+                  ;;
+                pacman)
+                  pacman -Sy --noconfirm
+                  pacman -S --noconfirm xorg-server-xvfb
+                  pacman -U --noconfirm /artifacts/Vectora-*-linux-x64.pacman
+                  pacman -Q vectora
+                  ;;
+                *) echo "Unsupported package family: $PACKAGE_FAMILY" >&2; exit 2 ;;
+              esac
+              executable=/opt/Vectora/vectora
+              test -x "$executable"
+              ldd "$executable" | tee /tmp/vectora-ldd.txt
+              if grep -q "not found" /tmp/vectora-ldd.txt; then
+                echo "Vectora has unresolved runtime libraries in $DISTRO_IMAGE" >&2
+                exit 1
+              fi
+              command -v xvfb-run
+              set +e
+              VECTORA_LICENSE_BYPASS=1 timeout --signal=TERM 25s \
+                xvfb-run -a "$executable" --no-sandbox --disable-gpu --enable-logging=stderr \
+                > /tmp/vectora-startup.log 2>&1
+              startup_status=$?
+              set -e
+              cat /tmp/vectora-startup.log
+              if [ "$startup_status" -ne 124 ]; then
+                echo "Vectora exited before the 25-second startup smoke window (status $startup_status)." >&2
+                exit 1
+              fi
+              if grep -Eiq "error while loading shared libraries|FATAL.*(error|exception)" /tmp/vectora-startup.log; then
+                echo "Vectora reported a fatal startup error in $DISTRO_IMAGE." >&2
+                exit 1
+              fi
+              VECTORA_LICENSE_BYPASS=1 timeout --signal=TERM 300s \
+                xvfb-run -a "$executable" --no-sandbox --tests \
+                > /tmp/vectora-installed-tests.log 2>&1 || {
+                  status=$?
+                  cat /tmp/vectora-installed-tests.log
+                  echo "Installed Vectora test suite failed in $DISTRO_IMAGE (status $status)." >&2
+                  exit "$status"
+                }
+              cat /tmp/vectora-installed-tests.log
+            '
+
+  # Install the actual Windows/macOS packages (and both architectures), then
+  # verify their installed paths and keep the real desktop process alive long
+  # enough to catch loader, Gatekeeper, and first-launch failures. This is
+  # deliberately downstream of the complete build matrix and gates release.
+  desktop-install-smoke:
+    name: Desktop install and launch (${{ matrix.platform }}/${{ matrix.arch }}/${{ matrix.format }})
+    needs: release-native
+    if: needs.release-native.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Windows
+            os: windows-latest
+            arch: x64
+            format: exe
+          - platform: Windows
+            os: windows-latest
+            arch: x64
+            format: msi
+          - platform: Windows
+            os: windows-11-arm
+            arch: arm64
+            format: exe
+          - platform: Windows
+            os: windows-11-arm
+            arch: arm64
+            format: msi
+          - platform: macOS
+            os: macos-26
+            arch: arm64
+            format: dmg
+          - platform: macOS
+            os: macos-26
+            arch: arm64
+            format: zip
+          - platform: Linux
+            os: ubuntu-24.04
+            arch: x64
+            format: deb
+          - platform: Linux
+            os: ubuntu-24.04-arm
+            arch: arm64
+            format: deb
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Download native installer
+        uses: actions/download-artifact@v8
+        with:
+          name: vectora-${{ matrix.platform == 'Windows' && 'win' || matrix.platform == 'macOS' && 'mac' || 'linux' }}-${{ matrix.arch }}
+          path: installers
+      - name: Install and launch Windows installer
+        if: matrix.platform == 'Windows'
+        shell: pwsh
+        env:
+          INSTALLER_FORMAT: ${{ matrix.format }}
+        run: |
+          $installer = Get-ChildItem "$env:GITHUB_WORKSPACE\installers" -File | Where-Object { $_.Extension -eq ".${env:INSTALLER_FORMAT}" } | Select-Object -First 1
+          if (-not $installer) { throw "No .$env:INSTALLER_FORMAT installer was downloaded." }
+          if ($env:INSTALLER_FORMAT -eq "msi") {
+            $install = Start-Process msiexec.exe -ArgumentList @("/i", $installer.FullName, "/qn", "/norestart", "/l*v", "$env:RUNNER_TEMP\vectora-install.log") -Wait -PassThru
+          } else {
+            $install = Start-Process -FilePath $installer.FullName -ArgumentList @("/S") -Wait -PassThru
+          }
+          if ($install.ExitCode -ne 0) { throw "Installer failed with exit code $($install.ExitCode)." }
+          $candidates = @("$env:LOCALAPPDATA\Programs\Vectora\Vectora.exe", "$env:ProgramFiles\Vectora\Vectora.exe", "${env:ProgramFiles(x86)}\Vectora\Vectora.exe")
+          $app = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $app) { throw "Installed Vectora.exe was not found in standard install locations." }
+          Write-Host "Installed executable: $app"
+          $stdout = "$env:RUNNER_TEMP\vectora.stdout.log"
+          $stderr = "$env:RUNNER_TEMP\vectora.stderr.log"
+          $process = Start-Process -FilePath $app -ArgumentList @("--disable-gpu", "--enable-logging=stderr") -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+          Start-Sleep -Seconds 20
+          $process.Refresh()
+          if ($process.HasExited) {
+            Get-Content $stdout, $stderr -ErrorAction SilentlyContinue
+            throw "Vectora exited during first-launch smoke test (code $($process.ExitCode))."
+          }
+          Stop-Process -Id $process.Id -Force
+          Get-Content $stdout, $stderr -ErrorAction SilentlyContinue
+          & $app --tests 2>&1 | Tee-Object -FilePath "$env:RUNNER_TEMP\vectora-installed-tests.log"
+          if ($LASTEXITCODE -ne 0) { throw "Installed Vectora test suite failed with exit code $LASTEXITCODE." }
+      - name: Install and launch macOS installer
+        if: matrix.platform == 'macOS'
+        shell: bash
+        env:
+          INSTALLER_FORMAT: ${{ matrix.format }}
+        run: |
+          set -euo pipefail
+          installer=$(find "$GITHUB_WORKSPACE/installers" -maxdepth 1 -type f -name "*.$INSTALLER_FORMAT" -print -quit)
+          test -n "$installer" || { echo "No .$INSTALLER_FORMAT installer was downloaded." >&2; exit 1; }
+          app="$RUNNER_TEMP/Vectora.app"
+          if [[ "$INSTALLER_FORMAT" == "dmg" ]]; then
+            mount="$RUNNER_TEMP/vectora-dmg"
+            mkdir -p "$mount"
+            hdiutil attach "$installer" -nobrowse -readonly -mountpoint "$mount"
+            app_source=$(find "$mount" -maxdepth 2 -name Vectora.app -print -quit)
+            test -n "$app_source" || { hdiutil detach "$mount"; echo "Vectora.app missing from DMG." >&2; exit 1; }
+            ditto "$app_source" "$app"
+            hdiutil detach "$mount"
+          else
+            unpack="$RUNNER_TEMP/vectora-zip"
+            mkdir -p "$unpack"
+            ditto -x -k "$installer" "$unpack"
+            app_source=$(find "$unpack" -maxdepth 3 -name Vectora.app -print -quit)
+            test -n "$app_source" || { echo "Vectora.app missing from ZIP." >&2; exit 1; }
+            ditto "$app_source" "$app"
+          fi
+          executable="$app/Contents/MacOS/Vectora"
+          test -x "$executable" || { echo "Installed app executable is missing: $executable" >&2; exit 1; }
+          file "$executable"
+          codesign --verify --deep --strict "$app"
+          VECTORA_LICENSE_BYPASS=1 "$executable" --disable-gpu --enable-logging=stderr > "$RUNNER_TEMP/vectora-startup.log" 2>&1 &
+          pid=$!
+          sleep 20
+          if ! kill -0 "$pid" 2>/dev/null; then
+            cat "$RUNNER_TEMP/vectora-startup.log"
+            wait "$pid" || status=$?
+            echo "Vectora exited during first-launch smoke test (code ${status:-0})." >&2
+            exit 1
+          fi
+          kill "$pid"
+          wait "$pid" || true
+          cat "$RUNNER_TEMP/vectora-startup.log"
+          VECTORA_LICENSE_BYPASS=1 "$executable" --tests > "$RUNNER_TEMP/vectora-installed-tests.log" 2>&1 || {
+            status=$?
+            cat "$RUNNER_TEMP/vectora-installed-tests.log"
+            echo "Installed Vectora test suite failed (status $status)." >&2
+            exit "$status"
+          }
+          cat "$RUNNER_TEMP/vectora-installed-tests.log"
+      - name: Install and launch Linux package
+        if: matrix.platform == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          deb=$(find "$GITHUB_WORKSPACE/installers" -maxdepth 1 -type f -name '*.deb' -print -quit)
+          test -n "$deb" || { echo "Downloaded .deb installer is missing." >&2; exit 1; }
+          sudo apt-get install -y xvfb "$deb"
+          dpkg-query -s vectora | grep -F "Status: install ok installed"
+          executable=$(command -v vectora)
+          test -x "$executable"
+          echo "Installed executable: $executable"
+          ldd "$executable" | tee "$RUNNER_TEMP/vectora-ldd.log"
+          if grep -q "not found" "$RUNNER_TEMP/vectora-ldd.log"; then
+            echo "Installed Vectora has unresolved shared libraries." >&2
+            exit 1
+          fi
+          set +e
+          VECTORA_LICENSE_BYPASS=1 timeout --signal=TERM 25s \
+            xvfb-run -a "$executable" --no-sandbox --disable-gpu --enable-logging=stderr \
+            > "$RUNNER_TEMP/vectora-startup.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/vectora-startup.log"
+          if [ "$status" -ne 124 ]; then
+            echo "Vectora exited before the 25-second startup smoke window (status $status)." >&2
+            exit 1
+          fi
+          if grep -Eiq "error while loading shared libraries|FATAL.*(error|exception)" "$RUNNER_TEMP/vectora-startup.log"; then
+            echo "Vectora reported a fatal startup error." >&2
+            exit 1
+          fi
+          VECTORA_LICENSE_BYPASS=1 timeout --signal=TERM 300s \
+            xvfb-run -a vectora --no-sandbox --tests \
+            > "$RUNNER_TEMP/vectora-installed-tests.log" 2>&1 || {
+              status=$?
+              cat "$RUNNER_TEMP/vectora-installed-tests.log"
+              echo "Installed Vectora test suite failed (status $status)." >&2
+              exit "$status"
+            }
+          cat "$RUNNER_TEMP/vectora-installed-tests.log"
 
   # ── 7. Publish to update channel (R2 + KV) ───────────────────────────────
   # Roda uma única vez, depois que TODA a matriz (linux/mac/win) terminou —
@@ -621,7 +1039,13 @@ jobs:
   # rollout_percent/previous_stable/history por race condition.
   publish-update-channel:
     name: Publish to update channel (R2 + KV)
-    needs: [release-native, release-channel]
+    needs:
+      [
+        release-native,
+        release-channel,
+        linux-package-install,
+        desktop-install-smoke,
+      ]
     if: >-
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
@@ -653,6 +1077,12 @@ jobs:
           pattern: vectora-*
           path: dist-electron-all
           merge-multiple: true
+      - name: Create release checksums and optional GPG signatures
+        working-directory: .
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: bash utils/signing/sign-release-artifacts.sh dist-electron-all
       - name: Install services deps
         working-directory: services
         run: pnpm install --frozen-lockfile
@@ -739,6 +1169,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -770,6 +1201,12 @@ jobs:
         with:
           name: gha-bot-cli-linux-x64
           path: dist-release/gha-bot-cli
+      - name: Create release checksums and optional GPG signatures
+        working-directory: .
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: bash utils/signing/sign-release-artifacts.sh dist-release
       - name: Create tag after successful distribution
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -804,3 +1241,6 @@ jobs:
             gh release upload "$TAG" "${assets[@]}" \
               --repo "$GITHUB_REPOSITORY" --clobber
           fi
+          gh workflow run rotate-release-lines.yml \
+            --repo "$GITHUB_REPOSITORY" --ref master \
+            --field "release_tag=$TAG" --field "target_branch=master"

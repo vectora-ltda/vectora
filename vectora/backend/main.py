@@ -189,6 +189,7 @@ def _build_parser() -> argparse.ArgumentParser:
   vectora start --headless             servidor headless (VPS/systemd)
   vectora start --port 9000            porta customizada
   vectora web                          webapp com Electron/Chromium, sem bandeja
+  vectora --tests                      testa esta instalação (baixa pytest sob demanda)
 
   vectora config                       mostra configuração completa
   vectora config keys                  wizard: API keys + LLM provider
@@ -214,6 +215,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "-V",
         action="version",
         version=f"vectora {__version__}",
+    )
+    parser.add_argument(
+        "--tests",
+        action="store_true",
+        help="Baixa pytest sob demanda e valida a instalação real do app",
     )
 
     sub = parser.add_subparsers(dest="command", metavar="subcommand")
@@ -981,6 +987,11 @@ def run() -> None:
     """Ponto de entrada síncrono — comando ``vectora``."""
     parser = _build_parser()
     args = parser.parse_args()
+
+    if args.tests:
+        from backend.cli.runtime_tests import run_installed_runtime_tests
+
+        raise SystemExit(run_installed_runtime_tests())
 
     command = getattr(args, "command", None)
 

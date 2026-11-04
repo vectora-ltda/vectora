@@ -12,6 +12,7 @@ on:
       - "release/**"
     tags:
       - "v*"
+  workflow_dispatch:
 
 concurrency:
   group: release-please-${{ github.repository }}
@@ -27,9 +28,10 @@ jobs:
     # O push que mescla uma PR de release aguarda o build/distribuição do app.
     # A tag criada por vectora.yml é o evento que libera esta automação.
     if: >-
-      github.event_name == 'push' &&
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
       (startsWith(github.ref, 'refs/tags/v') ||
-      !contains(github.event.head_commit.message, 'chore(master): release '))
+      !contains(github.event.head_commit.message, 'chore(master): release ')))
     runs-on: ubuntu-24.04
     steps:
       - name: Load release line configuration
@@ -81,6 +83,7 @@ jobs:
             fi
             config_file="$(jq -er ".${line_key}.release_please_config" .github/release-lines.json)"
             manifest_file="$(jq -er ".${line_key}.release_please_manifest" .github/release-lines.json)"
+            pr_milestone="$maintenance_milestone"
             if [[ "$config_file" == /* || "$config_file" == *..* || "$manifest_file" == /* || "$manifest_file" == *..* ]]; then
               echo "::error::Os caminhos do Release Please devem ser relativos e não podem subir diretórios." >&2
               exit 1
@@ -93,6 +96,7 @@ jobs:
             config_file=""
             manifest_file=""
             release_target_branch=""
+            pr_milestone=""
           fi
           {
             echo "development_branch=$development_branch"
@@ -103,6 +107,7 @@ jobs:
             echo "manifest_file=$manifest_file"
             echo "release_target_branch=$release_target_branch"
             echo "release_milestone=$release_milestone"
+            echo "pr_milestone=$pr_milestone"
           } >> "$GITHUB_OUTPUT"
           if [[ "$(grep '^enabled=' "$GITHUB_OUTPUT" | tail -n 1)" == "enabled=false" ]]; then
             echo "Skipping release-please on unconfigured branch $TARGET_BRANCH."
@@ -123,11 +128,18 @@ jobs:
           set -euo pipefail
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch --tags --force origin
-          latest_tag="$(git tag --merged "origin/$TARGET_BRANCH" --list 'v*' --sort=-version:refname | head -n 1)"
+          current_version="$(jq -er '.["."]' "$RELEASE_MANIFEST")"
+          release_major_minor="${current_version%.*}"
+          latest_tag="$(git tag --merged "origin/$TARGET_BRANCH" --list "v${release_major_minor}.*" --sort=-version:refname | head -n 1)"
           if [[ -n "$latest_tag" ]]; then
             latest_tag_epoch="$(git show -s --format=%ct "$latest_tag")"
           else
-            latest_tag_epoch=0
+            release_commit="$(git log -1 --format=%H "origin/$TARGET_BRANCH" --fixed-strings --grep="chore(master): release $current_version")"
+            if [[ -n "$release_commit" ]]; then
+              latest_tag_epoch="$(git show -s --format=%ct "$release_commit")"
+            else
+              latest_tag_epoch=0
+            fi
           fi
           prs="$(gh pr list --repo "$GITHUB_REPOSITORY" --base "$CANDIDATE_BASE_BRANCH" --state merged --limit 100 --json milestone,labels,mergedAt)"
           has_candidates="$(jq -r --arg milestone "$RELEASE_MILESTONE" --argjson latest_tag_epoch "$latest_tag_epoch" '
@@ -159,26 +171,23 @@ jobs:
             echo "Skipping unconfigured source branch $TARGET_BRANCH."
             exit 0
           fi
-          latest_tag="$(git tag --merged "$source_ref" --list 'v*' --sort=-version:refname | head -n 1)"
+          manifest_version="$(jq -er '.["."]' "$RELEASE_MANIFEST")"
+          release_major_minor="${manifest_version%.*}"
+          latest_tag="$(git tag --merged "$source_ref" --list "v${release_major_minor}.*" --sort=-version:refname | head -n 1)"
           if [[ -n "$latest_tag" ]]; then
             git log --format='%s%x1f%b%x1e' "$latest_tag..$source_ref" | jq -R -s 'split("\u001e") | map(select(length > 0)) | map({subject: (split("\u001f")[0]), body: (split("\u001f")[1] // "")})' > "$RUNNER_TEMP/release-commits.json"
           else
-            git log --format='%s%x1f%b%x1e' "$source_ref" | jq -R -s 'split("\u001e") | map(select(length > 0)) | map({subject: (split("\u001f")[0]), body: (split("\u001f")[1] // "")})' > "$RUNNER_TEMP/release-commits.json"
+            release_commit="$(git log -1 --format=%H "$source_ref" --fixed-strings --grep="chore(master): release $manifest_version")"
+            if [[ -n "$release_commit" ]]; then
+              git log --format='%s%x1f%b%x1e' "$release_commit..$source_ref" | jq -R -s 'split("\u001e") | map(select(length > 0)) | map({subject: (split("\u001f")[0]), body: (split("\u001f")[1] // "")})' > "$RUNNER_TEMP/release-commits.json"
+            else
+              git log --format='%s%x1f%b%x1e' "$source_ref" | jq -R -s 'split("\u001e") | map(select(length > 0)) | map({subject: (split("\u001f")[0]), body: (split("\u001f")[1] // "")})' > "$RUNNER_TEMP/release-commits.json"
+            fi
           fi
           if [[ -n "$latest_tag" ]]; then
-            current_version=""
-            if git cat-file -e "$latest_tag:$RELEASE_MANIFEST" 2>/dev/null; then
-              current_version="$(git show "$latest_tag:$RELEASE_MANIFEST" | jq -er '.["."] // empty')" || true
-            fi
-            if [[ -z "$current_version" ]] && git cat-file -e "$latest_tag:.release-please-manifest.json" 2>/dev/null; then
-              current_version="$(git show "$latest_tag:.release-please-manifest.json" | jq -er '.vectora // empty')" || true
-            fi
-            if [[ -z "$current_version" ]]; then
-              echo "::error::Nenhum manifesto de release válido foi encontrado na tag $latest_tag." >&2
-              exit 1
-            fi
+            current_version="$manifest_version"
           else
-            current_version="$(jq -er '.["."]' "$RELEASE_MANIFEST")"
+            current_version="$manifest_version"
           fi
           if [[ ! "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::Versão inválida no manifesto de release: $current_version" >&2
@@ -265,6 +274,9 @@ jobs:
             --files vectora/pyproject.toml vectora/frontend/package.json services/package.json company/package.json vectora/uv.lock \
             --apply $bump_flag
           python utils/normalize_changelog_lists.py
+          uv run --project vectora python utils/prepare_release_line_config.py \
+            vectora/CHANGELOG.md .github/release-lines.json \
+            .release-please-manifest.maintenance.json "$TARGET_BRANCH"
 
       - name: Commit and push canonical release branch
         if: steps.release-plan.outputs.enabled == 'true'
@@ -280,7 +292,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if ! git diff --quiet; then
-            git add "$RELEASE_MANIFEST" vectora/CHANGELOG.md vectora/pyproject.toml vectora/frontend/package.json services/package.json company/package.json vectora/uv.lock
+            git add "$RELEASE_MANIFEST" .release-please-manifest.maintenance.json .github/release-lines.json vectora/CHANGELOG.md vectora/pyproject.toml vectora/frontend/package.json services/package.json company/package.json vectora/uv.lock
             git commit -m "chore(master): release $RELEASE_VERSION"
           fi
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
@@ -301,7 +313,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_BRANCH: ${{ steps.release-plan.outputs.branch }}
           RELEASE_TARGET_BRANCH: ${{ steps.release-line.outputs.release_target_branch }}
-          RELEASE_MILESTONE: ${{ steps.release-line.outputs.release_milestone }}
+          RELEASE_MILESTONE: ${{ steps.release-line.outputs.pr_milestone }}
           RELEASE_VERSION: ${{ steps.release-plan.outputs.version }}
         shell: bash
         run: |

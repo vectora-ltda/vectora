@@ -95,10 +95,26 @@ describe("parseDownloadTarget", () => {
       arch: "arm64",
       ext: "dmg",
     });
+    expect(parseDownloadTarget("linux-arm64.pkg.tar.zst")).toEqual({
+      os: "linux",
+      arch: "arm64",
+      ext: "pkg.tar.zst",
+    });
+    expect(parseDownloadTarget("linux-x64.tar.gz")).toEqual({
+      os: "linux",
+      arch: "x64",
+      ext: "tar.gz",
+    });
   });
 
   it("formato inválido (sem hífen, sem extensão, segmentos extras) → null", () => {
-    for (const t of ["winx64.exe", "win-x64", "win-x64-extra.exe", ""]) {
+    for (const t of [
+      "winx64.exe",
+      "win-x64",
+      "win-x64-extra.exe",
+      "linux-x64.pkg.tar.zst.exe",
+      "",
+    ]) {
       expect(parseDownloadTarget(t)).toBeNull();
     }
   });
@@ -143,6 +159,27 @@ describe("GET /download/:channel/:target", () => {
     expect(res.headers.get("X-Vectora-Version")).toBe("1.2.0");
     expect(res.headers.get("Content-Disposition")).toContain(
       "Vectora-1.2.0-win-x64.exe",
+    );
+  });
+
+  it("preserva extensão composta no download do pacote Arch Linux", async () => {
+    const env = fakeEnv({
+      config: {
+        channels: { latest: { version: "1.2.0", rollout_percent: 100 } },
+        quarantined: [],
+      },
+      fileBody: "pacote-pacman",
+    });
+
+    const res = await app.request(
+      "/download/latest/linux-arm64.pkg.tar.zst",
+      {},
+      env as never,
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("Content-Disposition")).toContain(
+      "Vectora-1.2.0-linux-arm64.pkg.tar.zst",
     );
   });
 

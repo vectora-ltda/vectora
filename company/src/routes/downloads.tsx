@@ -29,11 +29,15 @@ interface Platform {
   install: () => string;
 }
 
-function href(osToken: string, arch: string, ext: string): string {
+export function downloadHref(
+  osToken: string,
+  arch: string,
+  ext: string,
+): string {
   return `${UPDATE_SERVER}/download/${CHANNEL}/${osToken}-${arch}.${ext}`;
 }
 
-const PLATFORMS: Platform[] = [
+export const PLATFORMS: Platform[] = [
   {
     os: "windows",
     osToken: "win",
@@ -42,6 +46,7 @@ const PLATFORMS: Platform[] = [
     primary: { arch: "x64", ext: "exe", label: ".exe (x64)" },
     others: [
       { arch: "arm64", ext: "exe", label: ".exe (ARM64)" },
+      { arch: "arm64", ext: "msi", label: ".msi (ARM64)" },
       { arch: "x64", ext: "msi", label: ".msi (x64)" },
     ],
     install: m.downloads_install_windows,
@@ -52,7 +57,7 @@ const PLATFORMS: Platform[] = [
     label: "macOS",
     emoji: "🍎",
     primary: { arch: "arm64", ext: "dmg", label: ".dmg (Apple Silicon)" },
-    others: [],
+    others: [{ arch: "arm64", ext: "zip", label: ".zip (Apple Silicon)" }],
     install: m.downloads_install_macos,
   },
   {
@@ -66,6 +71,15 @@ const PLATFORMS: Platform[] = [
       { arch: "x64", ext: "deb", label: ".deb (x64)" },
       { arch: "arm64", ext: "deb", label: ".deb (ARM64)" },
       { arch: "x64", ext: "rpm", label: ".rpm (x64)" },
+      { arch: "arm64", ext: "rpm", label: ".rpm (ARM64)" },
+      { arch: "x64", ext: "snap", label: ".snap (x64)" },
+      { arch: "arm64", ext: "snap", label: ".snap (ARM64)" },
+      { arch: "x64", ext: "pkg.tar.zst", label: ".pkg.tar.zst (x64)" },
+      { arch: "arm64", ext: "pkg.tar.zst", label: ".pkg.tar.zst (ARM64)" },
+      { arch: "x64", ext: "flatpak", label: ".flatpak (x64)" },
+      { arch: "arm64", ext: "flatpak", label: ".flatpak (ARM64)" },
+      { arch: "x64", ext: "tar.gz", label: ".tar.gz (x64)" },
+      { arch: "arm64", ext: "tar.gz", label: ".tar.gz (ARM64)" },
     ],
     install: m.downloads_install_linux,
   },
@@ -140,7 +154,7 @@ function DownloadsPage() {
                   </p>
                 </div>
                 <a
-                  href={href(p.osToken, p.primary.arch, p.primary.ext)}
+                  href={downloadHref(p.osToken, p.primary.arch, p.primary.ext)}
                   className="mt-1 inline-flex items-center gap-1.5 rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
                 >
                   <Download className="h-4 w-4" />
@@ -153,12 +167,13 @@ function DownloadsPage() {
                   <p className="mb-1.5 text-center text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                     {m.downloads_other_variants()}
                   </p>
-                  <div className="flex flex-wrap justify-center gap-x-3 gap-y-1">
+                  <div className="flex flex-wrap justify-center gap-2">
                     {p.others.map((v) => (
                       <a
                         key={`${v.arch}-${v.ext}`}
-                        href={href(p.osToken, v.arch, v.ext)}
-                        className="text-xs text-muted-foreground underline decoration-dotted hover:text-primary"
+                        href={downloadHref(p.osToken, v.arch, v.ext)}
+                        aria-label={`${m.downloads_cta()}: ${p.label} ${v.label}`}
+                        className="rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary"
                       >
                         {v.label}
                       </a>

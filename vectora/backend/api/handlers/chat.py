@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Annotated, Any, Protocol, TypedDict
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 
 from backend.api.native_stream import stream_engine_events
 from backend.api.schemas import (
@@ -78,6 +79,10 @@ class TranscriptionReadinessResponse(TypedDict):
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+class CancelRunRequest(BaseModel):
+    thread_id: str = Field(min_length=1, max_length=200)
 
 
 class _SessionStore(Protocol):
@@ -1254,6 +1259,20 @@ async def stream_chat(
             _CHAT_PERSISTED_HEADER: "1",
         },
     )
+
+
+@router.post("/vectora.chat.v1.ChatService/CancelRun")
+async def cancel_run(
+    request: CancelRunRequest, http_request: Request
+) -> dict[str, int | bool]:
+    """Cancel an active run after verifying ownership of its conversation."""
+    from backend.api.handlers.threads import _assert_owns_thread
+
+    await _assert_owns_thread(request.thread_id, http_request, require_existing=True)
+    from backend.api.native_stream import cancel_active_runs
+
+    cancelled = cancel_active_runs(request.thread_id)
+    return {"cancelled": cancelled > 0, "cancelled_runs": cancelled}
 
 
 # ---------------------------------------------------------------------------
