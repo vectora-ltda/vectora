@@ -489,6 +489,15 @@ def test_native_release_builds_lancedb_from_source_on_unsupported_platforms() ->
     )
     assert "platform_machine != 'x86_64'" in dependency
     assert "platform_machine != 'ARM64'" in dependency
+    local_transcription = next(
+        line
+        for line in (WORKFLOW.parent.parent.parent / "vectora" / "pyproject.toml")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip().startswith('"faster-whisper>=')
+    )
+    assert "platform_machine != 'x86_64'" in local_transcription
+    assert "platform_machine != 'ARM64'" in local_transcription
 
 
 def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline() -> (
