@@ -221,7 +221,8 @@ class TestOidcCallback:
         assert "vectora_access" in r.cookies
         assert "vectora_refresh" in r.cookies
 
-        me = client.get("/auth/me", cookies=r.cookies)
+        client.cookies.update(r.cookies)
+        me = client.get("/auth/me")
         assert me.status_code == 200
         assert me.json()["email"] == "sso@example.com"
 
