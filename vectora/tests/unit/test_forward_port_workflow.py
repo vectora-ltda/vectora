@@ -465,6 +465,7 @@ def test_native_release_builds_lancedb_from_source_on_unsupported_platforms() ->
 
     assert "actions-rust-lang/setup-rust-toolchain@v2" in content
     assert "toolchain: 1.97.0" in content
+    assert "cache: false" in content
     assert "if: matrix.target == 'mac' && matrix.arch == 'x64'" in content
     assert "if: matrix.target == 'win' && matrix.arch == 'arm64'" in content
     assert "brew install protobuf" in content
@@ -473,7 +474,7 @@ def test_native_release_builds_lancedb_from_source_on_unsupported_platforms() ->
     assert "repository: lancedb/lancedb" in content
     assert "ref: b1b080b97c3edd2fd9f2aae8a3b71ff19487b1f8" in content
     assert "persist-credentials: false" in content
-    assert "cp ../LICENSE LICENSE" in content
+    assert "if ! cmp -s ../LICENSE LICENSE; then cp ../LICENSE LICENSE; fi" in content
     assert "Copy-Item ..\\LICENSE LICENSE" in content
     assert "uv build --wheel --out-dir ../../.lancedb-dist" in content
     assert "uv pip install --python vectora/.venv/bin/python" in content
@@ -506,6 +507,14 @@ def test_native_release_builds_lancedb_from_source_on_unsupported_platforms() ->
         if line.strip().startswith('"psycopg-binary>=')
     )
     assert "platform_machine != 'ARM64'" in psycopg_binary
+    qdrant_client = next(
+        line
+        for line in (WORKFLOW.parent.parent.parent / "vectora" / "pyproject.toml")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip().startswith('"qdrant-client>=')
+    )
+    assert "platform_machine != 'ARM64'" in qdrant_client
 
 
 def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline() -> (

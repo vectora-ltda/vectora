@@ -53,7 +53,10 @@ dependencies = [
     "pyautogui-next>=0.9.55",
     "redis[hiredis]>=7.4.1",
     "asyncpg>=0.31.0",
-    "qdrant-client>=1.18.0",
+    # qdrant-client requires grpcio, which has no Windows ARM64 wheel and
+    # currently fails to build there with conflicting MSVC /std flags.
+    # Windows ARM remains usable with local SQLite/LanceDB; Qdrant is omitted.
+    "qdrant-client>=1.18.0 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
     # SDKs oficiais usados direto por backend/tools/media.py (geração de
     # imagem/áudio) e backend/llm/transcription.py.
     "openai>=2.52.0",

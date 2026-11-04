@@ -451,6 +451,9 @@ jobs:
         if: (matrix.target == 'mac' && matrix.arch == 'x64') || (matrix.target == 'win' && matrix.arch == 'arm64')
         with:
           toolchain: 1.97.0
+          # LanceDB source builds use Cargo, but this repository has no root
+          # Cargo workspace for rust-cache to inspect during post-job cleanup.
+          cache: false
       - uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
@@ -482,14 +485,16 @@ jobs:
         if: matrix.target == 'mac' && matrix.arch == 'x64'
         shell: bash
         run: |
-          cp ../LICENSE LICENSE
+          if ! cmp -s ../LICENSE LICENSE; then cp ../LICENSE LICENSE; fi
           uv build --wheel --out-dir ../../.lancedb-dist
         working-directory: .lancedb-src/python
       - name: Build LanceDB wheel from upstream source (Windows ARM64)
         if: matrix.target == 'win' && matrix.arch == 'arm64'
         shell: pwsh
         run: |
-          Copy-Item ..\LICENSE LICENSE
+          if ((Get-FileHash ..\LICENSE).Hash -ne (Get-FileHash LICENSE).Hash) {
+            Copy-Item ..\LICENSE LICENSE
+          }
           uv build --wheel --out-dir ../../.lancedb-dist
         working-directory: .lancedb-src/python
       - name: Install source-built LanceDB (macOS Intel)
