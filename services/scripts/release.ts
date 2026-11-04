@@ -131,7 +131,13 @@ export function validateReleaseFormats(files: string[], version: string): void {
   for (const file of files) {
     const match = INSTALLER_RE.exec(file);
     if (!match?.groups || match.groups.version !== version) continue;
-    const key = `${match.groups.os}/${normalizeInstallerArch(match.groups.arch)}`;
+    const arch = normalizeInstallerArch(match.groups.arch);
+    if (match.groups.os === "mac" && arch !== "arm64") {
+      throw new Error(
+        `Arquitetura macOS não suportada: ${arch}; somente Apple Silicon (arm64) é publicado`,
+      );
+    }
+    const key = `${match.groups.os}/${arch}`;
     const formats = available.get(key) ?? new Set<string>();
     formats.add(match.groups.ext);
     available.set(key, formats);
@@ -158,11 +164,11 @@ export const MANIFEST_OS: Record<string, string> = {
   "latest-linux.yml": "linux",
 };
 
-// Arquiteturas reais publicadas por SO (electron-builder.yml). Win, mac e
-// Linux publicam manifests separados para cada arquitetura suportada.
+// Arquiteturas reais publicadas por SO (electron-builder.yml). macOS é
+// publicado apenas para Apple Silicon; Windows e Linux publicam ambas.
 export const MANIFEST_ARCHES: Record<string, string[]> = {
   win: ["x64", "arm64"],
-  mac: ["x64", "arm64"],
+  mac: ["arm64"],
   linux: ["x64", "arm64"],
 };
 

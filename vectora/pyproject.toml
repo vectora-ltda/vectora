@@ -99,9 +99,9 @@ dependencies = [
     # fallback (áudio, sem captions) ou pra extrair um frame sob demanda.
     "youtube-transcript-api>=1.2.4",
     "yt-dlp>=2026.3.17",
-    # O runtime local depende de onnxruntime (sem wheel para macOS Intel) e
-    # ctranslate2 (sem wheel para Windows ARM64). Nesses alvos, a transcrição
-    # remota continua disponível e a readiness local reporta a dependência ausente.
+    # ctranslate2 não publica wheel para Windows ARM64; nesse alvo, a
+    # transcrição remota continua disponível e a readiness local reporta a dependência ausente.
+    # macOS Intel não é um alvo suportado e também não possui as wheels locais necessárias.
     "faster-whisper>=1.2.1 ; (sys_platform != 'darwin' or platform_machine != 'x86_64') and (sys_platform != 'win32' or platform_machine != 'ARM64')",
 ]
 

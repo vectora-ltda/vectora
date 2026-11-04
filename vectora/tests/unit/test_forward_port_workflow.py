@@ -465,12 +465,18 @@ def test_native_release_uses_supported_python_architectures_for_backend_deps() -
     setup_uv = (
         WORKFLOW.parent.parent / "actions" / "setup-uv" / "action.yml"
     ).read_text(encoding="utf-8")
+    release_matrix = (
+        WORKFLOW.parent.parent.parent
+        / "services"
+        / "src"
+        / "updates"
+        / "release-matrix.ts"
+    ).read_text(encoding="utf-8")
 
-    assert "actions-rust-lang/setup-rust-toolchain@v2" in content
-    assert "toolchain: 1.97.0" in content
-    assert "cache: false" in content
-    assert "if: matrix.target == 'mac' && matrix.arch == 'x64'" in content
-    assert "brew install protobuf" in content
+    assert "macos-26-intel" not in content
+    assert '"mac/x64"' not in release_matrix
+    assert "source-built LanceDB" not in content
+    assert "Cache LanceDB Cargo build" not in content
     assert "PyArrow has no win_arm64" in content
     assert "Electron and the installer remain ARM64-native" in content
     assert (
@@ -479,22 +485,15 @@ def test_native_release_uses_supported_python_architectures_for_backend_deps() -
     )
     assert "architecture:" in setup_uv
     assert 'sync: "false"' in content
-    assert "repository: lancedb/lancedb" in content
-    assert "ref: b1b080b97c3edd2fd9f2aae8a3b71ff19487b1f8" in content
-    assert "persist-credentials: false" in content
-    assert "if ! cmp -s ../LICENSE LICENSE; then cp ../LICENSE LICENSE; fi" in content
-    assert "uv build --wheel --out-dir ../../.lancedb-dist" in content
-    assert "uv pip install --python .venv/bin/python" in content
-    assert '"UV_NO_SYNC=1" >> "$GITHUB_ENV"' in content
-    dependency = next(
+    lancedb_dependency = next(
         line
         for line in (WORKFLOW.parent.parent.parent / "vectora" / "pyproject.toml")
         .read_text(encoding="utf-8")
         .splitlines()
         if line.strip().startswith('"lancedb>=')
     )
-    assert "platform_machine != 'x86_64'" in dependency
-    assert "platform_machine != 'ARM64'" in dependency
+    assert "platform_machine != 'x86_64'" in lancedb_dependency
+    assert "platform_machine != 'ARM64'" in lancedb_dependency
     local_transcription = next(
         line
         for line in (WORKFLOW.parent.parent.parent / "vectora" / "pyproject.toml")
@@ -548,15 +547,6 @@ def test_linux_release_validates_and_uploads_electron_builder_artifact_names() -
     assert "/artifacts/Vectora-*-linux-amd64.deb" in content
     assert "/artifacts/Vectora-*-linux-x86_64.rpm" in content
     assert "/artifacts/Vectora-*-linux-x64.pacman" in content
-
-
-def test_macos_intel_lancedb_source_build_reuses_cargo_cache() -> None:
-    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
-
-    assert "Cache LanceDB Cargo build (macOS Intel)" in content
-    assert "~/.cargo/registry" in content
-    assert ".lancedb-src/target" in content
-    assert "CARGO_TARGET_DIR: ${{ github.workspace }}/.lancedb-src/target" in content
 
 
 def test_nats_release_download_retries_transient_network_failures() -> None:

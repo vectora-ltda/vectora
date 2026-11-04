@@ -435,9 +435,6 @@ jobs:
           - os: macos-26
             arch: arm64
             target: mac
-          - os: macos-26-intel
-            arch: x64
-            target: mac
           - os: windows-latest
             arch: x64
             target: win
@@ -447,67 +444,18 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      # PyPI has no LanceDB wheel for Intel macOS. Windows ARM64 runs the
-      # backend under Windows' x64 emulation because PyArrow has no win_arm64
-      # wheel; Electron and the installer remain ARM64-native.
-      - uses: actions-rust-lang/setup-rust-toolchain@v2
-        if: matrix.target == 'mac' && matrix.arch == 'x64'
-        with:
-          toolchain: 1.97.0
-          # LanceDB source builds use Cargo, but this repository has no root
-          # Cargo workspace for rust-cache to inspect during post-job cleanup.
-          cache: false
+      # Windows ARM64 runs the backend under Windows' x64 emulation because
+      # PyArrow has no win_arm64 wheel; Electron and the installer remain ARM64-native.
       - uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           architecture: ${{ matrix.target == 'win' && matrix.arch == 'arm64' && 'x64' || '' }}
           all-extras: "false"
           sync: "false"
-      - name: Install protobuf compiler for source-built LanceDB (macOS Intel)
-        if: matrix.target == 'mac' && matrix.arch == 'x64'
-        run: brew install protobuf
-      - uses: actions/checkout@v7
-        if: matrix.target == 'mac' && matrix.arch == 'x64'
-        with:
-          repository: lancedb/lancedb
-          # Immutable revision for the upstream v0.40.0 source build.
-          ref: b1b080b97c3edd2fd9f2aae8a3b71ff19487b1f8
-          path: .lancedb-src
-          persist-credentials: false
-      - name: Cache LanceDB Cargo build (macOS Intel)
-        if: matrix.target == 'mac' && matrix.arch == 'x64'
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            .lancedb-src/target
-          key: lancedb-cargo-macos-intel-${{ hashFiles('.lancedb-src/Cargo.lock', '.lancedb-src/python/pyproject.toml') }}
-          restore-keys: |
-            lancedb-cargo-macos-intel-
       - name: Sync dependencies
-        if: (matrix.target != 'mac' || matrix.arch != 'x64') && (matrix.target != 'win' || matrix.arch != 'arm64')
+        if: matrix.target != 'win' || matrix.arch != 'arm64'
         working-directory: vectora
         run: uv sync --frozen
-      - name: Sync locked project dependencies without platform-specific LanceDB
-        if: matrix.target == 'mac' && matrix.arch == 'x64'
-        working-directory: vectora
-        run: uv sync --frozen
-      - name: Build LanceDB wheel from upstream source (macOS Intel)
-        if: matrix.target == 'mac' && matrix.arch == 'x64'
-        shell: bash
-        env:
-          CARGO_TARGET_DIR: ${{ github.workspace }}/.lancedb-src/target
-        run: |
-          if ! cmp -s ../LICENSE LICENSE; then cp ../LICENSE LICENSE; fi
-          uv build --wheel --out-dir ../../.lancedb-dist
-        working-directory: .lancedb-src/python
-      - name: Install source-built LanceDB (macOS Intel)
-        if: matrix.target == 'mac' && matrix.arch == 'x64'
-        shell: bash
-        run: |
-          uv pip install --python .venv/bin/python .lancedb-dist/*.whl
-          echo "UV_NO_SYNC=1" >> "$GITHUB_ENV"
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
@@ -937,14 +885,6 @@ jobs:
             os: windows-11-arm
             arch: arm64
             format: msi
-          - platform: macOS
-            os: macos-26-intel
-            arch: x64
-            format: dmg
-          - platform: macOS
-            os: macos-26-intel
-            arch: x64
-            format: zip
           - platform: macOS
             os: macos-26
             arch: arm64

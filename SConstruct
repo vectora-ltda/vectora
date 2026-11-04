@@ -1274,8 +1274,8 @@ def _ffmpeg_assets() -> list[tuple[str, str]]:
     plataforma. Binários RAW (sem archive zip/tar, ao contrário do
     nats-server) de github.com/descriptinc/ffmpeg-ffprobe-static — mesmo
     projeto que ``ffmpeg-static``/``ffprobe-static`` do npm usam, cobre
-    Windows/macOS/Linux x64+arm64 (sem Windows arm64, raro o bastante pra
-    não bloquear)."""
+    Windows/Linux x64+arm64 e macOS Apple Silicon. Windows ARM64 usa as
+    ferramentas x64 sob emulação."""
     import platform as _plat
 
     sysname = {"windows": "win32", "linux": "linux", "darwin": "darwin"}.get(

@@ -57,11 +57,7 @@ export const PLATFORMS: Platform[] = [
     label: "macOS",
     emoji: "🍎",
     primary: { arch: "arm64", ext: "dmg", label: ".dmg (Apple Silicon)" },
-    others: [
-      { arch: "arm64", ext: "zip", label: ".zip (Apple Silicon)" },
-      { arch: "x64", ext: "dmg", label: ".dmg (Intel)" },
-      { arch: "x64", ext: "zip", label: ".zip (Intel)" },
-    ],
+    others: [{ arch: "arm64", ext: "zip", label: ".zip (Apple Silicon)" }],
     install: m.downloads_install_macos,
   },
   {

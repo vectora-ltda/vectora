@@ -47,15 +47,15 @@ describe("download matrix", () => {
     );
   });
 
-  it("exposes DMG and ZIP for both macOS architectures", () => {
+  it("exposes DMG and ZIP only for Apple Silicon", () => {
     const mac = PLATFORMS.find((platform) => platform.os === "macos");
     expect(mac).toBeDefined();
     const targets = [mac!.primary, ...mac!.others].map(
       ({ arch, ext }) => `${arch}.${ext}`,
     );
-    expect(targets).toEqual(
-      expect.arrayContaining(["x64.dmg", "x64.zip", "arm64.dmg", "arm64.zip"]),
-    );
+    expect(targets).toEqual(expect.arrayContaining(["arm64.dmg", "arm64.zip"]));
+    expect(targets).not.toContain("x64.dmg");
+    expect(targets).not.toContain("x64.zip");
   });
 
   it("exposes every Linux package format on x64 and ARM64", () => {

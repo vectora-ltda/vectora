@@ -120,6 +120,20 @@ describe("extOf", () => {
 });
 
 describe("validateReleaseFormats", () => {
+  it("publica macOS apenas para Apple Silicon", () => {
+    expect(REQUIRED_RELEASE_FORMATS).not.toHaveProperty("mac/x64");
+    expect(REQUIRED_RELEASE_FORMATS["mac/arm64"]).toEqual(["dmg", "zip"]);
+  });
+
+  it("bloqueia artefatos macOS que não sejam Apple Silicon", () => {
+    expect(() =>
+      validateReleaseFormats(
+        ["Vectora-0.3.1-mac-x64.dmg", "Vectora-0.3.1-mac-x64.zip"],
+        "0.3.1",
+      ),
+    ).toThrow(/somente Apple Silicon/);
+  });
+
   it("aceita apenas quando a matriz inteira de formatos está pronta para R2", () => {
     const files = Object.entries(REQUIRED_RELEASE_FORMATS).flatMap(
       ([target, formats]) => {
@@ -303,8 +317,8 @@ describe("MANIFEST_ARCHES", () => {
     expect(MANIFEST_ARCHES.linux).toEqual(["x64", "arm64"]);
   });
 
-  it("mac publica manifesto em x64 e arm64", () => {
-    expect(MANIFEST_ARCHES.mac).toEqual(["x64", "arm64"]);
+  it("mac publica manifesto apenas em Apple Silicon", () => {
+    expect(MANIFEST_ARCHES.mac).toEqual(["arm64"]);
   });
 });
 
