@@ -1368,6 +1368,8 @@ def _action_fetch_nats(target, source, env):
     import io
     import platform as _plat
     import tarfile
+    import time
+    import urllib.error
     import urllib.request
     import zipfile
 
@@ -1381,8 +1383,31 @@ def _action_fetch_nats(target, source, env):
 
     url, member, ext = _nats_asset()
     print(f">> baixando nats-server: {url}")
-    with urllib.request.urlopen(url) as resp:  # noqa: S310 — release fixo do github
-        data = resp.read()
+    # GitHub Releases pode encerrar conexões durante downloads concorrentes da
+    # matriz nativa. Repetir somente falhas transitórias evita reprovar o build
+    # por uma interrupção de rede sem mascarar URLs/arquivos inválidos.
+    for attempt in range(1, 5):
+        try:
+            with urllib.request.urlopen(  # noqa: S310 — release fixo do github
+                url, timeout=60
+            ) as resp:
+                data = resp.read()
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (408, 429, 500, 502, 503, 504) or attempt == 4:
+                raise
+            print(
+                f">> download NATS falhou (HTTP {exc.code}); "
+                f"nova tentativa {attempt}/3"
+            )
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            if attempt == 4:
+                raise
+            print(
+                f">> download NATS falhou ({exc}); "
+                f"nova tentativa {attempt}/3"
+            )
+        time.sleep(2**attempt)
 
     if ext == "zip":
         with zipfile.ZipFile(io.BytesIO(data)) as zf, zf.open(member) as src:
@@ -1394,8 +1419,14 @@ def _action_fetch_nats(target, source, env):
                 raise RuntimeError(f"membro {member} ausente no archive")
             payload = src.read()
 
-    with open(dest, "wb") as out:
-        out.write(payload)
+    temporary_dest = f"{dest}.download"
+    try:
+        with open(temporary_dest, "wb") as out:
+            out.write(payload)
+        os.replace(temporary_dest, dest)
+    finally:
+        if os.path.exists(temporary_dest):
+            os.remove(temporary_dest)
     if not is_win:
         os.chmod(dest, 0o755)
     print(f">> nats-server instalado em {dest}")

@@ -465,6 +465,24 @@ jobs:
       - name: Install protobuf compiler for source-built LanceDB (Windows ARM64)
         if: matrix.target == 'win' && matrix.arch == 'arm64'
         run: choco install protoc --yes --no-progress
+      - name: Install OpenSSL for source-built cryptography (Windows ARM64)
+        if: matrix.target == 'win' && matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          $vcpkgRoot = $env:VCPKG_INSTALLATION_ROOT
+          if (-not $vcpkgRoot -or -not (Test-Path (Join-Path $vcpkgRoot 'vcpkg.exe'))) {
+            throw 'VCPKG_INSTALLATION_ROOT does not point to an installed vcpkg checkout.'
+          }
+          & (Join-Path $vcpkgRoot 'vcpkg.exe') install openssl:arm64-windows-static-md
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $opensslRoot = Join-Path $vcpkgRoot 'installed\arm64-windows-static-md'
+          if (-not (Test-Path (Join-Path $opensslRoot 'include\openssl\ssl.h'))) {
+            throw "OpenSSL headers were not installed at $opensslRoot"
+          }
+          "VCPKG_ROOT=$vcpkgRoot" >> $env:GITHUB_ENV
+          "VCPKGRS_TRIPLET=arm64-windows-static-md" >> $env:GITHUB_ENV
+          "OPENSSL_DIR=$opensslRoot" >> $env:GITHUB_ENV
+          'OPENSSL_STATIC=1' >> $env:GITHUB_ENV
       - uses: actions/checkout@v7
         if: (matrix.target == 'mac' && matrix.arch == 'x64') || (matrix.target == 'win' && matrix.arch == 'arm64')
         with:

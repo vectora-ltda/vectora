@@ -470,6 +470,10 @@ def test_native_release_builds_lancedb_from_source_on_unsupported_platforms() ->
     assert "if: matrix.target == 'win' && matrix.arch == 'arm64'" in content
     assert "brew install protobuf" in content
     assert "choco install protoc --yes --no-progress" in content
+    assert "Install OpenSSL for source-built cryptography (Windows ARM64)" in content
+    assert "vcpkg.exe') install openssl:arm64-windows-static-md" in content
+    assert '"OPENSSL_DIR=$opensslRoot" >> $env:GITHUB_ENV' in content
+    assert '"VCPKGRS_TRIPLET=arm64-windows-static-md" >> $env:GITHUB_ENV' in content
     assert 'sync: "false"' in content
     assert "repository: lancedb/lancedb" in content
     assert "ref: b1b080b97c3edd2fd9f2aae8a3b71ff19487b1f8" in content
@@ -515,6 +519,19 @@ def test_native_release_builds_lancedb_from_source_on_unsupported_platforms() ->
         if line.strip().startswith('"qdrant-client>=')
     )
     assert "platform_machine != 'ARM64'" in qdrant_client
+
+
+def test_nats_release_download_retries_transient_network_failures() -> None:
+    """O download do sidecar não deve reprovar a matriz por reset transitório."""
+    sconstruct = (WORKFLOW.parent.parent.parent / "SConstruct").read_text(
+        encoding="utf-8"
+    )
+
+    assert "for attempt in range(1, 5):" in sconstruct
+    assert "timeout=60" in sconstruct
+    assert "(408, 429, 500, 502, 503, 504)" in sconstruct
+    assert "time.sleep(2**attempt)" in sconstruct
+    assert "os.replace(temporary_dest, dest)" in sconstruct
 
 
 def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline() -> (
