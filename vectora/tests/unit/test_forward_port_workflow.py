@@ -484,7 +484,7 @@ def test_native_release_uses_supported_python_architectures_for_backend_deps() -
     assert "persist-credentials: false" in content
     assert "if ! cmp -s ../LICENSE LICENSE; then cp ../LICENSE LICENSE; fi" in content
     assert "uv build --wheel --out-dir ../../.lancedb-dist" in content
-    assert "uv pip install --python vectora/.venv/bin/python" in content
+    assert "uv pip install --python .venv/bin/python" in content
     assert '"UV_NO_SYNC=1" >> "$GITHUB_ENV"' in content
     dependency = next(
         line
@@ -520,6 +520,15 @@ def test_native_release_uses_supported_python_architectures_for_backend_deps() -
         if line.strip().startswith('"qdrant-client>=')
     )
     assert "platform_machine != 'ARM64'" in qdrant_client
+
+
+def test_linux_release_installs_native_package_build_tools() -> None:
+    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+
+    assert "libarchive-tools" in content
+    assert '"$RUNNER_TEMP/snapcraft-compat"' in content
+    assert '"${1:-}" == "snap"' in content
+    assert "/snap/bin/snapcraft pack" in content
 
 
 def test_nats_release_download_retries_transient_network_failures() -> None:

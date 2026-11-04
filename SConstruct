@@ -1284,7 +1284,12 @@ def _ffmpeg_assets() -> list[tuple[str, str]]:
     if not sysname:
         raise RuntimeError(f"plataforma não suportada: {_plat.system()}")
     machine = _plat.machine().lower()
+    # The pinned ffmpeg-ffprobe-static release does not publish Windows
+    # ARM64 binaries. Windows ARM runs the x64 backend under emulation, so use
+    # the matching x64 media tools there as well.
     arch = "arm64" if machine in ("arm64", "aarch64") else "x64"
+    if sysname == "win32" and machine in ("arm64", "aarch64"):
+        arch = "x64"
     is_win = sysname == "win32"
 
     base = (

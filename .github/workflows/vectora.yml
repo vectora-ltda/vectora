@@ -491,7 +491,7 @@ jobs:
         if: matrix.target == 'mac' && matrix.arch == 'x64'
         shell: bash
         run: |
-          uv pip install --python vectora/.venv/bin/python .lancedb-dist/*.whl
+          uv pip install --python .venv/bin/python .lancedb-dist/*.whl
           echo "UV_NO_SYNC=1" >> "$GITHUB_ENV"
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -522,8 +522,22 @@ jobs:
         if: matrix.target == 'linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ccache flatpak flatpak-builder fuse3 snapd
+          sudo apt-get install -y ccache flatpak flatpak-builder fuse3 libarchive-tools snapd
           sudo snap install snapcraft --classic
+          # electron-builder still invokes `snapcraft snap`; current Snapcraft
+          # releases renamed that subcommand to `pack`. Keep the .snap target
+          # while adapting only this legacy invocation.
+          mkdir -p "$RUNNER_TEMP/snapcraft-compat"
+          cat > "$RUNNER_TEMP/snapcraft-compat/snapcraft" <<'EOF'
+          #!/usr/bin/env bash
+          if [[ "${1:-}" == "snap" ]]; then
+            shift
+            exec /snap/bin/snapcraft pack "$@"
+          fi
+          exec /snap/bin/snapcraft "$@"
+          EOF
+          chmod +x "$RUNNER_TEMP/snapcraft-compat/snapcraft"
+          echo "$RUNNER_TEMP/snapcraft-compat" >> "$GITHUB_PATH"
           flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
       - name: Cache ccache (Nuitka C compilation)
         uses: actions/cache@v6
