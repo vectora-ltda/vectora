@@ -528,6 +528,9 @@ def test_linux_release_installs_native_package_build_tools() -> None:
     assert "libarchive-tools" in content
     assert '"$RUNNER_TEMP/snapcraft-compat"' in content
     assert '"${1:-}" == "snap"' in content
+    assert "sudo snap install lxd" in content
+    assert "sudo lxd init --auto" in content
+    assert 'exec sudo /snap/bin/snapcraft pack "$@"' in content
     assert "/snap/bin/snapcraft pack" in content
 
 
