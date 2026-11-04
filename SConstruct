@@ -1274,8 +1274,8 @@ def _ffmpeg_assets() -> list[tuple[str, str]]:
     plataforma. Binários RAW (sem archive zip/tar, ao contrário do
     nats-server) de github.com/descriptinc/ffmpeg-ffprobe-static — mesmo
     projeto que ``ffmpeg-static``/``ffprobe-static`` do npm usam, cobre
-    Windows/macOS/Linux x64+arm64 (sem Windows arm64, raro o bastante pra
-    não bloquear)."""
+    Windows/Linux x64+arm64 e macOS Apple Silicon. Windows ARM64 usa as
+    ferramentas x64 sob emulação."""
     import platform as _plat
 
     sysname = {"windows": "win32", "linux": "linux", "darwin": "darwin"}.get(
@@ -1284,7 +1284,12 @@ def _ffmpeg_assets() -> list[tuple[str, str]]:
     if not sysname:
         raise RuntimeError(f"plataforma não suportada: {_plat.system()}")
     machine = _plat.machine().lower()
+    # The pinned ffmpeg-ffprobe-static release does not publish Windows
+    # ARM64 binaries. Windows ARM runs the x64 backend under emulation, so use
+    # the matching x64 media tools there as well.
     arch = "arm64" if machine in ("arm64", "aarch64") else "x64"
+    if sysname == "win32" and machine in ("arm64", "aarch64"):
+        arch = "x64"
     is_win = sysname == "win32"
 
     base = (
@@ -1368,6 +1373,8 @@ def _action_fetch_nats(target, source, env):
     import io
     import platform as _plat
     import tarfile
+    import time
+    import urllib.error
     import urllib.request
     import zipfile
 
@@ -1381,8 +1388,31 @@ def _action_fetch_nats(target, source, env):
 
     url, member, ext = _nats_asset()
     print(f">> baixando nats-server: {url}")
-    with urllib.request.urlopen(url) as resp:  # noqa: S310 — release fixo do github
-        data = resp.read()
+    # GitHub Releases pode encerrar conexões durante downloads concorrentes da
+    # matriz nativa. Repetir somente falhas transitórias evita reprovar o build
+    # por uma interrupção de rede sem mascarar URLs/arquivos inválidos.
+    for attempt in range(1, 5):
+        try:
+            with urllib.request.urlopen(  # noqa: S310 — release fixo do github
+                url, timeout=60
+            ) as resp:
+                data = resp.read()
+            break
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (408, 429, 500, 502, 503, 504) or attempt == 4:
+                raise
+            print(
+                f">> download NATS falhou (HTTP {exc.code}); "
+                f"nova tentativa {attempt}/3"
+            )
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as exc:
+            if attempt == 4:
+                raise
+            print(
+                f">> download NATS falhou ({exc}); "
+                f"nova tentativa {attempt}/3"
+            )
+        time.sleep(2**attempt)
 
     if ext == "zip":
         with zipfile.ZipFile(io.BytesIO(data)) as zf, zf.open(member) as src:
@@ -1394,8 +1424,14 @@ def _action_fetch_nats(target, source, env):
                 raise RuntimeError(f"membro {member} ausente no archive")
             payload = src.read()
 
-    with open(dest, "wb") as out:
-        out.write(payload)
+    temporary_dest = f"{dest}.download"
+    try:
+        with open(temporary_dest, "wb") as out:
+            out.write(payload)
+        os.replace(temporary_dest, dest)
+    finally:
+        if os.path.exists(temporary_dest):
+            os.remove(temporary_dest)
     if not is_win:
         os.chmod(dest, 0o755)
     print(f">> nats-server instalado em {dest}")

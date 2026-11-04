@@ -461,6 +461,7 @@ async def _run_subagent_once(
     sub_ctx = replace(
         ctx,
         thread_id=thread_id,
+        artifact_session_id=ctx.artifact_session_id or ctx.thread_id,
         run_id=child_run_id,
         correlation_id=corr_id or "",
         _extra={**ctx._extra, "subagent_execution": True},

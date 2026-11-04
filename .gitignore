@@ -360,6 +360,13 @@ AbilitySystem_repo/
 /desktop/build-resources
 /vectora/frontend/dist-electron/
 /vectora/frontend/electron/build-resources/dev-cert.pfx
+**/vectora-release-key/
+**/cert_privado.pfx
+**/vectora-codesign-public.cer
+**/cert_base64.txt
+**/private-key.asc
+**/private_key.asc
+**/*private*.asc
 *.gen.ts
 *.exe
 *.blockmap

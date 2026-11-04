@@ -21,7 +21,7 @@ dependencies = [
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
     "aiosqlite>=0.22.1",
-    "lancedb>=0.37.1",
+    "lancedb>=0.37.1 ; (sys_platform != 'darwin' or platform_machine != 'x86_64') and (sys_platform != 'win32' or platform_machine != 'ARM64')",
     "pyarrow>=24.0.0",
     "sqlalchemy>=2.0.51",
     "mcp>=1.29.0",
@@ -35,20 +35,7 @@ dependencies = [
     "pathspec>=1.1.1",
     "watchdog>=6.0.0",
     "tiktoken>=0.13.0",
-    "ruff>=0.15.18",
-    "pytest>=9.1.1",
-    "ty>=0.0.51",
     "pandas>=3.0.3",
-    "pytest-asyncio>=1.4.0",
-    "pytest-cov>=7.1.0",
-    "coverage>=7.14.2",
-    "pytest-order>=1.5.0",
-    "pytest-rerunfailures>=16.3",
-    "pytest-timeout>=2.4.0",
-    "mypy>=2.1.0",
-    "bandit>=1.9.4",
-    "types-python-dateutil>=2.9.0.20260518",
-    "pyright>=1.1.410",
     "argon2-cffi>=25.1.0",
     "pynacl>=1.6.2",
     "slowapi>=0.1.10",
@@ -60,23 +47,26 @@ dependencies = [
     "ptyprocess>=0.7 ; sys_platform != 'win32'",
     "pyseccomp>=0.1.2 ; sys_platform == 'linux'",
     "asyncssh>=2.23.1",
-    "nuitka[all]>=4.1.2",
-    "scons>=4.10.1",
     "send2trash>=2.1.0",
     "pystray>=0.19.5",
     "pillow>=13.0.0",
     "pyautogui-next>=0.9.55",
     "redis[hiredis]>=7.4.1",
     "asyncpg>=0.31.0",
-    "qdrant-client>=1.18.0",
+    # qdrant-client requires grpcio, which has no Windows ARM64 wheel and
+    # currently fails to build there with conflicting MSVC /std flags.
+    # Windows ARM remains usable with local SQLite/LanceDB; Qdrant is omitted.
+    "qdrant-client>=1.18.0 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
     # SDKs oficiais usados direto por backend/tools/media.py (geração de
     # imagem/áudio) e backend/llm/transcription.py.
     "openai>=2.52.0",
     "google-genai>=2.16.0",
-    "fakeredis>=2.36.2",
     "pyjwt>=2.13.0",
     "croniter>=6.2.2",
-    "psycopg[binary]>=3.3.4",
+    "psycopg>=3.3.4",
+    # psycopg-binary ainda não publica wheel para Windows ARM64. O backend
+    # SQLite continua funcional nesse alvo; PostgreSQL requer libpq externa.
+    "psycopg-binary>=3.3.4 ; sys_platform != 'win32' or platform_machine != 'ARM64'",
     "networkx>=3.4",
     "numpy>=1.21",
     "rapidfuzz>=3.0",
@@ -109,7 +99,10 @@ dependencies = [
     # fallback (áudio, sem captions) ou pra extrair um frame sob demanda.
     "youtube-transcript-api>=1.2.4",
     "yt-dlp>=2026.3.17",
-    "faster-whisper>=1.2.1",
+    # ctranslate2 não publica wheel para Windows ARM64; nesse alvo, a
+    # transcrição remota continua disponível e a readiness local reporta a dependência ausente.
+    # macOS Intel não é um alvo suportado e também não possui as wheels locais necessárias.
+    "faster-whisper>=1.2.1 ; (sys_platform != 'darwin' or platform_machine != 'x86_64') and (sys_platform != 'win32' or platform_machine != 'ARM64')",
 ]
 
 [project.scripts]
@@ -171,6 +164,7 @@ ignore = [
 # sem valor (PT019), *args sem anotação (ANN002) e fakes que retornam self em
 # __aenter__ (PYI034) — todos idiomáticos em suíte de testes.
 "tests/**/*.py" = ["ANN201", "ANN001", "ANN202", "ANN003", "ANN002", "ARG001", "ARG002", "S101", "S105", "S106", "S107", "S108", "N806", "RUF003", "PT018", "PT019", "PYI034"]
+"installed_tests/**/*.py" = ["S101"]
 "tests/e2e/**/*.py" = ["S603", "S607", "PLW1510"]
 "tests/integration/**/*.py" = ["S603", "PLW1510"]
 "check_coverage.py" = ["S603", "PLW1510", "PLW2901", "B007"]
@@ -397,8 +391,23 @@ markers = [
 
 [dependency-groups]
 dev = [
+    "bandit>=1.9.4",
+    "coverage>=7.14.2",
+    "fakeredis>=2.36.2",
+    "mypy>=2.1.0",
+    "nuitka[all]>=4.1.2",
     "pyinstaller>=6.21.0",
-    "pytest-asyncio>=1.3.0",
+    "pyright>=1.1.410",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "pytest-order>=1.5.0",
+    "pytest-rerunfailures>=16.3",
+    "pytest-timeout>=2.4.0",
+    "ruff>=0.15.18",
+    "scons>=4.10.1",
+    "ty>=0.0.51",
+    "types-python-dateutil>=2.9.0.20260518",
 ]
 
 [tool.uv]

@@ -46,3 +46,41 @@ def test_raises_when_env_file_planted_in_backend(
     msg = str(exc_info.value)
     assert "backend" in msg
     assert "defaults.env" not in msg
+
+
+def test_build_includes_test_runner_but_not_pytest_dependencies(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "vectora"
+    suite = project / "installed_tests" / "test_installed_runtime.py"
+    suite.parent.mkdir(parents=True)
+    suite.write_text("pytest suite", encoding="utf-8")
+    (suite.parent / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
+    uv = tmp_path / "uv.exe"
+    uv.write_bytes(b"uv runtime")
+    dist_dir = tmp_path / "dist" / "vectora"
+    monkeypatch.setattr(build_hybrid, "VECTORA", project)
+    monkeypatch.setattr(build_hybrid.shutil, "which", lambda name: str(uv))
+    monkeypatch.setattr(build_hybrid.sys, "platform", "win32")
+
+    build_hybrid._add_installed_test_runtime(dist_dir)
+
+    runtime_dir = dist_dir / "vectora-test-runtime"
+    assert (runtime_dir / "uv.exe").read_bytes() == b"uv runtime"
+    assert (runtime_dir / suite.name).read_text(encoding="utf-8") == "pytest suite"
+    assert (runtime_dir / "pytest.ini").read_text(encoding="utf-8") == "[pytest]\n"
+
+
+def test_build_fails_if_uv_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "vectora"
+    suite = project / "installed_tests" / "test_installed_runtime.py"
+    suite.parent.mkdir(parents=True)
+    suite.write_text("pytest suite", encoding="utf-8")
+    (suite.parent / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
+    monkeypatch.setattr(build_hybrid, "VECTORA", project)
+    monkeypatch.setattr(build_hybrid.shutil, "which", lambda _name: None)
+
+    with pytest.raises(SystemExit, match="uv não encontrado"):
+        build_hybrid._add_installed_test_runtime(tmp_path / "dist" / "vectora")

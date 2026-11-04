@@ -139,6 +139,39 @@ class TestRunSubagentSincrono:
 
         assert resultado == "resultado do subagente"
 
+    async def test_contexto_da_subthread_preserva_sessao_raiz_dos_artifacts(
+        self, session_store, ctx, monkeypatch
+    ):
+        from types import SimpleNamespace
+
+        from backend.engine import subagents
+
+        ctx.artifact_session_id = "thread-raiz"
+        observed_contexts = []
+
+        async def fake_run_conversation(**kwargs):
+            observed_contexts.append(kwargs["ctx"])
+            return SimpleNamespace(
+                final_message=SimpleNamespace(text=lambda: "plano salvo"),
+                stopped_reason="stop",
+            )
+
+        monkeypatch.setattr(subagents, "run_conversation", fake_run_conversation)
+
+        await run_subagent(
+            _spec(nome="planner"),
+            "monte um plano",
+            session_store=session_store,
+            chat_client=_ScriptedChatClient([]),
+            ctx=ctx,
+            parent_thread_id="thread-pai",
+            should_require_approval=None,
+        )
+
+        assert len(observed_contexts) == 1
+        assert observed_contexts[0].thread_id.startswith("thread-pai:planner:")
+        assert observed_contexts[0].artifact_session_id == "thread-raiz"
+
     async def test_sub_thread_isolada_com_parent_thread_id_gravado(
         self, session_store, ctx
     ):

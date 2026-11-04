@@ -358,6 +358,37 @@ function redirectToLogin(): void {
 // Chat streaming
 // ============================================================================
 
+/** Explicitly stop the server-side run before closing its SSE connection. */
+export async function cancelRun(threadId: string): Promise<boolean> {
+  const url = `${VECTORA_API_URL}/vectora.chat.v1.ChatService/CancelRun`;
+  const doFetch = () => {
+    const deviceId = getDeviceId();
+    return fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(deviceId ? { "X-Vectora-Device-Id": deviceId } : {}),
+      },
+      credentials: "include",
+      body: JSON.stringify({ thread_id: threadId }),
+    });
+  };
+
+  let response = await doFetch();
+  if (response.status === 401) {
+    if (!(await tryRefreshToken())) {
+      redirectToLogin();
+      throw new Error("CancelRun: sessão expirada. Faça login novamente.");
+    }
+    response = await doFetch();
+  }
+  if (!response.ok) {
+    throw new Error(`CancelRun failed (${response.status})`);
+  }
+  const result: { cancelled?: boolean } = await response.json();
+  return result.cancelled === true;
+}
+
 /**
  * Inicia ou continua um chat via SSE streaming.
  *

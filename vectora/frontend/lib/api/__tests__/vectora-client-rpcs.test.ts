@@ -17,6 +17,7 @@ import {
   updateThread,
   transcribeAudio,
   getHistoryPage,
+  cancelRun,
 } from "@/lib/api/vectora-client";
 
 function jsonResponse(data: unknown, status = 200) {
@@ -40,6 +41,27 @@ function lastBody(): Record<string, unknown> {
   const init = fetchMock.mock.calls.at(-1)?.[1] as RequestInit;
   return JSON.parse(String(init.body)) as Record<string, unknown>;
 }
+
+describe("cancelRun", () => {
+  it("cancela o run do servidor pela thread e devolve o resultado", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ cancelled: true }));
+
+    await expect(cancelRun("thread-1")).resolves.toBe(true);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain(
+      "ChatService/CancelRun",
+    );
+    expect(lastBody()).toEqual({ thread_id: "thread-1" });
+  });
+
+  it("erro/borda: propaga falha HTTP em vez de dizer que cancelou", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ detail: "não autorizado" }, 404),
+    );
+
+    await expect(cancelRun("thread-de-outra-pessoa")).rejects.toThrow(/404/);
+  });
+});
 
 describe("RPCs simples de thread", () => {
   it("getThread envia thread_id e devolve a thread", async () => {

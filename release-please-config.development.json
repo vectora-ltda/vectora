@@ -31,8 +31,9 @@
           "jsonpath": "$.version"
         },
         {
-          "type": "generic",
-          "path": "vectora/uv.lock"
+          "type": "toml",
+          "path": "vectora/uv.lock",
+          "jsonpath": "$.package[?(@.name.value==='vectora')].version"
         }
       ]
     }

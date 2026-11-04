@@ -36,6 +36,9 @@ class ReleasePlan(BaseModel):
 VERSION_RE = re.compile(
     r"^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)$"
 )
+LOCK_PACKAGE = "vectora"
+LOCK_BLOCK_RE = re.compile(r"(?m)^\[\[package\]\]\s*$")
+LOCK_VERSION_RE = re.compile(r'(?m)^(version\s*=\s*)"[^"]+"')
 HEADER_RE = re.compile(
     r"^(?P<kind>[a-z]+)(?:\([^)]*\))?(?P<breaking>!)?:\s+(?P<description>.+)$"
 )
@@ -133,15 +136,35 @@ def _replace_version(path: Path, version: str) -> None:
             raise ValueError(f"version field not found in {path}")
         path.write_text(updated, encoding="utf-8")
         return
-    marker = re.compile(
-        r'(?m)^(version\s*=\s*)"[^"]+"\s+# x-release-please-version\s*$'
-    )
-    updated, count = marker.subn(
-        rf'\g<1>"{version}" # x-release-please-version', text, count=1
-    )
+    if path.name == "uv.lock":
+        path.write_text(_replace_lock_version(text, version, path), encoding="utf-8")
+        return
+    raise ValueError(f"unsupported version file: {path}")
+
+
+def _replace_lock_version(text: str, version: str, path: Path) -> str:
+    """Bump only the `version` of the project's own `[[package]]` block.
+
+    `uv lock` rewrites the whole file and drops comments, so the block is
+    located by its `name` line instead of a marker. Other packages may share
+    the same version string and must stay untouched.
+    """
+    starts = [match.start() for match in LOCK_BLOCK_RE.finditer(text)]
+    bounds = zip(starts, [*starts[1:], len(text)], strict=True)
+    name_re = re.compile(rf'(?m)^name\s*=\s*"{re.escape(LOCK_PACKAGE)}"\s*$')
+    matches = [
+        (start, end) for start, end in bounds if name_re.search(text, start, end)
+    ]
+    if len(matches) != 1:
+        raise ValueError(
+            f'expected exactly one [[package]] named "{LOCK_PACKAGE}" in {path}, '
+            f"found {len(matches)}"
+        )
+    start, end = matches[0]
+    block, count = LOCK_VERSION_RE.subn(rf'\g<1>"{version}"', text[start:end], count=1)
     if count != 1:
-        raise ValueError(f"marked version field not found in {path}")
-    path.write_text(updated, encoding="utf-8")
+        raise ValueError(f'version field not found for "{LOCK_PACKAGE}" in {path}')
+    return text[:start] + block + text[end:]
 
 
 def apply_plan(

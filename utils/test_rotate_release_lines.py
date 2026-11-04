@@ -199,3 +199,23 @@ def test_main_patch_event(
     monkeypatch.setattr(sys, "argv", ["rotate_release_lines.py", str(event)])
     assert rotate_release_lines.main() == 0
     assert capsys.readouterr().out.strip() == "rotate=false"
+
+
+def test_main_accepts_workflow_dispatch_release_tag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Workflow dispatch recovers rotation when GITHUB_TOKEN suppresses release events."""
+    event = tmp_path / "event.json"
+    event.write_text(
+        json.dumps({"inputs": {"release_tag": "v0.3.0", "target_branch": "master"}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(rotate_release_lines, "load_release_lines", lambda _: CONFIG)
+    monkeypatch.setattr(sys, "argv", ["rotate_release_lines.py", str(event)])
+
+    assert rotate_release_lines.main() == 0
+    output = capsys.readouterr().out
+    assert "release_tag=v0.3.0" in output
+    assert "rotate=true" in output

@@ -1479,11 +1479,19 @@ async def create_artifact(
     if not content or not content.strip():
         return json.dumps({"error": "content não pode ser vazio"})
 
-    session_id = ctx.thread_id
+    session_id = ctx.artifact_session_id or ctx.thread_id
     if not session_id:
         return json.dumps(
             {"error": "Sessão não identificada — não foi possível salvar o artifact."}
         )
+
+    # Session IDs are a single directory component. Reject separators and
+    # platform-specific drive syntax rather than allowing malformed context
+    # data to escape the artifact root.
+    if session_id in {".", ".."} or any(
+        char in session_id for char in ("/", "\\", ":")
+    ):
+        return json.dumps({"error": "ID de sessão inválido para salvar o artifact."})
 
     slug = _artifact_slug(title.strip())
     if slug in _GENERIC_TITLE_SLUGS.get(artifact_type, set()):

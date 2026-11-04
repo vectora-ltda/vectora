@@ -114,3 +114,11 @@ Before running `git commit`, verify:
 | `src/services/security.py`          | Blacklist, path validation, ReDoS protection |
 | `src/cli/`                          | Operational CLI (keys, docker, storage)      |
 | `integrations/paperclip/@AGENTS.md` | Multi-agent integration protocol             |
+
+## 10. PR Walkthroughs and CodeRabbit
+
+Every walkthrough published as a pull request comment must begin by tagging
+`@coderabbitai` and explicitly requesting a **full review** of the current PR
+diff. Put the tag and request at the very start of the comment, before the
+walkthrough content. Do not treat a walkthrough as a review request unless it
+contains this explicit opening.

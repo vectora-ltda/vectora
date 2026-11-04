@@ -85,6 +85,20 @@ def test_pr_milestone_workflow_assigns_milestone_from_base() -> None:
     assert "github.event.action == 'opened'" not in content
     assert "context.payload.pull_request.milestone?.title" in content
     assert 'core.setOutput("current_milestone", payloadMilestone)' in content
+    assert "if: github.event.pull_request != null" in content
+    assert "if: github.event.pull_request.milestone == null" not in content
+
+
+def test_stable_sync_skips_until_development_branch_exists() -> None:
+    """A publicação não falha quando a rotação ainda está criando a branch nova."""
+    content = (WORKFLOW.parent / "forward-port-release.yml").read_text(encoding="utf-8")
+
+    assert (
+        'git ls-remote --exit-code --heads origin "refs/heads/$DEVELOPMENT_BRANCH"'
+        in content
+    )
+    assert '[[ "$status" -eq 2 ]]' in content
+    assert "release rotation will seed it" in content
 
 
 def test_release_please_uses_trusted_config_for_branch_gate() -> None:
@@ -281,6 +295,44 @@ def test_release_mutations_are_serialized_and_leased() -> None:
     assert '"${{ steps.release-line.outputs.maintenance_branch }}"' not in content
 
 
+def test_release_automation_uses_current_line_tags_and_manual_dispatch() -> None:
+    """Tags from old release lines cannot rewind the version or stall automation."""
+    content = (WORKFLOW.parent / "release-please.yml").read_text(encoding="utf-8")
+
+    assert "workflow_dispatch:" in content
+    assert "github.event_name == 'workflow_dispatch'" in content
+    assert '"v${release_major_minor}.*"' in content
+    assert '"v*" --sort=-version:refname' not in content
+    assert "chore(master): release $manifest_version" in content
+    assert "prepare_release_line_config.py" in content
+    assert (
+        ".release-please-manifest.maintenance.json .github/release-lines.json"
+        in content
+    )
+
+
+def test_release_pr_uses_maintenance_milestone_for_master_base() -> None:
+    """A release PR to master must satisfy the trusted base-line milestone gate."""
+    content = (WORKFLOW.parent / "release-please.yml").read_text(encoding="utf-8")
+    assert 'pr_milestone="$maintenance_milestone"' in content
+    assert (
+        "RELEASE_MILESTONE: ${{ steps.release-line.outputs.pr_milestone }}" in content
+    )
+
+
+def test_release_pipeline_dispatches_rotation_after_github_token_release() -> None:
+    """A tag created with GITHUB_TOKEN explicitly dispatches downstream workflows."""
+    app = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+    rotation = (WORKFLOW.parent / "rotate-release-lines.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "actions: write" in app
+    assert "gh workflow run rotate-release-lines.yml" in app
+    assert "workflow_dispatch:" in rotation
+    assert "release_tag" in rotation
+    assert "gh workflow run release-please.yml" in rotation
+
+
 def test_release_rotation_workflow_declares_release_entrypoint() -> None:
     """Mantém a criação pós-publicação limitada à branch e aos milestones."""
     workflow = WORKFLOW.parent / "rotate-release-lines.yml"
@@ -387,9 +439,14 @@ def test_app_and_edge_workflows_validam_todo_pr_e_publicam_so_de_master() -> Non
 
     app = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
     edge = (WORKFLOW.parent / "edge.yml").read_text(encoding="utf-8")
+    # These jobs only resolve metadata or build artifacts and must run on PRs
+    # so the package matrix is validated before merge. Only publication and
+    # tagging jobs are restricted to master.
+    for job in ("release-channel:", "release-native:"):
+        guard = app.split(f"\n  {job}\n", 1)[1].split("\n    steps:", 1)[0]
+        assert "github.event_name == 'pull_request'" in guard, job
+
     for job in (
-        "release-channel:",
-        "release-native:",
         "publish-update-channel:",
         "publish-gha-bot-cli:",
         "tag-release:",
@@ -400,6 +457,109 @@ def test_app_and_edge_workflows_validam_todo_pr_e_publicam_so_de_master() -> Non
     deploy = edge.split("\n  deploy:\n", 1)[1].split("\n    steps:", 1)[0]
     assert "github.ref == 'refs/heads/master'" in deploy
     assert "pull_request" not in deploy
+
+
+def test_native_release_uses_supported_python_architectures_for_backend_deps() -> None:
+    """Usa x64 emulado no Windows ARM64, onde PyArrow não publica wheel."""
+    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+    setup_uv = (
+        WORKFLOW.parent.parent / "actions" / "setup-uv" / "action.yml"
+    ).read_text(encoding="utf-8")
+    release_matrix = (
+        WORKFLOW.parent.parent.parent
+        / "services"
+        / "src"
+        / "updates"
+        / "release-matrix.ts"
+    ).read_text(encoding="utf-8")
+
+    assert "macos-26-intel" not in content
+    assert '"mac/x64"' not in release_matrix
+    assert "source-built LanceDB" not in content
+    assert "Cache LanceDB Cargo build" not in content
+    assert "PyArrow has no win_arm64" in content
+    assert "Electron and the installer remain ARM64-native" in content
+    assert (
+        "architecture: ${{ matrix.target == 'win' && matrix.arch == 'arm64' && 'x64' || '' }}"
+        in content
+    )
+    assert "architecture:" in setup_uv
+    assert 'sync: "false"' in content
+    lancedb_dependency = next(
+        line
+        for line in (WORKFLOW.parent.parent.parent / "vectora" / "pyproject.toml")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip().startswith('"lancedb>=')
+    )
+    assert "platform_machine != 'x86_64'" in lancedb_dependency
+    assert "platform_machine != 'ARM64'" in lancedb_dependency
+    local_transcription = next(
+        line
+        for line in (WORKFLOW.parent.parent.parent / "vectora" / "pyproject.toml")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip().startswith('"faster-whisper>=')
+    )
+    assert "platform_machine != 'x86_64'" in local_transcription
+    assert "platform_machine != 'ARM64'" in local_transcription
+    psycopg_binary = next(
+        line
+        for line in (WORKFLOW.parent.parent.parent / "vectora" / "pyproject.toml")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip().startswith('"psycopg-binary>=')
+    )
+    assert "platform_machine != 'ARM64'" in psycopg_binary
+    qdrant_client = next(
+        line
+        for line in (WORKFLOW.parent.parent.parent / "vectora" / "pyproject.toml")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip().startswith('"qdrant-client>=')
+    )
+    assert "platform_machine != 'ARM64'" in qdrant_client
+
+
+def test_linux_release_installs_native_package_build_tools() -> None:
+    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+
+    assert "libarchive-tools" in content
+    assert '"$RUNNER_TEMP/snapcraft-compat"' in content
+    assert '"${1:-}" == "snap"' in content
+    assert "os: ubuntu-22.04" in content
+    assert "os: ubuntu-22.04-arm" in content
+    assert "sudo snap install lxd" not in content
+    assert "sudo lxd init --auto" not in content
+    assert 'exec sudo /snap/bin/snapcraft pack --destructive-mode "$@"' in content
+    assert "/snap/bin/snapcraft pack" in content
+
+
+def test_linux_release_validates_and_uploads_electron_builder_artifact_names() -> None:
+    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+
+    for extension in ("AppImage", "deb", "rpm", "snap", "pacman", "flatpak"):
+        assert f'"Vectora-*-linux-*.{extension}"' in content
+        assert f"vectora/frontend/dist-electron/*.{extension}" in content
+
+    assert '"Vectora-*-linux-*.tar.gz"' in content
+    assert "vectora/frontend/dist-electron/*.tar.gz" in content
+    assert "/artifacts/Vectora-*-linux-amd64.deb" in content
+    assert "/artifacts/Vectora-*-linux-x86_64.rpm" in content
+    assert "/artifacts/Vectora-*-linux-x64.pacman" in content
+
+
+def test_nats_release_download_retries_transient_network_failures() -> None:
+    """O download do sidecar não deve reprovar a matriz por reset transitório."""
+    sconstruct = (WORKFLOW.parent.parent.parent / "SConstruct").read_text(
+        encoding="utf-8"
+    )
+
+    assert "for attempt in range(1, 5):" in sconstruct
+    assert "timeout=60" in sconstruct
+    assert "(408, 429, 500, 502, 503, 504)" in sconstruct
+    assert "time.sleep(2**attempt)" in sconstruct
+    assert "os.replace(temporary_dest, dest)" in sconstruct
 
 
 def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline() -> (
