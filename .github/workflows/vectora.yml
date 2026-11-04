@@ -445,10 +445,66 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      # PyPI has no LanceDB wheel/sdist for Intel macOS or Windows ARM64.
+      # Build the exact upstream release from source on those native runners.
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        if: (matrix.target == 'mac' && matrix.arch == 'x64') || (matrix.target == 'win' && matrix.arch == 'arm64')
+        with:
+          toolchain: 1.97.0
       - uses: ./.github/actions/setup-uv
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           all-extras: "false"
+          sync: "false"
+      - name: Install protobuf compiler for source-built LanceDB (macOS Intel)
+        if: matrix.target == 'mac' && matrix.arch == 'x64'
+        run: brew install protobuf
+      - name: Install protobuf compiler for source-built LanceDB (Windows ARM64)
+        if: matrix.target == 'win' && matrix.arch == 'arm64'
+        run: choco install protoc --yes --no-progress
+      - uses: actions/checkout@v7
+        if: (matrix.target == 'mac' && matrix.arch == 'x64') || (matrix.target == 'win' && matrix.arch == 'arm64')
+        with:
+          repository: lancedb/lancedb
+          # Immutable revision for the upstream v0.40.0 source build.
+          ref: b1b080b97c3edd2fd9f2aae8a3b71ff19487b1f8
+          path: .lancedb-src
+          persist-credentials: false
+      - name: Sync dependencies
+        if: (matrix.target != 'mac' || matrix.arch != 'x64') && (matrix.target != 'win' || matrix.arch != 'arm64')
+        working-directory: vectora
+        run: uv sync --frozen
+      - name: Sync locked project dependencies without platform-specific LanceDB
+        if: (matrix.target == 'mac' && matrix.arch == 'x64') || (matrix.target == 'win' && matrix.arch == 'arm64')
+        working-directory: vectora
+        run: uv sync --frozen
+      - name: Build LanceDB wheel from upstream source (macOS Intel)
+        if: matrix.target == 'mac' && matrix.arch == 'x64'
+        shell: bash
+        run: |
+          cp ../LICENSE LICENSE
+          uv build --wheel --out-dir ../../.lancedb-dist
+        working-directory: .lancedb-src/python
+      - name: Build LanceDB wheel from upstream source (Windows ARM64)
+        if: matrix.target == 'win' && matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          Copy-Item ..\LICENSE LICENSE
+          uv build --wheel --out-dir ../../.lancedb-dist
+        working-directory: .lancedb-src/python
+      - name: Install source-built LanceDB (macOS Intel)
+        if: matrix.target == 'mac' && matrix.arch == 'x64'
+        shell: bash
+        run: |
+          uv pip install --python vectora/.venv/bin/python .lancedb-dist/*.whl
+          echo "UV_NO_SYNC=1" >> "$GITHUB_ENV"
+      - name: Install source-built LanceDB (Windows ARM64)
+        if: matrix.target == 'win' && matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          $wheel = Get-ChildItem .lancedb-dist\lancedb-*.whl
+          uv pip install --python vectora/.venv/Scripts/python.exe $wheel.FullName
+          "UV_NO_SYNC=1" >> $env:GITHUB_ENV
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:

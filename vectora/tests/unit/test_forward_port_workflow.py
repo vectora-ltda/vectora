@@ -459,6 +459,38 @@ def test_app_and_edge_workflows_validam_todo_pr_e_publicam_so_de_master() -> Non
     assert "pull_request" not in deploy
 
 
+def test_native_release_builds_lancedb_from_source_on_unsupported_platforms() -> None:
+    """Prepara Rust/protoc antes de sincronizar LanceDB sem wheel publicado."""
+    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+
+    assert "actions-rust-lang/setup-rust-toolchain@v2" in content
+    assert "toolchain: 1.97.0" in content
+    assert "if: matrix.target == 'mac' && matrix.arch == 'x64'" in content
+    assert "if: matrix.target == 'win' && matrix.arch == 'arm64'" in content
+    assert "brew install protobuf" in content
+    assert "choco install protoc --yes --no-progress" in content
+    assert 'sync: "false"' in content
+    assert "repository: lancedb/lancedb" in content
+    assert "ref: b1b080b97c3edd2fd9f2aae8a3b71ff19487b1f8" in content
+    assert "persist-credentials: false" in content
+    assert "cp ../LICENSE LICENSE" in content
+    assert "Copy-Item ..\\LICENSE LICENSE" in content
+    assert "uv build --wheel --out-dir ../../.lancedb-dist" in content
+    assert "uv pip install --python vectora/.venv/bin/python" in content
+    assert "uv pip install --python vectora/.venv/Scripts/python.exe" in content
+    assert '"UV_NO_SYNC=1" >> "$GITHUB_ENV"' in content
+    assert '"UV_NO_SYNC=1" >> $env:GITHUB_ENV' in content
+    dependency = next(
+        line
+        for line in (WORKFLOW.parent.parent.parent / "vectora" / "pyproject.toml")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip().startswith('"lancedb>=')
+    )
+    assert "platform_machine != 'x86_64'" in dependency
+    assert "platform_machine != 'ARM64'" in dependency
+
+
 def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline() -> (
     None
 ):

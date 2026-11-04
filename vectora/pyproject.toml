@@ -21,7 +21,7 @@ dependencies = [
     "pydantic>=2.13.4",
     "pydantic-settings>=2.14.2",
     "aiosqlite>=0.22.1",
-    "lancedb>=0.37.1",
+    "lancedb>=0.37.1 ; (sys_platform != 'darwin' or platform_machine != 'x86_64') and (sys_platform != 'win32' or platform_machine != 'ARM64')",
     "pyarrow>=24.0.0",
     "sqlalchemy>=2.0.51",
     "mcp>=1.29.0",
