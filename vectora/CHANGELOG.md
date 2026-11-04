@@ -1,3 +1,122 @@
+## [0.1.14] (2026-11-04)
+
+Esta seção reúne as alterações publicadas nesta versão.
+
+### Features
+
+Os recursos incluídos nesta versão são listados abaixo.
+
+- feat: document Vectora App capabilities before 0.2.0 (#291)
+- feat: consolidar o shell e modernizar a UI/UX do App (#272)
+- feat: support parallel release lines with milestones (#247)
+- feat: archive safe roots and enforce workspace access (#222)
+- feat: add global responsive session layout bands (#223)
+- feat: add Chromium browser settings and profile isolation (#221)
+- feat: validate GitHub review job contracts (#227)
+- feat: navigate created folders and surface new sessions (#217)
+- feat(frontend): complete adaptive session shell, workbench and responsive chat (#213)
+- feat: add owned multimodal asset metadata (#173)
+- feat: add durable media quota reservations (#172)
+- feat: sincronizar issues da company com o github (#185)
+- feat: adicionar backup local manifestado (#165)
+- feat: compact long conversation context (#170)
+- feat: compartilhar sessões com links sanitizados (#163)
+- feat: navigate conversation branches (#175)
+- feat: capturar screenshot no Electron (#160)
+- feat: adicionar smart paste com preview seguro (#159)
+- feat: exibir histórico de uso no tool palette (#158)
+- feat: send authenticated inline feedback (#179)
+- feat: control selected desktop windows safely (#156)
+- feat: proteger gerenciamento da allowlist HITL (#166)
+- feat: persist per-user unread thread counts (#180)
+- feat: resolve skills with reproducible lockfiles (#174)
+- feat: add isolated Browser Workbench profiles (#178)
+- feat: prepare company frontend for RTL layouts (#181)
+- feat: criar backups rotativos antes de updates Electron (#167)
+- feat: resume threads across devices (#157)
+- feat: control interactive terminal sessions from the agent (#155)
+- feat: implementar decisões HITL estruturadas (#162)
+- feat: ask structured questions in the agent (#176)
+- feat: add privacy-safe weekly usage insights (#182)
+- feat: deliver extensibility CLI and integrations (#154)
+- feat: adicionar leitura de mensagens por voz (#161)
+- feat: adicionar diagnóstico ao runner de migrations (#164)
+- feat: allow manual Electron updates (#168)
+- feat: evolve Git Workbench operation UX (#169)
+- feat: add provider-aware remote audio transcription (#177)
+- feat: support safe-area insets on viewport-edge UI (#183)
+- feat: add mobile thread gestures (#184)
+- feat: expand Git Workbench workflow (#148)
+- feat: centralizar OAuth das integrações no gateway (#83)
+- feat: evoluir fluxo operacional do Git Workbench (#86)
+- feat: filtrar variantes e limitar cards na Aparência (#81)
+- feat: enviar anexos ao modelo ativo antes do fallback multimodal (#80)
+- feat(frontend): revisa Aparência com novo catálogo de temas e UI Scale (#69)
+- feat(services): teste real de update contra produção, sem mock nenhum (#58)
+- feat(gha-bot): modo self-hosted — revisão roda na própria instância Vectora (#52)
+- feat(frontend): theme picker com cards pintados + toggle claro/escuro/sistema (#51)
+
+### Bug Fixes
+
+As correções incluídas nesta versão são listadas abaixo.
+
+- fix(ci): consolidate release workflow corrections
+- fix(docs): usar logo invertida nos assets do site (#323)
+- fix: corrigir avisos do oxlint no Monaco Godot (#320)
+- fix: corrigir atribuição automática de milestones (#321)
+- fix(ci): alinhar milestones de master e release/0.3
+- fix(ci): allow controlled stacked pull request bases (#315)
+- fix: prune untracked release objects from R2 (#294)
+- fix: read release version from repository root (#292)
+- fix: version release please branches and skip empty releases (#299)
+- fix: validate milestone payload without API calls
+- fix: gate releases on successful app distribution (#289)
+- fix: restore release please progression from last published tag (#288)
+- fix: remove process metadata from release PR bodies (#282)
+- fix: install uv before aligning release lines (#281)
+- fix: integrate release line rotation into Release Please (#280)
+- fix: match release please note delimiters
+- fix: preserve release please markers and version progression
+- fix: build release PR body from generated changelog
+- fix: anchor minor release at published tag
+- fix: restore release please branch filter
+- fix: scope release PR bodies to current notes
+- fix: authorize release-line migration mutations
+- fix: authorize automatic release milestone assignment
+- fix(release/0.1): resolve findings de CI, sessão e workspaces (#265)
+- fix: resolve release-please idempotence and security findings (#243)
+- fix: remediate release review findings (#241)
+- fix: corrige deploy do D1 com colunas legadas de skills (#236)
+- fix: prevent Electron updates from stalling on locked files (#235)
+- fix: restore settings and backend connection after tray restart (#209)
+- fix: propagate trusted BYOK media billing source (#201)
+- fix(ci): harden edge deploy and release artifact publishing (#192)
+- fix(frontend): ignore stale branch comparison responses (#194)
+- fix(electron): avoid deprecated navigation fallback calls (#195)
+- fix: corrigir catálogo remoto e avisos do electron (#188)
+- fix: corrigir release e build do electron (#187)
+- fix: sincronizar uv lock nas versões do release please
+- fix: make media transcription and quality gates reliable (#153)
+- fix: preserve pending browser navigation after workspace switch (#149)
+- fix: sincronizar versão do uv lock no release please (#84)
+- fix: preservar estado do navegador ao ocultar workbench (#78)
+- fix(backend): mantém subagents ao vivo e sessões privadas (#71)
+- fix: encerra arvore de processos dos sidecars no shutdown (#76)
+- fix(backend): remove thread da SessionStore ao excluir (#68)
+- fix(backend): reconcile_vectora_sessions preserva/repara workspace_id (#67)
+- fix: release-please rastreia o monorepo inteiro, não só vectora/ (#65)
+- fix(backend): reconcilia vectora_sessions com sessions.db (#63)
+- fix(services): filtra versão no loop de upload e rejeita instalador duplicado (#64)
+- fix(services): reconstrói o manifesto de update por arch (#62)
+- fix(frontend): altura do Header, rename do mode switcher e composer mais limpo (#61)
+- fix: reaplica schema base do D1 em todo deploy de produção (#60)
+- fix(build): enxuga o vectora-cli headless + multipart upload no R2 (#57)
+- fix(services): resolve 3 achados pendentes da auditoria do services/ (#55)
+- fix(deploy): remove flag --skip-confirmation inválida do wrangler d1 migrations (#54)
+- fix(frontend): tela de Integrações dirigida 100% pelo registry do backend (#50)
+- fix(backend,services): hardening real do túnel do gateway (secret separado do token público) (#49)
+- fix(services): remove fallback cross-arch que quebrava update entre versões (#48)
+
 # Changelog
 
 Este arquivo registra as mudanças do Vectora. A seção da linha 0.3 é um inventário do conteúdo em preparação e não representa uma versão publicada; a versão só existe quando a tag e os artefatos correspondentes forem publicados.
