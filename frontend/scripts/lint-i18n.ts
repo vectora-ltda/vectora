@@ -233,20 +233,29 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
           ? `origin/${baseRef}...HEAD`
           : "HEAD";
     const maxBuffer = 64 * 1024 * 1024;
+    // O diff cobre o repositório inteiro e o filtro por `frontend/` é feito
+    // depois: restringir o pathspec esconderia a origem de um arquivo movido
+    // para dentro do frontend, e ele apareceria como novo.
+    const diffFlags = ["--diff-filter=AMR", "--find-renames"];
     ({ stdout } = await execFileAsync(
       "git",
-      ["diff", "--name-only", "--diff-filter=AM", diffRef, "--", "frontend"],
+      ["diff", "--name-only", ...diffFlags, diffRef],
       { cwd: repoRoot, maxBuffer },
     ));
     const diff = await execFileAsync(
       "git",
-      ["diff", "--unified=0", diffRef, "--", "frontend"],
+      ["diff", "--unified=0", ...diffFlags, diffRef],
       { cwd: repoRoot, maxBuffer },
     );
     changedLines = changedLinesFromDiff(diff.stdout);
     paths = stdout
       .split(/\r?\n/)
-      .filter((path) => /\.(ts|tsx)$/.test(path) && !isIgnoredPath(path))
+      .filter(
+        (path) =>
+          path.startsWith("frontend/") &&
+          /\.(ts|tsx)$/.test(path) &&
+          !isIgnoredPath(path),
+      )
       .map((path) => resolve(repoRoot, path));
   } else {
     const fileArgs = args.filter((arg) => arg !== "--changed" && arg !== "--");
@@ -266,7 +275,11 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
     const source = await readFile(path, "utf8");
     const displayPath = relative(process.cwd(), path) || path;
     const fileViolations = lintSource(source, displayPath);
-    const changed = changedLines?.get(relative(repoRoot, path));
+    const changed = changedLines?.get(
+      relative(repoRoot, path).replaceAll("\\", "/"),
+    );
+    // Arquivo só renomeado não tem hunk: nada nele mudou.
+    if (changedLines && !changed) continue;
     violations.push(
       ...(changed
         ? fileViolations.filter((violation) => changed.has(violation.line))

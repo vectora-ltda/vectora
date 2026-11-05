@@ -51,6 +51,26 @@ async function repoWithHead(headFile: string, headSource: string) {
   return { root, frontend, base, head };
 }
 
+async function repoWithMovedFrontend(source: string, editedSource?: string) {
+  const root = await mkdtemp(join(tmpdir(), "lint-i18n-moved-"));
+  await git(root, "init", "-q");
+  await git(root, "config", "user.email", "t@example.com");
+  await git(root, "config", "user.name", "t");
+  await mkdir(join(root, "app", "frontend"), { recursive: true });
+  await writeFile(join(root, "app", "frontend", "old.tsx"), source);
+  await git(root, "add", "-A");
+  await git(root, "commit", "-q", "-m", "base");
+  const base = await git(root, "rev-parse", "HEAD");
+  await git(root, "mv", "app/frontend", "frontend");
+  if (editedSource !== undefined) {
+    await writeFile(join(root, "frontend", "old.tsx"), editedSource);
+  }
+  await git(root, "add", "-A");
+  await git(root, "commit", "-q", "-m", "move");
+  const head = await git(root, "rev-parse", "HEAD");
+  return { root, frontend: join(root, "frontend"), base, head };
+}
+
 describe("lint-i18n", () => {
   it("reports visible JSX text and text attributes", () => {
     const violations = lintSource(
@@ -161,6 +181,39 @@ describe("lint-i18n", () => {
         ).rejects.toMatchObject({
           code: 1,
           stderr: expect.stringContaining("novo.tsx"),
+        });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("does not treat files moved into frontend as new", async () => {
+      const { root, frontend, base, head } = await repoWithMovedFrontend(
+        "<button>Antigo</button>",
+      );
+      try {
+        const result = await runChanged(frontend, {
+          PR_BASE_SHA: base,
+          PR_HEAD_SHA: head,
+        });
+        expect(`${result.stdout}
+${result.stderr}`).not.toContain("old.tsx");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("lints only the lines edited in a file moved into frontend", async () => {
+      const { root, frontend, base, head } = await repoWithMovedFrontend(
+        "<button>Antigo</button>",
+        "<>\n<button>Antigo</button>\n<p>Novo texto</p>\n</>",
+      );
+      try {
+        await expect(
+          runChanged(frontend, { PR_BASE_SHA: base, PR_HEAD_SHA: head }),
+        ).rejects.toMatchObject({
+          code: 1,
+          stderr: expect.stringMatching(/old\.tsx:3:/),
         });
       } finally {
         await rm(root, { recursive: true, force: true });
