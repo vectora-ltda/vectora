@@ -1,7 +1,7 @@
 name: PR Labels
 
 on:
-  pull_request_target:
+  pull_request:
     types:
       [
         opened,
@@ -21,6 +21,8 @@ permissions:
 jobs:
   labeler:
     name: Label PR
+    # PR de fork recebe token somente leitura: não há como rotular.
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-24.04
     permissions:
       contents: read
