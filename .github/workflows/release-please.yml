@@ -131,9 +131,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          read -r -a version_files <<< "$VERSION_FILES"
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch --tags --force origin
-          current_version="$(uv run python utils/release.py plan --print-current-version --files $VERSION_FILES)"
+          current_version="$(uv run python utils/release.py plan --print-current-version --files "${version_files[@]}")"
           release_major_minor="${current_version%.*}"
           latest_tag="$(git tag --merged "origin/$TARGET_BRANCH" --list "v${release_major_minor}.*" --sort=-version:refname | head -n 1)"
           if [[ -n "$latest_tag" ]]; then
@@ -163,13 +164,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          read -r -a version_files <<< "$VERSION_FILES"
           if [[ "$TARGET_BRANCH" == "$DEVELOPMENT_BRANCH" || "$TARGET_BRANCH" == "$MAINTENANCE_BRANCH" ]]; then
             source_ref="origin/$TARGET_BRANCH"
           else
             echo "Skipping unconfigured source branch $TARGET_BRANCH."
             exit 0
           fi
-          current_version="$(uv run python utils/release.py plan --print-current-version --files $VERSION_FILES)"
+          current_version="$(uv run python utils/release.py plan --print-current-version --files "${version_files[@]}")"
           release_major_minor="${current_version%.*}"
           latest_tag="$(git tag --merged "$source_ref" --list "v${release_major_minor}.*" --sort=-version:refname | head -n 1)"
           if [[ -n "$latest_tag" ]]; then
@@ -186,13 +188,13 @@ jobs:
             echo "::error::Versão inválida nos arquivos de versão: $current_version" >&2
             exit 1
           fi
-          bump_flag=""
-          [[ "$RELEASE_MILESTONE" == *.x ]] && bump_flag="--bump-patch-for-minor-pre-major"
+          bump_flag=()
+          [[ "$RELEASE_MILESTONE" == *.x ]] && bump_flag=(--bump-patch-for-minor-pre-major)
           uv run python utils/release.py plan \
             --current-version "$current_version" \
             --commits-json "$RUNNER_TEMP/release-commits.json" \
-            --files $VERSION_FILES \
-            $bump_flag > "$RUNNER_TEMP/release-plan.json"
+            --files "${version_files[@]}" \
+            "${bump_flag[@]}" > "$RUNNER_TEMP/release-plan.json"
           next_version="$(jq -er '.next_version' "$RUNNER_TEMP/release-plan.json")"
           bump="$(jq -er '.bump' "$RUNNER_TEMP/release-plan.json")"
           if [[ "$bump" == "none" ]]; then
@@ -253,8 +255,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bump_flag=""
-          [[ "$RELEASE_MILESTONE" == *.x ]] && bump_flag="--bump-patch-for-minor-pre-major"
+          read -r -a version_files <<< "$VERSION_FILES"
+          bump_flag=()
+          [[ "$RELEASE_MILESTONE" == *.x ]] && bump_flag=(--bump-patch-for-minor-pre-major)
           if [[ "$RELEASE_BRANCH" != "$TARGET_BRANCH" ]]; then
             git reset --hard "$SOURCE_SHA"
           fi
@@ -262,8 +265,8 @@ jobs:
           uv run python utils/release.py plan \
             --current-version "$current_version" \
             --commits-json "$RUNNER_TEMP/release-commits.json" \
-            --files $VERSION_FILES \
-            --apply $bump_flag
+            --files "${version_files[@]}" \
+            --apply "${bump_flag[@]}"
           uv run python utils/release.py normalize-changelog
           uv run python utils/release.py prepare-line \
             CHANGELOG.md .github/release-lines.json "$TARGET_BRANCH"
@@ -279,10 +282,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          read -r -a version_files <<< "$VERSION_FILES"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if ! git diff --quiet; then
-            git add .github/release-lines.json CHANGELOG.md $VERSION_FILES
+            git add .github/release-lines.json CHANGELOG.md "${version_files[@]}"
             git commit -m "chore(master): release $RELEASE_VERSION"
           fi
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"

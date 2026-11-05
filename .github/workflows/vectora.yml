@@ -278,7 +278,7 @@ jobs:
                 comm=$(cat "$t/comm" 2>/dev/null || echo "?")
                 echo "tid=$tid comm=$comm wchan=$wchan"
               done
-              echo "--- fds abertos: $(ls "/proc/$PY_PID/fd" 2>/dev/null | wc -l) ---"
+              echo "--- fds abertos: $(find "/proc/$PY_PID/fd" -mindepth 1 -maxdepth 1 2>/dev/null | wc -l) ---"
               # py-spy: bloqueado por ptrace neste runner mesmo com sudo
               # ("Permission Denied" mesmo com PATH preservado) — desistido,
               # não é contornável sem privilégio que o runner não concede.
