@@ -65,17 +65,33 @@ def test_settings_set_model_updates_llamacpp_model():
     assert s.llamacpp_model == "local-model"
 
 
-def test_settings_vectora_app_secret_vem_do_defaults_env(monkeypatch):
-    """Fixo por produto (backend/defaults.env) — não é auto-gerado por
-    instalação, precisa bater com o mesmo valor configurado no Worker via
-    `wrangler secret put VECTORA_APP_SECRET`."""
+def test_settings_vectora_app_secret_nao_vem_embutido_no_codigo(monkeypatch):
+    """O repositório é público: `backend/defaults.env` não pode trazer o valor.
+    O build oficial injeta o secret do GitHub; sem ele o handshake de registro
+    do gateway fica desligado. Quem hospeda por conta própria define a variável
+    de ambiente, que sempre prevalece."""
     monkeypatch.delenv("VECTORA_APP_SECRET", raising=False)
     s = Settings()
-    assert len(s.vectora_app_secret) == 64
+    assert s.vectora_app_secret == ""
 
     monkeypatch.setenv("VECTORA_APP_SECRET", "self-hosted-override")
     s_override = Settings()
     assert s_override.vectora_app_secret == "self-hosted-override"
+
+
+def test_defaults_env_nao_embute_nenhum_secret():
+    """Nenhuma variável de segredo de `defaults.env` carrega valor de produção."""
+    defaults = Path(__file__).resolve().parents[2] / "backend" / "defaults.env"
+    secrets = {}
+    for raw in defaults.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        if any(mark in name.upper() for mark in ("SECRET", "TOKEN", "PRIVATE_KEY")):
+            secrets[name] = value.strip()
+    assert secrets.get("VECTORA_APP_SECRET", "") == ""
+    assert all(value == "" for value in secrets.values()), secrets
 
 
 # ---------------------------------------------------------------------------

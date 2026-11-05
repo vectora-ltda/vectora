@@ -725,14 +725,12 @@ class Settings(BaseSettings):
     webhook configuradas. Desative com GATEWAY_ENABLED=false para desligar."""
 
     vectora_app_secret: str = ""
-    """Secret fixo por produto — igual em toda instalação, vem de
-    `backend/defaults.env` (mesma hierarquia de env vars usada por todo o
-    resto de `settings.py`), comparado pelo Worker via `env.VECTORA_APP_SECRET`
-    durante a validação de `POST /register` pra autenticar
-    `POST /register`. Não é por-usuário nem por-máquina (mesmo padrão de
-    client_secret de app desktop nativo — ex. GitHub Desktop — embutido em
-    toda cópia distribuída). Vazio desabilita o handshake de registro
-    (degrada pro fallback sem gateway, nunca impede o backend de iniciar)."""
+    """Segredo de aplicação usado no handshake `POST /register` do gateway
+    (comparado pelo Worker via `env.VECTORA_APP_SECRET`). Não é por-usuário nem
+    por-máquina e não vem no código: o build oficial o injeta em
+    `backend/defaults.env` e quem hospeda por conta própria define a variável
+    de ambiente. Vazio desabilita o registro e degrada para o fallback sem
+    gateway, sem impedir o backend de iniciar."""
 
     # ============================================================================
     # PYDANTIC CONFIGURATION

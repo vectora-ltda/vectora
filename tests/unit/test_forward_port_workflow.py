@@ -647,6 +647,34 @@ def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline(
     assert "--publish never" in content
 
 
+def test_release_build_injects_the_gateway_secret_from_github_secrets() -> None:
+    """O segredo do gateway entra no instalador pelo build, vindo do secret do
+    GitHub, e nunca por valor escrito no repositório."""
+    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+    release_native = content.split("\n  release-native:\n", 1)[1].split(
+        "\n  linux-package-install:\n", 1
+    )[0]
+
+    assert "VECTORA_APP_SECRET: ${{ secrets.VECTORA_APP_SECRET }}" in release_native
+    assert ">> backend/defaults.env" in release_native
+    inject = release_native.index(">> backend/defaults.env")
+    assert inject < release_native.index("Build hybrid")
+
+
+def test_gitleaks_runs_on_every_pull_request_with_a_pinned_version() -> None:
+    """Varredura de segredos na árvore e nos commits do PR, com a ferramenta
+    fixada em versão exata."""
+    content = (WORKFLOW.parent / "gitleaks.yml").read_text(encoding="utf-8")
+
+    assert "pull_request:" in content
+    assert "fetch-depth: 0" in content
+    assert "GITLEAKS_VERSION: v8." in content
+    assert "gitleaks/v8@${{ env.GITLEAKS_VERSION }}" in content
+    assert "gitleaks dir" in content
+    assert "gitleaks git" in content
+    assert "--redact" in content
+
+
 def test_milestone_workflow_resolves_the_release_line_of_stacked_prs() -> None:
     """Uma PR empilhada herda a linha de release da raiz da pilha: o workflow
     segue as bases pelas PRs abertas, atribui a milestone da raiz e repassa a
