@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import io
 import json
-import subprocess
+import subprocess  # nosec B404
 import sys
 from pathlib import Path
 from typing import NotRequired, TypedDict
@@ -254,13 +254,13 @@ def test_cli_prints_current_version_without_commits(tmp_path: Path) -> None:
         "pyproject.toml",
     ]
 
-    ok = subprocess.run(  # noqa: S603
+    ok = subprocess.run(  # noqa: S603  # nosec B603
         [*args, "--print-current-version"], capture_output=True, text=True, check=False
     )
     assert ok.returncode == 0
     assert ok.stdout.strip() == "0.3.0"
 
-    missing_commits = subprocess.run(  # noqa: S603
+    missing_commits = subprocess.run(  # noqa: S603  # nosec B603
         args, capture_output=True, text=True, check=False
     )
     assert missing_commits.returncode == 2

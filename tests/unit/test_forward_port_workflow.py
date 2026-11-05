@@ -19,6 +19,32 @@ WORKFLOW: Path = (
 CONFIG: Path = WORKFLOW.parent.parent / "release-lines.json"
 
 
+def test_setup_uv_defaults_to_the_repository_root() -> None:
+    """O projeto Python é a raiz do repositório: um default apontando para
+    uma subpasta quebra todo job que chama a action sem `working-directory`
+    (o runner não consegue iniciar o processo no diretório inexistente)."""
+    github = WORKFLOW.parent.parent
+    action = (github / "actions" / "setup-uv" / "action.yml").read_text(
+        encoding="utf-8"
+    )
+
+    block = action.split("  working-directory:\n", 1)[1].split("\nruns:", 1)[0]
+    default = next(
+        line.split("default:", 1)[1].strip().strip('"')
+        for line in block.splitlines()
+        if line.strip().startswith("default:")
+    )
+
+    assert default == "."
+    assert (github.parent / default / "pyproject.toml").is_file()
+    stale = [
+        path.name
+        for path in sorted((github / "workflows").glob("*.yml"))
+        if "working-directory: vectora\n" in path.read_text(encoding="utf-8")
+    ]
+    assert stale == []
+
+
 def test_forward_port_workflow_promotes_stable_master_into_active_minor() -> None:
     """Protege a promoção unidirecional configurada, as tentativas e a branch confiável."""
     content = WORKFLOW.read_text(encoding="utf-8")
@@ -419,11 +445,11 @@ def _trigger_block(content: str, event: str) -> str:
     return after.split("\n  workflow_dispatch:", 1)[0].split("\n  pull_request:", 1)[0]
 
 
-def test_app_and_edge_workflows_validam_todo_pr_e_publicam_so_de_master() -> None:
+def test_app_and_docs_workflows_validam_todo_pr_e_publicam_so_de_master() -> None:
     """Todo PR, qualquer que seja a base (inclusive PRs empilhados em feat/*),
     passa pelo pipeline completo; push e jobs de publicação seguem restritos às
     linhas de release."""
-    for name in ("edge.yml", "vectora.yml"):
+    for name in ("docs.yml", "vectora.yml"):
         content = (WORKFLOW.parent / name).read_text(encoding="utf-8")
         pull_request = _trigger_block(content, "pull_request")
         push = _trigger_block(content, "push")
@@ -434,7 +460,7 @@ def test_app_and_edge_workflows_validam_todo_pr_e_publicam_so_de_master() -> Non
         assert '"**"' not in push, name
 
     app = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
-    edge = (WORKFLOW.parent / "edge.yml").read_text(encoding="utf-8")
+    docs = (WORKFLOW.parent / "docs.yml").read_text(encoding="utf-8")
     # These jobs only resolve metadata or build artifacts and must run on PRs
     # so the package matrix is validated before merge. Only publication and
     # tagging jobs are restricted to master.
@@ -450,7 +476,7 @@ def test_app_and_edge_workflows_validam_todo_pr_e_publicam_so_de_master() -> Non
         guard = app.split(f"\n  {job}\n", 1)[1].split("\n    steps:", 1)[0]
         assert "github.ref == 'refs/heads/master'" in guard, job
         assert "pull_request" not in guard, job
-    deploy = edge.split("\n  deploy:\n", 1)[1].split("\n    steps:", 1)[0]
+    deploy = docs.split("\n  deploy:\n", 1)[1].split("\n    steps:", 1)[0]
     assert "github.ref == 'refs/heads/master'" in deploy
     assert "pull_request" not in deploy
 
@@ -461,16 +487,7 @@ def test_native_release_uses_supported_python_architectures_for_backend_deps() -
     setup_uv = (
         WORKFLOW.parent.parent / "actions" / "setup-uv" / "action.yml"
     ).read_text(encoding="utf-8")
-    release_matrix = (
-        WORKFLOW.parent.parent.parent
-        / "services"
-        / "src"
-        / "updates"
-        / "release-matrix.ts"
-    ).read_text(encoding="utf-8")
-
     assert "macos-26-intel" not in content
-    assert '"mac/x64"' not in release_matrix
     assert "source-built LanceDB" not in content
     assert "Cache LanceDB Cargo build" not in content
     assert "PyArrow has no win_arm64" in content

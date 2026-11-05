@@ -96,7 +96,7 @@ class GatewayMessage(TypedDict, total=False):
     body: str
     items: list[GatewayRequestItem]
     # type == "review_job" (gh-bot self-hosted, ver review_job.py) — sem
-            # `id` (não é um par request/response do túnel).
+    # `id` (não é um par request/response do túnel).
     job_id: str
     diff: str
     metadata: dict[str, str]

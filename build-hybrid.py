@@ -69,7 +69,7 @@ def _add_installed_test_runtime(dist_dir: Path) -> None:
     uv_binary = shutil.which("uv")
     if not uv_binary:
         sys.exit("uv não encontrado; o runtime instalado precisa dele para --tests.")
-    suite = VECTORA / "installed_tests" / "test_installed_runtime.py"
+    suite = VECTORA / "tests" / "installed_tests" / "test_installed_runtime.py"
     if not suite.is_file():
         sys.exit(f"Suíte de instalação não encontrada: {suite}")
     pytest_config = suite.parent / "pytest.ini"

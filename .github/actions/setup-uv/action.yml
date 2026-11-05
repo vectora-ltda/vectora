@@ -25,9 +25,9 @@ inputs:
     required: false
     default: "true"
   working-directory:
-    description: "Diretório do projeto Python (onde está o pyproject.toml/uv.lock). No monorepo é 'vectora'."
+    description: "Diretório do projeto Python (onde está o pyproject.toml/uv.lock). Por padrão, a raiz do repositório."
     required: false
-    default: "vectora"
+    default: "."
 
 runs:
   using: composite

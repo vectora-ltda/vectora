@@ -21,7 +21,7 @@ def _runtime_test_assets() -> tuple[Path, Path]:
 
     project_root = Path(__file__).resolve().parents[2]
     return (
-        project_root / "installed_tests" / "test_installed_runtime.py",
+        project_root / "tests" / "installed_tests" / "test_installed_runtime.py",
         Path(os.environ.get("VECTORA_TEST_UV") or shutil.which("uv") or ""),
     )
 

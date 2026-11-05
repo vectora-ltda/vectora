@@ -106,6 +106,14 @@ HUGO     = _find_hugo()
 VERCEL   = _find_bin("vercel")
 
 
+def _echo(line: str) -> None:
+    """Ecoa uma linha no stdout sem quebrar em consoles que não codificam o
+    caractere (cp1252 no Windows): o que não cabe vira `?`. O log em arquivo
+    continua em UTF-8 e guarda a linha original."""
+    encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+    sys.stdout.write(line.encode(encoding, errors="replace").decode(encoding))
+
+
 def _run(
     cmd: list[str],
     env: dict | None = None,
@@ -158,7 +166,7 @@ def _run(
             bufsize=1,
         )
         for line in proc.stdout:  # type: ignore[union-attr]
-            sys.stdout.write(line)
+            _echo(line)
             log.write(_ANSI_RE.sub("", line))
         proc.wait()
         rc = proc.returncode
@@ -621,6 +629,9 @@ def _run_vectora_suite(log, *, coverage: bool):
         "run",
         "pytest",
         "tests",
+        # Exige o executável já empacotado (VECTORA_INSTALLED_EXECUTABLE) e roda
+        # só pelo `vectora --tests` do app instalado.
+        "--ignore=tests/installed_tests",
         "-q",
         "--tb=short",
         "-m",

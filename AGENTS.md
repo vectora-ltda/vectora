@@ -69,21 +69,21 @@ Before committing, confirm that:
 
 Use this map as a starting point and verify it against the current repository when needed.
 
-| Path | Responsibility |
-| --- | --- |
-| `backend/settings.py` | Backend configuration |
-| `backend/agents/` | Agent identity and Soul definitions |
-| `backend/services/agent_factory.py` | Native agent construction and tool setup |
-| `backend/engine/` | Conversation loop, HITL, and runtime orchestration |
-| `backend/tools/registry.py` | Tool registration and lookup |
-| `backend/mcp/` | MCP server integration |
-| `backend/cli/` | Vectora command-line operations |
-| `backend/services/security.py` | Command and input security helpers |
-| `frontend/` | React/Vite desktop UI and Electron shell |
-| `docs/` | Public Hugo documentation |
-| `tests/` | Unit, integration, end-to-end, and stress tests |
-| `utils/` | Build, release, and repository automation utilities |
-| `SConstruct` | Build and development task orchestration |
+| Path                                | Responsibility                                      |
+| ----------------------------------- | --------------------------------------------------- |
+| `backend/settings.py`               | Backend configuration                               |
+| `backend/agents/`                   | Agent identity and Soul definitions                 |
+| `backend/services/agent_factory.py` | Native agent construction and tool setup            |
+| `backend/engine/`                   | Conversation loop, HITL, and runtime orchestration  |
+| `backend/tools/registry.py`         | Tool registration and lookup                        |
+| `backend/mcp/`                      | MCP server integration                              |
+| `backend/cli/`                      | Vectora command-line operations                     |
+| `backend/services/security.py`      | Command and input security helpers                  |
+| `frontend/`                         | React/Vite desktop UI and Electron shell            |
+| `docs/`                             | Public Hugo documentation                           |
+| `tests/`                            | Unit, integration, end-to-end, and stress tests     |
+| `utils/`                            | Build, release, and repository automation utilities |
+| `SConstruct`                        | Build and development task orchestration            |
 
 ## 10. PR walkthroughs and CodeRabbit
 

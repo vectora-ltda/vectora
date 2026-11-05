@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [".", frontend]
+        project: [frontend]
     steps:
       - uses: actions/checkout@v7
         with:
@@ -90,12 +90,11 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           all-extras: "true"
-          working-directory: vectora
+          working-directory: .
       # O plano gratuito do Snyk não lê uv.lock; o lock é exportado para
       # requirements.txt e o plugin pip inspeciona o .venv sincronizado pelo
       # setup-uv, que tem exatamente as versões travadas.
       - name: Exporta uv.lock para requirements
-        working-directory: vectora
         run: |
           uv export --frozen --no-hashes --no-emit-project --all-extras \
             --format requirements-txt -o snyk-requirements.txt
@@ -104,7 +103,6 @@ jobs:
         with:
           snyk-version: v${{ env.SNYK_CLI_VERSION }}
       - name: snyk test
-        working-directory: vectora
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
         run: >-
