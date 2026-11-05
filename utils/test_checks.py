@@ -445,3 +445,43 @@ def test_main_checks_all_paths_after_first_failure(
 
     assert checks.translation_keys_main() == 1
     assert checked == [first, second]
+
+
+def test_frontend_lint_runs_oxlint_only_on_frontend_files(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    class Done:
+        returncode = 0
+
+    def fake_run(command: list[str], **_: object) -> Done:
+        calls.append(command)
+        return Done()
+
+    monkeypatch.setattr(checks.shutil, "which", lambda _: "pnpm")
+    monkeypatch.setattr(checks.subprocess, "run", fake_run)
+
+    code = checks.frontend_lint_main(
+        ["frontend/lib/a.ts", "backend/x.py", "frontend\\components\\b.tsx", "-x"]
+    )
+
+    assert code == 0
+    assert calls == [
+        ["pnpm", "--dir", "frontend", "exec", "oxlint", "lib/a.ts", "components/b.tsx"]
+    ]
+
+
+def test_frontend_lint_skips_when_no_frontend_file_is_staged(monkeypatch) -> None:
+    monkeypatch.setattr(
+        checks.subprocess,
+        "run",
+        lambda *_, **__: pytest.fail("não deveria rodar o oxlint"),
+    )
+
+    assert checks.frontend_lint_main(["backend/x.py"]) == 0
+    assert checks.frontend_lint_main([]) == 0
+
+
+def test_frontend_lint_reports_missing_pnpm(monkeypatch) -> None:
+    monkeypatch.setattr(checks.shutil, "which", lambda _: None)
+
+    assert checks.frontend_lint_main(["frontend/lib/a.ts"]) == 2

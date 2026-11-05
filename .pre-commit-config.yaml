@@ -42,6 +42,12 @@ exclude: |
     (^|/)__pycache__/.*
   )$
 
+# Velocidade dos hooks: `uv run` sem `--no-project` reconstrói e sincroniza o
+# ambiente do projeto inteiro a cada chamada (mais de 10 s). Os hooks que só
+# usam a stdlib rodam com `--no-project`; os que precisam das ferramentas do
+# projeto (bandit, ty) usam `--no-sync` e exigem `uv sync` feito antes. Os que
+# analisam código recebem só os arquivos do commit.
+
 repos:
   # ==========================================================================
   # Base compartilhada: idêntica nos repositórios do app, do services e da
@@ -81,24 +87,24 @@ repos:
     hooks:
       - id: compileall
         name: Python Syntax (compileall)
-        entry: uv run python -m compileall -q -j0
+        entry: uv run --no-project python -m compileall -q -j0
         language: system
         types: [python]
       - id: removed-path-references
         name: Check references to removed or renamed paths
-        entry: uv run python utils/checks.py removed-paths
+        entry: uv run --no-project python utils/checks.py removed-paths
         language: system
         always_run: true
         pass_filenames: false
       - id: no-plan-comments
         name: Sem Sprint/Bloco/Fase ou menção a ferramenta de IA em código
-        entry: uv run python utils/checks.py no-plan --changed
+        entry: uv run --no-project python utils/checks.py no-plan --changed
         language: system
         files: \.(py|ts|tsx|js|jsx|mts)$
         exclude: ^utils/(checks|test_checks)\.py$
       - id: release-lines-config
         name: Validate release line configuration
-        entry: uv run python utils/release.py line master
+        entry: uv run --no-project --with "pydantic>=2.13.4" python utils/release.py line master
         language: system
         files: ^\.github/release-lines\.json$
         pass_filenames: false
@@ -158,7 +164,7 @@ repos:
         # --exclude aqui espelha o mesmo skip do `scons lint` (SConstruct) —
         # backend/context_graph é código portado do graphify (MIT) com
         # exceções já documentadas em pyproject.toml per-file-ignores.
-        entry: uv run python -m bandit -s B110,B101 -c pyproject.toml --exclude backend/context_graph
+        entry: uv run --no-sync python -m bandit -s B110,B101 -c pyproject.toml --exclude backend/context_graph
         language: system
         types: [python]
 
@@ -171,10 +177,9 @@ repos:
     hooks:
       - id: ty
         name: Type Check — Python (ty)
-        entry: uv run ty check backend tests
+        entry: uv run --no-sync ty check
         language: system
-        types: [python]
-        pass_filenames: false
+        files: ^(backend|tests)/.*\.py$
 
   # ==========================================
   # JS/TS Lint — oxlint (Rust, OXC toolchain)
@@ -184,16 +189,15 @@ repos:
     hooks:
       - id: translation-key-order
         name: Ordenação das chaves de tradução
-        entry: uv run python utils/checks.py translation-keys --check
+        entry: uv run --no-project python utils/checks.py translation-keys --check
         language: system
         files: ^frontend/messages/.*\.json$
 
       - id: oxlint
         name: JS/TS Lint (oxlint)
-        entry: pnpm --dir frontend exec oxlint
+        entry: uv run --no-project python utils/checks.py frontend-lint
         language: system
         files: ^frontend/.*\.(ts|tsx|js|jsx|mjs|cjs)$
-        pass_filenames: false
 
       - id: i18n
         name: Frontend i18n lint

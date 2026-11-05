@@ -8,6 +8,7 @@ Comandos:
     pr-metadata          Rejeita TÍTULO/DESCRIÇÃO de PR com proveniência de processo: referência de
     removed-paths        Detect staged references to files removed or renamed by the commit
     translation-keys     Validate and deterministically sort Vectora translation message keys
+    frontend-lint        Run the frontend oxlint only on the files received (staged files)
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess  # nosec B404
 import sys
 import tokenize
@@ -527,6 +529,35 @@ def translation_keys_main() -> int:
     return 0 if all(results) else 1
 
 
+# ── frontend-lint: oxlint só nos arquivos recebidos do pre-commit
+
+
+FRONTEND_PREFIX: Final = "frontend/"
+
+
+def frontend_lint_main(argv: list[str]) -> int:
+    """Roda o oxlint do frontend somente nos arquivos recebidos.
+
+    O pre-commit passa os caminhos a partir da raiz do repositório; o oxlint
+    roda dentro de `frontend/`, então o prefixo é removido. Caminhos fora do
+    frontend são ignorados e, sem nenhum arquivo, não há o que verificar.
+    """
+    files = [
+        path[len(FRONTEND_PREFIX) :]
+        for path in (arg.replace("\\", "/") for arg in argv)
+        if path.startswith(FRONTEND_PREFIX)
+    ]
+    if not files:
+        return 0
+    pnpm = shutil.which("pnpm")
+    if pnpm is None:
+        print("frontend-lint: pnpm não encontrado no PATH", file=sys.stderr)
+        return 2
+    return subprocess.run(  # nosec B603
+        [pnpm, "--dir", "frontend", "exec", "oxlint", *files], check=False
+    ).returncode
+
+
 # ── CLI ─────────────────────────────────────────────────────────────────────
 
 
@@ -535,6 +566,7 @@ _COMMANDS: dict[str, tuple[Callable[..., int], bool]] = {
     "pr-metadata": (pr_metadata_main, False),
     "removed-paths": (removed_paths_main, False),
     "translation-keys": (translation_keys_main, False),
+    "frontend-lint": (frontend_lint_main, True),
 }
 
 
