@@ -1,127 +1,127 @@
 {
   "accepted": [
     {
-      "key": "python/CommandInjection|backend/api/handlers/chat.py|a841107538b32a6d:1",
+      "key": "python/CommandInjection|backend/api/handlers/chat.py|a479fac6add8684f",
       "reason": "Servidores MCP stdio são configurados pelo usuário e exigem confirmação de confiança.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/CommandInjection|backend/api/handlers/provider_routing.py|41e8ba57987ae859:1",
+      "key": "python/CommandInjection|backend/api/handlers/provider_routing.py|0519ce615a7220fa",
       "reason": "O llama-server vem do diretório de runtime gerenciado; modelo e opções são validados em start_llamacpp.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/CommandInjection|backend/api/handlers/provider_routing.py|793adc5461582d6a:1",
+      "key": "python/CommandInjection|backend/api/handlers/provider_routing.py|82b367f9e8a7b010",
       "reason": "O llama-server vem do diretório de runtime gerenciado; modelo e opções são validados em start_llamacpp.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/CommandInjection|backend/api/handlers/provider_routing.py|f81207978c767e4a:1",
+      "key": "python/CommandInjection|backend/api/handlers/provider_routing.py|82b367f9e8a7b010#2",
       "reason": "O llama-server vem do diretório de runtime gerenciado; modelo e opções são validados em start_llamacpp.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/CommandInjection|backend/api/handlers/workspaces.py|85c0c8fe168bc34b:1",
+      "key": "python/CommandInjection|backend/api/handlers/workspaces.py|cb5829f358c55256",
       "reason": "gh recebe argv sem shell com entradas validadas; launch.json só roda em workspace confiável.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/CommandInjection|backend/api/handlers/workspaces.py|c86fcb31f0681b88:1",
+      "key": "python/CommandInjection|backend/api/handlers/workspaces.py|d6462b9f8ed5d06b",
       "reason": "gh recebe argv sem shell com entradas validadas; launch.json só roda em workspace confiável.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/backup.py|932fc114f82bec15:1",
+      "key": "python/PT|backend/api/handlers/backup.py|25888825d87d870a",
       "reason": "Arquivo de backup escolhido no diálogo nativo; a rota exige a ponte do desktop.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/backup.py|c564c04c157a43ad:1",
+      "key": "python/PT|backend/api/handlers/backup.py|47d457fe1e2be254",
       "reason": "Arquivo de backup escolhido no diálogo nativo; a rota exige a ponte do desktop.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/chat.py|266b99b96f10b60d:1",
+      "key": "python/PT|backend/api/handlers/chat.py|3c9bafe53e231a46",
       "reason": "O diretório vem de workspace registrado e autorizado pelas safe roots.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/chat.py|7a0b01ae5e60fa61:1",
+      "key": "python/PT|backend/api/handlers/chat.py|3c9bafe53e231a46#2",
       "reason": "O diretório vem de workspace registrado e autorizado pelas safe roots.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/chat.py|81ce1c49dd537a96:1",
+      "key": "python/PT|backend/api/handlers/chat.py|92e0a68fe8f3e499",
       "reason": "O diretório vem de workspace registrado e autorizado pelas safe roots.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/chat.py|8ae920ce5c4ed023:1",
+      "key": "python/PT|backend/api/handlers/chat.py|a006d721a1423fcb",
       "reason": "O diretório vem de workspace registrado e autorizado pelas safe roots.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/memory_buckets.py|6f5d409acd628071:1",
+      "key": "python/PT|backend/api/handlers/memory_buckets.py|8a08814f86f8d00c",
       "reason": "O bucket_id é validado por _validate_bucket_id antes de montar qualquer caminho.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/skills.py|451b5e97194920ec:1",
+      "key": "python/PT|backend/api/handlers/skills.py|22ef903a9c9b0483",
       "reason": "O alvo vem de workspace autorizado ou de identificador de runtime validado por regex.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/skills.py|7ce16b9d12bc5f27:1",
+      "key": "python/PT|backend/api/handlers/skills.py|2ddfc7ec896c6d50",
       "reason": "O alvo vem de workspace autorizado ou de identificador de runtime validado por regex.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/skills.py|8f834071e71e217e:1",
+      "key": "python/PT|backend/api/handlers/skills.py|5456647224fb210a",
       "reason": "O alvo vem de workspace autorizado ou de identificador de runtime validado por regex.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/skills.py|db01bd0df87ed2ff:1",
+      "key": "python/PT|backend/api/handlers/skills.py|c92b20cffd86820f",
       "reason": "O alvo vem de workspace autorizado ou de identificador de runtime validado por regex.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/threads.py|b799984e94fc3135:1",
+      "key": "python/PT|backend/api/handlers/threads.py|34007f0c3c39b261",
       "reason": "O caminho vem do índice interno de assets, não da requisição.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/workspaces.py|3cc57f5bea501da2:1",
+      "key": "python/PT|backend/api/handlers/workspaces.py|077169e8f5576bea",
       "reason": "Caminho confinado ao workspace por resolve_within_workspace ou pasta autorizada pelas safe roots.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/workspaces.py|617e473d6583ae20:1",
+      "key": "python/PT|backend/api/handlers/workspaces.py|100f2a57feb64150",
       "reason": "Caminho confinado ao workspace por resolve_within_workspace ou pasta autorizada pelas safe roots.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/workspaces.py|7c43540d69f46d8f:1",
+      "key": "python/PT|backend/api/handlers/workspaces.py|74b709f6876a3a8a",
       "reason": "Caminho confinado ao workspace por resolve_within_workspace ou pasta autorizada pelas safe roots.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/workspaces.py|bcfb1f825575c30e:1",
+      "key": "python/PT|backend/api/handlers/workspaces.py|a2e9e9583d583c39",
       "reason": "Caminho confinado ao workspace por resolve_within_workspace ou pasta autorizada pelas safe roots.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/workspaces.py|e13cd292b5d00eb2:1",
+      "key": "python/PT|backend/api/handlers/workspaces.py|a2eb1ce02f26d36b",
       "reason": "Caminho confinado ao workspace por resolve_within_workspace ou pasta autorizada pelas safe roots.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/workspaces.py|e7f1007a5389071:1",
+      "key": "python/PT|backend/api/handlers/workspaces.py|bf88a750aca0c830",
       "reason": "Caminho confinado ao workspace por resolve_within_workspace ou pasta autorizada pelas safe roots.",
       "expires": "2027-05-05"
     },
     {
-      "key": "python/PT|backend/api/handlers/workspaces.py|ebaaa7d5098ba1a7:1",
+      "key": "python/PT|backend/api/handlers/workspaces.py|ff0e80d145e33f3f",
       "reason": "Caminho confinado ao workspace por resolve_within_workspace ou pasta autorizada pelas safe roots.",
       "expires": "2027-05-05"
     }

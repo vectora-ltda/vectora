@@ -11,6 +11,7 @@ Uso: ``snyk_baseline.py <sarif> <baseline.json>``
 
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from datetime import UTC, date, datetime
@@ -18,22 +19,44 @@ from pathlib import Path
 from typing import Any
 
 
-def finding_key(result: dict[str, Any]) -> str:
-    """Identidade estável do achado: regra, arquivo e hash da linha."""
+def _line_digest(root: Path, uri: str, line: int) -> str:
+    """Hash do texto da linha apontada; muda se a linha mudar, não se ela se mover."""
+    try:
+        lines = (root / uri).read_text(encoding="utf-8").splitlines()
+        text = lines[line - 1].strip()
+    except (OSError, IndexError, UnicodeDecodeError):
+        text = ""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def finding_key(result: dict[str, Any], root: Path) -> str:
+    """Identidade estável do achado: regra, arquivo e hash da linha apontada."""
     location = result["locations"][0]["physicalLocation"]
     uri = location["artifactLocation"]["uri"]
-    line_hash = (result.get("partialFingerprints") or {}).get(
-        "primaryLocationLineHash", ""
-    )
-    return f"{result['ruleId']}|{uri}|{line_hash}"
+    line = location.get("region", {}).get("startLine", 0)
+    return f"{result['ruleId']}|{uri}|{_line_digest(root, uri, line)}"
 
 
-def load_findings(sarif_path: Path) -> dict[str, dict[str, Any]]:
+def load_findings(sarif_path: Path, root: Path) -> dict[str, dict[str, Any]]:
+    """Achados do SARIF por chave; linhas idênticas no mesmo arquivo ganham #n."""
     sarif = json.loads(sarif_path.read_text(encoding="utf-8"))
+    results = [
+        result for run in sarif.get("runs", []) for result in run.get("results", [])
+    ]
+
+    def position(result: dict[str, Any]) -> tuple[str, int]:
+        location = result["locations"][0]["physicalLocation"]
+        return location["artifactLocation"]["uri"], location.get("region", {}).get(
+            "startLine", 0
+        )
+
     findings: dict[str, dict[str, Any]] = {}
-    for run in sarif.get("runs", []):
-        for result in run.get("results", []):
-            findings[finding_key(result)] = result
+    seen: dict[str, int] = {}
+    for result in sorted(results, key=position):
+        base = finding_key(result, root)
+        seen[base] = seen.get(base, 0) + 1
+        key = base if seen[base] == 1 else f"{base}#{seen[base]}"
+        findings[key] = result
     return findings
 
 
@@ -64,7 +87,7 @@ def main(argv: list[str]) -> int:
     if len(argv) != 3:
         print(__doc__)
         return 2
-    findings = load_findings(Path(argv[1]))
+    findings = load_findings(Path(argv[1]), Path.cwd())
     baseline = json.loads(Path(argv[2]).read_text(encoding="utf-8"))["accepted"]
     new, expired, missing = compare(findings, baseline, datetime.now(UTC).date())
     for key in missing:
