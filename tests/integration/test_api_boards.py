@@ -251,3 +251,13 @@ async def test_board_batch_queries_treatem_ids_como_dados(db, monkeypatch):
 
     # Efeito observável: a tabela continua disponível após os três caminhos.
     assert await get_boards(_req()) == []
+
+
+def test_board_view_descarta_id_de_task_que_nao_seja_uuid_canonico() -> None:
+    """IDs persistidos inválidos não chegam aos batch queries do endpoint."""
+    from backend.api.handlers.boards import _canonical_task_ids
+
+    valid = "aa844f17-7e0e-4b0a-8991-c3aab9bdcc63"
+    injected = "id'); DROP TABLE vectora_background_tasks; --"
+
+    assert _canonical_task_ids([valid, injected]) == [valid]
