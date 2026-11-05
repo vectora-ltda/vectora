@@ -1094,15 +1094,16 @@ async def list_threads(
         if hasattr(session_store, "_pool") and thread_ids:
             # Buscar contagens legadas de thread_read_cursors para preservar no backfill
             legacy_counts: dict[str, int] = {}
-            placeholders = ",".join("?" for _ in thread_ids)
             with contextlib.suppress(Exception):
-                async with db.execute(
-                    f"SELECT thread_id, read_count FROM thread_read_cursors "  # noqa: S608  # nosec B608
-                    f"WHERE user_id = ? AND thread_id IN ({placeholders})",
-                    (user_id, *thread_ids),
-                ) as cur_cursors:
-                    for row_c in await cur_cursors.fetchall():
-                        legacy_counts[str(row_c[0])] = int(row_c[1] or 0)
+                for thread_id in thread_ids:
+                    async with db.execute(
+                        "SELECT read_count FROM thread_read_cursors "
+                        "WHERE user_id = ? AND thread_id = ?",
+                        (user_id, thread_id),
+                    ) as cur_cursor:
+                        row_c = await cur_cursor.fetchone()
+                    if row_c is not None:
+                        legacy_counts[thread_id] = int(row_c[0] or 0)
             for tid in thread_ids:
                 try:
                     await ensure_thread_backfilled(

@@ -468,6 +468,15 @@ async function storeSetCookie(cookieStr: string): Promise<void> {
  */
 async function forwardToBackend(request: Request): Promise<Response> {
   const url = new URL(request.url);
+  if (
+    url.protocol !== `${APP_SCHEME}:` ||
+    url.hostname !== "app" ||
+    url.username !== "" ||
+    url.password !== "" ||
+    url.port !== ""
+  ) {
+    return new Response("Origem inválida para a ponte local.", { status: 400 });
+  }
   const headers: Record<string, string> = {};
   request.headers.forEach((value, key) => {
     if (!_HOP_BY_HOP.has(key.toLowerCase())) headers[key] = value;

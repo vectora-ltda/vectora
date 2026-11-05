@@ -991,7 +991,8 @@ class PatchApiKeysBody(BaseModel):
 
 class TestApiKeyBody(BaseModel):
     provider: str  # "google" | "cohere" | "tavily"
-    api_key: str
+    api_key: str | None = None
+    use_env: bool = False
 
 
 @router.get("/api-keys")
@@ -1065,9 +1066,8 @@ async def test_api_key(request: Request, body: TestApiKeyBody) -> dict:
     import time
 
     provider = body.provider.lower().strip()
-    raw_key = body.api_key.strip()
-    # Sentinela: usar a env já configurada (para chaves pré-preenchidas).
-    if raw_key == "__use_env__":
+    raw_key = (body.api_key or "").strip()
+    if body.use_env:
         env_var = _API_KEY_FIELDS.get(provider, "")
         raw_key = os.environ.get(env_var, "").strip()
     api_key = raw_key
@@ -1272,13 +1272,26 @@ async def test_storage_connection(request: Request) -> dict:
     result = await _attempt()
     result["started"] = False
 
-    if not result["ok"] and body.get("self_hosted") and body.get("start_command"):
+    if (
+        not result["ok"]
+        and body.get("self_hosted")
+        and isinstance(body.get("start_command"), str)
+        and isinstance(backend, str)
+    ):
         import shlex
         import subprocess  # nosec B404
 
+        from backend.storage.dev_stack import DEFAULT_START_COMMANDS
+
+        expected_command = DEFAULT_START_COMMANDS.get(backend)
+        requested_command = body.get("start_command")
+        if expected_command is None or requested_command != expected_command:
+            result["error"] = f"Comando de inicialização não permitido para {backend}."
+            return result
+
         try:
             subprocess.Popen(  # noqa: S603, ASYNC220  # nosec B603 — comando configurado pelo operador no Setup Wizard
-                shlex.split(body["start_command"]),
+                shlex.split(expected_command),
                 start_new_session=True,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

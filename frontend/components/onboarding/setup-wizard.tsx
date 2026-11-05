@@ -203,7 +203,7 @@ export function StepToken(_props: StepProps) {
             type={showToken ? "text" : "password"}
             value={tokenInput}
             onChange={(e) => setTokenInput(e.target.value)}
-            placeholder="vct_…"
+            placeholder={m.onboarding_token_placeholder()}
             className="h-8 text-xs font-mono flex-1"
             autoComplete="new-password"
           />
@@ -238,7 +238,7 @@ export function StepToken(_props: StepProps) {
             rel="noopener noreferrer"
             className="text-primary hover:underline"
           >
-            vectora.company/dashboard
+            {m.onboarding_dashboard_link()}
           </a>
         </p>
       </>
@@ -469,10 +469,12 @@ function ServiceConnectionCard({
           {testResult.ok ? (
             <>
               <CheckCircle2 className="w-3.5 h-3.5" />
-              OK
+              {m.onboarding_mode_ok()}
               {testResult.latency_ms !== undefined && (
                 <span className="text-muted-foreground">
-                  ({testResult.latency_ms}ms)
+                  {m.onboarding_mode_latency_ms({
+                    latency: testResult.latency_ms,
+                  })}
                 </span>
               )}
             </>
@@ -668,7 +670,10 @@ export function StepMode({ onValidityChange }: StepProps) {
                     {preconfiguredTests[cfg.service]?.latency_ms !==
                       undefined && (
                       <span className="text-muted-foreground">
-                        ({preconfiguredTests[cfg.service]?.latency_ms}ms)
+                        {m.onboarding_mode_latency_ms({
+                          latency:
+                            preconfiguredTests[cfg.service]?.latency_ms ?? 0,
+                        })}
                       </span>
                     )}
                   </span>
@@ -976,7 +981,8 @@ export function StepApiKeys(_props: StepProps) {
         // Valor vazio → backend usa a env já configurada (para pré-preenchidos).
         body: JSON.stringify({
           provider: id,
-          api_key: value.trim() || "__use_env__",
+          api_key: value.trim() || null,
+          use_env: !value.trim(),
         }),
       });
       const data = (await res.json()) as { ok: boolean; error?: string };
