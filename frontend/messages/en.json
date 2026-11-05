@@ -1,6 +1,6 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
-  "$comment": "Novas chaves devem ser adicionadas em ordem alfabética; use utils/sort_translation_keys.py.",
+  "$comment": "Novas chaves devem ser adicionadas em ordem alfabética; use `python utils/checks.py translation-keys --write`.",
   "about_panel_mode_desktop": "Desktop (Electron)",
   "about_panel_mode_label": "Mode",
   "about_panel_mode_web": "Web",

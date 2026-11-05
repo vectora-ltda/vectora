@@ -12,7 +12,6 @@ import pytest
 
 WORKFLOW: Path = (
     Path(__file__).resolve().parents[2]
-    / ".."
     / ".github"
     / "workflows"
     / "forward-port-release.yml"
@@ -117,8 +116,8 @@ def test_release_please_uses_trusted_config_for_branch_gate() -> None:
     assert 'echo "enabled=false" >> "$GITHUB_OUTPUT"' in content
     assert "enabled=false" in content
     assert "secrets.RELEASE_PLEASE_TOKEN" not in content
-    assert "config_file" in content
-    assert "manifest_file" in content
+    assert "version_files" in content
+    assert "manifest" not in content.lower()
     assert "map(select(\\" not in content
 
 
@@ -127,7 +126,7 @@ def test_release_please_scopes_pr_body_to_current_release_notes() -> None:
     workflow = WORKFLOW.parent / "release-please.yml"
     content = workflow.read_text(encoding="utf-8")
 
-    assert "utils/prepare_release_pr_body.py" in content
+    assert "utils/release.py pr-body" in content
     assert "CHANGELOG.md" in content
     assert 'gh pr edit "$existing" --repo "$GITHUB_REPOSITORY"' in content
     assert '--body-file "$RUNNER_TEMP/release-pr-body.md"' in content
@@ -270,9 +269,8 @@ def test_release_sources_are_utf8_without_mojibake() -> None:
         ".github/pull_request_template.md",
         ".github/workflows/release-please.yml",
         ".github/workflows/forward-port-release.yml",
-        "utils/rotate_release_lines.py",
-        "utils/prepare_release_line_config.py",
-        "utils/test_prepare_release_line_config.py",
+        "utils/release.py",
+        "utils/test_release.py",
     ]
     for name in names:
         content = (root / name).read_bytes().decode("utf-8")
@@ -303,12 +301,10 @@ def test_release_automation_uses_current_line_tags_and_manual_dispatch() -> None
     assert "github.event_name == 'workflow_dispatch'" in content
     assert '"v${release_major_minor}.*"' in content
     assert '"v*" --sort=-version:refname' not in content
-    assert "chore(master): release $manifest_version" in content
-    assert "prepare_release_line_config.py" in content
-    assert (
-        ".release-please-manifest.maintenance.json .github/release-lines.json"
-        in content
-    )
+    assert "chore(master): release $current_version" in content
+    assert "--print-current-version --files $VERSION_FILES" in content
+    assert "utils/release.py prepare-line" in content
+    assert "git add .github/release-lines.json CHANGELOG.md $VERSION_FILES" in content
 
 
 def test_release_pr_uses_maintenance_milestone_for_master_base() -> None:
@@ -340,7 +336,7 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
 
     assert "release:" in content
     assert "types: [published]" in content
-    assert "utils/rotate_release_lines.py" in content
+    assert "utils/release.py rotate" in content
     assert "github.rest.git.createRef" in content
     assert "issues.createMilestone" in content
     assert "secrets.RELEASE_PLEASE_TOKEN" not in content
@@ -391,7 +387,7 @@ def test_release_rotation_uses_project_environment() -> None:
     content = workflow.read_text(encoding="utf-8")
 
     assert "./.github/actions/setup-uv" in content
-    assert "uv run python utils/rotate_release_lines.py" in content
+    assert "uv run python utils/release.py rotate" in content
 
 
 def test_release_workflows_pin_ubuntu_runner() -> None:

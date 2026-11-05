@@ -15,7 +15,7 @@
 # repo é privado (Vectora é vendido, não open source) e o Free precisa baixar
 # e atualizar sem conta. `${os}`/`${arch}` resolvem por build (mesmo macro do
 # artifactName), então cada instalador aponta pro seu próprio
-# /updates/<channel>/<os>/<arch>/latest.yml no worker (services/src/updates/worker.ts).
+# /updates/<channel>/<os>/<arch>/latest.yml no Worker remoto.
 
 appId: company.vectora.desktop
 productName: Vectora

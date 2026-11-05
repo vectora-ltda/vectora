@@ -391,8 +391,8 @@ def _read_tsconfig_aliases(tsconfig: Path, base_dir: Path, seen: set) -> dict[st
     # the tsconfig's directory), not the tsconfig directory directly. Honoring
     # baseUrl is required for the common monorepo / NestJS layout where
     # baseUrl points at a subdirectory, e.g. baseUrl "./src" with
-    # "@services/*": ["services/*"] must resolve to <dir>/src/services rather
-    # than <dir>/services. Defaults to "." so configs without baseUrl (paths
+    # "@lib/*": ["lib/*"] must resolve to <dir>/src/lib rather than
+    # <dir>/lib. Defaults to "." so configs without baseUrl (paths
     # relative to the tsconfig dir, the TS 4.1+ behavior) keep working.
     compiler_options = data.get("compilerOptions", {})
     base_url = compiler_options.get("baseUrl") or "."

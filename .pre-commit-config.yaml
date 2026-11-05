@@ -104,16 +104,16 @@ repos:
     hooks:
       - id: removed-path-references
         name: Check references to removed or renamed paths
-        entry: uv run python utils/check_removed_path_references.py
+        entry: uv run python utils/checks.py removed-paths
         language: system
         always_run: true
         pass_filenames: false
       - id: no-plan-comments
         name: Sem Sprint/Bloco/Fase ou menção a ferramenta de IA em código
-        entry: uv run python utils/check_no_plan_comments.py --changed
+        entry: uv run python utils/checks.py no-plan --changed
         language: system
         files: \.(py|ts|tsx|js|jsx)$
-        exclude: ^utils/(check_no_plan_comments|test_check_no_plan_comments|check_no_plan_pr_metadata|test_check_no_plan_pr_metadata)\.py$
+        exclude: ^utils/(checks|test_checks)\.py$
 
   # ==========================================
   # Python Validation
@@ -192,7 +192,7 @@ repos:
     hooks:
       - id: translation-key-order
         name: Ordenação das chaves de tradução
-        entry: uv run python utils/sort_translation_keys.py --check
+        entry: uv run python utils/checks.py translation-keys --check
         language: system
         files: ^frontend/messages/.*\.json$
 

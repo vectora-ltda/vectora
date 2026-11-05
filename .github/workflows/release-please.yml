@@ -1,7 +1,8 @@
 name: Release Please
 
 # Cada linha de release é calculada a partir do branch confiável. A PR de
-# release atualiza manifesto e changelog; a tag só é criada pelo pipeline do
+# release atualiza os arquivos de versão e o changelog listados em
+# .github/release-lines.json; a tag só é criada pelo pipeline do
 # app depois que a distribuição termina com sucesso. Essa tag dispara este
 # workflow para preparar a próxima versão.
 
@@ -81,20 +82,19 @@ jobs:
             else
               release_target_branch="$maintenance_branch"
             fi
-            config_file="$(jq -er ".${line_key}.release_please_config" .github/release-lines.json)"
-            manifest_file="$(jq -er ".${line_key}.release_please_manifest" .github/release-lines.json)"
+            version_files="$(jq -er '.version_files | if type == "array" and length > 0 and all(.[]; type == "string" and length > 0) then join(" ") else error("version_files inválido") end' .github/release-lines.json)"
             pr_milestone="$maintenance_milestone"
-            if [[ "$config_file" == /* || "$config_file" == *..* || "$manifest_file" == /* || "$manifest_file" == *..* ]]; then
-              echo "::error::Os caminhos do Release Please devem ser relativos e não podem subir diretórios." >&2
-              exit 1
-            fi
-            test -f "$config_file" || { echo "::error::Configuração ausente: $config_file" >&2; exit 1; }
-            test -f "$manifest_file" || { echo "::error::Manifesto ausente: $manifest_file" >&2; exit 1; }
+            for file in $version_files; do
+              if [[ "$file" == /* || "$file" == *..* ]]; then
+                echo "::error::Arquivos de versão devem ser relativos e não podem subir diretórios: $file" >&2
+                exit 1
+              fi
+              test -f "$file" || { echo "::error::Arquivo de versão ausente: $file" >&2; exit 1; }
+            done
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
             echo "enabled=false" >> "$GITHUB_OUTPUT"
-            config_file=""
-            manifest_file=""
+            version_files=""
             release_target_branch=""
             pr_milestone=""
           fi
@@ -103,8 +103,7 @@ jobs:
             echo "maintenance_branch=$maintenance_branch"
             echo "development_milestone=$development_milestone"
             echo "maintenance_milestone=$maintenance_milestone"
-            echo "config_file=$config_file"
-            echo "manifest_file=$manifest_file"
+            echo "version_files=$version_files"
             echo "release_target_branch=$release_target_branch"
             echo "release_milestone=$release_milestone"
             echo "pr_milestone=$pr_milestone"
@@ -112,6 +111,12 @@ jobs:
           if [[ "$(grep '^enabled=' "$GITHUB_OUTPUT" | tail -n 1)" == "enabled=false" ]]; then
             echo "Skipping release-please on unconfigured branch $TARGET_BRANCH."
           fi
+      - uses: ./.github/actions/setup-uv
+        if: steps.release-line.outputs.enabled == 'true'
+        with:
+          python-version: "3.13"
+          all-extras: "false"
+          working-directory: .
       - name: Check for merged release candidates
         id: release-candidates
         if: steps.release-line.outputs.enabled == 'true'
@@ -121,14 +126,14 @@ jobs:
           DEVELOPMENT_MILESTONE: ${{ steps.release-line.outputs.development_milestone }}
           MAINTENANCE_MILESTONE: ${{ steps.release-line.outputs.maintenance_milestone }}
           RELEASE_MILESTONE: ${{ steps.release-line.outputs.release_milestone }}
-          RELEASE_MANIFEST: ${{ startsWith(github.ref, 'refs/tags/v') && '.release-please-manifest.maintenance.json' || (github.ref_name == steps.release-line.outputs.development_branch && '.release-please-manifest.development.json' || '.release-please-manifest.maintenance.json') }}
+          VERSION_FILES: ${{ steps.release-line.outputs.version_files }}
           CANDIDATE_BASE_BRANCH: ${{ startsWith(github.ref, 'refs/tags/v') && github.event.repository.default_branch || github.ref_name }}
         shell: bash
         run: |
           set -euo pipefail
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git fetch --tags --force origin
-          current_version="$(jq -er '.["."]' "$RELEASE_MANIFEST")"
+          current_version="$(uv run python utils/release.py plan --print-current-version --files $VERSION_FILES)"
           release_major_minor="${current_version%.*}"
           latest_tag="$(git tag --merged "origin/$TARGET_BRANCH" --list "v${release_major_minor}.*" --sort=-version:refname | head -n 1)"
           if [[ -n "$latest_tag" ]]; then
@@ -146,12 +151,6 @@ jobs:
             any(.[]; (.milestone.title? == $milestone) and (.mergedAt != null) and ((.mergedAt | fromdateiso8601) > $latest_tag_epoch) and (([.labels[].name] | index("autorelease: pending")) == null))
           ' <<< "$prs")"
           echo "has_candidates=$has_candidates" >> "$GITHUB_OUTPUT"
-      - uses: ./.github/actions/setup-uv
-        if: steps.release-line.outputs.enabled == 'true'
-        with:
-          python-version: "3.13"
-          all-extras: "false"
-          working-directory: .
       - name: Build canonical release plan
         if: steps.release-line.outputs.enabled == 'true' && steps.release-candidates.outputs.has_candidates == 'true'
         id: release-plan
@@ -160,7 +159,7 @@ jobs:
           RELEASE_MILESTONE: ${{ steps.release-line.outputs.release_milestone }}
           DEVELOPMENT_BRANCH: ${{ steps.release-line.outputs.development_branch }}
           MAINTENANCE_BRANCH: ${{ steps.release-line.outputs.maintenance_branch }}
-          RELEASE_MANIFEST: ${{ startsWith(github.ref, 'refs/tags/v') && '.release-please-manifest.maintenance.json' || (github.ref_name == steps.release-line.outputs.development_branch && '.release-please-manifest.development.json' || '.release-please-manifest.maintenance.json') }}
+          VERSION_FILES: ${{ steps.release-line.outputs.version_files }}
         shell: bash
         run: |
           set -euo pipefail
@@ -170,35 +169,29 @@ jobs:
             echo "Skipping unconfigured source branch $TARGET_BRANCH."
             exit 0
           fi
-          manifest_version="$(jq -er '.["."]' "$RELEASE_MANIFEST")"
-          release_major_minor="${manifest_version%.*}"
+          current_version="$(uv run python utils/release.py plan --print-current-version --files $VERSION_FILES)"
+          release_major_minor="${current_version%.*}"
           latest_tag="$(git tag --merged "$source_ref" --list "v${release_major_minor}.*" --sort=-version:refname | head -n 1)"
           if [[ -n "$latest_tag" ]]; then
             git log --format='%s%x1f%b%x1e' "$latest_tag..$source_ref" | jq -R -s 'split("\u001e") | map(select(length > 0)) | map({subject: (split("\u001f")[0]), body: (split("\u001f")[1] // "")})' > "$RUNNER_TEMP/release-commits.json"
           else
-            release_commit="$(git log -1 --format=%H "$source_ref" --fixed-strings --grep="chore(master): release $manifest_version")"
+            release_commit="$(git log -1 --format=%H "$source_ref" --fixed-strings --grep="chore(master): release $current_version")"
             if [[ -n "$release_commit" ]]; then
               git log --format='%s%x1f%b%x1e' "$release_commit..$source_ref" | jq -R -s 'split("\u001e") | map(select(length > 0)) | map({subject: (split("\u001f")[0]), body: (split("\u001f")[1] // "")})' > "$RUNNER_TEMP/release-commits.json"
             else
               git log --format='%s%x1f%b%x1e' "$source_ref" | jq -R -s 'split("\u001e") | map(select(length > 0)) | map({subject: (split("\u001f")[0]), body: (split("\u001f")[1] // "")})' > "$RUNNER_TEMP/release-commits.json"
             fi
           fi
-          if [[ -n "$latest_tag" ]]; then
-            current_version="$manifest_version"
-          else
-            current_version="$manifest_version"
-          fi
           if [[ ! "$current_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Versão inválida no manifesto de release: $current_version" >&2
+            echo "::error::Versão inválida nos arquivos de versão: $current_version" >&2
             exit 1
           fi
           bump_flag=""
           [[ "$RELEASE_MILESTONE" == *.x ]] && bump_flag="--bump-patch-for-minor-pre-major"
-          uv run python utils/release_plan.py \
+          uv run python utils/release.py plan \
             --current-version "$current_version" \
             --commits-json "$RUNNER_TEMP/release-commits.json" \
-            --manifest "$RELEASE_MANIFEST" \
-            --files pyproject.toml frontend/package.json services/package.json company/package.json uv.lock \
+            --files $VERSION_FILES \
             $bump_flag > "$RUNNER_TEMP/release-plan.json"
           next_version="$(jq -er '.next_version' "$RUNNER_TEMP/release-plan.json")"
           bump="$(jq -er '.bump' "$RUNNER_TEMP/release-plan.json")"
@@ -256,7 +249,7 @@ jobs:
           RELEASE_BRANCH: ${{ steps.release-plan.outputs.branch }}
           TARGET_BRANCH: ${{ steps.release-plan.outputs.target_branch }}
           SOURCE_SHA: ${{ github.sha }}
-          RELEASE_MANIFEST: ${{ startsWith(github.ref, 'refs/tags/v') && '.release-please-manifest.maintenance.json' || (github.ref_name == steps.release-line.outputs.development_branch && '.release-please-manifest.development.json' || '.release-please-manifest.maintenance.json') }}
+          VERSION_FILES: ${{ steps.release-line.outputs.version_files }}
         shell: bash
         run: |
           set -euo pipefail
@@ -266,16 +259,14 @@ jobs:
             git reset --hard "$SOURCE_SHA"
           fi
           current_version="$PLAN_CURRENT_VERSION"
-          uv run python utils/release_plan.py \
+          uv run python utils/release.py plan \
             --current-version "$current_version" \
             --commits-json "$RUNNER_TEMP/release-commits.json" \
-            --manifest "$RELEASE_MANIFEST" \
-            --files pyproject.toml frontend/package.json services/package.json company/package.json uv.lock \
+            --files $VERSION_FILES \
             --apply $bump_flag
-          python utils/normalize_changelog_lists.py
-          uv run python utils/prepare_release_line_config.py \
-            CHANGELOG.md .github/release-lines.json \
-            .release-please-manifest.maintenance.json "$TARGET_BRANCH"
+          uv run python utils/release.py normalize-changelog
+          uv run python utils/release.py prepare-line \
+            CHANGELOG.md .github/release-lines.json "$TARGET_BRANCH"
 
       - name: Commit and push canonical release branch
         if: steps.release-plan.outputs.enabled == 'true'
@@ -283,7 +274,7 @@ jobs:
           RELEASE_BRANCH: ${{ steps.release-plan.outputs.branch }}
           TARGET_BRANCH: ${{ steps.release-plan.outputs.target_branch }}
           RELEASE_VERSION: ${{ steps.release-plan.outputs.version }}
-          RELEASE_MANIFEST: ${{ startsWith(github.ref, 'refs/tags/v') && '.release-please-manifest.maintenance.json' || (github.ref_name == steps.release-line.outputs.development_branch && '.release-please-manifest.development.json' || '.release-please-manifest.maintenance.json') }}
+          VERSION_FILES: ${{ steps.release-line.outputs.version_files }}
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
@@ -291,7 +282,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if ! git diff --quiet; then
-            git add "$RELEASE_MANIFEST" .release-please-manifest.maintenance.json .github/release-lines.json CHANGELOG.md pyproject.toml frontend/package.json services/package.json company/package.json uv.lock
+            git add .github/release-lines.json CHANGELOG.md $VERSION_FILES
             git commit -m "chore(master): release $RELEASE_VERSION"
           fi
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
@@ -317,7 +308,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python utils/prepare_release_pr_body.py CHANGELOG.md "$RUNNER_TEMP/release-pr-body.md"
+          uv run python utils/release.py pr-body CHANGELOG.md "$RUNNER_TEMP/release-pr-body.md"
           existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$RELEASE_BRANCH" --base "$RELEASE_TARGET_BRANCH" --state open --json number --jq '.[0].number // empty')"
           title="chore(master): release $RELEASE_VERSION"
           if [[ -n "$existing" ]]; then

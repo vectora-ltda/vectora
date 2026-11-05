@@ -728,7 +728,7 @@ class Settings(BaseSettings):
     """Secret fixo por produto — igual em toda instalação, vem de
     `backend/defaults.env` (mesma hierarquia de env vars usada por todo o
     resto de `settings.py`), comparado pelo Worker via `env.VECTORA_APP_SECRET`
-    (`services/src/gateway/index.ts::requireAppSecret`) pra autenticar
+    durante a validação de `POST /register` pra autenticar
     `POST /register`. Não é por-usuário nem por-máquina (mesmo padrão de
     client_secret de app desktop nativo — ex. GitHub Desktop — embutido em
     toda cópia distribuída). Vazio desabilita o handshake de registro

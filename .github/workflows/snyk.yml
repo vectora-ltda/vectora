@@ -55,7 +55,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project: [".", company, services, vectora/frontend]
+        project: [".", frontend]
     steps:
       - uses: actions/checkout@v7
         with:

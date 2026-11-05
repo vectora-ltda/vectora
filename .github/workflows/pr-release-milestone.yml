@@ -174,7 +174,7 @@ jobs:
           all-extras: "false"
           working-directory: .
       - name: Validate milestone and base branch
-        run: uv run python utils/validate_pr_milestone.py
+        run: uv run python utils/release.py validate-milestone
         env:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
           CURRENT_RELEASE_MILESTONE: ${{ steps.assign-milestone.outputs.current_milestone || github.event.pull_request.milestone.title }}

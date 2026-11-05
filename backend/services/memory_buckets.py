@@ -1,6 +1,5 @@
 """Memory Buckets — download/publish de buckets RAG pré-vetorizados
-publicados pela comunidade (`services/src/memory-buckets/routes.ts`, estende
-o mesmo catálogo já usado pelas bibliotecas de código first-party).
+publicados pela comunidade, integrados ao catálogo de bibliotecas first-party.
 
 Download é sempre grátis (decisão de produto) — sem gate de tier/quota.
 Publicação exige sessão de usuário da company (`session_token`) — este

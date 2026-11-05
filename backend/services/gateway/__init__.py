@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_TOKEN_PATH = Path.home() / ".vectora" / "gateway_token"
 #: Segredo de conector — único fator que autoriza abrir o WebSocket como
-#: dono da sessão (o token público/subdomínio sozinho não basta mais, ver
-#: `services/src/gateway/gateway-session.ts::handleWebSocketUpgrade`).
+#: dono da sessão (o token público/subdomínio sozinho não basta mais; o Worker
+#: valida o segredo durante a abertura do WebSocket).
 #: Arquivo separado do token (mesmo diretório) — se só o token existir
 #: (instalação de antes desta correção), `_register` detecta a ausência e
 #: re-registra pra obter um secret novo, sem trocar de subdomínio.
@@ -31,7 +31,7 @@ _DEFAULT_SECRET_PATH = Path.home() / ".vectora" / "gateway_connector_secret"
 _REGISTER_PATH = "/register"
 _WS_PATH = "/ws/"
 #: Mesma convenção já usada em backend/services/license.py — auto-referência
-#: hardcoded ao Worker services/, não uma env var configurável (é sempre o
+#: hardcoded ao Worker remoto, não uma env var configurável (é sempre o
 #: mesmo endpoint fixo do produto).
 _SERVICES_URL = "https://services.vectora.company"
 _BACKOFF_INITIAL = 1.0
@@ -82,8 +82,9 @@ class GatewayRequestItem(TypedDict):
 
 
 class GatewayMessage(TypedDict, total=False):
-    """Mensagem do protocolo do túnel (ver `services/src/gateway/types.ts`,
-    fonte de verdade do formato — este é só o espelho do lado Python).
+    """Mensagem do protocolo do túnel do gateway remoto.
+
+    Este tipo espelha o formato consumido pelo cliente Python.
     `total=False` porque cada `type` tem um subconjunto diferente de campos
     obrigatórios (`ping` só tem `type`, `request` tem id/method/path...)."""
 
@@ -95,8 +96,7 @@ class GatewayMessage(TypedDict, total=False):
     body: str
     items: list[GatewayRequestItem]
     # type == "review_job" (gh-bot self-hosted, ver review_job.py) — sem
-    # `id` (não é um par request/response do túnel, ver docstring de
-    # `GatewayMessage["review_job"]` em types.ts).
+            # `id` (não é um par request/response do túnel).
     job_id: str
     diff: str
     metadata: dict[str, str]
@@ -386,8 +386,8 @@ class GatewayClient:
             return
 
         if kind == "request":
-            # kind == "request" garante id/method/path presentes (contrato
-            # do Worker, ver GatewayMessage em services/src/gateway/types.ts).
+            # kind == "request" garante id/method/path presentes conforme o
+            # contrato do Worker remoto.
             await queue.put((ws, local_session, cast("GatewayRequestItem", message)))
             return
 
