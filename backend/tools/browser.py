@@ -694,7 +694,7 @@ async def _resolve_dev_server_name(
     extras=ToolExtras(
         render_hint="json",
         category="browser",
-        destructive=False,
+        destructive=True,
         icon="play",
     )
 )
@@ -760,7 +760,7 @@ async def browser_stop(ctx: ToolContext, name: str | None = None) -> str:
     extras=ToolExtras(
         render_hint="json",
         category="browser",
-        destructive=False,
+        destructive=True,
         icon="refresh-cw",
     )
 )

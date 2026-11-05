@@ -1329,7 +1329,20 @@ async def workspace_file_raw(
         raise HTTPException(status_code=404, detail="Arquivo não encontrado.")
     name = PurePosixPath(path).name or resolved.name
     media_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
-    return _StarletteFileResponse(resolved, media_type=media_type)
+    active_content_types = {
+        "application/javascript",
+        "application/xhtml+xml",
+        "application/xml",
+        "image/svg+xml",
+        "text/html",
+        "text/javascript",
+        "text/xml",
+    }
+    headers = {"X-Content-Type-Options": "nosniff"}
+    if media_type in active_content_types:
+        media_type = "application/octet-stream"
+        headers["Content-Disposition"] = "attachment"
+    return _StarletteFileResponse(resolved, media_type=media_type, headers=headers)
 
 
 def _parse_unified_diff(diff_text: str) -> list[DiffHunk]:
@@ -1539,7 +1552,7 @@ async def workspace_git_diff(workspace_id: str, response: Response) -> DiffSumma
 
 
 @workspace_scoped_router.get("/git/diff/file", response_model=DiffFileResponse)
-async def workspace_git_diff_file(
+async def workspace_git_diff_file(  # noqa: PLR0911
     workspace_id: str,
     path: Annotated[str, Query()],
 ) -> DiffFileResponse:
@@ -1550,6 +1563,9 @@ async def workspace_git_diff_file(
     if ws is None:
         return DiffFileResponse(path=path, hunks=[])
 
+    resolved = _resolve_inside(workspace_id, path)
+    if resolved is None:
+        return DiffFileResponse(path=path, hunks=[])
     try:
         from git import Repo  # type: ignore[import-not-found]
         from git.exc import (  # type: ignore[import-not-found]
@@ -1565,28 +1581,32 @@ async def workspace_git_diff_file(
         return DiffFileResponse(path=path, hunks=[])
 
     try:
-        status_line = repo.git.status("--porcelain=v1", "--", path) or ""
+        repo_root = Path(repo.working_tree_dir or ws.cwd).resolve()
+        safe_path = resolved.relative_to(repo_root).as_posix()
+    except ValueError:
+        return DiffFileResponse(path=path, hunks=[])
+    git_pathspec = f":(literal){safe_path}"
+
+    try:
+        status_line = repo.git.status("--porcelain=v1", "--", git_pathspec) or ""
         is_untracked = status_line.lstrip().startswith("??")
     except Exception:
         is_untracked = False
 
     if is_untracked:
-        from pathlib import Path as _Path
-
-        filepath = _Path(ws.cwd) / path
         try:
-            content = filepath.read_text(encoding="utf-8", errors="replace")
+            content = resolved.read_text(encoding="utf-8", errors="replace")
         except OSError:
             content = ""
         return DiffFileResponse(path=path, hunks=_untracked_as_diff(content))
 
     try:
-        porcelain = repo.git.status("--porcelain=v1", "--", path) or ""
+        porcelain = repo.git.status("--porcelain=v1", "--", git_pathspec) or ""
         is_staged_only = porcelain and porcelain[0] not in (" ", "?")
         diff_text = (
-            repo.git.diff("--cached", "HEAD", "--", path) or ""
-            if is_staged_only and not repo.git.diff("HEAD", "--", path)
-            else repo.git.diff("HEAD", "--", path) or ""
+            repo.git.diff("--cached", "HEAD", "--", git_pathspec) or ""
+            if is_staged_only and not repo.git.diff("HEAD", "--", git_pathspec)
+            else repo.git.diff("HEAD", "--", git_pathspec) or ""
         )
     except Exception:
         diff_text = ""
@@ -2525,7 +2545,7 @@ async def git_merge(workspace_id: str, body: GitMergeRequest) -> GitMergeRespons
 
 
 # ---------------------------------------------------------------------------
-# Pull Requests (gh CLI) — só quando o remote é GitHub
+# Solicitações do GitHub (gh CLI) — só quando o remote é GitHub
 # ---------------------------------------------------------------------------
 
 
@@ -2776,8 +2796,8 @@ async def get_gitignore(workspace_id: str) -> dict:
     if ws is None:
         return {"content": "", "exists": False}
 
-    gitignore = Path(ws.cwd) / ".gitignore"
-    if not gitignore.is_file():
+    gitignore = _resolve_inside(workspace_id, ".gitignore")
+    if gitignore is None or not gitignore.is_file():
         return {"content": "", "exists": False}
 
     return {
@@ -2797,7 +2817,9 @@ async def update_gitignore(
     if ws is None:
         return StatusResponse(status="error", message="Workspace não encontrado.")
 
-    gitignore = Path(ws.cwd) / ".gitignore"
+    gitignore = _resolve_inside(workspace_id, ".gitignore")
+    if gitignore is None:
+        return StatusResponse(status="error", message="Caminho .gitignore inválido.")
     try:
         content = "\n".join(body.lines)
         if content and not content.endswith("\n"):
@@ -2918,7 +2940,6 @@ async def resolve_conflict(  # noqa: PLR0911
     """Resolve conflito de merge: ours/theirs ou conteúdo manual."""
     from pathlib import Path
 
-    from backend.services.security import resolve_within_workspace
     from backend.workspace.workspace import workspace_registry
 
     ws = workspace_registry.get(workspace_id)
@@ -2929,13 +2950,19 @@ async def resolve_conflict(  # noqa: PLR0911
     if repo is None:
         return StatusResponse(status="error", message="Repositório git não encontrado.")
 
-    full_path = resolve_within_workspace(ws.cwd, body.path)
+    full_path = _resolve_inside(workspace_id, body.path)
     if full_path is None:
         return StatusResponse(status="error", message="Caminho fora do workspace.")
+    try:
+        repo_root = Path(repo.working_tree_dir or ws.cwd).resolve()
+        safe_path = full_path.relative_to(repo_root).as_posix()
+    except ValueError:
+        return StatusResponse(status="error", message="Caminho fora do workspace.")
+    git_pathspec = f":(literal){safe_path}"
 
     try:
         if body.resolution in ("ours", "theirs"):
-            repo.git.checkout(f"--{body.resolution}", "--", body.path)
+            repo.git.checkout(f"--{body.resolution}", "--", git_pathspec)
         elif body.resolution == "content":
             if body.content is None:
                 return StatusResponse(
@@ -2947,7 +2974,7 @@ async def resolve_conflict(  # noqa: PLR0911
             return StatusResponse(
                 status="error", message=f"Resolução inválida: {body.resolution}"
             )
-        repo.git.add("--", body.path)
+        repo.git.add("--", git_pathspec)
         return StatusResponse(status="ok", message=f"Conflito resolvido: {body.path}")
     except Exception as exc:
         return StatusResponse(status="error", message=str(exc))
@@ -3634,12 +3661,7 @@ async def _wait_port_open_or_exit(
 
 
 def _launch_json_path(workspace_id: str) -> Path | None:
-    from backend.workspace.workspace import workspace_registry
-
-    ws = workspace_registry.get(workspace_id)
-    if ws is None:
-        return None
-    return Path(ws.cwd) / ".vectora" / "launch.json"
+    return _resolve_inside(workspace_id, ".vectora/launch.json")
 
 
 class LaunchConfigModel(BaseModel):
@@ -3862,11 +3884,10 @@ async def browser_detect(workspace_id: str) -> DetectResponse:
     if ws is None:
         return DetectResponse(configurations=[])
 
-    root = Path(ws.cwd)
     configs: list[DetectedServer] = []
 
-    pkg_json = root / "package.json"
-    if pkg_json.exists():
+    pkg_json = _resolve_inside(workspace_id, "package.json")
+    if pkg_json is not None and pkg_json.exists():
         try:
             import json as _json
 
@@ -3892,9 +3913,9 @@ async def browser_detect(workspace_id: str) -> DetectResponse:
         except Exception:
             pass
 
-    pyproject = root / "pyproject.toml"
-    manage_py = root / "manage.py"
-    if manage_py.exists():
+    pyproject = _resolve_inside(workspace_id, "pyproject.toml")
+    manage_py = _resolve_inside(workspace_id, "manage.py")
+    if manage_py is not None and manage_py.exists():
         configs.append(
             DetectedServer(
                 name="django",
@@ -3903,7 +3924,7 @@ async def browser_detect(workspace_id: str) -> DetectResponse:
                 port=8000,
             )
         )
-    elif pyproject.exists():
+    elif pyproject is not None and pyproject.exists():
         try:
             content = pyproject.read_text(encoding="utf-8")
             if "fastapi" in content or "uvicorn" in content or "starlette" in content:
@@ -3918,8 +3939,8 @@ async def browser_detect(workspace_id: str) -> DetectResponse:
         except Exception:
             pass
 
-    vite_cfg = root / "vite.config.ts"
-    if not configs and vite_cfg.exists():
+    vite_cfg = _resolve_inside(workspace_id, "vite.config.ts")
+    if not configs and vite_cfg is not None and vite_cfg.exists():
         configs.append(
             DetectedServer(
                 name="vite",

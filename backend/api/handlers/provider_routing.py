@@ -385,13 +385,21 @@ def _dmr_manifest_path() -> Path:
     return (settings.vectora_home / "docker-model-runner-manifest.json").resolve()
 
 
-async def _validate_runtime_executable(files: list[str]) -> str:
+async def _validate_runtime_executable(
+    files: list[str], trusted_root: Path | None = None
+) -> str:
     """Valida o binário oficial antes de publicar uma versão como ativa."""
-    candidates = [
-        Path(path)
-        for path in files
-        if Path(path).name.lower() in {"llama-server", "llama-server.exe"}
-    ]
+    root = trusted_root.resolve() if trusted_root is not None else None
+    candidates: list[Path] = []
+    for raw_path in files:
+        candidate = Path(raw_path).resolve()
+        if candidate.name.lower() not in {"llama-server", "llama-server.exe"}:
+            continue
+        if not candidate.is_file():
+            continue
+        if root is not None and root not in candidate.parents:
+            continue
+        candidates.append(candidate)
     if not candidates:
         raise ValueError("release não contém llama-server")
     executable = candidates[0]
@@ -3353,7 +3361,7 @@ async def install_llamacpp_runtime(
         files = await asyncio.to_thread(
             _extract_llamacpp_archive, destination, staging_version
         )
-        runtime_version = await _validate_runtime_executable(files)
+        runtime_version = await _validate_runtime_executable(files, staging_version)
         archive_path = staging_version / filename
         await asyncio.to_thread(destination.replace, archive_path)
         if version_root.exists():
@@ -3704,8 +3712,13 @@ async def check_llamacpp_runtime(
     body: LlamaCppRuntimeRequest,
     _: ProviderAdmin,
 ) -> dict[str, object]:
-    """Executa apenas ``--version`` no binário indicado pelo usuário."""
+    """Testa ``--version`` apenas em um runtime gerenciado pelo Vectora."""
     executable = Path(body.path).expanduser().resolve()
+    runtime_root = _llamacpp_runtime_root()
+    if runtime_root not in executable.parents:
+        raise HTTPException(
+            status_code=400, detail="runtime precisa estar no diretório gerenciado"
+        )
     if not await asyncio.to_thread(
         executable.is_file
     ) or executable.name.lower() not in {

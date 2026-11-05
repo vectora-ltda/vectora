@@ -13,7 +13,7 @@
  * outras abas/sessões futuras.
  */
 
-const KEY = "vectora:return_to";
+const RETURN_TO_SESSION_STORAGE_SLOT = "vectora:return_to";
 
 function storage(): Storage | null {
   if (typeof window === "undefined") return null;
@@ -26,14 +26,14 @@ function storage(): Storage | null {
 
 /** Chamar imediatamente antes do hard-redirect para `/auth/signin`. */
 export function saveReturnTo(path: string): void {
-  storage()?.setItem(KEY, path);
+  storage()?.setItem(RETURN_TO_SESSION_STORAGE_SLOT, path);
 }
 
 /** Lê e consome (remove) o destino salvo — `null` se não havia nenhum. */
 export function consumeReturnTo(): string | null {
   const s = storage();
   if (!s) return null;
-  const value = s.getItem(KEY);
-  if (value) s.removeItem(KEY);
+  const value = s.getItem(RETURN_TO_SESSION_STORAGE_SLOT);
+  if (value) s.removeItem(RETURN_TO_SESSION_STORAGE_SLOT);
   return value;
 }

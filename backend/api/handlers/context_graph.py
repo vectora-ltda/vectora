@@ -125,12 +125,9 @@ def _user_id(request: Request) -> str:
 
 
 def _graph_dir(workspace_id: str) -> Path | None:
-    from backend.workspace.workspace import workspace_registry
+    from backend.api.handlers.workspaces import _resolve_inside
 
-    ws = workspace_registry.get(workspace_id)
-    if ws is None:
-        return None
-    return Path(ws.cwd) / _GRAPH_DIR
+    return _resolve_inside(workspace_id, _GRAPH_DIR)
 
 
 def _require_graph_dir(workspace_id: str) -> Path:
@@ -389,7 +386,20 @@ async def get_html(request: Request, workspace_id: str) -> HTMLResponse:
     html_file = d / "graph.html"
     if not html_file.exists():
         raise HTTPException(status_code=404, detail="HTML do grafo não encontrado")
-    return HTMLResponse(content=html_file.read_text(encoding="utf-8"))
+    return HTMLResponse(
+        content=html_file.read_text(encoding="utf-8"),
+        headers={
+            "Content-Security-Policy": (
+                "sandbox allow-scripts; default-src 'none'; "
+                "script-src 'unsafe-inline' https://unpkg.com; "
+                "style-src 'unsafe-inline' https://unpkg.com; "
+                "img-src data:; font-src data: https://unpkg.com; "
+                "connect-src 'none'; form-action 'none'; base-uri 'none'; "
+                "object-src 'none'; frame-ancestors 'self'"
+            ),
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 @router.post("/query", response_model=GraphQueryResponse)
