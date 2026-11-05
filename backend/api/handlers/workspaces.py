@@ -3789,6 +3789,14 @@ async def browser_start(workspace_id: str, body: BrowserStartRequest) -> StatusR
     ws = workspace_registry.get(workspace_id)
     if ws is None:
         return StatusResponse(status="error", message="Workspace não encontrado.")
+    if not ws.trusted:
+        return StatusResponse(
+            status="error",
+            message=(
+                "Confie neste workspace antes de executar a configuração "
+                "de inicialização do servidor."
+            ),
+        )
 
     launch = await get_launch_json(workspace_id)
     cfg = next((c for c in launch.configurations if c.name == body.name), None)
