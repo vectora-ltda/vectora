@@ -84,6 +84,5 @@ def test_summarizes_release_when_compacted_notes_still_exceed_limit() -> None:
     body = prepare_body(notes, max_body_bytes=200)
 
     assert body == (
-        "## [0.2.0]\n\n"
-        "The complete release notes are maintained in `CHANGELOG.md`.\n"
+        "## [0.2.0]\n\nThe complete release notes are maintained in `CHANGELOG.md`.\n"
     )

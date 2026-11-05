@@ -63,6 +63,14 @@ def _normalise_path(path: str) -> str:
     return str(PurePosixPath(path.replace("\\", "/")))
 
 
+def _safe_terminal_text(value: str) -> str:
+    """Escape characters unsupported by the current Windows console encoding."""
+    encoding = sys.stdout.encoding
+    if encoding is None:
+        return value
+    return value.encode(encoding, errors="backslashreplace").decode(encoding)
+
+
 def _find_references(
     files: dict[str, str], removed: list[RemovedPath]
 ) -> list[tuple[str, int, str, str]]:
@@ -124,7 +132,9 @@ def main() -> int:
 
     print("References to staged removed or renamed paths were found:")
     for filename, line_number, removed_path, line in references:
-        print(f"  {filename}:{line_number}: {removed_path} <- {line}")
+        print(
+            _safe_terminal_text(f"  {filename}:{line_number}: {removed_path} <- {line}")
+        )
     print(
         "Update or remove these references before committing. "
         "Renamed paths may use the replacement path shown in the diff."

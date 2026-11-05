@@ -61,9 +61,7 @@ def test_pyproject_version_bate_com_frontend_package_json() -> None:
         (_MONOREPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     )
     frontend_pkg: dict[str, str] = json.loads(
-        (_MONOREPO_ROOT / "frontend" / "package.json").read_text(
-            encoding="utf-8"
-        )
+        (_MONOREPO_ROOT / "frontend" / "package.json").read_text(encoding="utf-8")
     )
     assert pyproject["project"]["version"] == frontend_pkg["version"], (
         "pyproject.toml e frontend/package.json com versões "
@@ -92,14 +90,10 @@ def test_release_please_config_sincroniza_todos_os_arquivos_de_versao() -> None:
     )
     extra_files: list[_ExtraFile] = config["packages"]["."].get("extra-files", [])
     paths: set[str] = {entry["path"] for entry in extra_files}
-    uv_entry = next(
-        entry for entry in extra_files if entry["path"] == "uv.lock"
-    )
+    uv_entry = next(entry for entry in extra_files if entry["path"] == "uv.lock")
     assert uv_entry.get("type") == "toml"
     assert uv_entry.get("jsonpath") == _UV_LOCK_JSONPATH
-    lock = tomllib.loads(
-        (_MONOREPO_ROOT / "uv.lock").read_text(encoding="utf-8")
-    )
+    lock = tomllib.loads((_MONOREPO_ROOT / "uv.lock").read_text(encoding="utf-8"))
     vectora_packages = [
         package for package in lock["package"] if package["name"] == "vectora"
     ]

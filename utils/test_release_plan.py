@@ -65,44 +65,25 @@ dependencies = [
 def test_apply_updates_all_configured_versions_and_lockfile(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "services").mkdir()
-    (tmp_path / "company").mkdir()
-    (tmp_path / "pyproject.toml").write_text(
-        'version = "0.3.0"\n', encoding="utf-8"
-    )
-    for path in (
-        "frontend.json",
-        "services/package.json",
-        "company/package.json",
-    ):
-        target = tmp_path / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps({"version": "0.3.0"}), encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text('version = "0.3.0"\n', encoding="utf-8")
+    frontend_package = tmp_path / "frontend" / "package.json"
+    frontend_package.parent.mkdir()
+    frontend_package.write_text(json.dumps({"version": "0.3.0"}), encoding="utf-8")
     lock_path = tmp_path / "uv.lock"
     lock_path.write_text(_LOCK_TEMPLATE, encoding="utf-8")
-    (tmp_path / "CHANGELOG.md").write_text(
-        "# Changelog\n", encoding="utf-8"
-    )
+    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n", encoding="utf-8")
     (tmp_path / ".manifest.json").write_text('{".": "0.3.0"}\n', encoding="utf-8")
     plan = calculate_plan("0.3.0", [Commit(subject="fix: repair release")])
     apply_plan(
         tmp_path,
         plan,
-        [
-            "pyproject.toml",
-            "frontend.json",
-            "services/package.json",
-            "company/package.json",
-            "uv.lock",
-        ],
+        ["pyproject.toml", "frontend/package.json", "uv.lock"],
         manifest=".manifest.json",
     )
     assert lock_path.read_text(encoding="utf-8") == _LOCK_TEMPLATE.replace(
         'name = "vectora"\nversion = "0.3.0"', 'name = "vectora"\nversion = "0.3.1"'
     )
-    assert '"version": "0.3.1"' in (tmp_path / "services/package.json").read_text(
-        encoding="utf-8"
-    )
+    assert '"version": "0.3.1"' in frontend_package.read_text(encoding="utf-8")
     assert (
         json.loads((tmp_path / ".manifest.json").read_text(encoding="utf-8"))["."]
         == "0.3.1"

@@ -67,8 +67,7 @@ def prepare_body(notes: str, max_body_bytes: int = MAX_BODY_BYTES) -> str:
     # entries than GitHub accepts. The full notes remain in the branch.
     heading = section.partition("\n")[0]
     summary = (
-        f"{heading}\n\n"
-        "The complete release notes are maintained in `CHANGELOG.md`.\n"
+        f"{heading}\n\nThe complete release notes are maintained in `CHANGELOG.md`.\n"
     )
     if len(summary.encode("utf-8")) > max_body_bytes:
         raise ValueError(

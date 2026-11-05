@@ -206,7 +206,7 @@ def apply_plan(
 def main() -> int:
     """Read subjects, emit a JSON plan, and optionally apply it."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=Path("."))
+    parser.add_argument("--root", type=Path, default=Path())
     parser.add_argument("--current-version", required=True)
     parser.add_argument("--commits-json", type=Path, required=True)
     parser.add_argument("--files", nargs="+", required=True)

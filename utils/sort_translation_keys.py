@@ -8,13 +8,7 @@ from pathlib import Path
 from typing import Final
 
 METADATA_KEYS: Final = ("$schema", "$comment")
-DEFAULT_FILES: Final = tuple(
-    sorted(
-        file
-        for directory in ("frontend/messages", "company/messages")
-        for file in Path(directory).glob("*.json")
-    )
-)
+DEFAULT_FILES: Final = tuple(sorted(Path("frontend/messages").glob("*.json")))
 
 
 def sorted_messages(data: dict[str, object]) -> dict[str, object]:

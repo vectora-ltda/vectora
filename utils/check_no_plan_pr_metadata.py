@@ -22,7 +22,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from check_no_plan_comments import _PR_METADATA_PATTERN  # noqa: E402
+from check_no_plan_comments import _PR_METADATA_PATTERN
 
 # Blocos que o próprio CodeRabbit insere no corpo do PR (resumo de review,
 # "Summary by CodeRabbit") — sempre delimitados por um comentário HTML de

@@ -224,14 +224,7 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
     const maxBuffer = 64 * 1024 * 1024;
     ({ stdout } = await execFileAsync(
       "git",
-      [
-        "diff",
-        "--name-only",
-        "--diff-filter=AM",
-        diffRef,
-        "--",
-        "frontend",
-      ],
+      ["diff", "--name-only", "--diff-filter=AM", diffRef, "--", "frontend"],
       { cwd: repoRoot, maxBuffer },
     ));
     const diff = await execFileAsync(
