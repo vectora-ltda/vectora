@@ -109,6 +109,7 @@ dependencies = [
 
 [project.scripts]
 vectora = "backend.main:run"
+vext = "backend.cli.vext:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["backend"]

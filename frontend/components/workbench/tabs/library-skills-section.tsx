@@ -140,7 +140,13 @@ function CatalogCard({ skill }: { skill: CatalogSkill }) {
   );
 }
 
-function SkillsCatalog({ query }: { query: string }) {
+function SkillsCatalog({
+  query,
+  onCountChange,
+}: {
+  query: string;
+  onCountChange?: (count: number) => void;
+}) {
   const entries = useLibraryStore((s) => s.skillsItems);
   const sourceStatus = useLibraryStore(
     (s) => s.skillsStatus ?? { status: "never" },
@@ -148,6 +154,10 @@ function SkillsCatalog({ query }: { query: string }) {
   const loading = useLibraryStore((s) => s.skillsLoading);
   const error = useLibraryStore((s) => s.skillsError);
   const ensureSkillsLoaded = useLibraryStore((s) => s.ensureSkillsLoaded);
+
+  useEffect(() => {
+    onCountChange?.(entries.length);
+  }, [entries.length, onCountChange]);
 
   useEffect(() => {
     if (!query.trim()) {
@@ -208,6 +218,12 @@ function SkillsCatalog({ query }: { query: string }) {
   return <div className="pt-2">{content}</div>;
 }
 
-export function SkillsSection({ query }: { query: string }) {
-  return <SkillsCatalog query={query} />;
+export function SkillsSection({
+  query,
+  onCountChange,
+}: {
+  query: string;
+  onCountChange?: (count: number) => void;
+}) {
+  return <SkillsCatalog query={query} onCountChange={onCountChange} />;
 }

@@ -23,6 +23,7 @@ export type SettingsCategoryId =
   | "fallbacks"
   | "memoria"
   | "conta"
+  | "shortcuts"
   | "integracoes"
   | "ai_models"
   | "provider_routing"
