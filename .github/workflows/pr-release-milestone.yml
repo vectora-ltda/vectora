@@ -1,10 +1,11 @@
 name: PR Release Milestone
 
-# A validação de metadados roda no contexto confiável da base. A revisão da
-# pull request nunca é baixada nem executada, portanto colaboradores não podem
-# substituir o validador e contornar o bloqueio da linha de release.
+# Roda a versão do próprio pull request: o checkout é o merge do PR com a base,
+# então o validador e a configuração das linhas (`.github/release-lines.json`)
+# são os do PR. Em PR de fork o token é somente leitura; a atribuição do
+# milestone é pulada e só a validação roda.
 on:
-  pull_request_target:
+  pull_request:
     types:
       [
         opened,
@@ -32,14 +33,12 @@ jobs:
     name: Validate release milestone
     runs-on: ubuntu-24.04
     steps:
-      # Usa a revisão confiável que contém este workflow e sua configuração.
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.workflow_sha }}
           persist-credentials: false
       - name: Ensure release milestone matches base branch
         id: assign-milestone
-        if: github.event.pull_request != null
+        if: github.event.pull_request != null && github.event.pull_request.head.repo.full_name == github.repository
         uses: actions/github-script@v8
         with:
           # O token dedicado continua preferido, mas o GITHUB_TOKEN com
@@ -140,34 +139,6 @@ jobs:
             );
             core.setOutput("current_base", refreshedPullRequest.data.base.ref);
 
-      # pull_request_target can redact head fields from the event environment
-      # when the source is a stacked branch. Resolve authoritative metadata
-      # through the trusted GitHub API before running the validator.
-      - name: Resolve current pull request head
-        id: pull-request-head
-        uses: actions/github-script@v8
-        with:
-          github-token: ${{ github.token }}
-          script: |
-            const { owner, repo } = context.repo;
-            try {
-              const pull = await github.rest.pulls.get({
-                owner,
-                repo,
-                pull_number: context.issue.number,
-              });
-              const headRepo = pull.data.head.repo?.full_name || "";
-              core.setOutput("ref", pull.data.head.ref || "");
-              core.setOutput("repo", headRepo);
-              if (!headRepo) {
-                core.warning("The pull request head repository is unavailable.");
-              }
-            } catch (error) {
-              core.warning(
-                `Could not resolve pull request head through the API: ${String(error)}`,
-              );
-            }
-
       - uses: ./.github/actions/setup-uv
         with:
           python-version: "3.13"
@@ -179,5 +150,5 @@ jobs:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
           CURRENT_RELEASE_MILESTONE: ${{ steps.assign-milestone.outputs.current_milestone || github.event.pull_request.milestone.title }}
           CURRENT_PR_BASE: ${{ steps.assign-milestone.outputs.current_base || github.event.pull_request.base.ref }}
-          CURRENT_PR_HEAD_REF: ${{ steps.pull-request-head.outputs.ref || github.event.pull_request.head.ref }}
-          CURRENT_PR_HEAD_REPO: ${{ steps.pull-request-head.outputs.repo || github.event.pull_request.head.repo.full_name }}
+          CURRENT_PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          CURRENT_PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
