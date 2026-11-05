@@ -318,7 +318,6 @@ def test_release_workflows_use_native_github_token() -> None:
 def test_release_workflows_pin_github_script_to_node_24() -> None:
     """Garante que os workflows não reintroduzam a runtime Node.js 20 depreciada."""
     workflow_paths = [
-        WORKFLOW.parent / "pr-checks-comment.yml",
         WORKFLOW.parent / "pr-checks.yml",
         WORKFLOW.parent / "pr-release-milestone.yml",
         WORKFLOW.parent / "rotate-release-lines.yml",
@@ -353,12 +352,61 @@ def test_release_workflows_pin_ubuntu_runner() -> None:
         assert "ubuntu-latest" not in content
 
 
-def test_milestone_workflow_uses_trusted_workflow_revision() -> None:
-    """Evita ler uma configuração rotacionada da branch de release da PR."""
-    content = (WORKFLOW.parent / "pr-release-milestone.yml").read_text(encoding="utf-8")
+PULL_REQUEST_WORKFLOWS = (
+    "pr-checks.yml",
+    "pr-release-milestone.yml",
+)
 
-    assert "ref: ${{ github.workflow_sha }}" in content
-    assert "ref: ${{ github.event.pull_request.base.ref }}" not in content
+
+def test_pull_request_workflows_run_the_revision_of_the_pull_request() -> None:
+    """Todo workflow de PR roda a versão do próprio PR: uma correção de CI no PR
+    vale já nele, sem depender de a base receber o mesmo arquivo antes."""
+    for name in PULL_REQUEST_WORKFLOWS:
+        content = (WORKFLOW.parent / name).read_text(encoding="utf-8")
+
+        assert "pull_request_target" not in content, name
+        assert "workflow_run" not in content, name
+        assert "github.workflow_sha" not in content, name
+        assert _trigger_block(content, "pull_request"), name
+
+    assert not (WORKFLOW.parent / "pr-checks-comment.yml").exists()
+
+
+def test_pull_request_workflows_that_write_skip_forks() -> None:
+    """Em PR de fork o token é somente leitura: o que escreve (label, milestone,
+    comentário) só roda quando a cabeça do PR está neste repositório."""
+    same_repo = "github.event.pull_request.head.repo.full_name == github.repository"
+    milestone = (WORKFLOW.parent / "pr-release-milestone.yml").read_text(
+        encoding="utf-8"
+    )
+    checks = (WORKFLOW.parent / "pr-checks.yml").read_text(encoding="utf-8")
+
+    assert (
+        same_repo
+        in milestone.split("id: assign-milestone", 1)[1].split(
+            "uses: actions/github-script", 1
+        )[0]
+    )
+    comment = checks.split("\n  comment-no-plan-metadata:\n", 1)[1]
+    assert same_repo in comment.split("\n    steps:", 1)[0]
+
+
+def test_no_plan_metadata_comment_is_posted_by_a_separate_write_job() -> None:
+    """O job que lê título e corpo do PR (dado não confiável) nunca recebe escrita:
+    o comentário vem de um job à parte, com mensagem fixa e sem dado do PR."""
+    checks = (WORKFLOW.parent / "pr-checks.yml").read_text(encoding="utf-8")
+    validator = checks.split("\n  no-plan-metadata:\n", 1)[1].split(
+        "\n  comment-no-plan-metadata:\n", 1
+    )[0]
+    comment = checks.split("\n  comment-no-plan-metadata:\n", 1)[1]
+
+    assert "pull-requests: write" not in validator
+    assert "upload-artifact" not in validator
+    assert "needs: no-plan-metadata" in comment
+    assert "pull-requests: write" in comment
+    assert "github.event.pull_request.title" not in comment
+    assert "github.event.pull_request.body" not in comment
+    assert "createComment" in comment
 
 
 def _trigger_block(content: str, event: str) -> str:
