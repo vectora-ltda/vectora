@@ -375,12 +375,14 @@ def _managed_runtime_executable(runtime_root: Path, requested: Path) -> Path | N
 
     O caminho devolvido vem da listagem do disco, não do valor recebido.
     """
+    managed: Path | None = None
     for entry in runtime_root.rglob("*"):
         if entry.name.lower() not in {"llama-server", "llama-server.exe"}:
             continue
-        if entry.is_file() and entry.resolve() == requested:
-            return entry.resolve()
-    return None
+        if entry.is_file() and str(entry.resolve()) == str(requested):
+            managed = entry
+            break
+    return managed
 
 
 def _llamacpp_runtime_root() -> Path:
@@ -2117,9 +2119,18 @@ async def start_llamacpp_sidecar(
         raise HTTPException(status_code=400, detail="sidecar deve usar loopback")
     if not 1024 <= body.port <= 65535:
         raise HTTPException(status_code=400, detail="porta inválida")
+    sidecar_executable = await asyncio.to_thread(
+        _managed_runtime_executable,
+        _llamacpp_runtime_root(),
+        Path(body.executable).expanduser().resolve(),
+    )
+    if sidecar_executable is None:
+        raise HTTPException(
+            status_code=400, detail="runtime precisa estar no diretório gerenciado"
+        )
     try:
         await start_llamacpp(
-            body.executable,
+            sidecar_executable,
             body.model,
             host=body.host,
             port=body.port,

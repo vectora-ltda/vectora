@@ -471,12 +471,15 @@ async function storeSetCookie(cookieStr: string): Promise<void> {
  * somente quando continua nela, sem host nem esquema vindos do request.
  */
 function backendRequestPath(source: URL): string {
-  const base = new URL("http://backend.local");
-  const target = new URL(source.pathname + source.search, base);
-  if (target.origin !== base.origin || !target.pathname.startsWith("/")) {
+  const segments = source.pathname
+    .split("/")
+    .filter((segment) => segment !== "")
+    .map((segment) => encodeURIComponent(decodeURIComponent(segment)));
+  if (segments.some((segment) => segment === "." || segment === "..")) {
     throw new Error("Caminho inválido para a ponte local.");
   }
-  return target.pathname + target.search;
+  const query = new URLSearchParams(source.search).toString();
+  return `/${segments.join("/")}${query ? `?${query}` : ""}`;
 }
 
 async function forwardToBackend(request: Request): Promise<Response> {

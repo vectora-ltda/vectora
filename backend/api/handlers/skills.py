@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Mapping, Sequence
 from typing import Literal, TypedDict
 
@@ -100,7 +101,10 @@ def _authorized_target(
         return str(ws.cwd)
     if scope == "workspace":
         return str(ws.cwd)
-    return target or getattr(request.state, "thread_id", None) or ws_id
+    runtime_target = target or getattr(request.state, "thread_id", None) or ws_id
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", str(runtime_target)):
+        raise HTTPException(status_code=400, detail="Alvo de runtime inválido.")
+    return str(runtime_target)
 
 
 def _user_id(request: Request) -> str:
