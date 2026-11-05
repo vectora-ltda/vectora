@@ -147,9 +147,9 @@ def export_http(contracts_dir: Path) -> None:
 
 def export_tools(contracts_dir: Path) -> None:
     """Exporta o catálogo canônico de ferramentas do agente."""
-    from backend.nodes.tools import ALL_TOOL_SPECS
     from backend.contracts.normalize import dumps_normalized
     from backend.contracts.redaction import redact_payload
+    from backend.nodes.tools import ALL_TOOL_SPECS
 
     tools_dir = contracts_dir / "tools"
     tools_dir.mkdir(parents=True, exist_ok=True)

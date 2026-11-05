@@ -1,4 +1,4 @@
-## [0.1.14] (2026-11-04)
+## [0.3.0] (2026-11-04)
 
 Esta seção reúne as alterações publicadas nesta versão.
 

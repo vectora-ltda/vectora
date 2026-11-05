@@ -176,7 +176,7 @@ class TestGatewayClientRegister:
         (embutido no build), não mais um JWT por-instalação — o corpo carrega
         só o fingerprint da máquina. A resposta também traz o connector_secret
         (único fator que autoriza abrir o WebSocket como dono da sessão —
-        ver services/src/gateway/gateway-session.ts), persistido à parte."""
+        ver contrato do gateway remoto), persistido à parte."""
         from backend.services.gateway import GatewayClient
 
         mock_response = AsyncMock()

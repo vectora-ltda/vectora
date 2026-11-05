@@ -3,7 +3,7 @@
 Cada tool é defensiva (§11): captura exceção e devolve string tipada — nunca
 propaga. Registradas em nodes/tools.py (modo Dev).
 
-Toda a lógica de query/explain/path/affected vive em services/context_graph/query.py
+Toda a lógica de query/explain/path/affected vive em backend/context_graph/query.py
 (fonte única de verdade), compartilhada com api/handlers/context_graph.py.
 """
 

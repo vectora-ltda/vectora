@@ -8,8 +8,8 @@ name: Vectora (app)
 # gate manual. A matriz nativa também roda em PR para validar o empacotamento
 # por SO/arquitetura; R2/KV e tags continuam exclusivos do release em master.
 # `paths` restringe esse pipeline (caro: lint+security+frontend+build+testes)
-# a mudanças que realmente afetam o app Vectora — company/services/docs têm
-# ciclo próprio (.github/workflows/edge.yml), rodar os dois juntos em todo PR
+# a mudanças que realmente afetam o app; as docs têm ciclo próprio
+# (.github/workflows/docs.yml).
 on:
   push:
     branches: [master, "release/**"]
@@ -127,6 +127,9 @@ jobs:
         run: pnpm exec oxlint
       - name: Lint i18n (no hardcoded UI strings)
         working-directory: frontend
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: pnpm lint:i18n -- --changed
       - name: Type check (tsc --noEmit)
         working-directory: frontend
@@ -400,12 +403,17 @@ jobs:
         run: |
           VERSION=$(grep -m1 '^version' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/setup-uv
+        with:
+          python-version: "3.13"
+          sync: "false"
+          working-directory: .
       - name: Select update channel from package version
         id: channel
         working-directory: .
         shell: bash
         run: |
-          CHANNEL=$(python utils/select_update_channel.py "${{ steps.version.outputs.value }}")
+          CHANNEL=$(uv run --no-project --with "pydantic>=2.13.4" python utils/release.py update-channel "${{ steps.version.outputs.value }}")
           echo "value=$CHANNEL" >> "$GITHUB_OUTPUT"
 
   # ── 6. Native package matrix (Nuitka + Electron installers) ──────────────
@@ -603,7 +611,7 @@ jobs:
           # Nome fora do padrão "vectora-*" DE PROPÓSITO -- publish-update-channel
           # (abaixo) baixa artifacts com `pattern: vectora-*` esperando só
           # instaladores desktop; "vectora-cli-..." cairia nesse glob e
-          # contaminaria dist-electron-all/services/release.ts.
+          # contaminaria os arquivos do canal de atualização do desktop.
           name: gha-bot-cli-linux-x64
           path: dist/vectora-cli/
           if-no-files-found: error
@@ -670,9 +678,8 @@ jobs:
         working-directory: frontend
         run: node --test electron/prepare-builder-config.node.cjs
       - name: Verifica sincronia de versão (pyproject.toml vs frontend/package.json)
-        # release-please só bumpa pyproject.toml por padrão --
-        # frontend/package.json precisa ser sincronizado via extra-files em
-        # release-please-config.development.json. Sem essa sincronia, electron-builder
+        # A release reescreve todos os arquivos de .github/release-lines.json
+        # (version_files), incluindo frontend/package.json. Sem essa sincronia, electron-builder
         # nomeia o instalador e grava o latest.yml com a versão ERRADA
         # (herdada do package.json desatualizado) -- o R2/KV publicam sob o
         # path de versão certo, mas o CONTEÚDO fica mentindo a versão, e o
@@ -682,9 +689,9 @@ jobs:
         shell: bash
         run: |
           pyproject_version=$(grep -m1 '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
-          frontend_version=$(node -p "require('./vectora/frontend/package.json').version")
+          frontend_version=$(node -p "require('./frontend/package.json').version")
           if [ "$pyproject_version" != "$frontend_version" ]; then
-            echo "::error::Versão divergente: pyproject.toml=$pyproject_version frontend/package.json=$frontend_version -- corrija release-please-config.development.json (extra-files) antes de publicar."
+            echo "::error::Versão divergente: pyproject.toml=$pyproject_version frontend/package.json=$frontend_version -- confira version_files em .github/release-lines.json antes de publicar."
             exit 1
           fi
       - name: Build desktop shell + installer
@@ -1044,7 +1051,7 @@ jobs:
   # Roda uma única vez, depois que TODA a matriz (linux/mac/win) terminou —
   # publicar de dentro de cada job da matriz faria read-modify-write
   # concorrentes na mesma chave `config` do KV
-  # (services/scripts/release.ts::publishVersionAndPrune), corrompendo o
+  # (publishVersionAndPrune), corrompendo o
   # rollout_percent/previous_stable/history por race condition.
   publish-update-channel:
     name: Publish to update channel (R2 + KV)
@@ -1074,6 +1081,14 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - name: Check out release publisher
+        uses: actions/checkout@v7
+        with:
+          repository: vectora-ltda/services
+          ref: master
+          token: ${{ secrets.VECTORA_RELEASES_TOKEN }}
+          path: release-worker
+          persist-credentials: false
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -1092,14 +1107,14 @@ jobs:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: bash utils/signing/sign-release-artifacts.sh dist-electron-all
-      - name: Install services deps
-        working-directory: services
+      - name: Install release publisher dependencies
+        working-directory: release-worker
         run: pnpm install --frozen-lockfile
       - name: Publish (R2 + KV)
         # Sem CLOUDFLARE_API_TOKEN (wrangler/KV) ou sem as credenciais R2
         # (upload S3) o script falha na autenticação — o job fica vermelho
         # de propósito, nunca um no-op silencioso.
-        working-directory: services
+        working-directory: release-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -1110,9 +1125,8 @@ jobs:
 
   # ── 8. Publish gha-bot CLI binary (R2) ────────────────────────────────────
   # Prefixo R2 separado (gha-bot/) do canal de update do desktop — não passa
-  # por services/scripts/release.ts (schema por os/arch/canal, feito só pros
-  # instaladores) nem pelo KV de rollout, é só um tarball versionado servido
-  # via GET /gha-bot/download/:version (services/src/gha-bot/routes.ts).
+  # pelo publicador do canal desktop nem pelo KV de rollout; é só um tarball
+  # versionado servido via GET /gha-bot/download/:version.
   publish-gha-bot-cli:
     name: Publish gha-bot CLI binary (R2)
     needs: release-native

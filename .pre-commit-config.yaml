@@ -1,9 +1,9 @@
 default_language_version:
   python: python3
-  node: "26.11.1"
+  node: "26.13.0"
 
 default_stages: [pre-commit]
-minimum_pre_commit_version: 3.0.0
+minimum_pre_commit_version: 4.0.0
 
 exclude: |
   (?x)^(
@@ -39,59 +39,44 @@ exclude: |
     (^|/)build/.*|
     (^|/)coverage/.*|
     (^|/)\.pytest_cache/.*|
-    (^|/)__pycache__/.*|
-    # Gerado por `wrangler types` — reformatar aqui é churn inútil, o
-    # arquivo é sobrescrito no próximo `wrangler types`.
-    services/worker-configuration\.d\.ts
+    (^|/)__pycache__/.*
   )$
 
 repos:
-  # ==========================================
-  # UV Lock Validation
-  # ==========================================
+  # ==========================================================================
+  # Base compartilhada: idêntica nos repositórios do app, do services e da
+  # company. Mudou aqui, mude nos três. Tudo que é Python roda via `uv run`; o
+  # Node dos hooks vem de default_language_version.
+  # ==========================================================================
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 0.11.27
     hooks:
       - id: uv-lock
 
-  # ==========================================
-  # Basic File Validation
-  # ==========================================
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
         name: Trim Trailing Whitespace
         args: [--markdown-linebreak-ext=md]
-        stages: [pre-commit]
       - id: end-of-file-fixer
         name: Fix End of File
-        stages: [pre-commit]
       - id: check-yaml
         name: Validate YAML
         args: ["--allow-multiple-documents", "--unsafe"]
-        stages: [pre-commit]
       - id: check-json
         name: Validate JSON
-        stages: [pre-commit]
+        exclude: tsconfig.*\.json$
       - id: check-toml
         name: Validate TOML
-        stages: [pre-commit]
       - id: check-merge-conflict
         name: Check for Merge Conflicts
-        stages: [pre-commit]
       - id: check-added-large-files
         name: Check for Large Files
         args: ["--maxkb=5000"]
-        stages: [pre-commit]
       - id: detect-private-key
         name: Detect Private Keys
-        stages: [pre-commit]
 
-  # ==========================================
-  # Python Syntax Check (stdlib compileall)
-  # Roda antes do ruff — rejeita SyntaxErrors imediatamente.
-  # ==========================================
   - repo: local
     hooks:
       - id: compileall
@@ -99,28 +84,25 @@ repos:
         entry: uv run python -m compileall -q -j0
         language: system
         types: [python]
-
-  # ==========================================
-  # Sem proveniência de processo em código
-  # ==========================================
-  - repo: local
-    hooks:
       - id: removed-path-references
         name: Check references to removed or renamed paths
-        entry: uv run python utils/check_removed_path_references.py
+        entry: uv run python utils/checks.py removed-paths
         language: system
         always_run: true
         pass_filenames: false
       - id: no-plan-comments
         name: Sem Sprint/Bloco/Fase ou menção a ferramenta de IA em código
-        entry: uv run python utils/check_no_plan_comments.py --changed
+        entry: uv run python utils/checks.py no-plan --changed
         language: system
-        files: \.(py|ts|tsx|js|jsx)$
-        exclude: ^utils/(check_no_plan_comments|test_check_no_plan_comments|check_no_plan_pr_metadata|test_check_no_plan_pr_metadata)\.py$
+        files: \.(py|ts|tsx|js|jsx|mts)$
+        exclude: ^utils/(checks|test_checks)\.py$
+      - id: release-lines-config
+        name: Validate release line configuration
+        entry: uv run python utils/release.py line master
+        language: system
+        files: ^\.github/release-lines\.json$
+        pass_filenames: false
 
-  # ==========================================
-  # Python Validation
-  # ==========================================
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.20
     hooks:
@@ -132,29 +114,29 @@ repos:
         name: Ruff Format (Python)
         files: \.py$
 
-  # ==========================================
-  # TypeScript / JavaScript Validation
-  # ==========================================
   - repo: local
     hooks:
       - id: prettier
         name: Prettier
         entry: prettier --write
-        # `language: system` resolvia o "prettier" do PATH de quem disparava o
-        # commit — terminal (nvm4w, 3.8.3), GitHub Desktop (git embutido, PATH
-        # próprio) e company/package.json (^3.9.5) todos resolviam binários
-        # DIFERENTES, cada um formatando um pouco diferente (ex.: quebra de
-        # linha em declaração CSS na borda do printWidth) → o hook reformatava
-        # de novo a cada commit dependendo de qual cliente disparou, ping-pong
-        # infinito. `language: node` + versão fixa = pre-commit cria um
-        # ambiente isolado com ESSE prettier exato, igual pra qualquer cliente
-        # git (terminal, GitHub Desktop, VS Code, CI).
+        # `language: node` com versão fixa: o pre-commit cria um ambiente
+        # isolado com esse prettier exato (o mesmo do package.json), igual
+        # para qualquer cliente git (terminal, GitHub Desktop, VS Code, CI).
         language: node
-        additional_dependencies: ["prettier@3.9.5"]
-        files: \.(ts|tsx|js|jsx|mjs|cjs|json|md|yaml|yml|css)$
+        additional_dependencies: ["prettier@3.9.9"]
+        files: \.(ts|tsx|js|jsx|mjs|mts|cjs|json|md|yaml|yml|css)$
         types_or: [text]
 
-  # ==========================================
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+        name: Lint GitHub Actions workflows
+        files: ^\.github/workflows/.*\.ya?ml$
+
+  # ==========================================================================
+  # Específicos deste repositório
+  # ==========================================================================
   # ==========================================
   # Security & Vulnerability Scans
   # ==========================================
@@ -195,9 +177,9 @@ repos:
     hooks:
       - id: translation-key-order
         name: Ordenação das chaves de tradução
-        entry: uv run python utils/sort_translation_keys.py --check
+        entry: uv run python utils/checks.py translation-keys --check
         language: system
-        files: ^(frontend/messages|company/messages)/.*\.json$
+        files: ^frontend/messages/.*\.json$
 
       - id: oxlint
         name: JS/TS Lint (oxlint)
@@ -227,28 +209,6 @@ repos:
         language: system
         files: ^frontend/.*\.(ts|tsx)$
         pass_filenames: false
-
-  # ==========================================
-  # Type Checking — TypeScript (services, Cloudflare Worker)
-  # ==========================================
-  - repo: local
-    hooks:
-      - id: tsc-services
-        name: Type Check — TypeScript (services)
-        entry: pnpm --dir services exec tsc --noEmit
-        language: system
-        files: ^services/.*\.ts$
-        pass_filenames: false
-
-  # ==========================================
-  # GitHub Actions Workflow Lint (actionlint)
-  # ==========================================
-  - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.12
-    hooks:
-      - id: actionlint
-        name: Lint GitHub Actions workflows
-        files: ^\.github/workflows/.*\.ya?ml$
 
 ci:
   autofix_commit_msg: "chore: auto fixes from pre-commit hooks"

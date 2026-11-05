@@ -54,8 +54,8 @@ export interface CatalogSkill {
 
 /**
  * Nível de confiança derivado de `vectora_verified`/`verified` — mesmo
- * par de colunas de `mcp_catalog`/`skills_catalog` (`services/migrations/
- * 0001_schema.sql`), aqui unificado num único rótulo pra badge. `builtin`
+ * par de campos `vectora_verified`/`verified` expostos pelo catálogo remoto,
+ * aqui unificado num único rótulo pra badge. `builtin`
  * (selo oficial de curadoria/seed) sempre vence `verified` (curadoria de
  * admin sobre publicação de comunidade) — os dois nunca aparecem juntos
  * na mesma linha, mas a prioridade documenta a intenção mesmo assim.

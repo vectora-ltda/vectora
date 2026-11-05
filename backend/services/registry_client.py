@@ -1,4 +1,4 @@
-"""Cliente do registry remoto de MCP/Skills (`services/src/registry/routes.ts`).
+"""Cliente do registry remoto de MCP/Skills da Vectora.
 
 Segue o mesmo padrão de `backend.services.license`: `httpx.AsyncClient` com
 timeout curto e cache local com TTL. Falha de rede nunca propaga — cai pro
@@ -302,7 +302,7 @@ def _official_entry_to_connector_dict(item: dict) -> dict | None:
 async def fetch_official_mcp_registry(*, max_entries: int = 100) -> list[dict]:
     """Busca o catálogo oficial de MCP servers em registry.modelcontextprotocol.io
     (mantido pela Anthropic/comunidade — não confundir com o registry próprio
-    da Vectora em `services/`). Só inclui servers com pacote npm/stdio (único
+    da Vectora). Só inclui servers com pacote npm/stdio (único
     transporte que o fluxo de instalação atual suporta); servers remote-only
     (`remotes: [...]`, sem `packages`) são ignorados por ora.
 

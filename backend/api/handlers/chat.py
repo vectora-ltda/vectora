@@ -224,7 +224,7 @@ def _resolve_provider(model_spec: str) -> str:
     """Extrai o provider (``google_genai``, ``cohere`` etc.) do valor já
     normalizado em ``configurable["model"]``. Sem escolha explícita de
     modelo na request, espelha o fallback de
-    ``services/utils.py::load_llm`` (provider ativo do runtime/env).
+    ``backend/services/utils.py::load_llm`` (provider ativo do runtime/env).
     """
     if model_spec:
         provider, _, _ = model_spec.partition(":")

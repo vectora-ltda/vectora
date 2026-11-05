@@ -52,7 +52,7 @@ def test_build_includes_test_runner_but_not_pytest_dependencies(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = tmp_path / "vectora"
-    suite = project / "installed_tests" / "test_installed_runtime.py"
+    suite = project / "tests" / "installed_tests" / "test_installed_runtime.py"
     suite.parent.mkdir(parents=True)
     suite.write_text("pytest suite", encoding="utf-8")
     (suite.parent / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
@@ -75,7 +75,7 @@ def test_build_fails_if_uv_is_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = tmp_path / "vectora"
-    suite = project / "installed_tests" / "test_installed_runtime.py"
+    suite = project / "tests" / "installed_tests" / "test_installed_runtime.py"
     suite.parent.mkdir(parents=True)
     suite.write_text("pytest suite", encoding="utf-8")
     (suite.parent / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")

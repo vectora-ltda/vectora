@@ -45,10 +45,7 @@ jobs:
           working-directory: .
       - name: Executa testes das utilidades de release
         run: >-
-          uv run pytest -q
-          utils/test_rotate_release_lines.py
-          utils/test_prepare_release_line_config.py
-          utils/test_select_release_line.py
+          uv run pytest -q utils/test_release.py utils/test_checks.py
 
   commitlint:
     name: Verify PR title (Conventional Commits)
@@ -120,7 +117,7 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
-      - run: python utils/check_no_plan_pr_metadata.py
+      - run: python utils/checks.py pr-metadata
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
           PR_BODY: ${{ github.event.pull_request.body }}

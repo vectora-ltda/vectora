@@ -12,12 +12,37 @@ import pytest
 
 WORKFLOW: Path = (
     Path(__file__).resolve().parents[2]
-    / ".."
     / ".github"
     / "workflows"
     / "forward-port-release.yml"
 ).resolve()
 CONFIG: Path = WORKFLOW.parent.parent / "release-lines.json"
+
+
+def test_setup_uv_defaults_to_the_repository_root() -> None:
+    """O projeto Python é a raiz do repositório: um default apontando para
+    uma subpasta quebra todo job que chama a action sem `working-directory`
+    (o runner não consegue iniciar o processo no diretório inexistente)."""
+    github = WORKFLOW.parent.parent
+    action = (github / "actions" / "setup-uv" / "action.yml").read_text(
+        encoding="utf-8"
+    )
+
+    block = action.split("  working-directory:\n", 1)[1].split("\nruns:", 1)[0]
+    default = next(
+        line.split("default:", 1)[1].strip().strip('"')
+        for line in block.splitlines()
+        if line.strip().startswith("default:")
+    )
+
+    assert default == "."
+    assert (github.parent / default / "pyproject.toml").is_file()
+    stale = [
+        path.name
+        for path in sorted((github / "workflows").glob("*.yml"))
+        if "working-directory: vectora\n" in path.read_text(encoding="utf-8")
+    ]
+    assert stale == []
 
 
 def test_forward_port_workflow_promotes_stable_master_into_active_minor() -> None:
@@ -117,8 +142,8 @@ def test_release_please_uses_trusted_config_for_branch_gate() -> None:
     assert 'echo "enabled=false" >> "$GITHUB_OUTPUT"' in content
     assert "enabled=false" in content
     assert "secrets.RELEASE_PLEASE_TOKEN" not in content
-    assert "config_file" in content
-    assert "manifest_file" in content
+    assert "version_files" in content
+    assert "manifest" not in content.lower()
     assert "map(select(\\" not in content
 
 
@@ -127,7 +152,7 @@ def test_release_please_scopes_pr_body_to_current_release_notes() -> None:
     workflow = WORKFLOW.parent / "release-please.yml"
     content = workflow.read_text(encoding="utf-8")
 
-    assert "utils/prepare_release_pr_body.py" in content
+    assert "utils/release.py pr-body" in content
     assert "CHANGELOG.md" in content
     assert 'gh pr edit "$existing" --repo "$GITHUB_REPOSITORY"' in content
     assert '--body-file "$RUNNER_TEMP/release-pr-body.md"' in content
@@ -270,9 +295,8 @@ def test_release_sources_are_utf8_without_mojibake() -> None:
         ".github/pull_request_template.md",
         ".github/workflows/release-please.yml",
         ".github/workflows/forward-port-release.yml",
-        "utils/rotate_release_lines.py",
-        "utils/prepare_release_line_config.py",
-        "utils/test_prepare_release_line_config.py",
+        "utils/release.py",
+        "utils/test_release.py",
     ]
     for name in names:
         content = (root / name).read_bytes().decode("utf-8")
@@ -303,12 +327,10 @@ def test_release_automation_uses_current_line_tags_and_manual_dispatch() -> None
     assert "github.event_name == 'workflow_dispatch'" in content
     assert '"v${release_major_minor}.*"' in content
     assert '"v*" --sort=-version:refname' not in content
-    assert "chore(master): release $manifest_version" in content
-    assert "prepare_release_line_config.py" in content
-    assert (
-        ".release-please-manifest.maintenance.json .github/release-lines.json"
-        in content
-    )
+    assert "chore(master): release $current_version" in content
+    assert "--print-current-version --files $VERSION_FILES" in content
+    assert "utils/release.py prepare-line" in content
+    assert "git add .github/release-lines.json CHANGELOG.md $VERSION_FILES" in content
 
 
 def test_release_pr_uses_maintenance_milestone_for_master_base() -> None:
@@ -340,7 +362,7 @@ def test_release_rotation_workflow_declares_release_entrypoint() -> None:
 
     assert "release:" in content
     assert "types: [published]" in content
-    assert "utils/rotate_release_lines.py" in content
+    assert "utils/release.py rotate" in content
     assert "github.rest.git.createRef" in content
     assert "issues.createMilestone" in content
     assert "secrets.RELEASE_PLEASE_TOKEN" not in content
@@ -390,7 +412,7 @@ def test_release_rotation_uses_project_environment() -> None:
     content = workflow.read_text(encoding="utf-8")
 
     assert "./.github/actions/setup-uv" in content
-    assert "uv run python utils/rotate_release_lines.py" in content
+    assert "uv run python utils/release.py rotate" in content
 
 
 def test_release_workflows_pin_ubuntu_runner() -> None:
@@ -439,9 +461,12 @@ def test_pull_request_workflows_that_write_skip_forks() -> None:
     checks = (WORKFLOW.parent / "pr-checks.yml").read_text(encoding="utf-8")
 
     assert same_repo in labeler
-    assert same_repo in milestone.split("id: assign-milestone", 1)[1].split(
-        "uses: actions/github-script", 1
-    )[0]
+    assert (
+        same_repo
+        in milestone.split("id: assign-milestone", 1)[1].split(
+            "uses: actions/github-script", 1
+        )[0]
+    )
     comment = checks.split("\n  comment-no-plan-metadata:\n", 1)[1]
     assert same_repo in comment.split("\n    steps:", 1)[0]
 
@@ -471,11 +496,11 @@ def _trigger_block(content: str, event: str) -> str:
     return after.split("\n  workflow_dispatch:", 1)[0].split("\n  pull_request:", 1)[0]
 
 
-def test_app_and_edge_workflows_validam_todo_pr_e_publicam_so_de_master() -> None:
+def test_app_and_docs_workflows_validam_todo_pr_e_publicam_so_de_master() -> None:
     """Todo PR, qualquer que seja a base (inclusive PRs empilhados em feat/*),
     passa pelo pipeline completo; push e jobs de publicação seguem restritos às
     linhas de release."""
-    for name in ("edge.yml", "vectora.yml"):
+    for name in ("docs.yml", "vectora.yml"):
         content = (WORKFLOW.parent / name).read_text(encoding="utf-8")
         pull_request = _trigger_block(content, "pull_request")
         push = _trigger_block(content, "push")
@@ -486,7 +511,7 @@ def test_app_and_edge_workflows_validam_todo_pr_e_publicam_so_de_master() -> Non
         assert '"**"' not in push, name
 
     app = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
-    edge = (WORKFLOW.parent / "edge.yml").read_text(encoding="utf-8")
+    docs = (WORKFLOW.parent / "docs.yml").read_text(encoding="utf-8")
     # These jobs only resolve metadata or build artifacts and must run on PRs
     # so the package matrix is validated before merge. Only publication and
     # tagging jobs are restricted to master.
@@ -502,7 +527,7 @@ def test_app_and_edge_workflows_validam_todo_pr_e_publicam_so_de_master() -> Non
         guard = app.split(f"\n  {job}\n", 1)[1].split("\n    steps:", 1)[0]
         assert "github.ref == 'refs/heads/master'" in guard, job
         assert "pull_request" not in guard, job
-    deploy = edge.split("\n  deploy:\n", 1)[1].split("\n    steps:", 1)[0]
+    deploy = docs.split("\n  deploy:\n", 1)[1].split("\n    steps:", 1)[0]
     assert "github.ref == 'refs/heads/master'" in deploy
     assert "pull_request" not in deploy
 
@@ -513,16 +538,7 @@ def test_native_release_uses_supported_python_architectures_for_backend_deps() -
     setup_uv = (
         WORKFLOW.parent.parent / "actions" / "setup-uv" / "action.yml"
     ).read_text(encoding="utf-8")
-    release_matrix = (
-        WORKFLOW.parent.parent.parent
-        / "services"
-        / "src"
-        / "updates"
-        / "release-matrix.ts"
-    ).read_text(encoding="utf-8")
-
     assert "macos-26-intel" not in content
-    assert '"mac/x64"' not in release_matrix
     assert "source-built LanceDB" not in content
     assert "Cache LanceDB Cargo build" not in content
     assert "PyArrow has no win_arm64" in content
@@ -629,3 +645,20 @@ def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline(
     assert 'git push origin "$TAG"' in content
     assert "gh release create" in content
     assert "--publish never" in content
+
+
+def test_milestone_workflow_resolves_the_release_line_of_stacked_prs() -> None:
+    """Uma PR empilhada herda a linha de release da raiz da pilha: o workflow
+    segue as bases pelas PRs abertas, atribui a milestone da raiz e repassa a
+    raiz ao validador."""
+    content = (WORKFLOW.parent / "pr-release-milestone.yml").read_text(encoding="utf-8")
+
+    assert "github.rest.pulls.list" in content
+    assert 'core.setOutput("stack_root", stackRoot)' in content
+    assert (
+        "CURRENT_STACK_ROOT_BASE: ${{ steps.assign-milestone.outputs.stack_root }}"
+        in content
+    )
+    assert "head.repo?.full_name" in content
+    # A busca é limitada e não entra em ciclo de bases.
+    assert "seen.has(cursor)" in content

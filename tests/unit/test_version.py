@@ -6,39 +6,27 @@ import json
 import re
 import tomllib
 from pathlib import Path
-from typing import NotRequired, TypedDict
+from typing import TypedDict
 
 from backend.version import __version__
 
 _MONOREPO_ROOT = Path(__file__).resolve().parents[2]
-# O updater TOML do release-please embrulha cada valor como
-# {start, end, value}; por isso o filtro compara `@.name.value`, não `@.name`.
-_UV_LOCK_JSONPATH = "$.package[?(@.name.value==='vectora')].version"
+_RELEASE_LINES = _MONOREPO_ROOT / ".github" / "release-lines.json"
 
 
-class _ExtraFile(TypedDict):
-    type: str
-    path: str
-    jsonpath: NotRequired[str]
+class _ReleaseLine(TypedDict):
+    branch: str
+    milestone: str
 
 
-# Chaves com hífen ("release-type", "extra-files", ...) não são
-# identificadores Python válidos — sintaxe funcional do TypedDict em vez da
-# de classe.
-_ReleasePleasePackage = TypedDict(
-    "_ReleasePleasePackage",
-    {
-        "release-type": str,
-        "package-name": str,
-        "changelog-path": str,
-        "extra-files": list[_ExtraFile],
-    },
-    total=False,
-)
+class _ReleaseLines(TypedDict):
+    version_files: list[str]
+    development: _ReleaseLine
+    maintenance: _ReleaseLine
 
 
-class _ReleasePleaseConfig(TypedDict):
-    packages: dict[str, _ReleasePleasePackage]
+def _release_lines() -> _ReleaseLines:
+    return json.loads(_RELEASE_LINES.read_text(encoding="utf-8"))
 
 
 def test_version_is_string() -> None:
@@ -54,16 +42,13 @@ def test_pyproject_version_bate_com_frontend_package_json() -> None:
     instalador e o conteúdo do latest.yml de frontend/package.json, não de
     pyproject.toml — se os dois divergirem, o instalador publicado mente sua
     própria versão e o electron-updater recusa a atualização real como
-    "downgrade". Sem release-please-config.development.json::extra-files sincronizando
-    os dois, esse teste é o único jeito de pegar a divergência antes do
-    build de produção."""
+    "downgrade". Os dois estão em `.github/release-lines.json::version_files`;
+    este teste pega a divergência antes do build de produção."""
     pyproject: dict[str, dict[str, str]] = tomllib.loads(
         (_MONOREPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     )
     frontend_pkg: dict[str, str] = json.loads(
-        (_MONOREPO_ROOT / "frontend" / "package.json").read_text(
-            encoding="utf-8"
-        )
+        (_MONOREPO_ROOT / "frontend" / "package.json").read_text(encoding="utf-8")
     )
     assert pyproject["project"]["version"] == frontend_pkg["version"], (
         "pyproject.toml e frontend/package.json com versões "
@@ -71,106 +56,54 @@ def test_pyproject_version_bate_com_frontend_package_json() -> None:
     )
 
 
-def test_release_please_config_sincroniza_todos_os_arquivos_de_versao() -> None:
-    """Sem essas entradas, release-please bumpa só o manifest e o teste
-    acima (pyproject.toml vs frontend/package.json) volta a falhar na
-    release seguinte — o mesmo vale pra services/company ficarem pra trás.
+def test_release_lines_sincroniza_todos_os_arquivos_de_versao() -> None:
+    """`.github/release-lines.json` é a única fonte da automação de release.
 
-    release-please-config.development.json rastreia o monorepo INTEIRO como um único
-    pacote (chave "." — path é interpretado literalmente pelo release-please,
-    não é um nome arbitrário; uma chave "vectora" faria o path virar
-    `vectora/`, restringindo commits contados só àquela pasta). Os paths de
-    extra-files, por isso, são relativos à raiz do repo.
+    O primeiro item de `version_files` dá a versão atual e todos são reescritos
+    a cada release. Compara o CONJUNTO inteiro (==): remover um arquivo da lista
+    precisa quebrar este teste, não só a adição de um novo passar despercebida.
+    """
+    files = _release_lines()["version_files"]
+    assert files == ["pyproject.toml", "frontend/package.json", "uv.lock"]
 
-    Compara o CONJUNTO inteiro (==), não só "in" pra cada path — remover uma
-    entrada (ex.: company/package.json parar de ser sincronizado) precisa
-    quebrar este teste, não só a adição de uma nova passar despercebida."""
-    config: _ReleasePleaseConfig = json.loads(
-        (_MONOREPO_ROOT / "release-please-config.development.json").read_text(
-            encoding="utf-8"
-        )
+    version = tomllib.loads(
+        (_MONOREPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )["project"]["version"]
+    frontend = json.loads(
+        (_MONOREPO_ROOT / "frontend" / "package.json").read_text(encoding="utf-8")
     )
-    extra_files: list[_ExtraFile] = config["packages"]["."].get("extra-files", [])
-    paths: set[str] = {entry["path"] for entry in extra_files}
-    uv_entry = next(
-        entry for entry in extra_files if entry["path"] == "uv.lock"
-    )
-    assert uv_entry.get("type") == "toml"
-    assert uv_entry.get("jsonpath") == _UV_LOCK_JSONPATH
-    lock = tomllib.loads(
-        (_MONOREPO_ROOT / "uv.lock").read_text(encoding="utf-8")
-    )
+    lock = tomllib.loads((_MONOREPO_ROOT / "uv.lock").read_text(encoding="utf-8"))
     vectora_packages = [
         package for package in lock["package"] if package["name"] == "vectora"
     ]
     assert len(vectora_packages) == 1
-    pyproject = tomllib.loads(
-        (_MONOREPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    assert frontend["version"] == version
+    assert vectora_packages[0]["version"] == version
+
+    leftovers = sorted(
+        path.name
+        for pattern in ("release-please-config*.json", ".release-please-manifest*.json")
+        for path in _MONOREPO_ROOT.glob(pattern)
     )
-    assert vectora_packages[0]["version"] == pyproject["project"]["version"]
-    assert paths == {
-        "pyproject.toml",
-        "frontend/package.json",
-        "services/package.json",
-        "company/package.json",
-        "uv.lock",
-    }
+    assert leftovers == []
 
 
-def test_release_please_separa_bump_de_desenvolvimento_e_manutencao() -> None:
-    """A linha master avança minor antes de 1.0 e a manutenção avança patch."""
-    development = json.loads(
-        (_MONOREPO_ROOT / "release-please-config.development.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    maintenance = json.loads(
-        (_MONOREPO_ROOT / "release-please-config.maintenance.json").read_text(
-            encoding="utf-8"
-        )
-    )
+def test_linhas_de_release_nao_propoem_a_mesma_tag() -> None:
+    """Manutenção sobe patch (milestone `X.Y.x`) e desenvolvimento sobe minor.
 
-    assert development["bump-minor-pre-major"] is True
-    assert development["bump-patch-for-minor-pre-major"] is False
-    assert "release-as" not in development
-    development_manifest = json.loads(
-        (_MONOREPO_ROOT / ".release-please-manifest.development.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert re.fullmatch(r"\d+\.\d+\.\d+", development_manifest["."])
-    assert maintenance["bump-minor-pre-major"] is True
-    assert maintenance["bump-patch-for-minor-pre-major"] is True
+    A linha de desenvolvimento é sempre a minor seguinte à de manutenção, então
+    um patch de manutenção nunca colide com a próxima minor.
+    """
+    lines = _release_lines()
+    development = lines["development"]
+    maintenance = lines["maintenance"]
 
-
-def test_active_lines_do_not_propose_same_tag_for_fixes() -> None:
-    """Uma correção da manutenção não pode colidir com o release minor de master."""
-    maintenance_manifest = json.loads(
-        (_MONOREPO_ROOT / ".release-please-manifest.maintenance.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    development_config = json.loads(
-        (_MONOREPO_ROOT / "release-please-config.development.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    maintenance_config = json.loads(
-        (_MONOREPO_ROOT / "release-please-config.maintenance.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    development_manifest = json.loads(
-        (_MONOREPO_ROOT / ".release-please-manifest.development.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    development_version = development_manifest["."]
-    maintenance_major, maintenance_minor, maintenance_patch = map(
-        int, maintenance_manifest["."].split(".")
-    )
-    maintenance_version = (
-        f"{maintenance_major}.{maintenance_minor}.{maintenance_patch + 1}"
-    )
-    assert maintenance_config["bump-patch-for-minor-pre-major"] is True
-    assert development_version != maintenance_version
+    assert development["branch"] != maintenance["branch"]
+    assert maintenance["branch"] == "master"
+    maintenance_match = re.fullmatch(r"(\d+)\.(\d+)\.x", maintenance["milestone"])
+    development_match = re.fullmatch(r"(\d+)\.(\d+)", development["milestone"])
+    assert maintenance_match is not None
+    assert development_match is not None
+    major, minor = map(int, maintenance_match.groups())
+    assert tuple(map(int, development_match.groups())) == (major, minor + 1)
+    assert development["branch"] == f"release/{major}.{minor + 1}"

@@ -1,4 +1,4 @@
-"""Cache de embeddings (``services/cache_embeddings.py``)."""
+"""Cache de embeddings (``backend/services/cache_embeddings.py``)."""
 
 from __future__ import annotations
 
