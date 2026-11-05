@@ -140,10 +140,15 @@ jobs:
       - name: snyk code test
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: >-
-          snyk code test
-          --severity-threshold=high
-          --sarif-file-output=snyk-code.sarif
+        # O Snyk Code não aplica arquivo de política nem comentários de supressão:
+        # os achados já analisados ficam em .github/snyk-code-baseline.json, com
+        # motivo e prazo, e qualquer achado fora dele reprova o job.
+        run: |
+          status=0
+          snyk code test --severity-threshold=high --sarif-file-output=snyk-code.sarif || status=$?
+          if [ "$status" -eq 0 ]; then exit 0; fi
+          if [ "$status" -ne 1 ]; then exit "$status"; fi
+          python3 utils/snyk_baseline.py snyk-code.sarif .github/snyk-code-baseline.json
       # Publica os achados na aba Security > Code scanning mesmo quando o
       # passo anterior falha por severidade.
       - name: Envia SARIF para o code scanning
