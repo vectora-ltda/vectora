@@ -81,7 +81,7 @@ Os artefatos do Context Graph e o cache ficam em `.vectora/context-graph/` dentr
 
 ```bash
 git clone https://github.com/vectora-ltda/vectora.git
-cd vectora/vectora
+cd vectora
 
 # Instalar dependências Python
 uv sync
@@ -116,7 +116,7 @@ uv run vectora web                  # HTTP + Electron/Chromium, sem bandeja Pyth
 
 ## Build (SCons)
 
-O sistema de build usa [SCons](https://scons.org/), incluído como dependência de dev, invocado a partir da **raiz do monorepo** (não desta pasta). Funciona direto no PowerShell, cmd, bash ou zsh — sem dependência de sintaxe shell específica.
+O sistema de build usa [SCons](https://scons.org/), incluído como dependência de dev, invocado a partir da **raiz do repositório**. Funciona direto no PowerShell, cmd, bash ou zsh — sem dependência de sintaxe shell específica.
 
 ### Produto final (do zero ao instalador)
 
@@ -149,7 +149,7 @@ scons clean             Remove dist/ frontend/dist/ frontend/electron/dist*
 scons help              Lista completa com descrições
 ```
 
-**Nota:** no Windows basta abrir o PowerShell ou cmd na raiz do monorepo e rodar `scons release`. Sem Git bash, sem truques de shell.
+**Nota:** no Windows basta abrir o PowerShell ou cmd na raiz do repositório e rodar `scons release`. Sem Git bash, sem truques de shell.
 
 ### CI/CD
 
@@ -270,7 +270,7 @@ O projeto segue TDD (par caminho-feliz + caminho-de-erro no mesmo teste). Contag
 | **Backend — total**                | **148**  | **2.463**  | `uv run pytest tests -q`                                          |
 | **Frontend — vitest**              | 90       | 1.008      | `pnpm --dir frontend exec vitest run`                             |
 | **Frontend — Playwright e2e**      | 2        | 4          | `pnpm --dir frontend exec playwright test`                        |
-| **Total do produto**               | **240**  | **~3.475** | `scons tests` (raiz do monorepo)                                  |
+| **Total do produto**               | **240**  | **~3.475** | `scons tests` (raiz do repositório)                               |
 
 `scons coverage` roda a mesma suíte com relatório de cobertura (`htmlcov/index.html` para o backend, `frontend/coverage/index.html` para o frontend).
 
@@ -344,4 +344,17 @@ TELEMETRY_ENABLED=true
 
 ## Licença
 
-Software proprietário — código fechado. Consulte [SECURITY.md](./SECURITY.md) para a política de divulgação de vulnerabilidades e [CONTRIBUTING.md](./CONTRIBUTING.md) para o fluxo de contribuição.
+O Vectora é software livre sob a **GNU Affero General Public License v3.0** (`AGPL-3.0-only`). O texto completo está em [LICENSE](LICENSE).
+
+Em termos práticos, você pode usar, estudar, modificar e redistribuir o código. Se você distribuir uma versão modificada, ou oferecê-la como serviço a outras pessoas pela rede, precisa disponibilizar o código-fonte dessa versão sob a mesma licença.
+
+- **Direitos autorais:** © 2026 Vectora Ltda. A Vectora é a titular do código do projeto e pode oferecer o mesmo código sob outra licença, inclusive comercial, a quem não puder cumprir a AGPL. Para isso, ela precisa dos direitos sobre as contribuições recebidas; por isso todo PR de terceiros exige o aceite do [CLA](CLA.md).
+- **Licença comercial:** fale com [contato@vectora.company](mailto:contato@vectora.company).
+- **Dependências de terceiros:** a lista e as licenças estão em [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+- **O nome e a marca "Vectora"** não são licenciados pela AGPL; não os use de forma que sugira endosso do seu fork.
+
+## Contribuindo e segurança
+
+- Fluxo de contribuição, ambiente e checks: [CONTRIBUTING.md](CONTRIBUTING.md).
+- Código de conduta: [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+- Vulnerabilidades: não abra issue pública; siga [SECURITY.md](SECURITY.md).

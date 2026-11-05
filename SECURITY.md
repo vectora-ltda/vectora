@@ -1,102 +1,71 @@
-# Security Policy
+# Política de segurança
 
-Vectora is a self-hosted application. The attack surface is intentionally small — no remote servers, no user authentication, no exposed REST APIs. Even so, code that executes on behalf of the user needs real protections.
+O Vectora executa ações em nome do usuário (ler e escrever arquivos, rodar comandos, navegar, chamar APIs e servidores MCP) comandado por um modelo de linguagem. Por isso o projeto trata o conteúdo que passa pelo agente como não confiável e aplica limites no lado do backend. Este documento descreve o que existe hoje, o que não é garantido e como relatar um problema.
 
----
+## Relatando uma vulnerabilidade
 
-## Built-in Protections
+**Não abra uma issue pública.** Isso expõe o problema antes da correção.
 
-### Terminal Execution (`terminal` tool)
+1. Abra um [Security Advisory privado](https://github.com/vectora-ltda/vectora/security/advisories/new) neste repositório.
+2. Informe o componente afetado, o tipo de falha, os passos para reproduzir e o impacto estimado.
+3. Inclua a versão (`vectora --version`), o sistema operacional e o modo de uso (desktop ou servidor).
+4. Não envie segredos, tokens nem dados pessoais reais, e não publique um exploit completo antes de combinarmos a divulgação.
 
-The terminal is the highest-risk tool. Applied protections:
+Processo: confirmamos o recebimento em até 48 horas, reproduzimos, corrigimos, e publicamos a correção junto com um aviso coordenado, creditando quem relatou, se desejar.
 
-- **Command blacklist**: Blocked by default — `rm -rf`, `mkfs`, `dd if=/dev/zero`, `:(){:|:&};:` (fork bomb), and similar destructive commands. The blacklist lives in `backend/services/security.py`.
-- **Timeout**: 30 seconds per execution. Processes that exceed the limit are terminated via `proc.kill()`.
-- **Async execution**: Uses `asyncio.create_subprocess_shell` — never blocks the event loop or the UI.
-- **No persistent shell**: Each execution is a new child process. There is no persistent terminal session between calls.
+## Versões com correção de segurança
 
-### File Operations
+Recebem correção as duas linhas de release ativas, descritas em [CONTRIBUTING.md](CONTRIBUTING.md): a série de manutenção atual e a de desenvolvimento. Versões mais antigas não recebem correção.
 
-- **Path traversal prevention**: All paths are validated before read/write. `../../../etc/passwd` is rejected.
-- **No symlink attacks**: Path validation resolves symlinks before operating.
-- **Allowed directories**: `file_read`, `file_edit`, and `file_write` operate only on permitted directories (configurable via `ENABLE_FILE_OPERATIONS`).
+## Modos de execução e superfície de ataque
 
-### Regex — Anti-ReDoS Protection
+- **Desktop:** o backend e o frontend conversam por IPC local (named pipe no Windows, unix socket nos demais sistemas), sem abrir porta TCP.
+- **Servidor (web/VPS):** é a única forma que abre porta TCP. A API exige autenticação em toda rota, exceto uma lista explícita de rotas públicas (autenticação, saúde, licença e documentação), tem limite de requisições por IP e deve ficar atrás de TLS (proxy reverso).
+- **Armazenamento:** o modo `lite` usa SQLite e LanceDB locais; o modo `complete` usa PostgreSQL, Qdrant e Redis. Usuários, sessões e configurações ficam sempre em SQLite.
 
-The `grep` tool accepts regex patterns from the LLM. Malicious patterns can cause catastrophic backtracking (ReDoS). Protections:
+## Proteções existentes
 
-- Pattern validation in `backend/services/security.py` (`is_safe_regex_pattern`)
-- 20s timeout on grep execution
-- File type filters (ignores `.pyc`, binaries)
+### Autenticação e autorização
 
-### Secrets and Logs
+- Todo endpoint usa autenticação por padrão (`get_current_user`) e as rotas públicas são uma lista explícita.
+- O acesso a dados é escopado por usuário e por workspace; o controle de papéis fica em `backend/rbac/`.
 
-- **No secrets in logs**: API keys are masked before any log statement.
-- **`.env` never committed**: `.gitignore` includes `.env`, `.env.*` (except `.env.example`).
-- **Native telemetry, opt-out**: Structured logging of turn start/end, tool calls, and unhandled errors is enabled by default (`TELEMETRY_ENABLED=true`) and stays local — events go to `~/.vectora/logs/backend.jsonl` or a dedicated file (`TELEMETRY_OUTPUT_PATH`), never to a third-party service.
+### Terminal, arquivos e regex
 
-### API Rate Limiting
+Implementadas em `backend/services/security.py`:
 
-- **Cohere rate limiter**: The background embedding worker uses a token bucket (`CohereRateLimiter`) to stay within Cohere's API limits. Configurable via `cohere_calls_per_minute` (default: 90 calls/min — 10% below the trial limit of 100/min).
+- Comandos destrutivos conhecidos são bloqueados antes de executar (por exemplo `rm -rf`, `mkfs` e fork bombs).
+- Caminhos são resolvidos (inclusive links simbólicos) e limitados ao workspace; caminhos sensíveis são recusados.
+- Padrões de regex vindos do modelo são validados contra backtracking catastrófico, e o `grep` tem timeout.
+- Os comandos do terminal rodam com timeout e sem shell persistente entre chamadas.
 
-### MCP Server
+### Rede (SSRF)
 
-- **stdio mode**: Communication via stdin/stdout. No network port opened locally.
-- **SSE mode**: Listens on `MCP_HOST:MCP_PORT` (default `0.0.0.0:8000`). In production, place behind a reverse proxy with TLS.
-- **stderr for feedback**: The Rich startup panel goes to stderr — never pollutes the JSON-RPC channel of the MCP protocol.
+As ferramentas de navegador e de busca recusam destinos internos: IPs privados, de loopback, link-local, reservados, multicast, CGNAT e NAT64 (`backend/browser/ssrf_guard.py`).
 
----
+### Aprovação humana
 
-## What Is NOT in the MVP
+Ações de alto impacto passam pelo fluxo de aprovação (HITL) do motor de conversa antes de executar, conforme o modo de permissão da sessão.
 
-By design — Vectora is self-hosted, single-user:
+### Segredos e telemetria
 
-- ❌ **Authentication**: No users, no access tokens, no OAuth.
-- ❌ **TLS/SSL**: Local communication via stdio; SSE on LAN without TLS is acceptable in the MVP.
-- ❌ **User-level rate limiting**: No multiple users competing for resources (API rate limiting for Cohere is implemented).
-- ❌ **Full audit log**: Structured JSON logs only.
-- ❌ **LLM sandboxing**: The LLM can request execution of any enabled tool.
+- Chaves de API são mascaradas antes de qualquer log e ficam em `~/.vectora/config.toml` ou `.env` locais; `.env` nunca vai para o git.
+- A telemetria é estruturada e local (`~/.vectora/logs/backend.jsonl`); nenhum evento vai para um serviço de terceiros.
+- O Vectora é cliente MCP: ele consome servidores MCP externos e não expõe a si mesmo como servidor MCP.
 
-These items are part of the roadmap for when Vectora becomes multi-tenant.
+## Limites conhecidos
 
----
+Estas proteções reduzem o risco, mas não o eliminam:
 
-## Reporting a Vulnerability
+- **O modelo pode pedir qualquer ferramenta habilitada.** A lista de comandos bloqueados não cobre todo comando perigoso. Em modo automático, sem aprovação, o agente executa o que pedir; use aprovação humana em máquinas com dados importantes.
+- **Injeção de prompt:** o texto de arquivos, páginas e resultados de ferramentas pode conter instruções hostis. O agente trata esse conteúdo como dado, mas nenhum modelo garante imunidade.
+- **Servidores MCP e extensões de terceiros** rodam com o poder que você conceder; instale apenas os que você confia.
+- **A conexão com o provedor de LLM** envia o conteúdo da conversa a esse provedor, sob a política dele.
 
-If you find a security vulnerability, **do not open a public issue**. This would expose the problem before a fix is available.
+## Práticas para quem contribui
 
-**How to report:**
-
-1. Open a [GitHub Security Advisory](https://github.com/vectora-ltda/vectora/security/advisories/new) (private)
-2. Include: affected component, vulnerability type, steps to reproduce, estimated impact
-
-**What to include:**
-
-- Vectora version (`vectora --version`)
-- Operating system
-- Minimal steps to reproduce
-- Expected vs. observed behavior
-
-**What NOT to include:**
-
-- Real secrets, tokens, or credentials
-- Full technical exploit before coordinating disclosure
-
-**Disclosure process:**
-
-1. Maintainer acknowledges receipt within 48h
-2. Validates and reproduces the vulnerability
-3. Develops and tests the fix
-4. Publishes fix + coordinated advisory
-
----
-
-## Secure Development Practices
-
-All submitted code must follow:
-
-- **Validate inputs**: Never trust data coming from the LLM or from `function_results`
-- **Secrets out of git**: Check `.gitignore` before any commit
-- **Least-privilege**: Tools operate within the minimum necessary scope
-- **Reviewed dependencies**: `uv audit` to check known advisories
-- **Special attention to**: `security.py`, any code that accepts paths from the user, any subprocess execution
+- Valide toda entrada, inclusive o que vem do modelo e de `function_results`.
+- Mantenha segredos fora do git; confira o `.gitignore` antes de commitar.
+- Ferramentas operam com o menor escopo necessário.
+- Atenção redobrada a `backend/services/security.py`, a qualquer código que receba caminhos e a toda execução de subprocesso.
+- Dependências: `pip-audit`, `bandit` e a varredura de segurança do CI (Snyk) acompanham advisories conhecidos.
