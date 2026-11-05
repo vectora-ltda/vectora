@@ -34,7 +34,7 @@ jobs:
           go-version: stable
           cache: false
       - name: Install gitleaks
-        run: go install github.com/gitleaks/gitleaks/v8@${{ env.GITLEAKS_VERSION }}
+        run: go install github.com/zricethezav/gitleaks/v8@${{ env.GITLEAKS_VERSION }}
       - name: Scan the working tree
         run: gitleaks dir . --redact --no-banner --verbose
       - name: Scan the commits of the pull request

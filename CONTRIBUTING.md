@@ -49,12 +49,32 @@ pnpm --dir frontend exec oxlint
 - **Comentários** descrevem o que o código faz e as invariantes que ele preserva; não registram histórico, planejamento nem tarefas pendentes.
 - Planejamento fica em issues e em markdown; stubs, `TODO` e mocks não entram no código de produção.
 
+## Spec em issue antes do PR
+
+O Vectora segue o desenvolvimento guiado por spec **dentro das issues**. Muita gente escreve a spec localmente e só mostra o resultado; aqui a spec é escrita e discutida em público, na issue, antes de existir código. Quem abre um PR já encontra a decisão tomada e revisa a implementação contra ela.
+
+- **Feature (`feat:`) sempre tem issue com spec.** Um PR de feature sem issue vinculada é questionado por inteiro, junto com todas as modificações dele, e pode ser fechado até a spec existir.
+- **Correção (`fix:`) depende.** Um bug pequeno e óbvio, com teste que o reproduz, pode abrir o PR direto. Correção que muda contrato, comportamento visível, segurança ou toca várias áreas precisa de issue. Na dúvida, abra a issue.
+- **Demais tipos** (`refactor:`, `perf:`, `docs:`, `test:`, `ci:`, `chore:`) seguem o critério da correção; uma mudança de arquitetura segue a regra de feature.
+
+A spec fica no corpo da issue e traz:
+
+- **objetivo** e **não objetivos**;
+- o **comportamento esperado**, com exemplos de entrada e saída;
+- os **critérios de aceite**, com casos felizes e de erro;
+- **riscos**, dependências e impacto em contratos, segurança e dados;
+- o **plano de testes**.
+
+Só comece a implementar depois de um mantenedor confirmar na issue que a spec está pronta. Se a implementação revelar que a spec estava errada, atualize a issue antes de mudar o PR.
+
+O PR aponta para a issue com **uma linha só** no corpo: `Closes #N` (a issue fecha quando o PR é mesclado), `Refs #N` (o PR é uma parte de uma issue maior) ou `Spec: #N`. É a única referência a issue aceita no texto do PR.
+
 ## Fluxo de trabalho
 
-1. Escolha uma issue. As marcadas com `good first issue` e `help wanted` são as indicadas para quem está chegando; comente na issue antes de começar.
+1. Escolha uma issue ou abra uma com a spec, conforme a seção acima. As marcadas com `good first issue` e `help wanted` são as indicadas para quem está chegando; comente na issue antes de começar.
 2. Crie uma branch a partir da base certa (veja abaixo).
 3. Faça mudanças pequenas e focadas; cada commit usa Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `ci:`, `chore:`).
-4. Abra o PR com título no mesmo formato, em português, e descreva o que muda e como você verificou. O título e a descrição não podem citar ferramentas de IA, planos de trabalho nem números de issue ou PR; o CI recusa.
+4. Abra o PR com título no mesmo formato, em português, e descreva o que muda e como você verificou. O título e a descrição não podem citar ferramentas de IA, planos de trabalho nem números de issue ou PR, exceto a linha de vínculo com a spec; o CI recusa.
 5. Atenda à revisão. Um PR só é mesclado com os checks obrigatórios verdes e o aceite do CLA.
 
 ## Linhas de release

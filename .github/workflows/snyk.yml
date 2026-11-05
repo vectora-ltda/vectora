@@ -66,8 +66,13 @@ jobs:
       - uses: snyk/actions/setup@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
         with:
           snyk-version: v${{ env.SNYK_CLI_VERSION }}
-      # O Snyk resolve o grafo pelo pnpm-lock.yaml ao lado do package.json,
-      # sem precisar de node_modules instalado.
+      # O Snyk exige o node_modules do projeto para resolver o grafo do pnpm.
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.5.0
+      - name: Install dependencies
+        working-directory: ${{ matrix.project }}
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: snyk test
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
@@ -93,12 +98,15 @@ jobs:
           working-directory: .
       # O plano gratuito do Snyk não lê uv.lock; o lock é exportado para
       # requirements.txt e o plugin pip inspeciona o .venv sincronizado pelo
-      # setup-uv, que tem exatamente as versões travadas.
+      # setup-uv, que tem exatamente as versões travadas. O plugin depende de
+      # pkg_resources, que o setuptools 81 em diante não traz mais; o projeto exige
+      # uma versão nova, então o downgrade vale só para este scan, sem resolver
+      # dependências.
       - name: Exporta uv.lock para requirements
         run: |
           uv export --frozen --no-hashes --no-emit-project --all-extras \
             --format requirements-txt -o snyk-requirements.txt
-          uv pip install --python .venv/bin/python setuptools
+          uv pip install --no-config --python .venv/bin/python --reinstall --no-deps "setuptools<81"
       - uses: snyk/actions/setup@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
         with:
           snyk-version: v${{ env.SNYK_CLI_VERSION }}

@@ -276,6 +276,57 @@ class TestDescricao:
         assert pr_metadata_main() == 0
 
 
+class TestVinculoComIssue:
+    """O corpo do PR pode apontar a issue com a spec numa linha só dessa
+    referência; qualquer outra menção a issue ou PR continua barrada."""
+
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "Closes #318",
+            "Fixes #12",
+            "Resolves #7",
+            "Refs #402",
+            "refs #402",
+            "Spec: #402",
+            "Closes https://github.com/vectora-ltda/vectora/issues/318",
+        ],
+    )
+    def test_linha_dedicada_de_vinculo_passa(
+        self, monkeypatch: pytest.MonkeyPatch, line: str
+    ) -> None:
+        body = f"## Resumo\nImplementa a spec.\n\n{line}\n"
+        assert _run(monkeypatch, "feat: nova ferramenta", body) == 0
+
+    def test_erro_borda_numero_no_titulo_continua_barrado(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert _run(monkeypatch, "feat: nova ferramenta (#318)", "Closes #318\n") == 1
+
+    def test_erro_borda_referencia_solta_no_texto_continua_barrada(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        body = "Segue a decisão da issue #318 sobre o formato.\n"
+        assert _run(monkeypatch, "feat: x", body) == 1
+
+    def test_erro_borda_vinculo_com_texto_extra_na_mesma_linha_barra(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert _run(monkeypatch, "feat: x", "Closes #318 e também a issue #319\n") == 1
+
+    def test_erro_borda_referencia_a_pr_continua_barrada(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        assert _run(monkeypatch, "fix: x", "Refs PR #12\n") == 1
+        assert _run(monkeypatch, "fix: x", "Continua o pull request 12\n") == 1
+
+    def test_erro_borda_vinculo_nao_libera_plano_nem_ferramenta_de_ia(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        body = "Closes #318\nConclui o Sprint 3.\n"
+        assert _run(monkeypatch, "feat: x", body) == 1
+
+
 class TestStripBotBlocks:
     def test_remove_bloco_de_resumo_do_coderabbit(self) -> None:
         body = (

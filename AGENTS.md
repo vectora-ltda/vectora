@@ -16,9 +16,23 @@ Não use `docs/` para planos internos, handoffs de implementação, auditorias, 
 
 Mantenha as mudanças restritas ao que foi pedido. Antes de commitar, inspecione a árvore de trabalho e o diff em stage; adicione só os arquivos pretendidos e deixe segredos, `.env` locais e artefatos gerados fora dos commits. Use Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:` ou `ci:`) com uma mensagem que explique a mudança.
 
-Títulos e descrições de PR e de issue são escritos em português, com o prefixo do Conventional Commits no título. Não cite ferramentas ou revisores de IA, planos de trabalho (Sprint, Bloco, Fase) nem números de issue ou PR nesses textos; o CI recusa.
+Títulos e descrições de PR e de issue são escritos em português, com o prefixo do Conventional Commits no título. Não cite ferramentas ou revisores de IA, planos de trabalho (Sprint, Bloco, Fase) nem números de issue ou PR nesses textos; o CI recusa. A única exceção é uma linha só com o vínculo à issue da spec (`Closes #N`, `Refs #N` ou `Spec: #N`) no corpo do PR.
+
+O desenvolvimento é guiado por spec em issue; o resumo e as regras estão na seção 2.1 e no [CONTRIBUTING.md](CONTRIBUTING.md). Antes de abrir um PR de feature, confira se a issue com a spec existe; se não existir, proponha escrevê-la em vez de abrir o PR.
 
 Não crie git worktrees por conta própria: trabalhe no checkout em uso e só use uma worktree quando o usuário pedir.
+
+### 2.1. Contribuição: resumo do `CONTRIBUTING.md`
+
+O [CONTRIBUTING.md](CONTRIBUTING.md) é a referência completa do fluxo de contribuição e deve ser lido antes de abrir um PR. Em resumo:
+
+- **Spec em issue antes do PR.** O desenvolvimento é guiado por spec, e a spec mora numa issue pública, nunca só em arquivo local. A issue traz objetivo, não objetivos, comportamento esperado (com exemplos de entrada e saída), critérios de aceite (casos felizes e de erro), riscos e plano de testes, e um mantenedor confirma que ela está pronta antes de a implementação começar. Feature (`feat:`) sempre tem issue com spec; PR de feature sem issue vinculada é questionado por inteiro. Correção (`fix:`) pode dispensar a issue quando for pequena e óbvia, com teste que a reproduz; mudança de contrato, comportamento visível, segurança ou várias áreas precisa de issue.
+- **Vínculo no PR.** O corpo do PR aponta a issue com uma linha só: `Closes #N`, `Refs #N` ou `Spec: #N`. É a única referência a issue aceita no texto do PR.
+- **Ambiente e checks.** `uv sync` e `pnpm --dir frontend install`, depois as verificações da seção 5. Rode as da área que mudou e informe o resultado.
+- **Fluxo.** Escolha ou abra a issue, crie a branch a partir da base certa, faça mudanças pequenas com Conventional Commits, abra o PR em português e atenda à revisão.
+- **Linhas de release.** `master` com a milestone `0.3.x` (manutenção) e `release/0.4` com a `0.4` (desenvolvimento), conforme `.github/release-lines.json`.
+- **CLA.** Contribuições de terceiros exigem o aceite do [CLA.md](CLA.md).
+- **Segurança e conduta.** Vulnerabilidades seguem o [SECURITY.md](SECURITY.md), nunca uma issue pública, e a convivência segue o [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## 3. Arquitetura e convenções atuais
 
