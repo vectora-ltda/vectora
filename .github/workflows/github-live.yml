@@ -4,17 +4,17 @@ on:
   push:
     branches: [master, "release/**"]
     paths:
-      - "vectora/backend/tools/**"
-      - "vectora/tests/unit/test_tools_github_live.py"
-      - "vectora/tests/integration/test_workbench_live_dispatch.py"
+      - "backend/tools/**"
+      - "tests/unit/test_tools_github_live.py"
+      - "tests/integration/test_workbench_live_dispatch.py"
       - ".github/workflows/github-live.yml"
       - ".github/actions/setup-uv/**"
   pull_request:
     branches: [master, "release/**"]
     paths:
-      - "vectora/backend/tools/**"
-      - "vectora/tests/unit/test_tools_github_live.py"
-      - "vectora/tests/integration/test_workbench_live_dispatch.py"
+      - "backend/tools/**"
+      - "tests/unit/test_tools_github_live.py"
+      - "tests/integration/test_workbench_live_dispatch.py"
       - ".github/workflows/github-live.yml"
       - ".github/actions/setup-uv/**"
   workflow_dispatch:
@@ -24,8 +24,7 @@ permissions:
 
 defaults:
   run:
-    working-directory: vectora
-
+    working-directory: .
 env:
   PYTHON_VERSION: "3.13"
 

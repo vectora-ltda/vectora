@@ -23,4 +23,4 @@
 # como linguagem principal do projeto (que é Python + TypeScript).
 company/eslint.config.js linguist-vendored
 company/instrument.server.mjs linguist-vendored
-vectora/frontend/public/pdf.worker.min.mjs linguist-vendored
+frontend/public/pdf.worker.min.mjs linguist-vendored

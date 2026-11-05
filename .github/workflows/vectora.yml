@@ -14,15 +14,27 @@ on:
   push:
     branches: [master, "release/**"]
     paths:
-      - "vectora/**"
+      - "backend/**"
+      - "frontend/**"
+      - "tests/**"
       - "utils/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "SConstruct"
+      - "build-hybrid.py"
       - ".github/workflows/vectora.yml"
       - ".github/actions/**"
   pull_request:
     branches: ["**"]
     paths:
-      - "vectora/**"
+      - "backend/**"
+      - "frontend/**"
+      - "tests/**"
       - "utils/**"
+      - "pyproject.toml"
+      - "uv.lock"
+      - "SConstruct"
+      - "build-hybrid.py"
       - ".github/workflows/vectora.yml"
       - ".github/actions/**"
   workflow_dispatch:
@@ -36,8 +48,7 @@ permissions:
 
 defaults:
   run:
-    working-directory: vectora
-
+    working-directory: .
 env:
   # 3.13: versão que o uv resolve (cpython-3.13) e a única suportada pelo
   # Nuitka 4.1.x. 3.14 só vira oficial no Nuitka 4.2.
@@ -81,8 +92,8 @@ jobs:
         with:
           name: python-security-${{ github.sha }}
           path: |
-            vectora/bandit.json
-            vectora/pip-audit.json
+            bandit.json
+            pip-audit.json
           if-no-files-found: error
 
   # ── 2b. Frontend (oxlint + tsc + vitest) ────────────────────────────────
@@ -106,22 +117,22 @@ jobs:
         with:
           version: 11.5.0
       - name: Install deps
-        working-directory: vectora/frontend
+        working-directory: frontend
         run: pnpm install --frozen-lockfile
       - name: Compile i18n messages (Paraglide)
-        working-directory: vectora/frontend
+        working-directory: frontend
         run: pnpm i18n:compile
       - name: Lint (oxlint)
-        working-directory: vectora/frontend
+        working-directory: frontend
         run: pnpm exec oxlint
       - name: Lint i18n (no hardcoded UI strings)
-        working-directory: vectora/frontend
+        working-directory: frontend
         run: pnpm lint:i18n -- --changed
       - name: Type check (tsc --noEmit)
-        working-directory: vectora/frontend
+        working-directory: frontend
         run: pnpm typecheck
       - name: Unit tests (vitest)
-        working-directory: vectora/frontend
+        working-directory: frontend
         run: pnpm test
 
   # ── 3. Build Verification (backend compile + frontend SPA) ──────────────
@@ -145,10 +156,10 @@ jobs:
         with:
           version: 11.5.0
       - name: Build frontend SPA
-        # cwd=vectora/frontend (não `--dir`): o pnpm resolve allowBuilds (sharp)
+        # cwd=frontend (não `--dir`): o pnpm resolve allowBuilds (sharp)
         # a partir do cwd; de fora de frontend/ ele não lê o pnpm-workspace.yaml
         # e o install aborta com ERR_PNPM_IGNORED_BUILDS.
-        working-directory: vectora/frontend
+        working-directory: frontend
         run: |
           pnpm install --frozen-lockfile
           pnpm build
@@ -387,7 +398,7 @@ jobs:
         working-directory: .
         shell: bash
         run: |
-          VERSION=$(grep -m1 '^version' vectora/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+          VERSION=$(grep -m1 '^version' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Select update channel from package version
         id: channel
@@ -454,7 +465,7 @@ jobs:
           sync: "false"
       - name: Sync dependencies
         if: matrix.target != 'win' || matrix.arch != 'arm64'
-        working-directory: vectora
+        working-directory: .
         run: uv sync --frozen
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -465,7 +476,7 @@ jobs:
         with:
           version: 11.5.0
       - name: Build frontend SPA (Vite)
-        working-directory: vectora/frontend
+        working-directory: frontend
         run: |
           pnpm install --frozen-lockfile
           pnpm build
@@ -514,16 +525,16 @@ jobs:
           # Chave por SO/arch + hash do backend: cache miss só quando o
           # backend muda de verdade; restore-keys garante reuso parcial
           # (objetos não afetados pela mudança) mesmo em cache miss.
-          key: ccache-${{ matrix.target }}-${{ matrix.arch }}-${{ hashFiles('vectora/backend/**') }}
+          key: ccache-${{ matrix.target }}-${{ matrix.arch }}-${{ hashFiles('backend/**') }}
           restore-keys: |
             ccache-${{ matrix.target }}-${{ matrix.arch }}-
       - name: Cache nats-server binary
         uses: actions/cache@v6
         with:
-          path: vectora/resources/nats-server*
+          path: resources/nats-server*
           key: nats-server-${{ matrix.target }}-${{ matrix.arch }}
       - name: Fetch nats-server binary
-        # build-hybrid.py falha rápido se vectora/resources/nats-server
+        # build-hybrid.py falha rápido se resources/nats-server
         # (ou .exe) não existir — o sidecar de fila/KV precisa vir embutido
         # no build standalone, não só no desktop Electron. `scons nats`
         # baixa o binário certo pra plataforma do runner atual. `scons` só
@@ -532,21 +543,21 @@ jobs:
         # shell. `uv run --project vectora` resolve esse venv mantendo o
         # cwd na raiz do monorepo, onde o SConstruct está.
         working-directory: .
-        run: uv run --project vectora scons nats
+        run: uv run scons nats
         shell: bash
       - name: Cache ffmpeg/ffprobe binaries
         uses: actions/cache@v6
         with:
           path: |
-            vectora/resources/ffmpeg*
-            vectora/resources/ffprobe*
+            resources/ffmpeg*
+            resources/ffprobe*
           key: ffmpeg-${{ matrix.target }}-${{ matrix.arch }}
       - name: Fetch ffmpeg/ffprobe binaries
         # Mesmo motivo/padrão do nats acima — build-hybrid.py também falha
-        # rápido sem vectora/resources/ffmpeg(.exe)/ffprobe(.exe)
+        # rápido sem resources/ffmpeg(.exe)/ffprobe(.exe)
         # (transcrição/análise de mídia local precisa deles embutidos).
         working-directory: .
-        run: uv run --project vectora scons ffmpeg
+        run: uv run scons ffmpeg
         shell: bash
       - name: Build hybrid (Nuitka backend.pyd + PyInstaller onedir)
         # Mesmo pipeline que `scons release` roda localmente
@@ -572,7 +583,7 @@ jobs:
         # PyInstaller, não source interpretado) e confirma que /health
         # responde -- rotas montadas, settings carregadas, storage ok.
         working-directory: .
-        run: uv run --project vectora scons smoke
+        run: uv run scons smoke
         shell: bash
       - name: Build headless CLI binary (vectora-cli, linux/x64 only)
         # Base pro binário que a Vectora Bot Action roda em runners de CI —
@@ -614,7 +625,7 @@ jobs:
           $signTool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
             Sort-Object FullName | Select-Object -Last 1 -ExpandProperty FullName
           if (-not $signTool) { throw 'Windows SDK signtool.exe was not found.' }
-          $binaryRoots = @('dist/vectora', 'vectora/resources')
+          $binaryRoots = @('dist/vectora', 'resources')
           $binaries = Get-ChildItem $binaryRoots -File -Recurse -ErrorAction SilentlyContinue |
             Where-Object { $_.Extension -in '.exe', '.dll', '.pyd' }
           foreach ($binary in $binaries) {
@@ -638,7 +649,7 @@ jobs:
             exit 0
           fi
           echo "Apple credentials are incomplete; applying ad-hoc signatures to Mach-O sidecars. First launch may require the documented Gatekeeper override."
-          for root in dist/vectora vectora/resources; do
+          for root in dist/vectora resources; do
             [[ -d "$root" ]] || continue
             while IFS= read -r -d '' binary; do
               if file -b "$binary" | grep -q 'Mach-O'; then
@@ -648,7 +659,7 @@ jobs:
           done
       - name: Prepare macOS signing configuration
         if: matrix.target == 'mac'
-        working-directory: vectora/frontend
+        working-directory: frontend
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -656,10 +667,10 @@ jobs:
           BUILDER_CONFIG: ${{ runner.temp }}/electron-builder.yml
         run: node electron/prepare-builder-config.cjs electron/electron-builder.yml "$BUILDER_CONFIG"
       - name: Test conditional macOS signing configuration
-        working-directory: vectora/frontend
+        working-directory: frontend
         run: node --test electron/prepare-builder-config.node.cjs
       - name: Verifica sincronia de versão (pyproject.toml vs frontend/package.json)
-        # release-please só bumpa vectora/pyproject.toml por padrão --
+        # release-please só bumpa pyproject.toml por padrão --
         # frontend/package.json precisa ser sincronizado via extra-files em
         # release-please-config.development.json. Sem essa sincronia, electron-builder
         # nomeia o instalador e grava o latest.yml com a versão ERRADA
@@ -670,17 +681,15 @@ jobs:
         working-directory: .
         shell: bash
         run: |
-          pyproject_version=$(grep -m1 '^version = ' vectora/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+          pyproject_version=$(grep -m1 '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
           frontend_version=$(node -p "require('./vectora/frontend/package.json').version")
           if [ "$pyproject_version" != "$frontend_version" ]; then
             echo "::error::Versão divergente: pyproject.toml=$pyproject_version frontend/package.json=$frontend_version -- corrija release-please-config.development.json (extra-files) antes de publicar."
             exit 1
           fi
       - name: Build desktop shell + installer
-        # Sem working-directory explícito: herda o default do job/workflow
-        # (working-directory: vectora, linha 27-29) — por isso --dir aqui é
-        # relativo a vectora/, não à raiz do monorepo (--dir vectora/frontend
-        # duplicava o segmento e quebrava com ENOENT em .../vectora/vectora/...).
+        # Sem working-directory explícito: herda o default do workflow (raiz do
+        # repositório), então --dir frontend aponta para o app.
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -737,19 +746,19 @@ jobs:
         with:
           name: vectora-${{ matrix.target }}-${{ matrix.arch }}
           path: |
-            vectora/frontend/dist-electron/*.exe
-            vectora/frontend/dist-electron/*.msi
-            vectora/frontend/dist-electron/*.dmg
-            vectora/frontend/dist-electron/*.zip
-            vectora/frontend/dist-electron/*.AppImage
-            vectora/frontend/dist-electron/*.deb
-            vectora/frontend/dist-electron/*.rpm
-            vectora/frontend/dist-electron/*.snap
-            vectora/frontend/dist-electron/*.pacman
-            vectora/frontend/dist-electron/*.flatpak
-            vectora/frontend/dist-electron/*.tar.gz
-            vectora/frontend/dist-electron/latest*.yml
-            vectora/frontend/dist-electron/*.blockmap
+            frontend/dist-electron/*.exe
+            frontend/dist-electron/*.msi
+            frontend/dist-electron/*.dmg
+            frontend/dist-electron/*.zip
+            frontend/dist-electron/*.AppImage
+            frontend/dist-electron/*.deb
+            frontend/dist-electron/*.rpm
+            frontend/dist-electron/*.snap
+            frontend/dist-electron/*.pacman
+            frontend/dist-electron/*.flatpak
+            frontend/dist-electron/*.tar.gz
+            frontend/dist-electron/latest*.yml
+            frontend/dist-electron/*.blockmap
           if-no-files-found: error
           retention-days: 30
 
@@ -1124,7 +1133,7 @@ jobs:
         id: version
         working-directory: .
         run: |
-          VERSION=$(grep -m1 '^version' vectora/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+          VERSION=$(grep -m1 '^version' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
           echo "value=$VERSION" >> "$GITHUB_OUTPUT"
       - name: Download vectora-cli artifact
         uses: actions/download-artifact@v8
@@ -1186,7 +1195,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version=$(grep -m1 '^version = ' vectora/pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+          version=$(grep -m1 '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
           test -n "$version"
           echo "value=$version" >> "$GITHUB_OUTPUT"
           echo "tag=v$version" >> "$GITHUB_OUTPUT"

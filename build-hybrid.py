@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).parent
-VECTORA = ROOT / "vectora"
+VECTORA = ROOT
 SEP = os.pathsep
 
 # Libs que o backend importa e que o PyInstaller NÃO vê (backend.pyd é opaco).
@@ -85,14 +85,14 @@ def _add_installed_test_runtime(dist_dir: Path) -> None:
     print(f"Runtime de teste instalado preparado em {runtime_dir}")
 
 
-# Padrões de arquivo que nunca podem existir dentro de vectora/backend/ na
+# Padrões de arquivo que nunca podem existir dentro de backend/ na
 # hora do build: o Nuitka `--mode=package` embute QUALQUER arquivo não-.py
 # achado dentro do pacote (é assim que backend/defaults.env sobrevive ao
 # empacotamento via importlib.resources — confirmado: nem aparece como
 # arquivo solto no dist/vectora/ gerado, só funciona embutido no .pyd). Um
 # `.env`/chave/credencial esquecido ali vira permanente e invisível dentro do
 # binário entregue a QUALQUER usuário que baixar o instalador — diferente de
-# vectora/.env (fora do pacote), que nunca é varrido pelo Nuitka.
+# .env (fora do pacote), que nunca é varrido pelo Nuitka.
 _FORBIDDEN_BACKEND_FILE_PATTERNS = (
     ".env",
     ".env.*",
@@ -113,10 +113,10 @@ def _assert_no_secrets_inside_backend() -> None:
     if found:
         listed = "\n".join(f"  - {p.relative_to(VECTORA)}" for p in sorted(found))
         sys.exit(
-            "FALHA: arquivo de segredo dentro de vectora/backend/ — o Nuitka "
+            "FALHA: arquivo de segredo dentro de backend/ — o Nuitka "
             "embute isso no binário compilado, entregue a todo mundo que "
             f"baixar o instalador:\n{listed}\n"
-            "Mova pra vectora/.env (fora do pacote) ou ~/.vectora/.env antes "
+            "Mova pra .env (fora do pacote) ou ~/.vectora/.env antes "
             "de rodar o build."
         )
 
@@ -161,7 +161,7 @@ def main() -> None:
         sys.exit(f"backend.{ext} não gerado")
     print(f"OK: {pyd}")
 
-    # nats-server precisa estar em vectora/resources/ ANTES do PyInstaller
+    # nats-server precisa estar em resources/ ANTES do PyInstaller
     # rodar (baixado por `scons nats`/_fetch_nats) — sem ele, o binário
     # standalone sobe sem sidecar de fila/KV e get_mq()/get_kv() degradam pro
     # fallback em memória (nunca falha o boot, mas silenciosamente perde
@@ -173,7 +173,7 @@ def main() -> None:
     if not nats_binary.is_file():
         sys.exit(
             f"{nats_binary} não encontrado. Rode `scons nats` antes do build "
-            "(baixa o binário nats-server pra vectora/resources/)."
+            "(baixa o binário nats-server pra resources/)."
         )
 
     # ffmpeg/ffprobe — mesmo motivo/mecanismo do nats-server acima
@@ -189,7 +189,7 @@ def main() -> None:
         sys.exit(
             f"{ffmpeg_binary}/{ffprobe_binary} não encontrados. Rode `scons "
             "ffmpeg` antes do build (baixa ffmpeg+ffprobe pra "
-            "vectora/resources/)."
+            "resources/)."
         )
 
     # Flags de PyInstaller comuns às duas etapas (desktop e vectora-cli

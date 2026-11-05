@@ -24,13 +24,12 @@ Subprojetos cobertos por `scons lint` e `scons tests`:
 - `vectora/` — Python (ruff, ty, bandit) + TS frontend (tsc, oxlint, vitest)
 - `services/` — TypeScript (tsc, vitest) — gateway + updates unificados
 - `company/` — TypeScript (eslint, tsc, vitest)
-- `vectora/frontend/electron/` — TypeScript (vitest — funções puras: cookie-utils, lifecycle). Fundido no `package.json` do frontend (sem pacote npm próprio); só o `tsconfig.json` de compilação (Node/NodeNext) segue separado.
+- `frontend/electron/` — TypeScript (vitest — funções puras: cookie-utils, lifecycle). Fundido no `package.json` do frontend (sem pacote npm próprio); só o `tsconfig.json` de compilação (Node/NodeNext) segue separado.
 - `docs/` — TypeScript (tsc) — sem testes
 
 Rodar teste específico (Python — a partir da raiz):
 
 ```powershell
-cd vectora
 uv run pytest tests/unit/test_services_auth.py -q --tb=short
 uv run pytest tests/ -k "test_chat" -q --tb=short
 ```
@@ -38,7 +37,7 @@ uv run pytest tests/ -k "test_chat" -q --tb=short
 Rodar teste específico (frontend — a partir da raiz):
 
 ```powershell
-pnpm --dir vectora/frontend exec vitest run src/components/chat/__tests__/message-item.test.tsx
+pnpm --dir frontend exec vitest run src/components/chat/__tests__/message-item.test.tsx
 ```
 
 Rodar testes do services:
@@ -50,13 +49,12 @@ pnpm --dir services run test
 Verificar tipos e lint separados (a partir da raiz):
 
 ```powershell
-cd vectora
 uv run ruff check backend tests          # lint Python
 uv run ty check backend tests            # type check Python
 
 # TypeScript (da raiz do monorepo)
-pnpm --dir vectora/frontend run typecheck   # i18n:compile + tsc --noEmit
-pnpm --dir vectora/frontend exec oxlint     # lint TypeScript
+pnpm --dir frontend run typecheck   # i18n:compile + tsc --noEmit
+pnpm --dir frontend exec oxlint     # lint TypeScript
 pnpm --dir services run typecheck           # tsc --noEmit
 pnpm --dir company run lint                 # eslint
 pnpm --dir company exec tsc --noEmit
@@ -65,13 +63,13 @@ pnpm --dir company exec tsc --noEmit
 Compilar mensagens i18n (obrigatório antes do vitest quando mensagens mudam):
 
 ```powershell
-pnpm --dir vectora/frontend run i18n:compile
+pnpm --dir frontend run i18n:compile
 ```
 
 Iniciar o backend em dev:
 
 ```powershell
-cd vectora && uv run vectora start
+uv run vectora start
 ```
 
 ---
@@ -94,7 +92,7 @@ services/         ← Cloudflare Worker único: gateway (OAuth/webhooks pro
                     — era relay/ + update-server/, unificados
 ```
 
-### Backend (`vectora/backend/`)
+### Backend (`backend/`)
 
 Entrada: `backend/main.py` → `backend/api/server.py` (FastAPI).
 
@@ -116,7 +114,7 @@ Camadas:
 
 Configuração: `backend/settings.py` (Pydantic Settings). Hierarquia: `defaults.env` → `.env` → `~/.vectora/.env`.
 
-### Frontend (`vectora/frontend/`)
+### Frontend (`frontend/`)
 
 Vite + React + TanStack Router. SPA servida pelo FastAPI em produção (`StaticFiles`).
 

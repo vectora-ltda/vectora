@@ -1,7 +1,0 @@
-{
-  "mcpServers": {
-    "Vectora": {
-      "url": "http://localhost:8080/mcp/sse"
-    }
-  }
-}

@@ -11,7 +11,7 @@ METADATA_KEYS: Final = ("$schema", "$comment")
 DEFAULT_FILES: Final = tuple(
     sorted(
         file
-        for directory in ("vectora/frontend/messages", "company/messages")
+        for directory in ("frontend/messages", "company/messages")
         for file in Path(directory).glob("*.json")
     )
 )

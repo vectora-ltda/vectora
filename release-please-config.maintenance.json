@@ -7,17 +7,17 @@
     ".": {
       "release-type": "simple",
       "package-name": "vectora",
-      "changelog-path": "vectora/CHANGELOG.md",
+      "changelog-path": "CHANGELOG.md",
       "include-component-in-tag": false,
       "extra-files": [
         {
           "type": "toml",
-          "path": "vectora/pyproject.toml",
+          "path": "pyproject.toml",
           "jsonpath": "$.project.version"
         },
         {
           "type": "json",
-          "path": "vectora/frontend/package.json",
+          "path": "frontend/package.json",
           "jsonpath": "$.version"
         },
         {
@@ -32,7 +32,7 @@
         },
         {
           "type": "toml",
-          "path": "vectora/uv.lock",
+          "path": "uv.lock",
           "jsonpath": "$.package[?(@.name.value==='vectora')].version"
         }
       ]

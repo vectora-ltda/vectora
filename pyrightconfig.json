@@ -1,14 +1,7 @@
 {
-  "venvPath": "vectora",
+  "venvPath": ".",
   "venv": ".venv",
   "pythonVersion": "3.13",
-  "extraPaths": ["vectora"],
-  "include": ["vectora/backend", "vectora/tests"],
-  "exclude": [
-    "**/.venv",
-    "**/__pycache__",
-    "**/node_modules",
-    "**/data",
-    "**/logs"
-  ]
+  "include": ["backend", "tests"],
+  "exclude": [".venv", "__pycache__", "data", "logs"]
 }
