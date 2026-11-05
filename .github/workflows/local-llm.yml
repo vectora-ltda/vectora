@@ -137,7 +137,7 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install Laya server and download its selected checkpoint
-        working-directory: vectora
+        working-directory: .
         env:
           LAYA_DEVICE: cpu
           LAYA_HOST: 127.0.0.1
@@ -164,7 +164,7 @@ jobs:
           cat "$RUNNER_TEMP/laya.log"
           exit 1
       - name: Execute the three real local decision-model contracts
-        working-directory: vectora
+        working-directory: .
         env:
           VECTORA_LOCAL_LLM_BASE_URL: http://127.0.0.1:18080/v1
           VECTORA_OLLAMA_BASE_URL: http://127.0.0.1:11434

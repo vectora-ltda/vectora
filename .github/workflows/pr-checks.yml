@@ -42,10 +42,10 @@ jobs:
         with:
           python-version: "3.13"
           all-extras: "false"
-          working-directory: vectora
+          working-directory: .
       - name: Executa testes das utilidades de release
         run: >-
-          uv run --project vectora pytest -q
+          uv run pytest -q
           utils/test_rotate_release_lines.py
           utils/test_prepare_release_line_config.py
           utils/test_select_release_line.py

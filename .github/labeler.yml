@@ -5,12 +5,12 @@ ci:
 backend:
   - changed-files:
       - any-glob-to-any-file:
-          - "vectora/backend/**"
-          - "vectora/tests/**"
+          - "backend/**"
+          - "tests/**"
 frontend:
   - changed-files:
       - any-glob-to-any-file:
-          - "vectora/frontend/**"
+          - "frontend/**"
 services:
   - changed-files:
       - any-glob-to-any-file:

@@ -143,7 +143,7 @@ def main() -> int:
     path = (
         Path(sys.argv[1])
         if len(sys.argv) == 2
-        else Path(__file__).parents[1] / "vectora" / "CHANGELOG.md"
+        else Path(__file__).parents[1] / "CHANGELOG.md"
     )
     changed = normalize_changelog(path)
     print(f"{'Normalized' if changed else 'Already normalized'} {path}")

@@ -68,7 +68,7 @@ def prepare_body(notes: str, max_body_bytes: int = MAX_BODY_BYTES) -> str:
     heading = section.partition("\n")[0]
     summary = (
         f"{heading}\n\n"
-        "The complete release notes are maintained in `vectora/CHANGELOG.md`.\n"
+        "The complete release notes are maintained in `CHANGELOG.md`.\n"
     )
     if len(summary.encode("utf-8")) > max_body_bytes:
         raise ValueError(

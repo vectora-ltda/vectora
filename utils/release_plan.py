@@ -180,7 +180,7 @@ def apply_plan(
         manifest_path.write_text(
             json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
         )
-    changelog = root / "vectora/CHANGELOG.md"
+    changelog = root / "CHANGELOG.md"
     text = changelog.read_text(encoding="utf-8")
     if plan.bump == "none":
         return

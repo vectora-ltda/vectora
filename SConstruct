@@ -27,7 +27,7 @@ Instalar SCons: pip install scons (ou uv add --dev scons)
 
 Subprojetos cobertos por lint e tests:
     vectora/        Python (ruff, ty, bandit) + TS frontend (tsc, oxlint, vitest)
-                    — inclui vectora/frontend/electron/ (Electron: cookie-utils
+                    — inclui frontend/electron/ (Electron: cookie-utils
                     e lifecycle puro), fundido no package.json do frontend, sem
                     pacote npm próprio (só tsconfig de compilação separado)
     company/        TypeScript (oxlint, tsc, vitest)
@@ -64,7 +64,7 @@ AddOption(
 ROOT = Dir(".").abspath
 
 # Subprojetos
-VECTORA  = os.path.join(ROOT, "vectora")
+VECTORA  = ROOT
 COMPANY  = os.path.join(ROOT, "company")
 DOCS     = os.path.join(ROOT, "docs")
 SERVICES = os.path.join(ROOT, "services")
@@ -202,8 +202,8 @@ def _action_build_chat(target, source, env):
     dist = os.path.join(VECTORA, "frontend", "dist")
     if not os.path.isdir(dist) or not os.path.isfile(os.path.join(dist, "index.html")):
         raise SystemExit(
-            "ERRO: vectora/frontend/dist/index.html não foi gerado. "
-            "Verifique a configuração do Vite em vectora/frontend/vite.config.ts."
+            "ERRO: frontend/dist/index.html não foi gerado. "
+            "Verifique a configuração do Vite em frontend/vite.config.ts."
         )
     print(f">> chat dist pronto em {dist}")
 
@@ -377,12 +377,12 @@ def _sign_binary(binary: str) -> None:
 
 
 def _action_install_desktop(target, source, env):
-    # Electron não tem package.json próprio — fundido em vectora/frontend/
+    # Electron não tem package.json próprio — fundido em frontend/
     # (ver electron_launcher.py). Instalar aqui é o mesmo install do frontend;
     # existe como node separado só pra manter a árvore de dependências do
     # SConstruct explícita (_build_desktop depende deste node, não do
     # build-chat, que pode não ter rodado no pipeline de release).
-    _run([PNPM, "--dir", "vectora/frontend", *PNPM_INSTALL])
+    _run([PNPM, "--dir", "frontend", *PNPM_INSTALL])
     _ensure_electron_binary()
 
 
@@ -407,7 +407,7 @@ def _ensure_electron_binary() -> None:
         return
     print(">> binário do Electron ausente (path.txt não encontrado) — rodando install.js")
     _run([
-        PNPM, "--dir", "vectora/frontend", "exec", "node",
+        PNPM, "--dir", "frontend", "exec", "node",
         "node_modules/electron/install.js",
     ])
     if not os.path.isfile(path_txt):
@@ -421,7 +421,7 @@ def _ensure_electron_binary() -> None:
 
 
 def _action_build_desktop(target, source, env):
-    _run([PNPM, "--dir", "vectora/frontend", "run", "electron:build"])
+    _run([PNPM, "--dir", "frontend", "run", "electron:build"])
 
 
 def _free_desktop_dist() -> None:
@@ -457,7 +457,7 @@ def _action_package(target, source, env, platform=""):
 
     flag = {"win": "--win", "mac": "--mac", "linux": "--linux"}.get(platform)
     cmd = [
-        PNPM, "--dir", "vectora/frontend", "exec", "electron-builder",
+        PNPM, "--dir", "frontend", "exec", "electron-builder",
         "--config", "electron/electron-builder.yml",
     ]
     if flag:
@@ -538,8 +538,8 @@ def _action_lint(target, source, env):
         )
         # ── vectora: TypeScript frontend ──────────────────────────────────────
         # `typecheck` = i18n:compile (paraglide) + tsr generate + tsc --noEmit
-        _run([PNPM, "--dir", "vectora/frontend", "run", "typecheck"], log=log)
-        _run([PNPM, "--dir", "vectora/frontend", "exec", "oxlint"], log=log)
+        _run([PNPM, "--dir", "frontend", "run", "typecheck"], log=log)
+        _run([PNPM, "--dir", "frontend", "exec", "oxlint"], log=log)
         # ── company ───────────────────────────────────────────────────────────
         _pnpm_install_if_needed("company", log)
         _run([PNPM, "--dir", "company", "exec", "oxlint"], log=log)
@@ -548,7 +548,7 @@ def _action_lint(target, source, env):
         # Fundido no package.json do frontend (mesmo node_modules); só o
         # tsconfig de compilação (Node/NodeNext) segue separado. ───────────
         _run(
-            [PNPM, "--dir", "vectora/frontend", "exec", "tsc", "-p", "electron/tsconfig.json", "--noEmit"],
+            [PNPM, "--dir", "frontend", "exec", "tsc", "-p", "electron/tsconfig.json", "--noEmit"],
             log=log,
         )
         # ── docs (Hugo + Hextra) ─────────────────────────────────────────────
@@ -610,12 +610,12 @@ def _run_vectora_suite(log, *, coverage: bool):
     services (ciclo `edge.yml`).
 
     Com ``coverage=True``, ativa --coverage no vitest e --cov no pytest
-    (relatórios em vectora/frontend/coverage/ e vectora/htmlcov/).
+    (relatórios em frontend/coverage/ e htmlcov/).
     """
-    # ── vectora/frontend ──────────────────────────────────────────────────────
+    # ── frontend ──────────────────────────────────────────────────────
     # Paraglide deve compilar antes do vitest: lib/paraglide é gitignored e o
     # vitest importa os messages compilados. O plugin Vite só compila em dev/build.
-    _run([PNPM, "--dir", "vectora/frontend", "run", "i18n:compile"], log=log)
+    _run([PNPM, "--dir", "frontend", "run", "i18n:compile"], log=log)
 
     # i18n:compile reescreve lib/paraglide/ do zero a cada chamada. O cache de
     # transform do Vite (node_modules/.vite) não invalida de forma confiável
@@ -629,12 +629,12 @@ def _run_vectora_suite(log, *, coverage: bool):
     # electron/src/__tests__/*.test.ts (cookie-utils, lifecycle puro) roda
     # junto — fundido no package.json do frontend, sem invocação separada;
     # vitest pega esses arquivos pelo include default (**/*.test.ts).
-    vitest_cmd = [PNPM, "--dir", "vectora/frontend", "exec", "vitest", "run"]
+    vitest_cmd = [PNPM, "--dir", "frontend", "exec", "vitest", "run"]
     if coverage:
         vitest_cmd.append("--coverage")
     _run(vitest_cmd, log=log)
 
-    # ── vectora/backend ───────────────────────────────────────────────────────
+    # ── backend ───────────────────────────────────────────────────────
     # Testes live e benchmarks são opt-in; não entram no ciclo padrão.
     pytest_cmd = [
         "uv",
@@ -705,7 +705,7 @@ def _action_coverage(target, source, env):
     with _open_log("coverage") as log:
         _run_vectora_suite(log, coverage=True)
     print("\n>> log completo (limpo) em .scons-logs/coverage.txt")
-    print(">> cobertura HTML: vectora/frontend/coverage/index.html, vectora/htmlcov/index.html")
+    print(">> cobertura HTML: frontend/coverage/index.html, htmlcov/index.html")
 
 
 def _action_coverage_edge(target, source, env):
@@ -742,7 +742,7 @@ def _action_update(target, source, env):
     with _open_log("update") as log:
         _run(["uv", "lock", "--upgrade"], log=log, cwd=VECTORA)
         _run(["uv", "sync"], log=log, cwd=VECTORA)
-        _run([PNPM, "--dir", "vectora/frontend", *pnpm_update_args], log=log)
+        _run([PNPM, "--dir", "frontend", *pnpm_update_args], log=log)
         _run([HUGO, "mod", "get", "-u"], log=log, cwd=DOCS)
         _run([HUGO, "mod", "tidy"], log=log, cwd=DOCS)
         _run([PNPM, "--dir", "company", *pnpm_update_args], log=log)
@@ -810,15 +810,15 @@ def _action_docker(target, source, env):
 
 def _action_clean(target, source, env):
     paths = [
-        "vectora/dist-nuitka",
+        "dist-nuitka",
         "dist",
         "build/pyinstaller",
         "build/vectora.spec",
-        "vectora/frontend/dist",
-        "vectora/frontend/.next",
-        "vectora/frontend/out",
-        "vectora/frontend/electron/dist",
-        "vectora/frontend/dist-electron",
+        "frontend/dist",
+        "frontend/.next",
+        "frontend/out",
+        "frontend/electron/dist",
+        "frontend/dist-electron",
         "docs/public",
         "docs/resources",
     ]
@@ -1236,7 +1236,7 @@ def _action_help(target, source, env):
                            que `/health` responde de dentro dele — não só `--version`
 
   Build
-    scons frontend         só o build do frontend (vectora/frontend/dist/)
+    scons frontend         só o build do frontend (frontend/dist/)
     scons install          instala dependências do frontend e o binário do Electron
     scons docker           sobe infraestrutura (PostgreSQL, Redis, Qdrant)
 
@@ -1256,9 +1256,9 @@ def _action_help(target, source, env):
                            company, services) + hugo mod (docs)
     scons update --latest  idem, mas ignora ranges/lockfiles (major bumps) —
                            só antes de migração grande, com revisão manual depois
-    scons nats             baixa o binário nats-server pra vectora/resources/
+    scons nats             baixa o binário nats-server pra resources/
                            (sidecar de fila/KV com JetStream; precisa de rede)
-    scons ffmpeg           baixa ffmpeg+ffprobe pra vectora/resources/
+    scons ffmpeg           baixa ffmpeg+ffprobe pra resources/
                            (backend/tools/media_native.py; precisa de rede)
 """)
     sys.stdout.flush()
@@ -1309,7 +1309,7 @@ def _ffmpeg_assets() -> list[tuple[str, str]]:
 
 
 def _action_fetch_ffmpeg(target, source, env):
-    """Baixa ffmpeg+ffprobe pra vectora/resources/ (media_native.py).
+    """Baixa ffmpeg+ffprobe pra resources/ (media_native.py).
 
     Idempotente (pula cada binário já presente). Mesma resolução de destino
     que ``ffmpeg_binary.py::_resolve`` procura — sem os binários aqui, as
@@ -1364,7 +1364,7 @@ def _nats_asset() -> tuple[str, str, str]:
 
 
 def _action_fetch_nats(target, source, env):
-    """Baixa o binário nats-server para vectora/resources/ (sidecar de fila/KV).
+    """Baixa o binário nats-server para resources/ (sidecar de fila/KV).
 
     Idempotente (pula se já existe). O sidecar (nats_sidecar._resolve_binary)
     procura exatamente esse caminho; sem o binário, cai pro fallback em memória
@@ -1473,7 +1473,7 @@ _cmd("frontend", _action_build_chat_and_electron)
 _cmd("install", _action_install_desktop)
 
 _build_chat    = _node("build-chat",      _action_build_chat)
-# O binário nats-server precisa estar em vectora/resources/ ANTES tanto do
+# O binário nats-server precisa estar em resources/ ANTES tanto do
 # PyInstaller (build-hybrid.py agora embute via --add-binary numa pasta
 # nats/, pro standalone/VPS) quanto do electron-builder (extraResources, pro
 # desktop) — sem esta dependência os dois builds saem sem o sidecar de
@@ -1481,7 +1481,7 @@ _build_chat    = _node("build-chat",      _action_build_chat)
 # explicitamente, não só como irmãos em _FULL_DEPS (SCons não garante ordem
 # entre irmãos sem edge de dependência).
 _fetch_nats    = _node("fetch-nats",      _action_fetch_nats)
-# Mesmo motivo do nats: ffmpeg/ffprobe precisam estar em vectora/resources/
+# Mesmo motivo do nats: ffmpeg/ffprobe precisam estar em resources/
 # ANTES do PyInstaller (--add-binary) e do electron-builder (extraResources)
 # empacotarem — sem isso, media_native.py cai pro fallback de PATH do
 # sistema em qualquer build empacotado sem ffmpeg instalado separadamente.

@@ -85,5 +85,5 @@ def test_summarizes_release_when_compacted_notes_still_exceed_limit() -> None:
 
     assert body == (
         "## [0.2.0]\n\n"
-        "The complete release notes are maintained in `vectora/CHANGELOG.md`.\n"
+        "The complete release notes are maintained in `CHANGELOG.md`.\n"
     )

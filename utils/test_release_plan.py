@@ -65,23 +65,22 @@ dependencies = [
 def test_apply_updates_all_configured_versions_and_lockfile(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "vectora").mkdir()
     (tmp_path / "services").mkdir()
     (tmp_path / "company").mkdir()
-    (tmp_path / "vectora" / "pyproject.toml").write_text(
+    (tmp_path / "pyproject.toml").write_text(
         'version = "0.3.0"\n', encoding="utf-8"
     )
     for path in (
-        "vectora/frontend.json",
+        "frontend.json",
         "services/package.json",
         "company/package.json",
     ):
         target = tmp_path / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps({"version": "0.3.0"}), encoding="utf-8")
-    lock_path = tmp_path / "vectora" / "uv.lock"
+    lock_path = tmp_path / "uv.lock"
     lock_path.write_text(_LOCK_TEMPLATE, encoding="utf-8")
-    (tmp_path / "vectora" / "CHANGELOG.md").write_text(
+    (tmp_path / "CHANGELOG.md").write_text(
         "# Changelog\n", encoding="utf-8"
     )
     (tmp_path / ".manifest.json").write_text('{".": "0.3.0"}\n', encoding="utf-8")
@@ -90,11 +89,11 @@ def test_apply_updates_all_configured_versions_and_lockfile(
         tmp_path,
         plan,
         [
-            "vectora/pyproject.toml",
-            "vectora/frontend.json",
+            "pyproject.toml",
+            "frontend.json",
             "services/package.json",
             "company/package.json",
-            "vectora/uv.lock",
+            "uv.lock",
         ],
         manifest=".manifest.json",
     )
@@ -112,11 +111,11 @@ def test_apply_updates_all_configured_versions_and_lockfile(
     without_package = _LOCK_TEMPLATE.replace('name = "vectora"', 'name = "other"')
     lock_path.write_text(without_package, encoding="utf-8")
     with pytest.raises(ValueError, match="vectora"):
-        apply_plan(tmp_path, plan, ["vectora/uv.lock"])
+        apply_plan(tmp_path, plan, ["uv.lock"])
     assert lock_path.read_text(encoding="utf-8") == without_package
 
     duplicated = _LOCK_TEMPLATE.replace('name = "pydantic"', 'name = "vectora"')
     lock_path.write_text(duplicated, encoding="utf-8")
     with pytest.raises(ValueError, match="vectora"):
-        apply_plan(tmp_path, plan, ["vectora/uv.lock"])
+        apply_plan(tmp_path, plan, ["uv.lock"])
     assert lock_path.read_text(encoding="utf-8") == duplicated

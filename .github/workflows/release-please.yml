@@ -151,8 +151,7 @@ jobs:
         with:
           python-version: "3.13"
           all-extras: "false"
-          working-directory: vectora
-
+          working-directory: .
       - name: Build canonical release plan
         if: steps.release-line.outputs.enabled == 'true' && steps.release-candidates.outputs.has_candidates == 'true'
         id: release-plan
@@ -195,11 +194,11 @@ jobs:
           fi
           bump_flag=""
           [[ "$RELEASE_MILESTONE" == *.x ]] && bump_flag="--bump-patch-for-minor-pre-major"
-          uv run --project vectora python utils/release_plan.py \
+          uv run python utils/release_plan.py \
             --current-version "$current_version" \
             --commits-json "$RUNNER_TEMP/release-commits.json" \
             --manifest "$RELEASE_MANIFEST" \
-            --files vectora/pyproject.toml vectora/frontend/package.json services/package.json company/package.json vectora/uv.lock \
+            --files pyproject.toml frontend/package.json services/package.json company/package.json uv.lock \
             $bump_flag > "$RUNNER_TEMP/release-plan.json"
           next_version="$(jq -er '.next_version' "$RUNNER_TEMP/release-plan.json")"
           bump="$(jq -er '.bump' "$RUNNER_TEMP/release-plan.json")"
@@ -267,15 +266,15 @@ jobs:
             git reset --hard "$SOURCE_SHA"
           fi
           current_version="$PLAN_CURRENT_VERSION"
-          uv run --project vectora python utils/release_plan.py \
+          uv run python utils/release_plan.py \
             --current-version "$current_version" \
             --commits-json "$RUNNER_TEMP/release-commits.json" \
             --manifest "$RELEASE_MANIFEST" \
-            --files vectora/pyproject.toml vectora/frontend/package.json services/package.json company/package.json vectora/uv.lock \
+            --files pyproject.toml frontend/package.json services/package.json company/package.json uv.lock \
             --apply $bump_flag
           python utils/normalize_changelog_lists.py
-          uv run --project vectora python utils/prepare_release_line_config.py \
-            vectora/CHANGELOG.md .github/release-lines.json \
+          uv run python utils/prepare_release_line_config.py \
+            CHANGELOG.md .github/release-lines.json \
             .release-please-manifest.maintenance.json "$TARGET_BRANCH"
 
       - name: Commit and push canonical release branch
@@ -292,7 +291,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if ! git diff --quiet; then
-            git add "$RELEASE_MANIFEST" .release-please-manifest.maintenance.json .github/release-lines.json vectora/CHANGELOG.md vectora/pyproject.toml vectora/frontend/package.json services/package.json company/package.json vectora/uv.lock
+            git add "$RELEASE_MANIFEST" .release-please-manifest.maintenance.json .github/release-lines.json CHANGELOG.md pyproject.toml frontend/package.json services/package.json company/package.json uv.lock
             git commit -m "chore(master): release $RELEASE_VERSION"
           fi
           git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
@@ -318,7 +317,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python utils/prepare_release_pr_body.py vectora/CHANGELOG.md "$RUNNER_TEMP/release-pr-body.md"
+          python utils/prepare_release_pr_body.py CHANGELOG.md "$RUNNER_TEMP/release-pr-body.md"
           existing="$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$RELEASE_BRANCH" --base "$RELEASE_TARGET_BRANCH" --state open --json number --jq '.[0].number // empty')"
           title="chore(master): release $RELEASE_VERSION"
           if [[ -n "$existing" ]]; then

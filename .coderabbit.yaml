@@ -66,7 +66,7 @@ reviews:
         indique o arquivo, o cenário que reproduz o problema e a prova/teste
         que deve ser acrescentado ou corrigido.
 
-    - path: "vectora/tests/**"
+    - path: "tests/**"
       instructions: |
         Verifique se os testes têm asserções fortes e isolam efeitos externos.
         Procure testes negativos, de regressão, limites, concorrência,
@@ -74,7 +74,7 @@ reviews:
         testes que apenas verificam status 200, ausência de exceção ou mocks
         sem confirmar os argumentos e os efeitos observáveis.
 
-    - path: "vectora/frontend/**/*.{test,spec}.{ts,tsx}"
+    - path: "frontend/**/*.{test,spec}.{ts,tsx}"
       instructions: |
         Para cada mudança coberta por estes testes, exija um caso de caminho
         feliz, um caso negativo ou de erro e uma regressão que reproduza o
@@ -85,7 +85,7 @@ reviews:
         Em clientes SSE, IPC e APIs, teste payloads inválidos, desconexão,
         reconexão, eventos duplicados, ordem dos eventos e contratos de tipos.
 
-    - path: "vectora/frontend/electron/**/*.{test,spec}.{ts,tsx}"
+    - path: "frontend/electron/**/*.{test,spec}.{ts,tsx}"
       instructions: |
         Verifique testes de lifecycle e IPC com sucesso, falha, timeout,
         cancelamento, processo ausente, mensagens inválidas e cleanup. Confirme
