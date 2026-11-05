@@ -1188,9 +1188,15 @@ async def get_progress_batch(task_ids: list[str]) -> dict[str, dict[str, int]]:
         return {}
     db = await _get_db()
     await _ensure_version_column(db)
-    placeholders = ",".join("?" for _ in task_ids)
-    query = f"SELECT l.parent_id AS task_id, COUNT(*) AS total, COUNT(*) FILTER (WHERE t.status IN ('done', 'archived')) AS done FROM vectora_task_links l JOIN vectora_background_tasks t ON t.id = l.child_id WHERE l.parent_id IN ({placeholders}) GROUP BY l.parent_id"  # noqa: S608  # nosec B608
-    async with db.execute(query, task_ids) as cur:
+    query = (
+        "SELECT l.parent_id AS task_id, COUNT(*) AS total, "
+        "COUNT(*) FILTER (WHERE t.status IN ('done', 'archived')) AS done "
+        "FROM vectora_task_links l "
+        "JOIN vectora_background_tasks t ON t.id = l.child_id "
+        "WHERE l.parent_id IN (SELECT value FROM json_each(?)) "
+        "GROUP BY l.parent_id"
+    )
+    async with db.execute(query, (json.dumps(task_ids),)) as cur:
         rows = await cur.fetchall()
     return {r["task_id"]: {"done": r["done"], "total": r["total"]} for r in rows}
 
@@ -1202,9 +1208,11 @@ async def get_comment_counts_batch(task_ids: list[str]) -> dict[str, int]:
         return {}
     db = await _get_db()
     await _ensure_version_column(db)
-    placeholders = ",".join("?" for _ in task_ids)
-    query = f"SELECT task_id, COUNT(*) AS n FROM vectora_task_comments WHERE task_id IN ({placeholders}) GROUP BY task_id"  # noqa: S608  # nosec B608
-    async with db.execute(query, task_ids) as cur:
+    query = (
+        "SELECT task_id, COUNT(*) AS n FROM vectora_task_comments "
+        "WHERE task_id IN (SELECT value FROM json_each(?)) GROUP BY task_id"
+    )
+    async with db.execute(query, (json.dumps(task_ids),)) as cur:
         rows = await cur.fetchall()
     return {r["task_id"]: r["n"] for r in rows}
 
@@ -1217,9 +1225,14 @@ async def get_dependencies_batch(
         return {}
     db = await _get_db()
     await _ensure_version_column(db)
-    placeholders = ",".join("?" for _ in task_ids)
-    query = f"SELECT l.child_id AS task_id, t.id, t.name, t.status FROM vectora_task_links l JOIN vectora_background_tasks t ON t.id = l.parent_id WHERE l.child_id IN ({placeholders}) ORDER BY t.created_at"  # noqa: S608  # nosec B608
-    async with db.execute(query, task_ids) as cur:
+    query = (
+        "SELECT l.child_id AS task_id, t.id, t.name, t.status "
+        "FROM vectora_task_links l "
+        "JOIN vectora_background_tasks t ON t.id = l.parent_id "
+        "WHERE l.child_id IN (SELECT value FROM json_each(?)) "
+        "ORDER BY t.created_at"
+    )
+    async with db.execute(query, (json.dumps(task_ids),)) as cur:
         rows = await cur.fetchall()
     out: dict[str, list[dict[str, Any]]] = {tid: [] for tid in task_ids}
     for r in rows:

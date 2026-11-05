@@ -206,3 +206,21 @@ async def test_get_board_view_agrupa_por_coluna_e_dono_errado_e_404(db):
     with pytest.raises(HTTPException) as wrong_owner:
         await get_board_view(_req(_OUTRO_UUID), board.id)
     assert wrong_owner.value.status_code == 404
+
+
+async def test_board_batch_queries_treatem_ids_como_dados(db):
+    """IDs com sintaxe SQL devem continuar sendo valores, nunca parte da query."""
+    from backend.scheduling.kanban import (
+        get_comment_counts_batch,
+        get_dependencies_batch,
+        get_progress_batch,
+    )
+
+    ids = ["id-inexistente'); DROP TABLE vectora_background_tasks; --"]
+
+    assert await get_progress_batch(ids) == {}
+    assert await get_comment_counts_batch(ids) == {}
+    assert await get_dependencies_batch(ids) == {ids[0]: []}
+
+    # Efeito observável: a tabela continua disponível após os três caminhos.
+    assert await get_boards(_req()) == []
