@@ -328,9 +328,12 @@ def test_release_automation_uses_current_line_tags_and_manual_dispatch() -> None
     assert '"v${release_major_minor}.*"' in content
     assert '"v*" --sort=-version:refname' not in content
     assert "chore(master): release $current_version" in content
-    assert "--print-current-version --files $VERSION_FILES" in content
+    assert '--print-current-version --files "${version_files[@]}"' in content
     assert "utils/release.py prepare-line" in content
-    assert "git add .github/release-lines.json CHANGELOG.md $VERSION_FILES" in content
+    assert (
+        'git add .github/release-lines.json CHANGELOG.md "${version_files[@]}"'
+        in content
+    )
 
 
 def test_release_pr_uses_maintenance_milestone_for_master_base() -> None:
@@ -708,3 +711,14 @@ def test_milestone_workflow_resolves_the_release_line_of_stacked_prs() -> None:
     assert "head.repo?.full_name" in content
     # A busca é limitada e não entra em ciclo de bases.
     assert "seen.has(cursor)" in content
+
+
+def test_labeler_keeps_labels_owned_by_path_rules() -> None:
+    """A reconciliação pelo título não desfaz a label `ci` que as regras de
+    caminho aplicam, e execuções do mesmo PR não rodam em paralelo."""
+    labeler = (WORKFLOW.parent / "pr-labeler.yml").read_text(encoding="utf-8")
+
+    assert 'const pathOwned = new Set(["ci"]);' in labeler
+    assert "!pathOwned.has(label.name)" in labeler
+    assert "concurrency:" in labeler
+    assert "pr-labels-${{ github.event.pull_request.number }}" in labeler

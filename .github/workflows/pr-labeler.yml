@@ -15,6 +15,10 @@ on:
       ]
     branches: ["**"]
 
+concurrency:
+  group: pr-labels-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -38,6 +42,9 @@ jobs:
             const title = context.payload.pull_request.title;
             const body = context.payload.pull_request.body || "";
             const managed = new Set(["breaking-change", "enhancement", "bug", "documentation", "performance", "ci", "chore"]);
+            // Labels aplicadas pelas regras de caminho do labeler.yml: a
+            // reconciliação pelo título não pode removê-las.
+            const pathOwned = new Set(["ci"]);
             const desired = new Set();
             if (/BREAKING CHANGE/.test(body) || /^[a-z]+(?:\([^)]*\))?!:/.test(title)) desired.add("breaking-change");
             const match = title.match(/^(feat|fix|docs|perf|ci|chore|test|build|style|refactor)(?:\([^)]*\))?!?:/);
@@ -47,7 +54,7 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number,
             });
             for (const label of current) {
-              if (managed.has(label.name) && !desired.has(label.name)) {
+              if (managed.has(label.name) && !desired.has(label.name) && !pathOwned.has(label.name)) {
                 await github.rest.issues.removeLabel({ owner: context.repo.owner, repo: context.repo.repo, issue_number: context.issue.number, name: label.name });
               }
             }
