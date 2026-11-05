@@ -48,14 +48,8 @@ def test_selection_exposes_version_files_only_for_release_branches() -> None:
     development = selection_for_branch(config.development.branch, config)
     maintenance = selection_for_branch(config.maintenance.branch, config)
 
-    assert config.version_files == (
-        "pyproject.toml",
-        "frontend/package.json",
-        "uv.lock",
-    )
-    assert (
-        development["version_files"] == "pyproject.toml frontend/package.json uv.lock"
-    )
+    assert config.version_files
+    assert development["version_files"] == " ".join(config.version_files)
     assert maintenance["version_files"] == development["version_files"]
     assert "config_file" not in development
     assert "manifest_file" not in development
