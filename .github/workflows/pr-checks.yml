@@ -153,3 +153,33 @@ jobs:
                 body: message,
               });
             }
+
+  pre-commit:
+    name: Pre-commit (arquivos do PR)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-uv
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "26"
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.5.0
+      - name: Instala as dependências do frontend
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      # Roda os mesmos hooks do commit local, só nos arquivos que o PR altera.
+      - name: Executa o pre-commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          uv run --no-project --with pre-commit pre-commit run
+          --show-diff-on-failure --color=always
+          --from-ref "$BASE_SHA" --to-ref "$HEAD_SHA"
