@@ -1,8 +1,9 @@
 default_language_version:
   python: python3
+  node: "26.13.0"
 
 default_stages: [pre-commit]
-minimum_pre_commit_version: 3.0.0
+minimum_pre_commit_version: 4.0.0
 
 exclude: |
   (?x)^(
@@ -16,11 +17,11 @@ exclude: |
     \.env.*|
     \.venv/.*|
     graphify.*|
-    vectora/backend/services/context_graph/.*|
+    backend/services/context_graph/.*|
     docs/_vendor/.*|
     # `\.mjs.*` (sem `.*` no início) só batia com caminho começando
     # literalmente em ".mjs" — nunca excluía nada de verdade. O prettier
-    # vinha reformatando vectora/frontend/public/pdf.worker.min.mjs (vendor
+    # vinha reformatando frontend/public/pdf.worker.min.mjs (vendor
     # minificado, licença do PDF.js) toda vez que alguém rodava o hook com
     # uma versão/config diferente de prettier — regex corrigida pra bater
     # em qualquer .mjs, casado com a intenção original (excluir tudo).
@@ -38,88 +39,83 @@ exclude: |
     (^|/)build/.*|
     (^|/)coverage/.*|
     (^|/)\.pytest_cache/.*|
-    (^|/)__pycache__/.*|
-    # Gerado por `wrangler types` — reformatar aqui é churn inútil, o
-    # arquivo é sobrescrito no próximo `wrangler types`.
-    services/worker-configuration\.d\.ts
+    (^|/)__pycache__/.*
   )$
 
+# Velocidade dos hooks: `uv run` sem `--no-project` reconstrói e sincroniza o
+# ambiente do projeto inteiro a cada chamada (mais de 10 s). Os hooks que só
+# usam a stdlib rodam com `--no-project`; os que precisam das ferramentas do
+# projeto (bandit, ty) usam `--no-sync` e exigem `uv sync` feito antes. Os que
+# analisam código recebem só os arquivos do commit.
+
 repos:
-  # ==========================================
-  # UV Lock Validation
-  # ==========================================
+  # ==========================================================================
+  # Base compartilhada: idêntica nos repositórios do app, do services e da
+  # company. Mudou aqui, mude nos três. Tudo que é Python roda via `uv run`; o
+  # Node dos hooks vem de default_language_version.
+  # ==========================================================================
   - repo: https://github.com/astral-sh/uv-pre-commit
     rev: 0.11.27
     hooks:
       - id: uv-lock
 
-  # ==========================================
-  # Basic File Validation
-  # ==========================================
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0
     hooks:
       - id: trailing-whitespace
         name: Trim Trailing Whitespace
         args: [--markdown-linebreak-ext=md]
-        stages: [pre-commit]
       - id: end-of-file-fixer
         name: Fix End of File
-        stages: [pre-commit]
       - id: check-yaml
         name: Validate YAML
         args: ["--allow-multiple-documents", "--unsafe"]
-        stages: [pre-commit]
       - id: check-json
         name: Validate JSON
-        stages: [pre-commit]
+        exclude: tsconfig.*\.json$
       - id: check-toml
         name: Validate TOML
-        stages: [pre-commit]
       - id: check-merge-conflict
         name: Check for Merge Conflicts
-        stages: [pre-commit]
       - id: check-added-large-files
         name: Check for Large Files
         args: ["--maxkb=5000"]
-        stages: [pre-commit]
       - id: detect-private-key
         name: Detect Private Keys
-        stages: [pre-commit]
 
-  # ==========================================
-  # Python Syntax Check (stdlib compileall)
-  # Roda antes do ruff — rejeita SyntaxErrors imediatamente.
-  # ==========================================
   - repo: local
     hooks:
       - id: compileall
         name: Python Syntax (compileall)
-        entry: uv run python -m compileall -q -j0
+        entry: uv run --no-project python -m compileall -q -j0
         language: system
         types: [python]
-
-  # ==========================================
-  # Sem proveniência de processo em código
-  # ==========================================
-  - repo: local
-    hooks:
       - id: removed-path-references
         name: Check references to removed or renamed paths
-        entry: uv run python utils/check_removed_path_references.py
+        entry: uv run --no-project python utils/checks.py removed-paths
         language: system
         always_run: true
         pass_filenames: false
       - id: no-plan-comments
         name: Sem Sprint/Bloco/Fase ou menção a ferramenta de IA em código
-        entry: uv run python utils/check_no_plan_comments.py --changed
+        entry: uv run --no-project python utils/checks.py no-plan --changed
         language: system
-        files: \.(py|ts|tsx|js|jsx)$
-        exclude: ^utils/(check_no_plan_comments|test_check_no_plan_comments|check_no_plan_pr_metadata|test_check_no_plan_pr_metadata)\.py$
+        files: \.(py|ts|tsx|js|jsx|mts)$
+        exclude: ^utils/(checks|test_checks)\.py$
+      - id: release-lines-config
+        name: Validate release line configuration
+        entry: uv run --no-project --with "pydantic>=2.13.4" python utils/release.py line master
+        language: system
+        files: ^\.github/release-lines\.json$
+        pass_filenames: false
 
-  # ==========================================
-  # Python Validation
-  # ==========================================
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+        name: Gitleaks (segredos)
+        args: ["--redact"]
+
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.15.20
     hooks:
@@ -131,29 +127,29 @@ repos:
         name: Ruff Format (Python)
         files: \.py$
 
-  # ==========================================
-  # TypeScript / JavaScript Validation
-  # ==========================================
   - repo: local
     hooks:
       - id: prettier
         name: Prettier
         entry: prettier --write
-        # `language: system` resolvia o "prettier" do PATH de quem disparava o
-        # commit — terminal (nvm4w, 3.8.3), GitHub Desktop (git embutido, PATH
-        # próprio) e company/package.json (^3.9.5) todos resolviam binários
-        # DIFERENTES, cada um formatando um pouco diferente (ex.: quebra de
-        # linha em declaração CSS na borda do printWidth) → o hook reformatava
-        # de novo a cada commit dependendo de qual cliente disparou, ping-pong
-        # infinito. `language: node` + versão fixa = pre-commit cria um
-        # ambiente isolado com ESSE prettier exato, igual pra qualquer cliente
-        # git (terminal, GitHub Desktop, VS Code, CI).
+        # `language: node` com versão fixa: o pre-commit cria um ambiente
+        # isolado com esse prettier exato (o mesmo do package.json), igual
+        # para qualquer cliente git (terminal, GitHub Desktop, VS Code, CI).
         language: node
-        additional_dependencies: ["prettier@3.9.5"]
-        files: \.(ts|tsx|js|jsx|mjs|cjs|json|md|yaml|yml|css)$
+        additional_dependencies: ["prettier@3.9.9"]
+        files: \.(ts|tsx|js|jsx|mjs|mts|cjs|json|md|yaml|yml|css)$
         types_or: [text]
 
-  # ==========================================
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.12
+    hooks:
+      - id: actionlint
+        name: Lint GitHub Actions workflows
+        files: ^\.github/workflows/.*\.ya?ml$
+
+  # ==========================================================================
+  # Específicos deste repositório
+  # ==========================================================================
   # ==========================================
   # Security & Vulnerability Scans
   # ==========================================
@@ -168,7 +164,7 @@ repos:
         # --exclude aqui espelha o mesmo skip do `scons lint` (SConstruct) —
         # backend/context_graph é código portado do graphify (MIT) com
         # exceções já documentadas em pyproject.toml per-file-ignores.
-        entry: uv run --project vectora python -m bandit -s B110,B101 -c vectora/pyproject.toml --exclude vectora/backend/context_graph
+        entry: uv run --no-sync python -m bandit -s B110,B101 -c pyproject.toml --exclude backend/context_graph
         language: system
         types: [python]
 
@@ -181,12 +177,9 @@ repos:
     hooks:
       - id: ty
         name: Type Check — Python (ty)
-        # --directory vectora seta o CWD para vectora/ (como o scons lint faz),
-        # sem precisar de bash — funciona em Windows, Linux e macOS.
-        entry: uv run --directory vectora ty check backend tests
+        entry: uv run --no-sync ty check
         language: system
-        types: [python]
-        pass_filenames: false
+        files: ^(backend|tests)/.*\.py$
 
   # ==========================================
   # JS/TS Lint — oxlint (Rust, OXC toolchain)
@@ -194,18 +187,23 @@ repos:
   # ~50–100x mais rapido que ESLint; config em chat/.oxlintrc.json.
   - repo: local
     hooks:
+      - id: translation-key-order
+        name: Ordenação das chaves de tradução
+        entry: uv run --no-project python utils/checks.py translation-keys --check
+        language: system
+        files: ^frontend/messages/.*\.json$
+
       - id: oxlint
         name: JS/TS Lint (oxlint)
-        entry: pnpm --dir vectora/frontend exec oxlint
+        entry: uv run --no-project python utils/checks.py frontend-lint
         language: system
-        files: ^vectora/frontend/.*\.(ts|tsx|js|jsx|mjs|cjs)$
-        pass_filenames: false
+        files: ^frontend/.*\.(ts|tsx|js|jsx|mjs|cjs)$
 
       - id: i18n
         name: Frontend i18n lint
-        entry: pnpm --dir vectora/frontend run lint:i18n -- --changed
+        entry: pnpm --dir frontend run lint:i18n -- --changed
         language: system
-        files: ^vectora/frontend/.*\.(ts|tsx)$
+        files: ^frontend/.*\.(ts|tsx)$
 
   # ==========================================
   # Type Checking — TypeScript (tsc)
@@ -218,32 +216,10 @@ repos:
         name: Type Check — TypeScript (tsc)
         # `typecheck` gera o routeTree.gen.ts (TanStack Router, gitignored) antes
         # do tsc --noEmit; tsc puro falharia sem o route tree.
-        entry: pnpm --dir vectora/frontend run typecheck
+        entry: pnpm --dir frontend run typecheck
         language: system
-        files: ^vectora/frontend/.*\.(ts|tsx)$
+        files: ^frontend/.*\.(ts|tsx)$
         pass_filenames: false
-
-  # ==========================================
-  # Type Checking — TypeScript (services, Cloudflare Worker)
-  # ==========================================
-  - repo: local
-    hooks:
-      - id: tsc-services
-        name: Type Check — TypeScript (services)
-        entry: pnpm --dir services exec tsc --noEmit
-        language: system
-        files: ^services/.*\.ts$
-        pass_filenames: false
-
-  # ==========================================
-  # GitHub Actions Workflow Lint (actionlint)
-  # ==========================================
-  - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.12
-    hooks:
-      - id: actionlint
-        name: Lint GitHub Actions workflows
-        files: ^\.github/workflows/.*\.ya?ml$
 
 ci:
   autofix_commit_msg: "chore: auto fixes from pre-commit hooks"

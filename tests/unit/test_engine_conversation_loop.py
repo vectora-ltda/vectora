@@ -1,0 +1,2665 @@
+"""``run_conversation`` — loop de conversa nativo. `ChatClient`
+mockado com uma sequência de turnos controlada (`finish_reason` por
+chamada): parada normal, `max_iterations`, tool_calls sequenciais, tool_calls
+paralelos não-destrutivos, e interrupção HITL no meio de um lote misto.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import replace
+
+import pytest
+
+from backend.engine.conversation_loop import (
+    LoopConfig,
+    _bind_decision_model_snapshot,
+    _build_selected_decision_harness,
+    _consume_preapproval_grant,
+    _load_persistent_context_memories,
+    _persist_decision_model_record,
+    _preserve_latest_tool_result,
+    resume_conversation,
+    run_conversation,
+)
+from backend.engine.guardrails import LoopCapConfig
+from backend.engine.hitl import ApprovalGate
+from backend.engine.stream_events import (
+    EngineEvent,
+    ErrorSignal,
+    EventSink,
+    HitlRequested,
+    MessageBreak,
+    MessageChunk,
+    TodosUpdated,
+    ToolActivity,
+    ToolCallStarted,
+    ToolResult,
+    WorkbenchInvalidate,
+)
+from backend.persistence.native.session_store import SessionStore
+from backend.services.context_planner import compute_transcript_hash
+from backend.services.policy_compiler import PolicySnapshot, compile_policy_snapshot
+from backend.storage.sqlite.pool import AsyncConnectionPool
+from backend.tools import media as _media_module
+from backend.tools import planning as _planning_module
+from backend.tools.context import ToolContext
+from backend.tools.registry import TOOL_REGISTRY, ToolExtras, ToolRegistry, vtool
+from backend.vtypes.contracts import JsonObject
+from backend.vtypes.message import (
+    ContentBlock,
+    MessageRole,
+    ToolCall,
+    ToolCallChunk,
+    VMessage,
+    VMessageChunk,
+)
+
+
+def _register(registry: ToolRegistry, nome: str) -> None:
+    """Executa a operação  register."""
+    spec = TOOL_REGISTRY.get(nome)
+    assert spec is not None
+    registry.register(spec)
+
+
+class _ScriptedChatClient:
+    """`astream` devolve um turno por chamada, na ordem do script — cada
+    turno é a lista de `VMessageChunk` que o iteração daquela volta do loop
+    deve produzir."""
+
+    def __init__(self, turnos: list[list[VMessageChunk]]) -> None:
+        """Inicializa o estado da instância."""
+        self._turnos = turnos
+        self.chamadas = 0
+
+    async def astream(self, messages, *, tools=None, temperature=None, max_tokens=None):
+        """Executa a operação astream."""
+        turno = self._turnos[self.chamadas]
+        self.chamadas += 1
+        for chunk in turno:
+            yield chunk
+
+    async def agenerate(
+        self, messages, *, tools=None, temperature=None, max_tokens=None
+    ):
+        """Executa a operação agenerate."""
+        msg = "não usado pelo loop (astream-only)"
+        raise NotImplementedError(msg)
+
+
+@pytest.fixture
+async def session_store(tmp_path):
+    """Executa a operação session store."""
+    pool = AsyncConnectionPool(str(tmp_path / "loop.db"), min_size=1, max_size=2)
+    await pool.open()
+    store = SessionStore(pool)
+    await store.setup()
+    await store.create_session("thread-1", user_id="alice")
+    try:
+        yield store
+    finally:
+        await pool.close()
+
+
+@pytest.fixture
+def ctx() -> ToolContext:
+    """Executa a operação ctx."""
+    return ToolContext(user_id="alice", thread_id="thread-1")
+
+
+def _texto_chunk(texto: str) -> VMessageChunk:
+    """Executa a operação  texto chunk."""
+    return VMessageChunk(delta_text=texto)
+
+
+@pytest.mark.parametrize(
+    ("model_id", "expected"),
+    [
+        ("ollama:qwen3", True),
+        ("llamacpp:qwen2.5-0.5b", True),
+        ("dmr:hf.co/Qwen/Qwen3-0.6B", True),
+        ("openrouter:openai/gpt-4.1-mini", False),
+        ("", False),
+    ],
+)
+def test_local_models_preserve_latest_tool_result(
+    model_id: str, expected: bool
+) -> None:
+    """Providers locais preservam a saída causal mais recente da ferramenta."""
+    assert _preserve_latest_tool_result(model_id) is expected
+
+
+def test_missing_decision_provider_does_not_select_global_default(
+    monkeypatch: pytest.MonkeyPatch, ctx: ToolContext
+) -> None:
+    from backend.llm.systemone import preferences
+    from backend.tools import systemone_tools
+
+    monkeypatch.setattr(
+        preferences, "selected_decision_model_provider", lambda _ctx: None
+    )
+
+    def unexpected_default(_provider):
+        msg = "sem provider selecionado, não deve haver fallback global"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(systemone_tools, "_build_default_harness", unexpected_default)
+
+    assert _build_selected_decision_harness(ctx) is None
+
+
+def test_decision_harness_uses_only_the_selected_provider(
+    monkeypatch: pytest.MonkeyPatch, ctx: ToolContext
+) -> None:
+    from backend.llm.systemone import preferences
+    from backend.tools import systemone_tools
+
+    calls: list[str] = []
+    sentinel = object()
+    monkeypatch.setattr(
+        preferences, "selected_decision_model_provider", lambda _ctx: "clef-local"
+    )
+
+    def build(provider):
+        calls.append(provider)
+        return sentinel
+
+    monkeypatch.setattr(systemone_tools, "_build_default_harness", build)
+
+    assert _build_selected_decision_harness(ctx) is sentinel
+    assert calls == ["clef-local"]
+
+
+@pytest.mark.asyncio
+async def test_load_persistent_context_memories_uses_memory_tool_namespace() -> None:
+    """Verifica o comportamento de load persistent context memories uses memory tool namespace."""
+
+    class Store:
+        async def asearch(self, namespace, *, limit):
+            """Executa a operação asearch."""
+            assert namespace == ("user", "workspace_ws-1", "memories")
+            assert limit == 5
+            return [
+                type(
+                    "Item",
+                    (),
+                    {
+                        "key": "rule",
+                        "value": {
+                            "content": "Use testes determinísticos",
+                            "metadata": {"domain": "project"},
+                        },
+                    },
+                )()
+            ]
+
+    context = ToolContext(user_id="local", workspace_id="ws-1", store=Store())
+    records = await _load_persistent_context_memories(context)
+
+    assert [record.id for record in records] == ["rule"]
+    assert records[0].content == "Use testes determinísticos"
+    assert records[0].metadata == {"domain": "project"}
+
+
+def _tool_call_chunk(*, index: int, id: str, name: str, args: str) -> VMessageChunk:  # noqa: A002
+    """Executa a operação  tool call chunk."""
+    return VMessageChunk(
+        tool_call_chunks=[
+            ToolCallChunk(index=index, id=id, name=name, args_fragment=args)
+        ]
+    )
+
+
+@pytest.mark.asyncio
+async def test_decision_snapshot_survives_preference_change_without_duplicate_evidence(
+    session_store: SessionStore, ctx: ToolContext
+) -> None:
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.settings import settings
+
+    run_id = "run-decision-snapshot"
+    await session_store.upsert_agent_run(
+        AgentRun(run_id=run_id, thread_id="thread-1", status="running")
+    )
+    ctx._extra["decision_model_preferences"] = {
+        "enabled": True,
+        "provider": "clef-local",
+        "surfaces": {"hitl": True},
+    }
+    policy = compile_policy_snapshot(ctx)
+    await _bind_decision_model_snapshot(session_store, ctx, run_id, policy)
+
+    changed = replace(
+        ctx,
+        _extra={
+            "decision_model_preferences": {
+                "enabled": False,
+                "provider": None,
+                "surfaces": {"hitl": False},
+            }
+        },
+    )
+    await _bind_decision_model_snapshot(session_store, changed, run_id, policy)
+
+    assert changed._extra["decision_model_revoked"] is True
+    assert changed._extra["decision_model_preferences"] == {
+        "enabled": True,
+        "provider": "clef-local",
+        "surfaces": {"hitl": True},
+    }
+    stored = await session_store.get_agent_run(run_id)
+    assert stored is not None
+    snapshots = [
+        item
+        for item in stored.evidence
+        if item.get("kind") == "decision_model_snapshot"
+    ]
+    assert len(snapshots) == 1
+    assert snapshots[0]["policy_version"] == policy.version
+    assert (
+        snapshots[0]["risk_assessment_timeout_s"]
+        == settings.systemone_risk_assessment_timeout_s
+    )
+    await session_store.record_run_evidence(run_id, evidence=snapshots[0])
+    stored = await session_store.get_agent_run(run_id)
+    assert stored is not None
+    assert (
+        sum(item.get("kind") == "decision_model_snapshot" for item in stored.evidence)
+        == 1
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tool_name", "disabled", "provenance"),
+    [
+        ("terminal", "terminal", {}),
+        ("file_write", "hitl", {}),
+        ("browser_navigate", "browser", {}),
+        ("call_mcp_tool", "mcp", {}),
+        ("http_request", "network", {}),
+        ("kanban_create", "kanban", {}),
+        ("browser_navigate", "subagents", {"subagent_execution": True}),
+        ("call_mcp_tool", "connectors", {"connector_execution": True}),
+        ("terminal", "background", {"background": True}),
+    ],
+)
+async def test_disabled_decision_surface_reaches_executor_without_model_call(
+    session_store, ctx, tmp_path, monkeypatch, tool_name, disabled, provenance
+):
+    from pydantic import create_model
+
+    from backend.cli.eval import _replay_suite
+    from backend.evaluation.recording import cassette_from_run
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.settings import settings
+    from backend.tools.registry import ToolSpec
+    from backend.workspace.runtime_settings import RuntimeSettings
+
+    preferences = RuntimeSettings(tmp_path / "surface-preferences.db")
+    monkeypatch.setattr(settings, "evaluation_recording_enabled", True)
+    monkeypatch.setattr(
+        "backend.workspace.runtime_settings.runtime_settings", preferences
+    )
+    monkeypatch.setattr(TOOL_REGISTRY, "_tools", {})
+    surfaces = dict.fromkeys(
+        [
+            "hitl",
+            "terminal",
+            "browser",
+            "mcp",
+            "network",
+            "kanban",
+            "subagents",
+            "connectors",
+            "background",
+        ],
+        True,
+    )
+    surfaces[disabled] = False
+    ctx.run_id = "surface-run"
+    ctx.workspace_id = "surface-workspace"
+    ctx.permission_mode = "auto"
+    ctx.background_task_id = "background-task" if provenance.get("background") else ""
+    ctx._extra = {
+        **provenance,
+        "decision_model_preferences": {
+            "enabled": True,
+            "provider": "clef-local",
+            "surfaces": surfaces,
+        },
+    }
+    preferences.set_frontend_prefs(
+        ctx.user_id,
+        {
+            "decisionModelsEnabled": True,
+            "decisionModelProvider": "clef-local",
+            "decisionModelSurfaces": surfaces,
+        },
+        workspace_id=ctx.workspace_id,
+    )
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id=ctx.run_id,
+            thread_id=ctx.thread_id,
+            workspace_id=ctx.workspace_id,
+            user_id=ctx.user_id,
+            status="running",
+        )
+    )
+    effects = []
+
+    async def handler(value: str, ctx: ToolContext, server_name: str = "") -> str:
+        effects.append((value, ctx.run_id))
+        return "effect recorded"
+
+    spec = ToolSpec(
+        name=tool_name,
+        description="scoped effect",
+        args_model=create_model("SurfaceArgs", value=(str, ...), server_name=(str, "")),
+        handler=handler,
+        extras=ToolExtras(destructive=True),
+        needs_ctx=True,
+    )
+    registry = ToolRegistry()
+    registry.register(spec)
+    TOOL_REGISTRY.register(spec)
+
+    def unexpected(_ctx):
+        raise AssertionError("disabled surface must not construct a Decision Model")
+
+    monkeypatch.setattr(
+        "backend.engine.conversation_loop._build_selected_decision_harness", unexpected
+    )
+    try:
+        result = await run_conversation(
+            session_store=session_store,
+            chat_client=_ScriptedChatClient(
+                [
+                    [
+                        _tool_call_chunk(
+                            index=0,
+                            id="surface-call",
+                            name=tool_name,
+                            args='{"value":"expected","server_name":"fixture-server"}',
+                        )
+                    ],
+                    [_texto_chunk("done")],
+                ]
+            ),
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id=ctx.thread_id,
+            config=LoopConfig(run_id=ctx.run_id),
+        )
+        assert result.stopped_reason == "stop"
+        assert effects == [("expected", ctx.run_id)]
+        run = await session_store.get_agent_run(ctx.run_id)
+        assert run is not None
+        assert any(
+            item.get("reason") == "decision_model_surface_disabled"
+            for item in run.evidence
+        )
+        cassette = cassette_from_run(run)
+        assert len(cassette.interactions) == 2
+        evidence = cassette.interactions[0].systemone_decision_evidence
+        assert evidence is not None
+        assert evidence["outcomes_complete"] is True
+        snapshot = evidence["snapshot"]
+        assert isinstance(snapshot, dict)
+        assert snapshot["run_id"] == ctx.run_id
+        assert "preferences_revision" in snapshot
+        decisions = evidence["decisions"]
+        results = evidence["tool_results"]
+        assert isinstance(decisions, list) and isinstance(decisions[0], dict)
+        assert isinstance(results, list) and isinstance(results[0], dict)
+        assert decisions[0]["reason"] == "decision_model_surface_disabled"
+        assert results[0]["result_digest"]
+        from backend.evaluation.cassette import Cassette
+
+        target = tmp_path / "recorded.json"
+        cassette.save(target)
+        replay = await _replay_suite(Cassette.load(target))
+        assert replay[-1]["response_text"] == "done"
+        assert effects == [("expected", ctx.run_id)]
+    finally:
+        preferences._conn.close()
+
+
+@pytest.mark.asyncio
+async def test_snapshot_revocation_survives_aba_and_independent_connection(
+    session_store: SessionStore, ctx: ToolContext, tmp_path, monkeypatch
+) -> None:
+    from backend.engine.hitl import _decision_snapshot_matches_runtime
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.workspace.runtime_settings import RuntimeSettings
+
+    first = RuntimeSettings(tmp_path / "decision-revisions.db")
+    second = RuntimeSettings(tmp_path / "decision-revisions.db")
+    try:
+        monkeypatch.setattr(
+            "backend.workspace.runtime_settings.runtime_settings", second
+        )
+        prefs: dict[str, object] = {
+            "decisionModelsEnabled": True,
+            "decisionModelProvider": "clef-local",
+            "decisionModelSurfaces": {"hitl": True},
+        }
+        first.set_frontend_prefs(
+            ctx.user_id or "local", prefs, workspace_id=ctx.workspace_id
+        )
+        ctx.run_id = "run-aba"
+        ctx._extra["decision_model_preferences"] = {
+            "enabled": True,
+            "provider": "clef-local",
+            "surfaces": {"hitl": True},
+        }
+        await session_store.upsert_agent_run(
+            AgentRun(run_id=ctx.run_id, thread_id=ctx.thread_id, status="running")
+        )
+        policy = compile_policy_snapshot(ctx)
+        await _bind_decision_model_snapshot(session_store, ctx, ctx.run_id, policy)
+        assert _decision_snapshot_matches_runtime(ctx) is True
+        first.set_frontend_prefs(
+            ctx.user_id or "local",
+            {"decisionModelsEnabled": False},
+            workspace_id=ctx.workspace_id,
+        )
+        first.set_frontend_prefs(
+            ctx.user_id or "local", prefs, workspace_id=ctx.workspace_id
+        )
+        assert _decision_snapshot_matches_runtime(ctx) is False
+        resumed = replace(
+            ctx,
+            _extra={
+                "decision_model_preferences": ctx._extra["decision_model_preferences"]
+            },
+        )
+        await _bind_decision_model_snapshot(session_store, resumed, ctx.run_id, policy)
+        assert resumed._extra["decision_model_revoked"] is True
+    finally:
+        first._conn.close()
+        second._conn.close()
+
+
+@pytest.mark.asyncio
+async def test_preapproval_grant_is_consumed_once_and_audited_before_execution(
+    session_store: SessionStore, ctx: ToolContext, tmp_path, monkeypatch
+) -> None:
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.services import smart_approval
+    from backend.workspace.runtime_settings import RuntimeSettings
+
+    settings = RuntimeSettings(tmp_path / "preapproval.db")
+    monkeypatch.setattr(smart_approval, "_runtime_settings", lambda: settings)
+    run_id = "run-preapproval"
+    ctx.workspace_id = "workspace-1"
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id=run_id,
+            thread_id=ctx.thread_id,
+            workspace_id=ctx.workspace_id,
+            status="running",
+        )
+    )
+    args: JsonObject = {
+        "path": "private/customer.txt",
+        "content": "secret customer data",
+    }
+    tool_call = ToolCall(id="call-preapproval", name="file_write", args=args)
+    grant_id = smart_approval.add_to_allowlist(
+        ctx.workspace_id, tool_call.name, args, run_id=run_id
+    )[0]
+
+    assert (
+        await _consume_preapproval_grant(
+            session_store, ctx=ctx, run_id=run_id, tool_call=tool_call
+        )
+        is True
+    )
+    assert (
+        await _consume_preapproval_grant(
+            session_store, ctx=ctx, run_id=run_id, tool_call=tool_call
+        )
+        is False
+    )
+    assert smart_approval.get_allowlist(ctx.workspace_id) == []
+
+    stored = await session_store.get_agent_run(run_id)
+    assert stored is not None
+    evidence = [
+        item
+        for item in stored.evidence
+        if item.get("type") == "hitl_preapproval_consumed"
+    ]
+    assert len(evidence) == 1
+    assert evidence[0]["grant_id"] == grant_id
+    assert evidence[0]["tool_call_id"] == "call-preapproval"
+    assert "secret customer data" not in json.dumps(evidence)
+    events = await session_store.list_events(ctx.thread_id)
+    resolved = [
+        event
+        for event in events
+        if event.type == "approval_resolved" and event.run_id == run_id
+    ]
+    assert len(resolved) == 1
+    assert resolved[0].payload["decision"] == "preapproved_grant_consumed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("extra", "decision"),
+    [
+        ({"decision_model_revoked": True}, None),
+        ({"systemone_decisions": {"risk": {"decision": "deny"}}}, "deny"),
+        (
+            {"systemone_decisions": {"risk": {"decision": "requires_human"}}},
+            "requires_human",
+        ),
+    ],
+)
+async def test_preapproval_never_overrides_revocation_or_human_decision(
+    session_store: SessionStore,
+    ctx: ToolContext,
+    tmp_path,
+    monkeypatch,
+    extra: dict[str, object],
+    decision: str | None,
+) -> None:
+    from backend.engine.hitl import _risk_assessment_key
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.services import smart_approval
+    from backend.workspace.runtime_settings import RuntimeSettings
+
+    settings = RuntimeSettings(tmp_path / f"preapproval-{decision or 'revoked'}.db")
+    monkeypatch.setattr(smart_approval, "_runtime_settings", lambda: settings)
+    run_id = "run-preapproval-guard"
+    ctx.workspace_id = "workspace-guard"
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id=run_id,
+            thread_id=ctx.thread_id,
+            workspace_id=ctx.workspace_id,
+            status="running",
+        )
+    )
+    args: JsonObject = {"command": "rm -rf /tmp/vectora-test"}
+    tool_call = ToolCall(id="call-guard", name="terminal", args=args)
+    grant_id = smart_approval.add_to_allowlist(
+        ctx.workspace_id, tool_call.name, args, run_id=run_id
+    )[0]
+    if decision is not None:
+        risk_key = _risk_assessment_key(tool_call.name, args)
+        extra["systemone_decisions"] = {risk_key: {"decision": decision}}
+    ctx._extra = extra
+
+    assert (
+        await _consume_preapproval_grant(
+            session_store, ctx=ctx, run_id=run_id, tool_call=tool_call
+        )
+        is False
+    )
+    assert smart_approval.get_allowlist(ctx.workspace_id) == [grant_id]
+
+
+@pytest.mark.asyncio
+async def test_preapproval_fails_closed_when_run_is_not_in_the_same_workspace(
+    session_store: SessionStore, ctx: ToolContext, tmp_path, monkeypatch
+) -> None:
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.services import smart_approval
+    from backend.workspace.runtime_settings import RuntimeSettings
+
+    settings = RuntimeSettings(tmp_path / "preapproval-cross-scope.db")
+    monkeypatch.setattr(smart_approval, "_runtime_settings", lambda: settings)
+    run_id = "run-other-workspace"
+    ctx.workspace_id = "workspace-request"
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id=run_id,
+            thread_id=ctx.thread_id,
+            workspace_id="workspace-other",
+            status="running",
+        )
+    )
+    args: JsonObject = {"command": "git status"}
+    tool_call = ToolCall(id="call-cross-scope", name="terminal", args=args)
+    grant_id = smart_approval.add_to_allowlist(
+        ctx.workspace_id, tool_call.name, args, run_id=run_id
+    )[0]
+
+    assert (
+        await _consume_preapproval_grant(
+            session_store, ctx=ctx, run_id=run_id, tool_call=tool_call
+        )
+        is False
+    )
+    assert smart_approval.get_allowlist(ctx.workspace_id) == [grant_id]
+
+
+@pytest.mark.asyncio
+async def test_decision_model_audit_persists_redacted_agent_run_and_ledger(
+    session_store: SessionStore,
+) -> None:
+    from backend.persistence.native.agent_run import AgentRun
+
+    run_id = "run-decision-audit"
+    await session_store.upsert_agent_run(
+        AgentRun(run_id=run_id, thread_id="thread-1", status="running")
+    )
+    tool_call = ToolCall(
+        id="call-audit",
+        name="file_write",
+        args={"path": "private/customer.txt", "token": "do-not-persist"},
+    )
+    decision = {
+        "decision": "allow",
+        "reason": "risk_below_threshold",
+        "provider": "clef-local",
+        "model": "test-model",
+        "risk_score": 0.12,
+        "confidence": 0.98,
+        "policy_version": "policy-v1",
+        "decision_id": "decision-1",
+        "raw_response": "must not be copied",
+        "response_redacted": {
+            "answers": {"risk_score": {"type": "score", "score": 0.12}},
+            "raw_payload": {"api_key": "must-be-redacted"},
+        },
+    }
+
+    await _persist_decision_model_record(
+        session_store,
+        run_id=run_id,
+        thread_id="thread-1",
+        tool_call=tool_call,
+        surface="hitl",
+        record=decision,
+    )
+    await _persist_decision_model_record(
+        session_store,
+        run_id=run_id,
+        thread_id="thread-1",
+        tool_call=tool_call,
+        surface="hitl",
+        record=decision,
+    )
+
+    stored = await session_store.get_agent_run(run_id)
+    assert stored is not None
+    evidence = [
+        item
+        for item in stored.evidence
+        if item.get("type") == "decision_model_decision"
+    ]
+    assert len(evidence) == 1
+    assert evidence[0]["decision"] == "allow"
+    assert evidence[0]["risk_score"] == 0.12
+    assert "args_digest" in evidence[0]
+    assert "path" not in evidence[0]
+    assert "raw_response" not in evidence[0]
+    response_redacted = evidence[0].get("response_redacted")
+    assert isinstance(response_redacted, dict)
+    answers = response_redacted.get("answers")
+    raw_payload = response_redacted.get("raw_payload")
+    assert isinstance(answers, dict)
+    assert isinstance(raw_payload, dict)
+    risk_score = answers.get("risk_score")
+    assert isinstance(risk_score, dict)
+    assert risk_score.get("score") == 0.12
+    assert raw_payload.get("api_key") == "[REDACTED]"
+
+    events = await session_store.list_events("thread-1")
+    decisions = [event for event in events if event.type == "decision_model_decision"]
+    assert len(decisions) == 1
+    assert decisions[0].run_id == run_id
+    assert decisions[0].tool_call_id == "call-audit"
+    assert decisions[0].payload["args_digest"] == evidence[0]["args_digest"]
+    assert "private/customer.txt" not in str(decisions[0].payload)
+    assert "do-not-persist" not in str(decisions[0].payload)
+    assert "response_redacted" not in decisions[0].payload
+
+
+class TestParadaNormal:
+    async def test_quality_gate_persiste_evidencia_antes_do_status_terminal(
+        self, session_store, ctx, monkeypatch
+    ):
+        """A evidência fica durável enquanto o run ainda está em verifying.
+
+        Isso evita que uma falha entre o upsert da evidência e a transição
+        terminal deixe o histórico com um status terminal sem o artefato que
+        explica a decisão do gate.
+        """
+        from backend.persistence.native.agent_run import AgentRun
+        from backend.services.verification import VerificationResult
+
+        await session_store.upsert_agent_run(
+            AgentRun(run_id="run-gate-order", thread_id="thread-1", status="running")
+        )
+        statuses_seen: list[str] = []
+        original_upsert = session_store.upsert_agent_run
+
+        async def record_upsert(run):
+            """Executa a operação record upsert."""
+            statuses_seen.append(run.status)
+            await original_upsert(run)
+
+        monkeypatch.setattr(session_store, "upsert_agent_run", record_upsert)
+
+        async def fake_verification(*_args, **_kwargs):
+            """Executa a operação fake verification."""
+            return VerificationResult(
+                passed=True,
+                status="passed",
+                outcome="passed",
+                snapshot_sha256="snapshot",
+            )
+
+        monkeypatch.setattr(
+            "backend.services.verification.run_verification", fake_verification
+        )
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=_ScriptedChatClient([[_texto_chunk("ok")]]),
+            tool_registry=ToolRegistry(),
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(run_id="run-gate-order"),
+        )
+
+        assert resultado.stopped_reason == "stop"
+        assert statuses_seen == ["verifying"]
+        stored = await session_store.get_agent_run("run-gate-order")
+        assert stored is not None
+        assert stored.status == "passed"
+        assert stored.evidence[-1]["snapshot_sha256"] == "snapshot"
+
+    async def test_checkpoint_de_tool_impede_reexecucao_cego(self, session_store, ctx):
+        """Verifica o comportamento de checkpoint de tool impede reexecucao cego."""
+        from backend.persistence.native.agent_run import AgentRun
+
+        await session_store.upsert_agent_run(
+            AgentRun(run_id="run-recovery", thread_id="thread-1", status="running")
+        )
+        await session_store.save_context_checkpoint(
+            "thread-1",
+            "run-recovery",
+            {
+                "checkpoint_id": "run-recovery:seq:0:tool_running",
+                "last_sequence": 0,
+                "source_hash": compute_transcript_hash([]),
+                "schema_version": "context.v1",
+                "state": {
+                    "phase": "tool_running",
+                    "pending_tool_call_ids": ["tool-1"],
+                },
+            },
+        )
+        client = _ScriptedChatClient([[_texto_chunk("não deveria chamar")]])
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=ToolRegistry(),
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(run_id="run-recovery"),
+        )
+
+        assert resultado.stopped_reason == "recovery_required"
+        assert client.chamadas == 0
+        stored = await session_store.get_agent_run("run-recovery")
+        assert stored is not None
+        assert stored.status == "recovery_required"
+        assert stored.error_code == "CHECKPOINT_TOOL_RECONCILIATION_REQUIRED"
+
+    async def test_sem_tool_calls_para_no_primeiro_turno(self, session_store, ctx):
+        """Verifica o comportamento de sem tool calls para no primeiro turno."""
+        client = _ScriptedChatClient([[_texto_chunk("olá!")]])
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=ToolRegistry(),
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+        )
+
+        assert resultado.stopped_reason == "stop"
+        assert resultado.final_message is not None
+        assert resultado.final_message.text() == "olá!"
+        assert client.chamadas == 1
+
+        historico = await session_store.get_history("thread-1")
+        assert [m.text() for m in historico] == ["olá!"]
+
+    async def test_resposta_vazia_emite_erro_diagnosticavel(
+        self,
+        session_store: SessionStore,
+        ctx: ToolContext,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Verifica o comportamento de resposta vazia emite erro diagnosticavel."""
+        client = _ScriptedChatClient([[]])
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        with caplog.at_level("INFO", logger="backend.engine.conversation_loop"):
+            resultado = await run_conversation(
+                session_store=session_store,
+                chat_client=client,
+                tool_registry=ToolRegistry(),
+                ctx=ctx,
+                thread_id="thread-1",
+                config=LoopConfig(run_id="run-empty"),
+                on_event=on_event,
+            )
+
+        assert resultado.stopped_reason == "stop"
+        assert resultado.final_message is None
+        sinais = [event for event in eventos if isinstance(event, ErrorSignal)]
+        assert [(event.code, event.message) for event in sinais] == [
+            (
+                "EMPTY_MODEL_RESPONSE",
+                "O provedor LLM encerrou o stream sem retornar texto ou uma chamada de ferramenta. Tente novamente ou troque o modelo.",
+            )
+        ]
+        assert any(record.message == "llm_empty_response" for record in caplog.records)
+        assert any(
+            record.message == "llm_turn_finished"
+            and getattr(record, "text_chars", None) == 0
+            and getattr(record, "chunk_count", None) == 0
+            for record in caplog.records
+        )
+
+    async def test_provider_sem_id_usa_identidade_nova_em_turnos_consecutivos(
+        self, session_store: SessionStore, ctx: ToolContext
+    ) -> None:
+        """IDs derivados não podem colidir entre duas mensagens da mesma thread."""
+
+        @vtool(extras=ToolExtras())
+        async def lembrar(ctx: ToolContext) -> str:
+            """Tool sem efeitos usada para capturar a correlação do chamado."""
+            return "ok"
+
+        registry = ToolRegistry()
+        _register(registry, "lembrar")
+        turn = [_tool_call_chunk(index=0, id="", name="lembrar", args="{}")]
+
+        for _ in range(2):
+            client = _ScriptedChatClient([turn, [_texto_chunk("fim")]])
+            result = await run_conversation(
+                session_store=session_store,
+                chat_client=client,
+                tool_registry=registry,
+                ctx=ctx,
+                thread_id="thread-1",
+                config=LoopConfig(max_iterations=2),
+            )
+            assert result.stopped_reason == "stop"
+
+        calls = [
+            call.id
+            for message in await session_store.get_history("thread-1")
+            for call in message.tool_calls
+        ]
+        assert len(calls) == 2
+        assert all(calls)
+        assert len(set(calls)) == 2
+
+
+class TestMaxIterations:
+    async def test_estoura_o_teto_sem_nunca_parar_naturalmente(
+        self, session_store, ctx
+    ):
+        """Verifica o comportamento de estoura o teto sem nunca parar naturalmente."""
+
+        @vtool(extras=ToolExtras())
+        async def loop_tool(ctx: ToolContext) -> str:
+            """tool que sempre é chamada de novo."""
+            return "ok"
+
+        registry = ToolRegistry()
+        _register(registry, "loop_tool")
+
+        turno = [_tool_call_chunk(index=0, id="call_1", name="loop_tool", args="{}")]
+        client = _ScriptedChatClient([turno, turno, turno])
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(max_iterations=3),
+            on_event=on_event,
+        )
+
+        assert resultado.stopped_reason == "max_iterations"
+        assert client.chamadas == 3
+        sinais = [e for e in eventos if isinstance(e, ErrorSignal)]
+        assert any(e.code == "RECURSION_LIMIT" for e in sinais)
+
+
+class TestGuardrailDeRepeticao:
+    async def test_chamadas_identicas_disparam_aviso_diferentes_nao(
+        self, session_store, ctx
+    ):
+        """Verifica o comportamento de chamadas identicas disparam aviso diferentes nao."""
+
+        @vtool(extras=ToolExtras())
+        async def buscar(query: str, ctx: ToolContext) -> str:
+            """busca algo.
+            Args:
+                query: termo de busca
+            """
+            return "resultado"
+
+        registry = ToolRegistry()
+        _register(registry, "buscar")
+
+        # Caminho feliz: 3 chamadas seguidas com args idênticos disparam o aviso.
+        turno_repetido = [
+            _tool_call_chunk(index=0, id="call_1", name="buscar", args='{"query":"x"}')
+        ]
+        client = _ScriptedChatClient(
+            [turno_repetido, turno_repetido, turno_repetido, [_texto_chunk("fim")]]
+        )
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            on_event=on_event,
+        )
+        sinais = [e for e in eventos if isinstance(e, ErrorSignal)]
+        assert any(e.code == "TOOL_CALL_REPEATED" for e in sinais)
+
+        # Borda: mesma tool, args diferentes a cada chamada — nunca dispara.
+        await session_store.create_session("thread-2", user_id="alice")
+        client2 = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0, id="c1", name="buscar", args='{"query":"a"}'
+                    )
+                ],
+                [
+                    _tool_call_chunk(
+                        index=0, id="c2", name="buscar", args='{"query":"b"}'
+                    )
+                ],
+                [
+                    _tool_call_chunk(
+                        index=0, id="c3", name="buscar", args='{"query":"c"}'
+                    )
+                ],
+                [_texto_chunk("fim")],
+            ]
+        )
+        eventos2: list[EngineEvent] = []
+
+        async def on_event2(event: EngineEvent) -> None:
+            """Executa a operação on event2."""
+            eventos2.append(event)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client2,
+            tool_registry=registry,
+            ctx=ToolContext(user_id="alice", thread_id="thread-2"),
+            thread_id="thread-2",
+            config=LoopConfig(),
+            on_event=on_event2,
+        )
+        sinais2 = [e for e in eventos2 if isinstance(e, ErrorSignal)]
+        assert not any(e.code == "TOOL_CALL_REPEATED" for e in sinais2)
+
+    async def test_loop_de_tool_repetida_e_interrompido_com_diagnostico(
+        self, session_store: SessionStore, ctx: ToolContext
+    ) -> None:
+        """Verifica o comportamento de loop de tool repetida e interrompido com diagnostico."""
+
+        @vtool(extras=ToolExtras())
+        async def buscar(query: str, ctx: ToolContext) -> str:
+            """Busca usada para simular uma tool que não produz progresso."""
+            return "resultado"
+
+        registry = ToolRegistry()
+        _register(registry, "buscar")
+        chamadas = [
+            [
+                _tool_call_chunk(
+                    index=0,
+                    id=f"call_{i}",
+                    name="buscar",
+                    args='{"query":"x"}',
+                )
+            ]
+            for i in range(6)
+        ]
+        client = _ScriptedChatClient(chamadas)
+        eventos: list[EngineEvent] = []
+
+        await session_store.create_session(
+            "thread-repeated-hard-limit", user_id=ctx.user_id
+        )
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-repeated-hard-limit",
+            config=LoopConfig(),
+            on_event=on_event,
+        )
+
+        assert resultado.stopped_reason == "loop_cap_exceeded"
+        assert any(
+            event.code == "TOOL_CALL_REPEATED"
+            for event in eventos
+            if isinstance(event, ErrorSignal)
+        )
+        historico = await session_store.get_history("thread-repeated-hard-limit")
+        assert len(historico) == 10
+        assert all(
+            message.role is not MessageRole.ASSISTANT or message.tool_calls
+            for message in historico
+        )
+
+
+class TestToolCallsSequenciais:
+    async def test_chama_tool_depois_para_no_turno_seguinte(self, session_store, ctx):
+        """Verifica o comportamento de chama tool depois para no turno seguinte."""
+
+        @vtool(extras=ToolExtras())
+        async def somar(a: int, b: int, ctx: ToolContext) -> str:
+            """soma dois números.
+            Args:
+                a: primeiro
+                b: segundo
+            """
+            return str(a + b)
+
+        registry = ToolRegistry()
+        _register(registry, "somar")
+
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0, id="call_1", name="somar", args='{"a":1,"b":2}'
+                    )
+                ],
+                [_texto_chunk("a soma é 3")],
+            ]
+        )
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+        )
+
+        assert resultado.stopped_reason == "stop"
+        assert resultado.final_message is not None
+        assert resultado.final_message.text() == "a soma é 3"
+        assert client.chamadas == 2
+
+        historico = await session_store.get_history("thread-1")
+        assert historico[0].tool_calls[0].name == "somar"
+        assert historico[1].role.value == "tool"
+        assert historico[1].text() == "3"
+        assert historico[2].text() == "a soma é 3"
+
+
+class TestToolCallsParalelos:
+    async def test_duas_tools_nao_destrutivas_executam_e_retornam(
+        self, session_store, ctx
+    ):
+        """Verifica o comportamento de duas tools nao destrutivas executam e retornam."""
+
+        @vtool(extras=ToolExtras(destructive=False))
+        async def ler_a(ctx: ToolContext) -> str:
+            """lê a."""
+            return "conteudo-a"
+
+        @vtool(extras=ToolExtras(destructive=False))
+        async def ler_b(ctx: ToolContext) -> str:
+            """lê b."""
+            return "conteudo-b"
+
+        registry = ToolRegistry()
+        _register(registry, "ler_a")
+        _register(registry, "ler_b")
+
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(index=0, id="call_1", name="ler_a", args="{}"),
+                    _tool_call_chunk(index=1, id="call_2", name="ler_b", args="{}"),
+                ],
+                [_texto_chunk("terminei")],
+            ]
+        )
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+        )
+
+        assert resultado.stopped_reason == "stop"
+        historico = await session_store.get_history("thread-1")
+        resultados_tool = [m.text() for m in historico if m.role.value == "tool"]
+        assert set(resultados_tool) == {"conteudo-a", "conteudo-b"}
+
+
+class TestHitl:
+    async def test_lote_misto_com_uma_tool_sensivel_pausa_sem_executar_nenhuma(
+        self, session_store, ctx
+    ):
+        """Verifica o comportamento de lote misto com uma tool sensivel pausa sem executar nenhuma."""
+
+        @vtool(extras=ToolExtras(destructive=False))
+        async def ler_arquivo(ctx: ToolContext) -> str:
+            """lê um arquivo."""
+            return "nunca deveria rodar"
+
+        @vtool(extras=ToolExtras(destructive=True))
+        async def escrever_arquivo(ctx: ToolContext) -> str:
+            """escreve um arquivo."""
+            return "nunca deveria rodar"
+
+        registry = ToolRegistry()
+        _register(registry, "ler_arquivo")
+        _register(registry, "escrever_arquivo")
+
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0, id="call_1", name="ler_arquivo", args="{}"
+                    ),
+                    _tool_call_chunk(
+                        index=1, id="call_2", name="escrever_arquivo", args="{}"
+                    ),
+                ]
+            ]
+        )
+
+        def should_require_approval(nome, _ctx, _args, _history):
+            """Executa a operação should require approval."""
+            return nome == "escrever_arquivo"
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            should_require_approval=should_require_approval,
+        )
+
+        assert resultado.stopped_reason == "interrupted"
+        # Nenhuma tool do lote foi executada — só a mensagem do assistente
+        # (com as tool_calls propostas) está no histórico.
+        historico = await session_store.get_history("thread-1")
+        assert [m.role.value for m in historico] == ["assistant"]
+        assert len(historico[0].tool_calls) == 2
+
+    async def test_sem_should_require_approval_nunca_pausa(self, session_store, ctx):
+        """Verifica o comportamento de sem should require approval nunca pausa."""
+
+        @vtool(extras=ToolExtras(destructive=True))
+        async def deletar(ctx: ToolContext) -> str:
+            """deleta algo."""
+            return "deletado"
+
+        registry = ToolRegistry()
+        _register(registry, "deletar")
+
+        client = _ScriptedChatClient(
+            [
+                [_tool_call_chunk(index=0, id="call_1", name="deletar", args="{}")],
+                [_texto_chunk("feito")],
+            ]
+        )
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+        )
+
+        assert resultado.stopped_reason == "stop"
+        assert client.chamadas == 2
+
+
+class TestEmissaoDeEventos:
+    async def test_token_e_message_break_emitidos_na_ordem(self, session_store, ctx):
+        """Verifica o comportamento de token e message break emitidos na ordem."""
+        client = _ScriptedChatClient([[_texto_chunk("oi"), _texto_chunk(" tudo bem")]])
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=ToolRegistry(),
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            on_event=on_event,
+        )
+
+        assert eventos == [
+            MessageChunk(content="oi"),
+            MessageChunk(content=" tudo bem"),
+            MessageBreak(),
+        ]
+
+    async def test_tool_result_emitido_apos_execucao(self, session_store, ctx):
+        """Verifica o comportamento de tool result emitido apos execucao."""
+
+        @vtool(extras=ToolExtras())
+        async def adicionar(a: int, b: int, ctx: ToolContext) -> str:
+            """soma dois números.
+            Args:
+                a: primeiro
+                b: segundo
+            """
+            return str(a + b)
+
+        registry = ToolRegistry()
+        _register(registry, "adicionar")
+
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0, id="call_1", name="adicionar", args='{"a":1,"b":2}'
+                    )
+                ],
+                [_texto_chunk("pronto")],
+            ]
+        )
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            on_event=on_event,
+        )
+
+        resultados_tool = [e for e in eventos if isinstance(e, ToolResult)]
+        assert resultados_tool == [
+            ToolResult(tool_call_id="call_1", content_json="3", is_error=False)
+        ]
+
+    async def test_hitl_requested_emitido_com_argumentos_da_tool(
+        self, session_store, ctx
+    ):
+        """Verifica o comportamento de hitl requested emitido com argumentos da tool."""
+
+        @vtool(extras=ToolExtras(destructive=True))
+        async def escrever(ctx: ToolContext) -> str:
+            """escreve algo."""
+            return "nunca roda"
+
+        registry = ToolRegistry()
+        _register(registry, "escrever")
+
+        client = _ScriptedChatClient(
+            [[_tool_call_chunk(index=0, id="call_1", name="escrever", args="{}")]]
+        )
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            on_event=on_event,
+            should_require_approval=lambda nome, _ctx, _args, _history: (
+                nome == "escrever"
+            ),
+        )
+
+        hitl_eventos = [e for e in eventos if isinstance(e, HitlRequested)]
+        assert len(hitl_eventos) == 1
+        assert hitl_eventos[0].tool_name == "escrever"
+        assert hitl_eventos[0].args_json == "{}"
+        assert hitl_eventos[0].interrupt_id  # gerado, não vazio
+
+    async def test_write_terminal_preserva_entrada_bruta_ao_aprovar(
+        self, session_store, ctx, monkeypatch
+    ) -> None:
+        """Verifica o comportamento de write terminal preserva entrada bruta ao aprovar."""
+        import backend.tools.terminal_sessions
+
+        registry = ToolRegistry()
+        _register(registry, "write_terminal")
+        segredo = "sk-test ghp_secret AKIAEXAMPLE"
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0,
+                        id="call-terminal",
+                        name="write_terminal",
+                        args=json.dumps(
+                            {
+                                "terminal_id": "term-1",
+                                "input_data": segredo,
+                                "request_id": "req-1",
+                            }
+                        ),
+                    )
+                ]
+            ]
+        )
+        gate = ApprovalGate(session_store)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            approval_gate=gate,
+            should_require_approval=lambda name, *_args: name == "write_terminal",
+        )
+
+        pending = await session_store.get_pending_approval("thread-1")
+        history = await session_store.get_history("thread-1")
+        assert pending is not None
+        assert segredo not in json.dumps(pending)
+        assert segredo not in json.dumps([message.to_dict() for message in history])
+        assert pending["args"]["input_preview"] == "<redacted>"
+
+        chamadas: list[dict[str, object]] = []
+
+        async def fake_execute(
+            tool_call: ToolCall,
+            *,
+            tool_registry: ToolRegistry,
+            ctx: ToolContext,
+            on_event: EventSink | None = None,
+            policy_snapshot: PolicySnapshot | None = None,
+        ) -> VMessage:
+            """Executa a operação fake execute."""
+            chamadas.append(dict(tool_call.args))
+            return VMessage(
+                role=MessageRole.TOOL,
+                content=[ContentBlock(kind="text", text="written")],
+                tool_call_id=tool_call.id,
+                name=tool_call.name,
+            )
+
+        monkeypatch.setattr(
+            "backend.engine.conversation_loop._execute_single_call", fake_execute
+        )
+        assert await resume_conversation(
+            session_store=session_store,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            decision="approve",
+            approval_gate=gate,
+        )
+        assert chamadas == [
+            {
+                "terminal_id": "term-1",
+                "input_data": segredo,
+                "request_id": "req-1",
+            }
+        ]
+
+    async def test_tool_call_started_e_activity_emitidos_antes_e_depois(
+        self, session_store, ctx
+    ):
+        """Verifica o comportamento de tool call started e activity emitidos antes e depois."""
+
+        @vtool(extras=ToolExtras(category="general", icon="wrench"))
+        async def somar3(a: int, b: int, ctx: ToolContext) -> str:
+            """soma dois números.
+            Args:
+                a: primeiro
+                b: segundo
+            """
+            return str(a + b)
+
+        registry = ToolRegistry()
+        _register(registry, "somar3")
+
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0, id="call_1", name="somar3", args='{"a":1,"b":2}'
+                    )
+                ],
+                [_texto_chunk("pronto")],
+            ]
+        )
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            on_event=on_event,
+        )
+
+        started = [e for e in eventos if isinstance(e, ToolCallStarted)]
+        assert started == [
+            ToolCallStarted(
+                tool_name="somar3",
+                tool_call_id="call_1",
+                args_json='{"a": 1, "b": 2}',
+                render_hint="default",
+                category="general",
+                destructive=False,
+                icon="wrench",
+            )
+        ]
+        activities = [e for e in eventos if isinstance(e, ToolActivity)]
+        # Um ToolActivity de início (sem elapsed_ms) e um de fim (com elapsed_ms).
+        assert len(activities) == 2
+        assert activities[0].elapsed_ms is None
+        assert activities[1].elapsed_ms is not None
+
+        # A tool não declara `invalidates` — nenhum WorkbenchInvalidate emitido.
+        assert not [e for e in eventos if isinstance(e, WorkbenchInvalidate)]
+
+    async def test_tool_com_invalidates_emite_workbench_invalidate(
+        self, session_store, ctx
+    ):
+        """Verifica o comportamento de tool com invalidates emite workbench invalidate."""
+
+        @vtool(extras=ToolExtras(invalidates=["files", "git"]))
+        async def escrever2(ctx: ToolContext) -> str:
+            """escreve algo."""
+            return "ok"
+
+        registry = ToolRegistry()
+        _register(registry, "escrever2")
+
+        client = _ScriptedChatClient(
+            [
+                [_tool_call_chunk(index=0, id="call_1", name="escrever2", args="{}")],
+                [_texto_chunk("pronto")],
+            ]
+        )
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            on_event=on_event,
+        )
+
+        invalidates = [e for e in eventos if isinstance(e, WorkbenchInvalidate)]
+        assert invalidates == [
+            WorkbenchInvalidate(tabs=["files", "git"], tool_name="escrever2")
+        ]
+
+
+class TestArgsPreview:
+    async def test_campo_semantico_vira_preview_no_inicio_e_no_fim(
+        self, session_store, ctx
+    ):
+        """Verifica o comportamento de campo semantico vira preview no inicio e no fim."""
+
+        @vtool(extras=ToolExtras())
+        async def ler_arquivo(path: str, ctx: ToolContext) -> str:
+            """lê um arquivo.
+            Args:
+                path: caminho do arquivo
+            """
+            return "conteudo"
+
+        registry = ToolRegistry()
+        _register(registry, "ler_arquivo")
+
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0,
+                        id="call_1",
+                        name="ler_arquivo",
+                        args='{"path":"backend/auth.py"}',
+                    )
+                ],
+                [_texto_chunk("pronto")],
+            ]
+        )
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            on_event=on_event,
+        )
+
+        activities = [e for e in eventos if isinstance(e, ToolActivity)]
+        assert len(activities) == 2
+        assert activities[0].args_preview == "backend/auth.py"
+        assert activities[1].args_preview == "backend/auth.py"
+
+    async def test_preview_trunca_em_80_chars(self, session_store, ctx):
+        """Verifica o comportamento de preview trunca em 80 chars."""
+
+        @vtool(extras=ToolExtras())
+        async def buscar(query: str, ctx: ToolContext) -> str:
+            """busca algo.
+            Args:
+                query: termo de busca
+            """
+            return "achou"
+
+        registry = ToolRegistry()
+        _register(registry, "buscar")
+
+        termo_longo = "x" * 120
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0,
+                        id="call_1",
+                        name="buscar",
+                        args=json.dumps({"query": termo_longo}),
+                    )
+                ],
+                [_texto_chunk("pronto")],
+            ]
+        )
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            on_event=on_event,
+        )
+
+        activities = [e for e in eventos if isinstance(e, ToolActivity)]
+        assert all(len(a.args_preview) == 80 for a in activities)
+        assert activities[0].args_preview == "x" * 80
+
+    async def test_sem_campo_semantico_usa_fallback_k_igual_v(self, session_store, ctx):
+        """Verifica o comportamento de sem campo semantico usa fallback k igual v."""
+
+        @vtool(extras=ToolExtras())
+        async def somar4(a: int, b: int, ctx: ToolContext) -> str:
+            """soma dois números.
+            Args:
+                a: primeiro
+                b: segundo
+            """
+            return str(a + b)
+
+        registry = ToolRegistry()
+        _register(registry, "somar4")
+
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0, id="call_1", name="somar4", args='{"a":1,"b":2}'
+                    )
+                ],
+                [_texto_chunk("pronto")],
+            ]
+        )
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            on_event=on_event,
+        )
+
+        activities = [e for e in eventos if isinstance(e, ToolActivity)]
+        assert activities[0].args_preview == "a=1, b=2"
+
+
+class TestTodosUpdated:
+    async def test_write_todos_emite_todos_updated_com_lista_completa(
+        self, session_store, ctx
+    ):
+        """Verifica o comportamento de write todos emite todos updated com lista completa."""
+        registry = ToolRegistry()
+        _register(registry, "write_todos")
+
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0,
+                        id="call_1",
+                        name="write_todos",
+                        args=json.dumps(
+                            {
+                                "todos": [
+                                    {"content": "passo 1", "status": "completed"},
+                                    {"content": "passo 2", "status": "in_progress"},
+                                ]
+                            }
+                        ),
+                    )
+                ],
+                [_texto_chunk("pronto")],
+            ]
+        )
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            on_event=on_event,
+        )
+
+        todos_eventos = [e for e in eventos if isinstance(e, TodosUpdated)]
+        assert len(todos_eventos) == 1
+        assert [(t.content, t.status) for t in todos_eventos[0].todos] == [
+            ("passo 1", "completed"),
+            ("passo 2", "in_progress"),
+        ]
+
+    async def test_tool_diferente_de_write_todos_nunca_emite_todos_updated(
+        self, session_store, ctx
+    ):
+        """Verifica o comportamento de tool diferente de write todos nunca emite todos updated."""
+
+        @vtool(extras=ToolExtras())
+        async def outra_tool(ctx: ToolContext) -> str:
+            """não é write_todos."""
+            return json.dumps([{"content": "x", "status": "pending"}])
+
+        registry = ToolRegistry()
+        _register(registry, "outra_tool")
+
+        client = _ScriptedChatClient(
+            [
+                [_tool_call_chunk(index=0, id="call_1", name="outra_tool", args="{}")],
+                [_texto_chunk("pronto")],
+            ]
+        )
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            on_event=on_event,
+        )
+
+        assert not [e for e in eventos if isinstance(e, TodosUpdated)]
+
+    async def test_write_todos_com_args_invalidos_nao_emite_todos_updated(
+        self, session_store, ctx
+    ):
+        """Borda: status fora da taxonomia é rejeitado na validação de args
+        (Error: argumentos inválidos) antes mesmo do handler rodar — o loop
+        não deve emitir TodosUpdated a partir de um resultado de erro."""
+        registry = ToolRegistry()
+        _register(registry, "write_todos")
+
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0,
+                        id="call_1",
+                        name="write_todos",
+                        args=json.dumps(
+                            {"todos": [{"content": "x", "status": "done"}]}
+                        ),
+                    )
+                ],
+                [_texto_chunk("pronto")],
+            ]
+        )
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            on_event=on_event,
+        )
+
+        resultados_tool = [e for e in eventos if isinstance(e, ToolResult)]
+        assert resultados_tool[0].is_error
+        assert not [e for e in eventos if isinstance(e, TodosUpdated)]
+
+
+class TestLoopCapGuardrail:
+    async def test_estoura_teto_de_tool_calls_encerra_turno_sem_esgotar_max_iterations(
+        self, session_store, ctx
+    ):
+        """Verifica o comportamento de estoura teto de tool calls encerra turno sem esgotar max iterations."""
+
+        @vtool(extras=ToolExtras())
+        async def contar(n: int, ctx: ToolContext) -> str:
+            """conta.
+            Args:
+                n: número
+            """
+            return "ok"
+
+        registry = ToolRegistry()
+        _register(registry, "contar")
+
+        # 5 turnos chamando a tool com args diferentes (não repetidos —
+        # não confunde com o guardrail de repetição), mas o teto de volume
+        # do turno é 2: a 3ª chamada já deveria encerrar o loop.
+        turnos = [
+            [_tool_call_chunk(index=0, id=f"c{i}", name="contar", args=f'{{"n":{i}}}')]
+            for i in range(5)
+        ]
+        client = _ScriptedChatClient(turnos)
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(
+                max_iterations=50,
+                loop_caps=LoopCapConfig(max_tool_calls_per_turn=2),
+            ),
+            on_event=on_event,
+        )
+
+        assert resultado.stopped_reason == "loop_cap_exceeded"
+        # Encerrou muito antes de esgotar as 50 iterações permitidas.
+        assert client.chamadas < 5
+        sinais = [e for e in eventos if isinstance(e, ErrorSignal)]
+        assert any(e.code == "LOOP_CAP_EXCEEDED" for e in sinais)
+
+    async def test_dentro_do_teto_nunca_dispara_o_guardrail(self, session_store, ctx):
+        """Verifica o comportamento de dentro do teto nunca dispara o guardrail."""
+
+        @vtool(extras=ToolExtras())
+        async def contar2(n: int, ctx: ToolContext) -> str:
+            """conta.
+            Args:
+                n: número
+            """
+            return "ok"
+
+        registry = ToolRegistry()
+        _register(registry, "contar2")
+
+        turnos = [
+            [_tool_call_chunk(index=0, id=f"c{i}", name="contar2", args=f'{{"n":{i}}}')]
+            for i in range(2)
+        ] + [[_texto_chunk("fim")]]
+        client = _ScriptedChatClient(turnos)
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(loop_caps=LoopCapConfig(max_tool_calls_per_turn=10)),
+            on_event=on_event,
+        )
+
+        assert resultado.stopped_reason == "stop"
+        sinais = [e for e in eventos if isinstance(e, ErrorSignal)]
+        assert not any(e.code == "LOOP_CAP_EXCEEDED" for e in sinais)
+
+
+class TestResumeConversation:
+    @pytest.mark.parametrize(
+        "extras",
+        [
+            ToolExtras(category="browser"),
+            ToolExtras(category="git"),
+            ToolExtras(structured_envelope=True),
+        ],
+    )
+    async def test_hitl_resume_records_structured_error(
+        self,
+        session_store: SessionStore,
+        ctx: ToolContext,
+        monkeypatch: pytest.MonkeyPatch,
+        extras: ToolExtras,
+    ) -> None:
+        """Approval resume preserves error classification in history and usage."""
+        from unittest.mock import AsyncMock
+
+        usage = AsyncMock()
+        monkeypatch.setattr("backend.services.tool_usage.record_tool_usage", usage)
+        monkeypatch.setattr(TOOL_REGISTRY, "_tools", {})
+
+        @vtool(extras=extras)
+        async def browser_resume_failure(ctx: ToolContext) -> str:
+            """Return a structured browser error after user approval."""
+            return '{"status":"error","error":"navigation failed"}'
+
+        registry = ToolRegistry()
+        _register(registry, "browser_resume_failure")
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0,
+                        id="call_browser",
+                        name="browser_resume_failure",
+                        args="{}",
+                    ),
+                ]
+            ]
+        )
+        gate = ApprovalGate(session_store)
+        result = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            should_require_approval=lambda *_a: True,
+            approval_gate=gate,
+        )
+        assert result.stopped_reason == "interrupted"
+        usage.assert_not_awaited()
+        assert await resume_conversation(
+            session_store=session_store,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            decision="approve",
+            approval_gate=gate,
+        )
+        history = await session_store.get_history("thread-1")
+        assert history[-1].role == MessageRole.TOOL
+        assert history[-1].is_error is True
+        assert "navigation failed" in history[-1].text()
+        usage.assert_awaited_once_with(ctx.user_id, "browser_resume_failure", "error")
+
+    async def test_aprovar_executa_a_tool_sinalizada_e_libera_a_pendencia(
+        self, session_store, ctx
+    ):
+        """Verifica o comportamento de aprovar executa a tool sinalizada e libera a pendencia."""
+
+        @vtool(extras=ToolExtras(destructive=True))
+        async def escrever_arquivo2(ctx: ToolContext) -> str:
+            """escreve um arquivo."""
+            return "escrito!"
+
+        registry = ToolRegistry()
+        _register(registry, "escrever_arquivo2")
+
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0, id="call_1", name="escrever_arquivo2", args="{}"
+                    )
+                ]
+            ]
+        )
+        gate = ApprovalGate(session_store)
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(run_id="run-hitl-1"),
+            should_require_approval=lambda *_a: True,
+            approval_gate=gate,
+        )
+        assert resultado.stopped_reason == "interrupted"
+        assert await session_store.get_pending_approval("thread-1") is not None
+
+        from backend.engine.hitl import _risk_assessment_key
+
+        risk_key = _risk_assessment_key("escrever_arquivo2", {})
+        ctx._extra["systemone_decisions"] = {
+            risk_key: {"decision": "requires_human", "reason": "risk_threshold"}
+        }
+
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        resumiu = await resume_conversation(
+            session_store=session_store,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            decision="approve",
+            approval_gate=gate,
+            on_event=on_event,
+        )
+
+        assert resumiu is True
+        assert await session_store.get_pending_approval("thread-1") is None
+        historico = await session_store.get_history("thread-1")
+        assert historico[-1].role.value == "tool"
+        assert historico[-1].text() == "escrito!"
+        assert historico[-1].is_error is False
+        assert (
+            ctx._extra["systemone_decisions"][risk_key]["decision"] == "requires_human"
+        )
+        resultados = [e for e in eventos if isinstance(e, ToolResult)]
+        assert resultados == [
+            ToolResult(tool_call_id="call_1", content_json="escrito!", is_error=False)
+        ]
+        ledger = await session_store.list_events("thread-1")
+        tool_events = [event for event in ledger if event.type.startswith("tool_")]
+        assert [event.type for event in tool_events] == [
+            "tool_started",
+            "tool_finished",
+        ]
+        assert {event.run_id for event in tool_events} == {"run-hitl-1"}
+        assert {event.tool_call_id for event in tool_events} == {"call_1"}
+
+    async def test_aprovar_classifica_erro_mcp_localizado_e_registra_uso(
+        self, session_store, ctx, monkeypatch
+    ):
+        """Verifica o comportamento de aprovar classifica erro mcp localizado e registra uso."""
+        chamadas: list[tuple[str, str, str]] = []
+
+        async def registrar(user_id: str, tool_name: str, status: str) -> None:
+            """Executa a operação registrar."""
+            chamadas.append((user_id, tool_name, status))
+
+        monkeypatch.setattr("backend.services.tool_usage.record_tool_usage", registrar)
+
+        @vtool(extras=ToolExtras(destructive=True))
+        async def falhar_mcp(ctx: ToolContext) -> str:
+            """simula falha localizada de uma ferramenta MCP."""
+            return "Erro ao invocar tool MCP 'demo': conexão recusada"
+
+        registry = ToolRegistry()
+        _register(registry, "falhar_mcp")
+        client = _ScriptedChatClient(
+            [[_tool_call_chunk(index=0, id="call_mcp", name="falhar_mcp", args="{}")]]
+        )
+        gate = ApprovalGate(session_store)
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            should_require_approval=lambda *_a: True,
+            approval_gate=gate,
+        )
+
+        eventos: list[EngineEvent] = []
+
+        async def on_event(event: EngineEvent) -> None:
+            """Executa a operação on event."""
+            eventos.append(event)
+
+        assert await resume_conversation(
+            session_store=session_store,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            decision="approve",
+            approval_gate=gate,
+            on_event=on_event,
+        )
+
+        resultado = next(event for event in eventos if isinstance(event, ToolResult))
+        assert resultado.is_error is True
+        assert chamadas == [(ctx.user_id, "falhar_mcp", "error")]
+
+    async def test_rejeitar_nao_executa_a_tool_e_persiste_mensagem_de_erro(
+        self, session_store, ctx
+    ):
+        """Verifica o comportamento de rejeitar nao executa a tool e persiste mensagem de erro."""
+
+        @vtool(extras=ToolExtras(destructive=True))
+        async def deletar_tudo(ctx: ToolContext) -> str:
+            """deleta tudo — nunca deveria rodar quando rejeitado."""
+            return "NUNCA DEVERIA APARECER"
+
+        registry = ToolRegistry()
+        _register(registry, "deletar_tudo")
+
+        client = _ScriptedChatClient(
+            [[_tool_call_chunk(index=0, id="call_1", name="deletar_tudo", args="{}")]]
+        )
+        gate = ApprovalGate(session_store)
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+            should_require_approval=lambda *_a: True,
+            approval_gate=gate,
+        )
+
+        resumiu = await resume_conversation(
+            session_store=session_store,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            decision="reject",
+            approval_gate=gate,
+        )
+
+        assert resumiu is True
+        historico = await session_store.get_history("thread-1")
+        assert historico[-1].role.value == "tool"
+        assert historico[-1].is_error is True
+        assert "rejeitou" in historico[-1].text().lower()
+
+    async def test_sem_pendencia_nao_faz_nada_e_devolve_false(self, session_store, ctx):
+        """Verifica o comportamento de sem pendencia nao faz nada e devolve false."""
+        resumiu = await resume_conversation(
+            session_store=session_store,
+            tool_registry=ToolRegistry(),
+            ctx=ctx,
+            thread_id="thread-1",
+            decision="approve",
+        )
+
+        assert resumiu is False
+        assert await session_store.get_history("thread-1") == []
+
+    @pytest.mark.parametrize(
+        ("tool_name", "args"),
+        [
+            ("generate_image", {"prompt": "segredo da imagem"}),
+            ("text_to_speech", {"text": "segredo do áudio", "voice": "alloy"}),
+            ("generate_video", {"prompt": "segredo do vídeo"}),
+        ],
+    )
+    async def test_midia_aprovada_no_loop_preserva_payload_somente_em_memoria(
+        self,
+        session_store: SessionStore,
+        ctx: ToolContext,
+        monkeypatch: pytest.MonkeyPatch,
+        tool_name: str,
+        args: dict[str, str],
+    ) -> None:
+        """O loop persiste apenas metadados e executa o payload efêmero após aprovação."""
+        from backend.persistence.telemetry import telemetry
+        from backend.services.media_quota import media_quota
+
+        chamadas: list[dict[str, object]] = []
+        eventos_quota: list[tuple[str, dict[str, object]]] = []
+
+        async def fake_summary(_user_id: str) -> dict[str, int]:
+            """Executa a operação fake summary."""
+            return {"remaining": 100, "used": 0, "limit": 100}
+
+        def record_quota(event: str, **fields: object) -> None:
+            """Executa a operação record quota."""
+            eventos_quota.append((event, fields))
+
+        async def fake_media_handler(**kwargs: object) -> str:
+            """Executa a operação fake media handler."""
+            chamadas.append(kwargs)
+            return "mídia gerada"
+
+        monkeypatch.setattr(media_quota, "summary", fake_summary)
+        monkeypatch.setattr(telemetry, "record_media_quota", record_quota)
+        spec = TOOL_REGISTRY.get(tool_name)
+        assert spec is not None
+        registry = ToolRegistry()
+        registry.register(replace(spec, handler=fake_media_handler))
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0, id="media-call", name=tool_name, args=json.dumps(args)
+                    )
+                ]
+            ]
+        )
+        gate = ApprovalGate(session_store)
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=replace(ctx, model="openai:gpt-image"),
+            thread_id="thread-1",
+            config=LoopConfig(),
+            should_require_approval=lambda *_args: True,
+            approval_gate=gate,
+        )
+
+        assert resultado.stopped_reason == "interrupted"
+        historico = await session_store.get_history("thread-1")
+        persisted_calls = [
+            call.args for message in historico for call in message.tool_calls
+        ]
+        assert args["prompt" if "prompt" in args else "text"] not in json.dumps(
+            persisted_calls, ensure_ascii=False
+        )
+        pending = await session_store.get_pending_approval("thread-1")
+        assert pending is not None
+        assert all(
+            secret not in json.dumps(pending["args"], ensure_ascii=False)
+            for secret in args.values()
+        )
+        assert set(pending["args"]) <= {
+            "operation",
+            "provider",
+            "model",
+            "estimate_version",
+            "billable_unit",
+            "currency",
+            "estimated_units",
+            "idempotency_key",
+            "balance_after_reservation",
+        }
+
+        assert await resume_conversation(
+            session_store=session_store,
+            tool_registry=registry,
+            ctx=replace(ctx, model="openai:gpt-image"),
+            thread_id="thread-1",
+            decision="approve",
+            approval_gate=gate,
+        )
+        assert len(chamadas) == 1
+        assert {
+            key: value for key, value in chamadas[0].items() if key != "ctx"
+        } == args
+        assert await session_store.get_pending_approval("thread-1") is None
+        decisoes = [
+            fields for event, fields in eventos_quota if event == "hitl_decision"
+        ]
+        assert len(decisoes) == 1
+        assert set(decisoes[0]) <= {
+            "operation",
+            "provider",
+            "model",
+            "units",
+            "idempotency_key",
+            "result",
+        }
+
+    @pytest.mark.parametrize(
+        ("tool_name", "args"),
+        [
+            ("generate_image", {"prompt": "segredo da imagem"}),
+            ("text_to_speech", {"text": "segredo do áudio"}),
+            ("generate_video", {"prompt": "segredo do vídeo"}),
+        ],
+    )
+    async def test_midia_aprovacao_apos_restart_nao_executa_payload(
+        self,
+        session_store: SessionStore,
+        ctx: ToolContext,
+        monkeypatch: pytest.MonkeyPatch,
+        tool_name: str,
+        args: dict[str, str],
+    ) -> None:
+        """Após restart, a pendência continua segura e não reidrata o payload."""
+        from backend.services.media_quota import media_quota
+
+        chamadas: list[dict[str, object]] = []
+
+        async def fake_summary(_user_id: str) -> dict[str, int]:
+            """Executa a operação fake summary."""
+            return {"remaining": 100, "used": 0, "limit": 100}
+
+        async def fake_media_handler(**kwargs: object) -> str:
+            """Executa a operação fake media handler."""
+            chamadas.append(kwargs)
+            return "mídia gerada"
+
+        monkeypatch.setattr(media_quota, "summary", fake_summary)
+        spec = TOOL_REGISTRY.get(tool_name)
+        assert spec is not None
+        registry = ToolRegistry()
+        registry.register(replace(spec, handler=fake_media_handler))
+        gate = ApprovalGate(session_store)
+        client = _ScriptedChatClient(
+            [
+                [
+                    _tool_call_chunk(
+                        index=0,
+                        id="media-restart",
+                        name=tool_name,
+                        args=json.dumps(args),
+                    )
+                ]
+            ]
+        )
+        await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=replace(ctx, model="openai:gpt-image"),
+            thread_id="thread-1",
+            config=LoopConfig(),
+            should_require_approval=lambda *_args: True,
+            approval_gate=gate,
+        )
+
+        restarted_gate = ApprovalGate(session_store)
+        assert not await resume_conversation(
+            session_store=session_store,
+            tool_registry=registry,
+            ctx=replace(ctx, model="openai:gpt-image"),
+            thread_id="thread-1",
+            decision="approve",
+            approval_gate=restarted_gate,
+        )
+        assert chamadas == []
+        assert await session_store.get_pending_approval("thread-1") is None
+
+    async def test_run_conversation_restores_untrusted_content_from_run(
+        self, session_store: SessionStore, ctx: ToolContext
+    ) -> None:
+        """Verifica o comportamento de run conversation restores untrusted content from run."""
+        from backend.persistence.native.agent_run import AgentRun
+
+        await session_store.upsert_agent_run(
+            AgentRun(
+                run_id="run-untrusted-ctx",
+                thread_id="thread-1",
+                status="waiting_approval",
+                untrusted_content=True,
+            )
+        )
+
+        client = _ScriptedChatClient([[_texto_chunk("olá")]])
+        registry = ToolRegistry()
+
+        assert "untrusted_content" not in ctx._extra
+
+        resultado = await run_conversation(
+            session_store=session_store,
+            chat_client=client,
+            tool_registry=registry,
+            ctx=ctx,
+            thread_id="thread-1",
+            config=LoopConfig(),
+        )
+
+        assert resultado.stopped_reason == "stop"
+        assert ctx._extra.get("untrusted_content") is True
+
+
+@pytest.mark.asyncio
+async def test_decision_snapshot_requires_durable_evidence(
+    session_store, ctx, monkeypatch
+):
+    from unittest.mock import AsyncMock
+
+    from backend.persistence.native.agent_run import AgentRun
+
+    await session_store.upsert_agent_run(
+        AgentRun(run_id="missing-run", thread_id="thread-1")
+    )
+    record = AsyncMock()
+    monkeypatch.setattr(session_store, "record_run_evidence", record)
+    with pytest.raises(RuntimeError, match="durably recorded"):
+        await _bind_decision_model_snapshot(
+            session_store, ctx, "missing-run", compile_policy_snapshot(ctx)
+        )
+    record.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["evidence", "ledger", "missing_evidence"])
+async def test_preapproval_audit_failure_does_not_authorize_or_reuse_grant(
+    session_store, ctx, tmp_path, monkeypatch, failure
+):
+    from unittest.mock import AsyncMock
+
+    from backend.persistence.native.agent_run import AgentRun
+    from backend.services import smart_approval
+    from backend.workspace.runtime_settings import RuntimeSettings
+
+    settings = RuntimeSettings(tmp_path / "failed-audit.db")
+    monkeypatch.setattr(smart_approval, "_runtime_settings", lambda: settings)
+    ctx.workspace_id = "workspace-audit"
+    run_id = "run-failed-audit"
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id=run_id,
+            thread_id=ctx.thread_id,
+            workspace_id=ctx.workspace_id,
+        )
+    )
+    call = ToolCall(id="failed-audit", name="terminal", args={"command": "pwd"})
+    smart_approval.add_to_allowlist(
+        ctx.workspace_id, call.name, call.args, run_id=run_id
+    )
+    method = "append_ledger_event" if failure == "ledger" else "record_run_evidence"
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            session_store,
+            method,
+            AsyncMock(
+                side_effect=None
+                if failure == "missing_evidence"
+                else OSError("audit offline")
+            ),
+        )
+        assert not await _consume_preapproval_grant(
+            session_store, ctx=ctx, run_id=run_id, tool_call=call
+        )
+    settings._conn.close()
+    restarted = RuntimeSettings(tmp_path / "failed-audit.db")
+    monkeypatch.setattr(smart_approval, "_runtime_settings", lambda: restarted)
+    assert smart_approval.get_allowlist(ctx.workspace_id) == []
+    assert not await _consume_preapproval_grant(
+        session_store, ctx=ctx, run_id=run_id, tool_call=call
+    )
+    restarted._conn.close()
+
+
+@pytest.mark.asyncio
+async def test_plan_sandbox_write_does_not_authorize_push_and_human_approval_survives_reload(
+    session_store: SessionStore, ctx: ToolContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from backend.engine.conversation_loop import _hydrate_plan_approvals
+    from backend.engine.hitl import should_require_approval
+    from backend.persistence.native.agent_run import AgentRun
+
+    monkeypatch.setattr(TOOL_REGISTRY, "_tools", {})
+    monkeypatch.setattr("backend.engine.hitl._workspace_is_jailed", lambda _wid: True)
+    effects: list[str] = []
+
+    @vtool(extras=ToolExtras(destructive=True))
+    async def file_write(ctx: ToolContext) -> str:
+        """Write a controlled fixture file."""
+        effects.append("write")
+        return "written"
+
+    @vtool(extras=ToolExtras(destructive=True))
+    async def git_push(ctx: ToolContext) -> str:
+        """Publish a controlled fixture change."""
+        effects.append("push")
+        return "pushed"
+
+    registry = ToolRegistry()
+    _register(registry, "file_write")
+    _register(registry, "git_push")
+    ctx.permission_mode = "plan"
+    run_id = "plan-human-proof"
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id=run_id,
+            thread_id=ctx.thread_id,
+            user_id=ctx.user_id,
+            workspace_id=ctx.workspace_id,
+            status="running",
+        )
+    )
+    await session_store.append_message(
+        ctx.thread_id,
+        VMessage(
+            role=MessageRole.USER,
+            content=[ContentBlock(kind="text", text="write then push")],
+        ),
+    )
+    client = _ScriptedChatClient(
+        [
+            [
+                _tool_call_chunk(
+                    index=0, id="write-exempt", name="file_write", args="{}"
+                )
+            ],
+            [_tool_call_chunk(index=0, id="push-approved", name="git_push", args="{}")],
+        ]
+    )
+    gate = ApprovalGate(session_store)
+    result = await run_conversation(
+        session_store=session_store,
+        chat_client=client,
+        tool_registry=registry,
+        ctx=ctx,
+        thread_id=ctx.thread_id,
+        config=LoopConfig(run_id=run_id),
+        should_require_approval=should_require_approval,
+        approval_gate=gate,
+    )
+    assert result.stopped_reason == "interrupted"
+    assert effects == ["write"]
+    pending = await session_store.get_pending_approval(ctx.thread_id)
+    assert pending and pending["tool_name"] == "git_push"
+    assert await resume_conversation(
+        session_store=session_store,
+        tool_registry=registry,
+        ctx=ctx,
+        thread_id=ctx.thread_id,
+        decision="approve",
+        approval_gate=gate,
+    )
+    assert effects == ["write", "push"]
+    run = await session_store.get_agent_run(run_id)
+    assert run is not None
+    assert any(
+        item.get("source") == "human" and item.get("tool_call_id") == "push-approved"
+        for item in run.approvals
+    )
+
+    # A fresh context must obtain the proof from durable state, not a previous object.
+    fresh = ToolContext(
+        user_id=ctx.user_id, thread_id=ctx.thread_id, permission_mode="plan"
+    )
+    continued = await run_conversation(
+        session_store=session_store,
+        chat_client=_ScriptedChatClient(
+            [
+                [_tool_call_chunk(index=0, id="push-next", name="git_push", args="{}")],
+                [_texto_chunk("done")],
+            ]
+        ),
+        tool_registry=registry,
+        ctx=fresh,
+        thread_id=ctx.thread_id,
+        config=LoopConfig(run_id=run_id),
+        should_require_approval=should_require_approval,
+        approval_gate=gate,
+    )
+    assert continued.stopped_reason == "stop"
+    assert effects == ["write", "push", "push"]
+    await session_store.append_message(
+        ctx.thread_id,
+        VMessage(
+            role=MessageRole.USER,
+            content=[ContentBlock(kind="text", text="another turn")],
+        ),
+    )
+    history = await session_store.get_history(ctx.thread_id)
+    await _hydrate_plan_approvals(session_store, fresh, run_id, history)
+    assert fresh._extra["plan_approved_tool_call_ids"] == []
+    assert should_require_approval("git_push", fresh, {}, history) is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid", ["actor", "workspace", "turn", "rejected", "automatic", "storage"]
+)
+async def test_plan_approval_reload_discards_stale_or_untrusted_proof(
+    session_store: SessionStore,
+    ctx: ToolContext,
+    monkeypatch: pytest.MonkeyPatch,
+    invalid: str,
+) -> None:
+    from unittest.mock import AsyncMock
+
+    from backend.engine.conversation_loop import (
+        _hydrate_plan_approvals,
+        _plan_turn_fingerprint,
+    )
+    from backend.persistence.native.agent_run import AgentRun
+
+    history = [
+        VMessage(
+            role=MessageRole.USER,
+            content=[ContentBlock(kind="text", text="current request")],
+        )
+    ]
+    approval: JsonObject = {
+        "source": "human",
+        "decision": "approve",
+        "tool_call_id": "approved",
+        "turn_key": _plan_turn_fingerprint(history),
+    }
+    if invalid == "turn":
+        approval["turn_key"] = "another-turn"
+    elif invalid == "rejected":
+        approval["decision"] = "reject"
+    elif invalid == "automatic":
+        approval["source"] = "systemone"
+    await session_store.upsert_agent_run(
+        AgentRun(
+            run_id="approval-proof",
+            thread_id=ctx.thread_id,
+            user_id="other" if invalid == "actor" else ctx.user_id,
+            workspace_id="other" if invalid == "workspace" else ctx.workspace_id,
+            approvals=[approval],
+        )
+    )
+    if invalid == "storage":
+        monkeypatch.setattr(
+            session_store,
+            "get_agent_run",
+            AsyncMock(side_effect=OSError("unavailable")),
+        )
+    ctx._extra["plan_approved_tool_call_ids"] = ["stale"]
+    await _hydrate_plan_approvals(session_store, ctx, "approval-proof", history)
+    assert ctx._extra["plan_approved_tool_call_ids"] == []

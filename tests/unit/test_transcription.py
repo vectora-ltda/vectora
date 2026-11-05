@@ -1,0 +1,377 @@
+"""transcribe_audio — STT via OpenAI Whisper, com fallback pra Gemini."""
+
+from __future__ import annotations
+
+import asyncio
+import threading
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import httpx
+import pytest
+
+from backend.llm.transcription import (
+    TranscriptionError,
+    _is_mp3_frame,
+    transcribe_audio,
+)
+
+_AUDIO = b"ID3\x04\x00\x00\x00fake-audio-bytes"
+_WEBM = b"\x1a\x45\xdf\xa3fake-audio-bytes"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancelled", [False, True])
+async def test_local_timeout_keeps_audio_until_worker_releases_it(
+    monkeypatch, cancelled
+):
+    from backend.llm import transcription
+
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    cleaned = threading.Event()
+    operation_lock = threading.Lock()
+
+    class ObservedLock:
+        def acquire(self, blocking: bool = True) -> bool:
+            return operation_lock.acquire(blocking=blocking)
+
+        def release(self) -> None:
+            operation_lock.release()
+            cleaned.set()
+
+        def locked(self) -> bool:
+            return operation_lock.locked()
+
+    monkeypatch.setattr(transcription, "_LOCAL_PROBE_LOCK", ObservedLock())
+    paths: list[Path] = []
+
+    def blocked(path: str, _language: str | None) -> dict[str, str]:
+        paths.append(Path(path))
+        started.set()
+        try:
+            assert release.wait(5)
+            assert Path(path).read_bytes() == _WEBM
+            return {"text": "late"}
+        finally:
+            finished.set()
+
+    monkeypatch.setattr("backend.tools.media_native._transcribe_local_sync", blocked)
+    monkeypatch.setattr(
+        transcription,
+        "_LOCAL_TRANSCRIPTION_TIMEOUT_S",
+        10.0 if cancelled else 0.03,
+        raising=False,
+    )
+    pending = asyncio.create_task(
+        transcription.transcribe_audio_local(
+            _WEBM, "voice.webm", "audio/webm", language="pt"
+        )
+    )
+    try:
+        assert await asyncio.to_thread(started.wait, 2)
+        if cancelled:
+            pending.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await pending
+        else:
+            with pytest.raises(transcription.TranscriptionError, match="prazo"):
+                await pending
+        assert paths[0].exists()
+        with pytest.raises(transcription.TranscriptionError, match="andamento"):
+            await transcription.transcribe_audio_local(
+                _WEBM, "voice.webm", "audio/webm", language="pt"
+            )
+    finally:
+        release.set()
+        assert await asyncio.to_thread(finished.wait, 2)
+        assert await asyncio.to_thread(cleaned.wait, 2)
+        await asyncio.gather(pending, return_exceptions=True)
+    assert not paths[0].exists()
+    assert not transcription._LOCAL_PROBE_LOCK.locked()
+
+
+class TestTranscribeAudio:
+    @pytest.mark.parametrize(
+        ("header", "expected"),
+        [(b"\xff\xfa", True), (b"\xff\xe2", True), (b"\xff\xea", False)],
+    )
+    def test_mp3_frame_header_accepts_only_mpeg_layer_three(
+        self, header: bytes, expected: bool
+    ) -> None:
+        assert _is_mp3_frame(header) is expected
+
+    @pytest.mark.asyncio
+    async def test_rejeita_audio_invalido_antes_do_provider(self) -> None:
+        with pytest.raises(TranscriptionError, match="assinatura"):
+            await transcribe_audio(
+                b"not-audio",
+                "memo.mp3",
+                "audio/mpeg",
+                provider="openai",
+                model="gpt-5",
+                language="",
+            )
+
+    @pytest.mark.asyncio
+    async def test_returns_stripped_text_on_success(self) -> None:
+        response = MagicMock()
+        response.json.return_value = {"text": "  olá mundo  "}
+        response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(return_value=response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("backend.llm.transcription.settings.openai_api_key", "sk-test"),
+            patch(
+                "backend.llm.transcription.httpx.AsyncClient", return_value=mock_client
+            ),
+        ):
+            text = await transcribe_audio(
+                _AUDIO,
+                "memo.mp3",
+                "audio/mpeg",
+                provider="openai",
+                model="whisper-1",
+                language="",
+            )
+
+        assert text == "olá mundo"
+        mock_client.post.assert_awaited_once()
+        _, kwargs = mock_client.post.call_args
+        assert kwargs["files"]["file"][0] == "memo.mp3"
+        assert kwargs["data"]["model"] == "whisper-1"
+
+    @pytest.mark.asyncio
+    async def test_raises_when_no_key_configured(self) -> None:
+        with (
+            patch("backend.llm.transcription.settings.openai_api_key", None),
+            patch("backend.llm.transcription.settings.google_api_key", None),
+        ):
+            with pytest.raises(TranscriptionError, match="openai_api_key"):
+                await transcribe_audio(
+                    _AUDIO,
+                    "memo.mp3",
+                    "audio/mpeg",
+                    provider="openai",
+                    model="whisper-1",
+                    language="",
+                )
+
+    @pytest.mark.asyncio
+    async def test_raises_transcription_error_on_http_failure(self) -> None:
+        mock_client = AsyncMock()
+        mock_client.post = AsyncMock(side_effect=httpx.ConnectError("falha de rede"))
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("backend.llm.transcription.settings.openai_api_key", "sk-test"),
+            patch(
+                "backend.llm.transcription.httpx.AsyncClient", return_value=mock_client
+            ),
+        ):
+            with pytest.raises(TranscriptionError):
+                await transcribe_audio(
+                    _AUDIO,
+                    "memo.mp3",
+                    "audio/mpeg",
+                    provider="openai",
+                    model="whisper-1",
+                    language="",
+                )
+
+
+class TestTranscribeAudioGeminiFallback:
+    @pytest.mark.asyncio
+    async def test_falls_back_to_gemini_when_openai_key_missing(self) -> None:
+        fake_response = MagicMock()
+        fake_response.text = "  transcrição via gemini  "
+
+        fake_models = AsyncMock()
+        fake_models.generate_content = AsyncMock(return_value=fake_response)
+        fake_client = MagicMock()
+        fake_client.aio.models = fake_models
+
+        with (
+            patch("backend.llm.transcription.settings.openai_api_key", None),
+            patch(
+                "backend.llm.transcription.settings.google_api_key",
+                "google-test-key",
+            ),
+            patch("google.genai.Client", return_value=fake_client) as mock_cls,
+        ):
+            text = await transcribe_audio(
+                b"\x1a\x45\xdf\xa3fake-audio-bytes",
+                "ditado.webm",
+                "audio/webm",
+                provider="google-genai",
+                model="whisper-1",
+                language="",
+            )
+
+        assert text == "transcrição via gemini"
+        mock_cls.assert_called_once_with(api_key="google-test-key")
+        fake_models.generate_content.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_gemini_failure_raises_transcription_error(self) -> None:
+        fake_models = AsyncMock()
+        fake_models.generate_content = AsyncMock(side_effect=RuntimeError("api down"))
+        fake_client = MagicMock()
+        fake_client.aio.models = fake_models
+
+        with (
+            patch("backend.llm.transcription.settings.openai_api_key", None),
+            patch(
+                "backend.llm.transcription.settings.google_api_key",
+                "google-test-key",
+            ),
+            patch("google.genai.Client", return_value=fake_client),
+        ):
+            with pytest.raises(TranscriptionError):
+                await transcribe_audio(
+                    _WEBM,
+                    "ditado.webm",
+                    "audio/webm",
+                    provider="google-genai",
+                    model="whisper-1",
+                    language="",
+                )
+
+    @pytest.mark.asyncio
+    async def test_gemini_503_retenta_e_recupera(self) -> None:
+        """503 UNAVAILABLE (alta demanda) é transitório — retenta antes de falhar."""
+        from google.genai.errors import ServerError
+
+        overloaded = ServerError(503, {"error": {"message": "high demand"}}, None)
+        fake_response = MagicMock()
+        fake_response.text = "recuperou na segunda tentativa"
+
+        fake_models = AsyncMock()
+        fake_models.generate_content = AsyncMock(
+            side_effect=[overloaded, fake_response]
+        )
+        fake_client = MagicMock()
+        fake_client.aio.models = fake_models
+
+        with (
+            patch("backend.llm.transcription.settings.openai_api_key", None),
+            patch(
+                "backend.llm.transcription.settings.google_api_key",
+                "google-test-key",
+            ),
+            patch("google.genai.Client", return_value=fake_client),
+            patch("backend.llm.transcription.asyncio.sleep", AsyncMock()),
+        ):
+            text = await transcribe_audio(
+                _WEBM,
+                "ditado.webm",
+                "audio/webm",
+                provider="google-genai",
+                model="whisper-1",
+                language="",
+            )
+
+        assert text == "recuperou na segunda tentativa"
+        assert fake_models.generate_content.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_gemini_503_persistente_esgota_tentativas(self) -> None:
+        from google.genai.errors import ServerError
+
+        overloaded = ServerError(503, {"error": {"message": "high demand"}}, None)
+        fake_models = AsyncMock()
+        fake_models.generate_content = AsyncMock(side_effect=overloaded)
+        fake_client = MagicMock()
+        fake_client.aio.models = fake_models
+
+        with (
+            patch("backend.llm.transcription.settings.openai_api_key", None),
+            patch(
+                "backend.llm.transcription.settings.google_api_key",
+                "google-test-key",
+            ),
+            patch("google.genai.Client", return_value=fake_client),
+            patch("backend.llm.transcription.asyncio.sleep", AsyncMock()) as mock_sleep,
+        ):
+            with pytest.raises(TranscriptionError):
+                await transcribe_audio(
+                    _WEBM,
+                    "ditado.webm",
+                    "audio/webm",
+                    provider="google-genai",
+                    model="whisper-1",
+                    language="",
+                )
+
+        assert fake_models.generate_content.await_count == 3
+        assert mock_sleep.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_openai_key_presente_ignora_gemini(self) -> None:
+        """Com as duas chaves configuradas, OpenAI continua sendo a primária."""
+        response = MagicMock()
+        response.json.return_value = {"text": "via whisper"}
+        response.raise_for_status = MagicMock()
+
+        mock_http_client = AsyncMock()
+        mock_http_client.post = AsyncMock(return_value=response)
+        mock_http_client.__aenter__ = AsyncMock(return_value=mock_http_client)
+        mock_http_client.__aexit__ = AsyncMock(return_value=False)
+
+        with (
+            patch("backend.llm.transcription.settings.openai_api_key", "sk-test"),
+            patch(
+                "backend.llm.transcription.settings.google_api_key",
+                "google-test-key",
+            ),
+            patch(
+                "backend.llm.transcription.httpx.AsyncClient",
+                return_value=mock_http_client,
+            ),
+            patch("google.genai.Client") as mock_gemini_cls,
+        ):
+            text = await transcribe_audio(
+                _AUDIO,
+                "memo.mp3",
+                "audio/mpeg",
+                provider="openai",
+                model="whisper-1",
+                language="",
+            )
+
+        assert text == "via whisper"
+        mock_gemini_cls.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_local_probe_rejects_result_after_configuration_change(
+    monkeypatch, tmp_path
+):
+    from backend.llm import transcription
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path / "before")
+    monkeypatch.setattr(
+        transcription,
+        "local_transcription_readiness",
+        lambda: {
+            "dependency_available": True,
+            "model_cached": True,
+        },
+    )
+
+    def probe():
+        settings.vectora_home = tmp_path / "after"
+        return "ready"
+
+    monkeypatch.setattr(transcription, "_probe_local_transcription_sync", probe)
+    result = await transcription.probe_local_transcription_readiness()
+    assert result["ready"] is False
+    assert result["runtime_verified"] is False
+    assert "alterada" in result["diagnostic"]

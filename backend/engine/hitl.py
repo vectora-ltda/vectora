@@ -1,0 +1,840 @@
+"""``should_require_approval`` — política HITL nativa, como função pura.
+
+Chamada IDENTICAMENTE pelo loop principal (``backend/engine/
+conversation_loop.py``) e por qualquer subagente — a mesma função decide
+pausa pra qualquer chamador, sem depender de herança de middleware ou de
+grafo compilado.
+
+Sobrevivência a restart: a persistência SÍNCRONA da aprovação pendente
+(``SessionStore.put_pending_approval``, ANTES de qualquer espera) é o que
+dá o invariante — este módulo só decide SE pausa, ``ApprovalGate`` (abaixo)
+decide COMO persistir/esperar.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import json
+import logging
+from collections import deque
+from typing import TYPE_CHECKING, Any
+
+from backend.llm.systemone.errors import SystemOneRateLimitError, SystemOneTimeoutError
+from backend.llm.systemone.preferences import decision_model_enabled_for
+from backend.vtypes.contracts import ToolOption
+from backend.vtypes.message import MessageRole
+
+if TYPE_CHECKING:
+    from backend.llm.systemone.harness import SystemOneHarness
+    from backend.persistence.native.session_store import SessionStore
+    from backend.tools.context import ToolContext
+    from backend.vtypes.message import VMessage
+
+logger = logging.getLogger(__name__)
+
+
+def _log_decision(
+    tool_name: str,
+    ctx: ToolContext,
+    *,
+    decision: bool,
+    mode: str,
+    reason: str,
+) -> None:
+    """Registra a decisão efetiva do gate com contexto auditável."""
+    logger.info(
+        "hitl.decision tool=%s decision=%s mode=%s reason=%s",
+        tool_name,
+        decision,
+        mode,
+        reason,
+        extra={
+            "tool_name": tool_name,
+            "decision": decision,
+            "mode": mode,
+            "reason": reason,
+            "thread_id": ctx.thread_id,
+            "workspace_id": ctx.workspace_id,
+        },
+    )
+
+
+#: Tools destrutivas candidatas a pausar o loop para aprovação.
+REQUIRE_APPROVAL: frozenset[str] = frozenset(
+    {
+        "bash",
+        "terminal",
+        "terminal_tool",
+        "write_terminal",
+        "file_write",
+        "file_write_tool",
+        "file_edit",
+        "install_learned_skill",
+        "save_learned_fact",
+        "install_mcp_from_registry",
+        "install_skill_from_catalog",
+        "install_memory_bucket",
+        "uninstall_mcp",
+        "delete_skill",
+        "publish_memory_bucket_tool",
+        "save_mcp_env_var",
+        "web_crawl",
+        "web_map",
+        "ha_call_service",
+        "computer_use",
+        "select_desktop_window",
+        "focus_desktop_window",
+        "kanban_create",
+        "kanban_update_status",
+        "apply_memory_consolidation",
+        "git_push",
+        "call_mcp_tool",
+        # Operações com custo variável: a quota e o preço estimado são
+        # apresentados ao usuário antes da execução do provider.
+        "generate_image",
+        "text_to_speech",
+        "generate_video",
+    }
+)
+
+#: Tools auto-aprovadas no modo "accept_edits".
+_ACCEPT_EDITS_AUTO: frozenset[str] = frozenset(
+    {"file_write", "file_write_tool", "file_edit"}
+)
+
+#: Modos que nunca interrompem (rodam autônomos).
+_NON_INTERRUPTING_MODES: frozenset[str] = frozenset({"auto", "bypass"})
+
+#: Dentro de workspace jailed, o worker sandboxed já é o backstop real —
+#: pausar aqui é fricção redundante.
+_JAILED_BYPASS_TOOLS: frozenset[str] = frozenset(
+    {"terminal", "terminal_tool", "file_write", "file_write_tool", "file_edit"}
+)
+
+#: `computer_use` nunca tem "desfazer" — pausa sempre, mesmo em bypass/auto.
+_ALWAYS_INTERRUPT: frozenset[str] = frozenset(
+    {"computer_use", "select_desktop_window", "focus_desktop_window"}
+)
+
+
+def _workspace_sandbox_enabled(workspace_id: str) -> bool:
+    """Read stable sandbox configuration, independently of worker lifecycle."""
+    if not workspace_id:
+        return False
+    try:
+        from pathlib import Path
+
+        from backend.sandbox.policy import parse_policy
+        from backend.workspace.workspace import workspace_registry
+
+        ws = workspace_registry.get(workspace_id)
+        cwd = getattr(ws, "cwd", None)
+        return bool(cwd and parse_policy(Path(cwd) / "vectora.toml").enabled)
+    except Exception:
+        logger.debug("hitl: failed to read sandbox policy for %s", workspace_id)
+        return False
+
+
+def _workspace_is_jailed(workspace_id: str) -> bool:
+    """Require both an enabled policy and a live worker with native isolation."""
+    if not _workspace_sandbox_enabled(workspace_id):
+        return False
+    from backend.sandbox.workspace_jail import jail_manager
+
+    return jail_manager.has_effective_isolation(workspace_id)
+
+
+def _is_self_kanban_update(
+    ctx: ToolContext, tool_name: str, args: dict[str, Any]
+) -> bool:
+    """True se `kanban_update_status` está mudando o status da PRÓPRIA task
+    em segundo plano — pedir aprovação criaria um loop esperando a própria
+    run pausada aprovar a si mesma."""
+    if tool_name != "kanban_update_status":
+        return False
+    bg_task_id = ctx.background_task_id
+    if not bg_task_id:
+        return False
+    call_task_id = args.get("task_id", "") if isinstance(args, dict) else ""
+    return bool(call_task_id) and call_task_id == bg_task_id
+
+
+def _plan_mode_ja_passou_neste_turno(
+    history: list[VMessage], approved_tool_call_ids: frozenset[str] = frozenset()
+) -> bool:
+    """Only a result tied to an audited human approval satisfies the turn gate."""
+    for msg in reversed(history):
+        if msg.role == MessageRole.USER:
+            break
+        if (
+            msg.role == MessageRole.TOOL
+            and msg.tool_call_id in approved_tool_call_ids
+            and _tool_requires_approval(msg.name or "")
+        ):
+            return True
+    return False
+
+
+def _mode_should_interrupt(
+    mode: str,
+    tool_name: str,
+    history: list[VMessage],
+    approved_tool_call_ids: frozenset[str] = frozenset(),
+) -> bool:
+    """Política canônica dos 5 modos — fonte única de verdade do HITL nativo."""
+    requires_approval = _tool_requires_approval(tool_name)
+    always_interrupt = tool_name in _ALWAYS_INTERRUPT
+    if mode in _NON_INTERRUPTING_MODES:
+        decision = False
+    elif mode == "accept_edits":
+        decision = tool_name not in _ACCEPT_EDITS_AUTO
+    elif mode == "plan":
+        # Cada operação de mídia acima do limite precisa de sua própria
+        # aprovação; um resultado anterior nunca autoriza outra cobrança.
+        decision = tool_name in {"generate_image", "text_to_speech", "generate_video"}
+        if not decision:
+            decision = not _plan_mode_ja_passou_neste_turno(
+                history, approved_tool_call_ids
+            )
+    else:
+        decision = True  # "ask" ou desconhecido → mais restritivo
+    return requires_approval and (always_interrupt or decision)
+
+
+def _tool_requires_approval(tool_name: str) -> bool:
+    """Resolve the approval candidate from the canonical tool metadata.
+
+    ``REQUIRE_APPROVAL`` remains a compatibility fallback for tools that are
+    intentionally resolved before their native module is imported. Once a
+    tool is registered, ``ToolExtras.destructive`` is the authoritative
+    contract shared by the registry, batching policy, UI metadata and HITL.
+    This prevents a newly added destructive tool from silently bypassing the
+    approval gate just because somebody forgot to update a second name list.
+    """
+    if tool_name in REQUIRE_APPROVAL:
+        return True
+    try:
+        from backend.tools.registry import TOOL_REGISTRY
+
+        spec = TOOL_REGISTRY.get(tool_name)
+    except Exception:
+        logger.warning(
+            "hitl: unable to resolve tool metadata",
+            extra={"tool_name": tool_name},
+        )
+        return True
+    return spec is not None and spec.extras.destructive
+
+
+def call_requires_separate_approval(
+    tool_name: str, args: dict[str, Any] | None = None
+) -> bool:
+    """Verifica se uma invocação específica de ferramenta exige aprovação isolada.
+
+    Preserva a regra canônica de aprovação por metadados de ferramenta,
+    além de interceptar operações sensíveis baseadas em argumentos:
+    - git_push com force=True
+    - http_request com métodos mutáveis (POST, PUT, PATCH, DELETE)
+    """
+    if _tool_requires_approval(tool_name):
+        return True
+    call_args = args or {}
+    if tool_name == "git_push" and bool(call_args.get("force", False)):
+        return True
+    if tool_name == "http_request":
+        method = str(call_args.get("method", "GET")).upper()
+        if method in ("POST", "PUT", "PATCH", "DELETE"):
+            return True
+    return False
+
+
+def should_require_approval(  # noqa: PLR0911
+    tool_name: str,
+    ctx: ToolContext,
+    args: dict[str, Any],
+    history: list[VMessage],
+) -> bool:
+    """Predicate único do HITL nativo — mesma assinatura que `run_conversation`
+    já aceita opcionalmente em `should_require_approval`."""
+    mode = ctx.permission_mode or "ask"
+    if _is_self_kanban_update(ctx, tool_name, args):
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=False,
+            mode=mode,
+            reason="self_kanban_update",
+        )
+        return False
+    if tool_name in {"generate_image", "text_to_speech", "generate_video"}:
+        # O limiar é definido pelo backend autenticado no contexto. Ausência
+        # do campo mantém o comportamento seguro: toda operação pede revisão.
+        threshold = getattr(ctx, "_extra", {}).get("media_approval_threshold")
+        if isinstance(threshold, int | float) and not isinstance(threshold, bool):
+            from backend.services.media_quota import media_estimate_record
+
+            provider, _, model = ctx.model.partition(":")
+            estimate = media_estimate_record(tool_name, provider=provider, model=model)
+            if estimate.units <= threshold:
+                from backend.persistence.telemetry import telemetry
+
+                telemetry.record_media_quota(
+                    "hitl_decision",
+                    operation=estimate.operation,
+                    provider=estimate.provider,
+                    model=estimate.model,
+                    estimate_version=estimate.version,
+                    units=estimate.units,
+                    result="auto_approved",
+                )
+                _log_decision(
+                    tool_name,
+                    ctx,
+                    decision=False,
+                    mode=mode,
+                    reason="media_below_threshold",
+                )
+                return False
+            # Custos acima do limiar exigem aprovação em qualquer modo,
+            # inclusive `auto` e `bypass`.
+            _log_decision(
+                tool_name,
+                ctx,
+                decision=True,
+                mode=mode,
+                reason="media_above_threshold",
+            )
+            return True
+        # Sem um limiar confiável, falha fechada: o custo deve ser
+        # apresentado ao usuário antes da execução.
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=True,
+            mode=mode,
+            reason="media_threshold_unavailable",
+        )
+        return True
+    if tool_name == "git_push":
+        force = bool(args.get("force", False))
+        if force:
+            _log_decision(
+                tool_name,
+                ctx,
+                decision=True,
+                mode=mode,
+                reason="git_force_push",
+            )
+            return True
+    if tool_name == "http_request":
+        method = str(args.get("method", "GET")).upper()
+        if (
+            method in ("POST", "PUT", "PATCH", "DELETE")
+            and mode not in _NON_INTERRUPTING_MODES
+        ):
+            _log_decision(
+                tool_name,
+                ctx,
+                decision=True,
+                mode=mode,
+                reason="mutable_http_request",
+            )
+            return True
+    if tool_name == "call_mcp_tool" and mode not in _NON_INTERRUPTING_MODES:
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=True,
+            mode=mode,
+            reason="mcp_tool_invocation",
+        )
+        return True
+    if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
+        _log_decision(
+            tool_name,
+            ctx,
+            decision=False,
+            mode=mode,
+            reason="workspace_jailed",
+        )
+        return False
+    approved_ids = ctx._extra.get("plan_approved_tool_call_ids", [])
+    approved_ids = (
+        frozenset(value for value in approved_ids if isinstance(value, str))
+        if isinstance(approved_ids, list)
+        else frozenset()
+    )
+    decision = _mode_should_interrupt(mode, tool_name, history, approved_ids)
+    reason = "policy"
+    if not decision:
+        extra = getattr(ctx, "_extra", None)
+        if isinstance(extra, dict):
+            elevated = extra.get("systemone_risk_elevated_calls")
+            if (
+                isinstance(elevated, set)
+                and _risk_assessment_key(tool_name, args) in elevated
+            ) or (
+                elevated is None
+                and extra.get("systemone_risk_requires_approval") is True
+            ):
+                decision = True
+                reason = "systemone_risk_elevated"
+    _log_decision(
+        tool_name,
+        ctx,
+        decision=decision,
+        mode=mode,
+        reason=reason,
+    )
+    return decision
+
+
+def _risk_assessment_key(tool_name: str, args: dict[str, Any]) -> str:
+    """Executa a operação  risk assessment key."""
+    payload = json.dumps(args, sort_keys=True, default=str)
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"{tool_name}:{digest}"
+
+
+def _decision_args_summary(args: dict[str, Any]) -> str:
+    """Return bounded structured arguments with credentials redacted."""
+    from backend.persistence.native.agent_run import redact_sensitive_data
+
+    serialized = json.dumps(
+        redact_sensitive_data(args), sort_keys=True, separators=(",", ":"), default=str
+    )
+    return serialized if len(serialized) <= 4000 else serialized[:3997] + "..."
+
+
+def _decision_snapshot_matches_runtime(ctx: ToolContext) -> bool:
+    """Fail closed when a run's decision preferences or runtime changed."""
+    extra = getattr(ctx, "_extra", None)
+    snapshot = extra.get("decision_model_snapshot") if isinstance(extra, dict) else None
+    run_id = getattr(ctx, "run_id", "")
+    if not isinstance(snapshot, dict) or not run_id or snapshot.get("run_id") != run_id:
+        return True
+
+    try:
+        from backend.llm.systemone.preferences import decision_model_runtime_fingerprint
+        from backend.settings import settings
+        from backend.workspace.runtime_settings import runtime_settings
+
+        prefs = runtime_settings.get_frontend_prefs(
+            getattr(ctx, "user_id", "local"),
+            getattr(ctx, "workspace_id", None) or None,
+        )
+        if "preferences_revision" in snapshot and snapshot[
+            "preferences_revision"
+        ] != runtime_settings.get_decision_model_revision(
+            getattr(ctx, "user_id", None) or "local",
+            getattr(ctx, "workspace_id", None) or None,
+        ):
+            return False
+        surfaces = prefs.get("decisionModelSurfaces")
+        effective = {
+            "enabled": prefs.get("decisionModelsEnabled") is True,
+            "provider": prefs.get("decisionModelProvider"),
+            "surfaces": {
+                str(name): enabled is True for name, enabled in surfaces.items()
+            }
+            if isinstance(surfaces, dict)
+            else {},
+        }
+        if effective != snapshot.get("preferences"):
+            return False
+
+        snapshot_provider = effective.get("provider")
+        if not isinstance(snapshot_provider, str):
+            snapshot_provider = None
+        runtime = {
+            "provider_config_fingerprint": decision_model_runtime_fingerprint(
+                snapshot_provider
+            ),
+            "systemone_enabled": settings.systemone_enabled,
+            "allow_remote_fallback": settings.systemone_allow_remote_fallback,
+            "risk_assessment_timeout_s": settings.systemone_risk_assessment_timeout_s,
+            "confidence_threshold_hitl": settings.systemone_confidence_threshold_hitl,
+        }
+        provider = effective["provider"]
+        model_by_provider = {
+            "clef-local": settings.systemone_local_model,
+            "laya-local": settings.systemone_laya_model,
+            "clef-api": settings.systemone_clef_api_model,
+            "jev-api": settings.systemone_jev_api_model,
+        }
+        runtime["model"] = (
+            model_by_provider.get(provider) if isinstance(provider, str) else None
+        )
+        if any(
+            key in snapshot and snapshot.get(key) != value
+            for key, value in runtime.items()
+        ):
+            return False
+
+        from backend.services.policy_compiler import compile_policy_snapshot
+
+        return compile_policy_snapshot(ctx).version == snapshot.get("policy_version")
+    except Exception:
+        logger.warning(
+            "hitl: não foi possível validar snapshot da decisão", exc_info=True
+        )
+        return False
+
+
+async def precompute_tool_risk_assessment(  # noqa: PLR0911
+    harness: SystemOneHarness,
+    *,
+    tool_name: str,
+    ctx: ToolContext,
+    args: dict[str, Any],
+    surface: str | tuple[str, ...] = "hitl",
+    risk_score_threshold: float = 0.70,
+) -> bool:
+    """Calcula a avaliação de risco no fluxo assíncrono anterior ao predicado síncrono `should_require_approval`.
+
+    A avaliação só pode AUMENTAR a exigência de revisão humana (nunca reduzir uma
+    aprovação já exigida pelas regras estáticas).
+    """
+    extra = getattr(ctx, "_extra", None)
+    if not isinstance(extra, dict):
+        return False
+
+    mode = getattr(ctx, "permission_mode", None) or "ask"
+    if mode not in {"auto", "plan"}:
+        return False
+
+    workspace_id = getattr(ctx, "workspace_id", None) or "default"
+    key = _risk_assessment_key(tool_name, args)
+    args_summary = _decision_args_summary(args)
+
+    def require_human(reason: str) -> bool:
+        elevated = extra.setdefault("systemone_risk_elevated_calls", set())
+        elevated.add(key)
+        extra["systemone_risk_requires_approval"] = True
+        extra.setdefault("systemone_decisions", {})[key] = {
+            "decision": "requires_human",
+            "reason": reason,
+            "run_id": ctx.run_id,
+            "thread_id": ctx.thread_id,
+        }
+        return True
+
+    if extra.get("decision_model_revoked") is True:
+        return require_human("decision_model_revoked")
+    if not await asyncio.to_thread(_decision_snapshot_matches_runtime, ctx):
+        extra["decision_model_revoked"] = True
+        return require_human("decision_model_revoked")
+    if not decision_model_enabled_for(ctx, surface):
+        from backend.llm.systemone.preferences import decision_model_preferences
+
+        preferences = decision_model_preferences(ctx)
+        reason = (
+            "decision_model_disabled"
+            if preferences.get("enabled") is not True
+            else "decision_model_surface_disabled"
+        )
+        extra.setdefault("systemone_decisions", {})[key] = {
+            "decision": "unavailable",
+            "reason": reason,
+            "provider": preferences.get("provider"),
+            "run_id": ctx.run_id,
+            "thread_id": ctx.thread_id,
+        }
+        return False
+
+    try:
+        if not await harness.is_ready():
+            extra.setdefault("systemone_decisions", {})[key] = {
+                "decision": "unavailable",
+                "reason": "decision_model_unavailable",
+            }
+            return False
+    except Exception:
+        logger.warning("hitl: readiness probe failed", exc_info=True)
+        extra.setdefault("systemone_decisions", {})[key] = {
+            "decision": "unavailable",
+            "reason": "decision_model_unavailable",
+        }
+        return False
+
+    snapshot = extra.get("decision_model_snapshot")
+    snapshot = snapshot if isinstance(snapshot, dict) else {}
+    timeout_s = snapshot.get("risk_assessment_timeout_s")
+    timeout_s = (
+        float(timeout_s)
+        if isinstance(timeout_s, int | float) and timeout_s > 0
+        else harness.risk_assessment_timeout_s
+    )
+    confidence_threshold = snapshot.get("confidence_threshold_hitl")
+    confidence_threshold = (
+        float(confidence_threshold)
+        if isinstance(confidence_threshold, int | float)
+        and 0 <= confidence_threshold <= 1
+        else harness.confidence_threshold_hitl
+    )
+
+    try:
+        harness.set_mode(
+            "tool_risk_assessment_score", "enforced", workspace_id=workspace_id
+        )
+        async with asyncio.timeout(timeout_s):
+            res = await harness.assess_tool_risk(
+                workspace_id=workspace_id,
+                tool_name=tool_name,
+                args_summary=args_summary,
+                permission_mode=mode,
+                allow_remote_override=True,
+            )
+    except (TimeoutError, SystemOneTimeoutError):
+        logger.warning("hitl: prazo da decisão SystemOne excedido", exc_info=True)
+        return require_human("decision_model_timeout")
+    except SystemOneRateLimitError:
+        logger.warning("hitl: limite de taxa da decisão SystemOne", exc_info=True)
+        return require_human("decision_model_rate_limited")
+    except Exception:
+        logger.warning("hitl: falha ao pré-calcular risco via SystemOne", exc_info=True)
+        return require_human("decision_model_failed")
+
+    # Re-read preferences and policy after the model call. A user or policy
+    # change while the provider was running revokes this result before it can
+    # be used to allow or auto-approve the tool call.
+    if not await asyncio.to_thread(_decision_snapshot_matches_runtime, ctx):
+        extra["decision_model_revoked"] = True
+        return require_human("decision_model_revoked")
+
+    try:
+        if res.mode in ("off", "shadow"):
+            return require_human("decision_model_mode_mismatch")
+        if res.policy_result.outcome == "rejected":
+            return require_human("decision_policy_rejected")
+        if res.response is None:
+            return require_human("decision_model_empty_response")
+
+        answer = res.response.answers.get("risk_score")
+        score = getattr(answer, "score", None)
+        confidence = getattr(answer, "confidence", None)
+        # An incomplete or malformed model answer is not evidence that a call
+        # is safe. Only an explicit, policy-accepted, confident low-risk score
+        # may produce an autonomous allow.
+        decision = "requires_human"
+        reason = "decision_model_missing_or_invalid_risk_score"
+        if res.policy_result.requires_hitl:
+            decision, reason = "requires_human", res.policy_result.reason
+        elif (
+            isinstance(score, int | float)
+            and not isinstance(score, bool)
+            and 0 <= score <= 1
+            and isinstance(confidence, int | float)
+            and not isinstance(confidence, bool)
+            and 0 <= confidence <= 1
+            and confidence >= confidence_threshold
+        ):
+            if score >= 0.95:
+                decision, reason = "deny", "decision_model_high_risk"
+            elif score >= risk_score_threshold:
+                decision, reason = "requires_human", "decision_model_risk_threshold"
+            else:
+                decision, reason = "allow", "risk_below_threshold"
+        response_redacted = _redacted_decision_response(res.response)
+    except Exception:
+        logger.warning("hitl: resposta de risco inválida", exc_info=True)
+        return require_human("decision_model_invalid_response")
+    elevate = decision == "requires_human"
+    elevated = extra.setdefault("systemone_risk_elevated_calls", set())
+    if elevate:
+        elevated.add(key)
+    else:
+        elevated.discard(key)
+    extra["systemone_risk_requires_approval"] = bool(elevated)
+    extra.setdefault("systemone_decisions", {})[key] = {
+        "decision": decision,
+        "reason": reason,
+        "provider": res.provider,
+        "model": res.model,
+        "risk_score": score,
+        "confidence": confidence,
+        "policy_version": res.policy_version,
+        "decision_id": res.decision_id,
+        "run_id": ctx.run_id,
+        "thread_id": ctx.thread_id,
+        "response_redacted": response_redacted,
+    }
+    logger.info(
+        "systemone.execution_decision tool=%s decision=%s reason=%s provider=%s model=%s",
+        tool_name,
+        decision,
+        reason,
+        res.provider,
+        res.model,
+        extra={
+            "tool_name": tool_name,
+            "decision": decision,
+            "reason": reason,
+            "provider": res.provider,
+            "model": res.model,
+            "run_id": ctx.run_id,
+        },
+    )
+    return elevate
+
+
+def _redacted_decision_response(response: Any) -> dict[str, Any]:
+    """Serialize the provider response through the shared secret redactor."""
+    from backend.persistence.native.agent_run import redact_sensitive_data
+
+    serialized = response.model_dump(mode="json")
+    redacted = redact_sensitive_data(serialized)
+    return redacted if isinstance(redacted, dict) else {}
+
+
+_MAX_NON_TOOL_REVIEW_RECORDS = 500
+_NON_TOOL_REVIEW_RECORDS: deque[dict[str, Any]] = deque(
+    maxlen=_MAX_NON_TOOL_REVIEW_RECORDS
+)
+
+
+def record_non_tool_review_request(
+    *,
+    workspace_id: str,
+    consumer: str,
+    pattern_id: str,
+    decision_id: str,
+    state_version: str,
+    reason: str,
+) -> dict[str, Any]:
+    """Registra em memória (buffer circular limitado ao processo atual) revisão para decisões sem tool call."""
+    record = {
+        "workspace_id": workspace_id,
+        "consumer": consumer,
+        "pattern_id": pattern_id,
+        "decision_id": decision_id,
+        "state_version": state_version,
+        "reason": reason,
+        "status": "pending_review",
+    }
+    _NON_TOOL_REVIEW_RECORDS.append(record)
+    return dict(record)
+
+
+def list_non_tool_review_requests(
+    workspace_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Lista registros de revisão pendentes para consumidores que não usam tool calls."""
+    if workspace_id is None:
+        return [dict(r) for r in _NON_TOOL_REVIEW_RECORDS]
+    return [
+        dict(r) for r in _NON_TOOL_REVIEW_RECORDS if r["workspace_id"] == workspace_id
+    ]
+
+
+class ApprovalGate:
+    """1 instância por processo. `request_approval` persiste IMEDIATA e
+    SINCRONAMENTE em `pending_approvals` (o que sobrevive a restart) — o
+    `asyncio.Event` local é só um fast-path opcional pra quando o processo
+    que pausou é o mesmo que recebe o resume, evitando poll de DB nesse
+    caso comum; não é ele que garante sobrevivência a restart, a
+    persistência síncrona é quem garante."""
+
+    def __init__(self, session_store: SessionStore) -> None:
+        """Inicializa o estado da instância."""
+        self._session_store = session_store
+        self._events: dict[str, Any] = {}
+        self._ephemeral_args: dict[str, dict[str, Any]] = {}
+
+    async def request_approval(
+        self,
+        thread_id: str,
+        *,
+        interrupt_id: str,
+        tool_name: str,
+        tool_call_id: str,
+        run_id: str | None = None,
+        args: dict[str, Any],
+        reasoning: str | None = None,
+        options: list[ToolOption] | None = None,
+        priority: int = 0,
+        expires_at: str | None = None,
+        approval_metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Executa a operação request approval."""
+        import asyncio
+
+        safe_args = dict(args)
+        if tool_name == "write_terminal":
+            raw_input = str(safe_args.pop("input_data", ""))
+            safe_args["input_preview"] = "<redacted>"
+            safe_args["input_length"] = len(raw_input.encode("utf-8"))
+            self._ephemeral_args[interrupt_id] = dict(args)
+        elif tool_name in {"generate_image", "text_to_speech", "generate_video"}:
+            self._ephemeral_args[interrupt_id] = dict(args)
+            safe_args = dict(approval_metadata or {})
+        logger.info(
+            "hitl.request",
+            extra={
+                "tool_name": tool_name,
+                "priority": priority,
+                "has_options": bool(options),
+            },
+        )
+        if tool_name in {"generate_image", "text_to_speech", "generate_video"}:
+            from backend.persistence.telemetry import telemetry
+
+            telemetry.record_media_quota(
+                "hitl_requested",
+                operation=str((approval_metadata or {}).get("operation", tool_name)),
+                provider=str((approval_metadata or {}).get("provider", "")),
+                model=str((approval_metadata or {}).get("model", "")),
+                units=(approval_metadata or {}).get("estimated_units"),
+                idempotency_key=(approval_metadata or {}).get("idempotency_key"),
+                result="pending",
+            )
+        await self._session_store.put_pending_approval(
+            thread_id,
+            interrupt_id=interrupt_id,
+            tool_name=tool_name,
+            tool_call_id=tool_call_id,
+            run_id=run_id,
+            args=safe_args,
+            reasoning=reasoning,
+            options=options,
+            priority=priority,
+            expires_at=expires_at,
+        )
+        self._events[thread_id] = asyncio.Event()
+
+    def ephemeral_args(self, interrupt_id: str) -> dict[str, Any] | None:
+        """Return raw approval arguments only while the process is alive."""
+        args = self._ephemeral_args.get(interrupt_id)
+        return dict(args) if args is not None else None
+
+    async def wait_for_resume(self, thread_id: str, *, timeout_s: float) -> bool:
+        """Espera o fast-path local (mesmo processo resolve o resume) até
+        `timeout_s`. `False` no timeout não é erro — o resume pode chegar
+        por uma request HTTP nova (processo reiniciado, ou só um handler
+        diferente), que consulta `pending_approvals` direto via
+        `SessionStore.get_pending_approval`, sem depender deste evento."""
+        import asyncio
+
+        event = self._events.get(thread_id)
+        if event is None:
+            return False
+        try:
+            await asyncio.wait_for(event.wait(), timeout=timeout_s)
+            return True
+        except TimeoutError:
+            return False
+
+    async def resolve(self, thread_id: str, *, interrupt_id: str | None = None) -> None:
+        """Libera o fast-path local e limpa a aprovação pendente
+        persistida — chamado depois que a decisão (approve/reject/edit) já
+        foi processada e o resultado já foi persistido no histórico."""
+        if interrupt_id is not None:
+            self._ephemeral_args.pop(interrupt_id, None)
+        pending = await self._session_store.get_pending_approval(thread_id)
+        if pending is not None and interrupt_id is None:
+            self._ephemeral_args.pop(pending["interrupt_id"], None)
+        await self._session_store.clear_pending_approval(thread_id)
+        event = self._events.pop(thread_id, None)
+        if event is not None:
+            event.set()

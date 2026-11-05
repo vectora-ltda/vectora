@@ -1,0 +1,775 @@
+"""Consolidação da fonte de verdade sobre existência/posse de threads.
+
+`vectora_sessions` (SQLite em `checkpoints.db`, gerenciada por
+`backend/api/handlers/threads.py`) e `SessionStore.sessions` (motor nativo,
+`backend/persistence/native/session_store.py`) coexistem — a primeira guarda
+metadados de UI (título, contagem de mensagens, fixação), a segunda é a
+única fonte de verdade sobre EXISTÊNCIA e DONO (`user_id`) de uma thread.
+
+Cobre: `CreateThread`/`_upsert_session` registram a posse em `SessionStore`;
+`ListThreads`/`GetThread`/`UpdateThread`/`DeleteThread`/`GenerateTitle` nunca
+vazam uma thread registrada em `SessionStore` sob outro usuário.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import aiosqlite
+import pytest
+
+from backend.api.handlers import threads as th
+from backend.api.schemas import (
+    DeleteThreadRequest,
+    GetHistoryRequest,
+    GetThreadRequest,
+    ListThreadsRequest,
+    UpdateThreadRequest,
+)
+from backend.persistence.native.session_store import SessionStore
+from backend.storage.sqlite.pool import AsyncConnectionPool
+from backend.vtypes.message import MessageRole, text_message
+
+
+def _http_request(user_id: str | None, device_id: str | None = None) -> MagicMock:
+    """Executa a operação http request."""
+    request = MagicMock()
+    if user_id is None:
+        request.state = MagicMock(user=None, device_id=device_id)
+    else:
+        user = MagicMock()
+        user.id = user_id
+        request.state = MagicMock(user=user, device_id=device_id)
+    return request
+
+
+@pytest.fixture
+async def checkpoints_db() -> AsyncIterator[aiosqlite.Connection]:
+    """Executa a operação checkpoints db."""
+    db = await aiosqlite.connect(":memory:")
+    await th._ensure_schema(db)
+    try:
+        yield db
+    finally:
+        await db.close()
+
+
+@pytest.fixture
+async def session_store(tmp_path: Path) -> AsyncIterator[SessionStore]:
+    """Executa a operação session store."""
+    pool = AsyncConnectionPool(str(tmp_path / "sessions.db"), min_size=1, max_size=2)
+    await pool.open()
+    store = SessionStore(pool)
+    await store.setup()
+    try:
+        yield store
+    finally:
+        await pool.close()
+
+
+@pytest.fixture(autouse=True)
+def _wire_stores(
+    monkeypatch: pytest.MonkeyPatch,
+    checkpoints_db: aiosqlite.Connection,
+    session_store: SessionStore,
+) -> None:
+    """Redireciona `_get_db()`/`_get_session_store()` de `threads.py` pros
+    bancos de teste isolados, sem tocar nos singletons globais."""
+
+    async def _fake_get_db() -> aiosqlite.Connection:
+        """Executa a operação fake get db."""
+        return checkpoints_db
+
+    async def _fake_get_session_store() -> SessionStore:
+        """Executa a operação fake get session store."""
+        return session_store
+
+    monkeypatch.setattr(th, "_get_db", _fake_get_db)
+    monkeypatch.setattr(th, "_get_session_store", _fake_get_session_store)
+
+
+class TestListThreadsReflectsSessionStore:
+    """Threads registradas em `SessionStore.create_session` (motor nativo)
+    aparecem em ListThreads pro dono, e nunca pro usuário errado."""
+
+    async def test_thread_criada_via_session_store_aparece_para_o_dono(
+        self, session_store: SessionStore, checkpoints_db: aiosqlite.Connection
+    ) -> None:
+        """Verifica o comportamento de thread criada via session store aparece para o dono."""
+        await session_store.create_session("thread-alice", user_id="alice", mode="code")
+        await th._upsert_session("thread-alice", title="Conversa da Alice")
+        await th._increment_message_count("thread-alice")
+
+        result = await th.list_threads(
+            ListThreadsRequest(limit=50), _http_request("alice")
+        )
+
+        assert [t.id for t in result.threads] == ["thread-alice"]
+        assert result.threads[0].title == "Conversa da Alice"
+
+    async def test_get_history_rejeita_usuario_de_outra_thread_antes_de_ler(
+        self,
+        session_store: SessionStore,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """GetHistory aplica posse nativa antes de buscar mensagens ou anexos."""
+        await session_store.create_session("thread-alice", user_id="alice", mode="code")
+        await th._upsert_session("thread-alice", title="Privada")
+
+        from fastapi import HTTPException
+
+        from backend.services import agent_factory
+
+        monkeypatch.setattr(
+            agent_factory,
+            "aget_thread_messages_with_files",
+            MagicMock(side_effect=AssertionError("mensagens não deveriam ser lidas")),
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await th.get_history(
+                GetHistoryRequest(thread_id="thread-alice"),
+                _http_request("bob"),
+            )
+
+        assert exc_info.value.status_code == 404
+
+    async def test_list_threads_serializa_atividade_remota(
+        self, session_store: SessionStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Verifica o comportamento de list threads serializa atividade remota."""
+        await session_store.create_session("thread-alice", user_id="alice", mode="code")
+        await th._upsert_session("thread-alice", title="Conversa da Alice")
+        await th._increment_message_count("thread-alice")
+
+        async def _remote_activity(
+            user_id: str, thread_ids: list[str], current_device_id: str
+        ) -> dict[str, str]:
+            """Executa a operação remote activity."""
+            assert user_id == "alice"
+            assert thread_ids == ["thread-alice"]
+            assert current_device_id == "vdev_12345678-1234-1234-1234-123456789abc"
+            return {"thread-alice": "2026-09-08T12:00:00+00:00"}
+
+        monkeypatch.setattr(th, "get_remote_activity", _remote_activity)
+        result = await th.list_threads(
+            ListThreadsRequest(limit=50),
+            _http_request("alice", "vdev_12345678-1234-1234-1234-123456789abc"),
+        )
+
+        assert result.threads[0].remote_activity is not None
+        assert (
+            result.threads[0].remote_activity.last_active_at
+            == "2026-09-08T12:00:00+00:00"
+        )
+
+    async def test_thread_de_outro_usuario_nao_vaza_na_listagem(
+        self, session_store: SessionStore
+    ) -> None:
+        """Erro/borda: uma thread registrada em SessionStore sob `bob` nunca
+        aparece na listagem de `alice`, mesmo estando em `vectora_sessions`
+        (cache de UI compartilhado)."""
+        await session_store.create_session("thread-bob", user_id="bob", mode="code")
+        await th._upsert_session("thread-bob", title="Conversa do Bob")
+        await th._increment_message_count("thread-bob")
+
+        result = await th.list_threads(
+            ListThreadsRequest(limit=50), _http_request("alice")
+        )
+
+        assert result.threads == []
+
+    async def test_thread_legada_sem_registro_no_session_store_nao_aparece(
+        self,
+        session_store: SessionStore,
+    ) -> None:
+        """Metadados legados não autorizam listagem nem reivindicam posse."""
+        await th._upsert_session("thread-legada", title="Conversa antiga")
+        await th._increment_message_count("thread-legada")
+
+        result = await th.list_threads(
+            ListThreadsRequest(limit=50), _http_request("alice")
+        )
+
+        assert result.threads == []
+        assert await session_store.get_session("thread-legada") is None
+
+    async def test_thread_legada_aparece_so_sem_usuario_autenticado(
+        self,
+        session_store: SessionStore,
+    ) -> None:
+        """Launcher local sem usuário mantém threads legadas visíveis; para um
+        usuário autenticado a mesma thread continua oculta sem posse nativa."""
+        await th._upsert_session("thread-local-antiga", title="Conversa local")
+        await th._increment_message_count("thread-local-antiga")
+
+        sem_usuario = await th.list_threads(
+            ListThreadsRequest(limit=50), _http_request(None)
+        )
+        autenticado = await th.list_threads(
+            ListThreadsRequest(limit=50), _http_request("alice")
+        )
+
+        assert [t.id for t in sem_usuario.threads] == ["thread-local-antiga"]
+        assert autenticado.threads == []
+
+    async def test_metadados_legados_recentes_nao_escondem_thread_valida(
+        self,
+        session_store: SessionStore,
+    ) -> None:
+        """O limite vale para threads elegíveis: linhas legadas mais recentes
+        que o ``limit`` não deixam a listagem vazia."""
+        await session_store.create_session(
+            "thread-valida", user_id="alice", mode="code"
+        )
+        await th._upsert_session("thread-valida", title="Válida")
+        await th._increment_message_count("thread-valida")
+        legacy_ids = [f"thread-legada-{i}" for i in range(3)]
+        for legacy_id in legacy_ids:
+            await th._upsert_session(legacy_id, title="Antiga")
+            await th._increment_message_count(legacy_id)
+        db = await th._get_db()
+        await db.execute(
+            "UPDATE vectora_sessions SET last_activity = '2026-01-01T00:00:00' "
+            "WHERE thread_id = 'thread-valida'"
+        )
+        await db.executemany(
+            "UPDATE vectora_sessions SET last_activity = ? WHERE thread_id = ?",
+            [(f"2026-06-0{i + 1}T00:00:00", tid) for i, tid in enumerate(legacy_ids)],
+        )
+        await db.commit()
+
+        result = await th.list_threads(
+            ListThreadsRequest(limit=2), _http_request("alice")
+        )
+        assert [t.id for t in result.threads] == ["thread-valida"]
+
+        no_match = await th.list_threads(
+            ListThreadsRequest(limit=2), _http_request("bob")
+        )
+        assert no_match.threads == []
+
+    async def test_subagent_interno_nao_aparece_na_listagem(
+        self, session_store: SessionStore
+    ) -> None:
+        """Sessões internas podem existir para histórico e auditoria, mas
+        nunca viram conversas selecionáveis pelo usuário."""
+        await session_store.create_session(
+            "thread-pai:search:interno", user_id="alice", mode="subagent"
+        )
+        await th._upsert_session(
+            "thread-pai:search:interno", title="search", mode="subagent"
+        )
+        await th._increment_message_count("thread-pai:search:interno")
+
+        result = await th.list_threads(
+            ListThreadsRequest(limit=50), _http_request("alice")
+        )
+
+        assert result.threads == []
+
+    async def test_subagent_legado_com_mode_code_nao_aparece_na_listagem(
+        self, session_store: SessionStore
+    ) -> None:
+        """A fonte de verdade também filtra linhas legadas gravadas como code."""
+        thread_id = "thread-pai:search:legado"
+        await session_store.create_session(thread_id, user_id="alice", mode="subagent")
+        await th._upsert_session(thread_id, title="search", mode="code")
+        await th._increment_message_count(thread_id)
+
+        result = await th.list_threads(
+            ListThreadsRequest(limit=50), _http_request("alice")
+        )
+
+        assert result.threads == []
+
+    async def test_subagent_legado_nao_consumo_o_limite_da_listagem(
+        self, session_store: SessionStore, checkpoints_db
+    ) -> None:
+        """Uma linha legada recente não pode esconder thread regular mais antiga."""
+        await session_store.create_session(
+            "thread-pai:search:legado-recente", user_id="alice", mode="subagent"
+        )
+        await th._upsert_session(
+            "thread-pai:search:legado-recente", title="search", mode="code"
+        )
+        await th._increment_message_count("thread-pai:search:legado-recente")
+
+        await session_store.create_session(
+            "thread-regular-antiga", user_id="alice", mode="code"
+        )
+        await th._upsert_session("thread-regular-antiga", title="Conversa")
+        await th._increment_message_count("thread-regular-antiga")
+        await checkpoints_db.execute(
+            "UPDATE vectora_sessions SET last_activity = ? WHERE thread_id = ?",
+            ("2000-01-01", "thread-regular-antiga"),
+        )
+        await checkpoints_db.commit()
+
+        result = await th.list_threads(
+            ListThreadsRequest(limit=1), _http_request("alice")
+        )
+
+        assert [thread.id for thread in result.threads] == ["thread-regular-antiga"]
+
+
+class TestOwnershipEnforcement:
+    """GetThread/UpdateThread/DeleteThread/GenerateTitle não vazam threads
+    de outro usuário nem revelam se a thread não existe vs. pertence a
+    outra pessoa — 404 nos dois casos."""
+
+    async def test_get_thread_de_outro_usuario_404(
+        self, session_store: SessionStore
+    ) -> None:
+        """Verifica o comportamento de get thread de outro usuario 404."""
+        await session_store.create_session("thread-bob", user_id="bob")
+        await th._upsert_session("thread-bob")
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await th.get_thread(
+                GetThreadRequest(thread_id="thread-bob"), _http_request("alice")
+            )
+        assert exc_info.value.status_code == 404
+
+    async def test_get_thread_do_proprio_dono_retorna_200(
+        self, session_store: SessionStore
+    ) -> None:
+        """Verifica o comportamento de get thread do proprio dono retorna 200."""
+        await session_store.create_session("thread-alice", user_id="alice")
+        await th._upsert_session("thread-alice", title="Minha thread")
+
+        thread = await th.get_thread(
+            GetThreadRequest(thread_id="thread-alice"), _http_request("alice")
+        )
+
+        assert thread.id == "thread-alice"
+        assert thread.title == "Minha thread"
+
+    async def test_get_thread_sem_http_request_pula_checagem(
+        self, session_store: SessionStore
+    ) -> None:
+        """Chamadores internos (GetHistory, GenerateTitle, histórico
+        paginado) invocam `get_thread` sem `http_request` — comportamento
+        preexistente preservado."""
+        await session_store.create_session("thread-bob", user_id="bob")
+        await th._upsert_session("thread-bob")
+
+        thread = await th.get_thread(GetThreadRequest(thread_id="thread-bob"))
+
+        assert thread.id == "thread-bob"
+
+    async def test_get_thread_rejeita_metadado_legado_sem_posse_nativa(
+        self, session_store: SessionStore
+    ) -> None:
+        """Metadado antigo não pode autorizar leitura HTTP autenticada."""
+        from fastapi import HTTPException
+
+        await th._upsert_session("thread-legacy-only", title="stale metadata")
+        assert await session_store.get_session("thread-legacy-only") is None
+
+        with pytest.raises(HTTPException) as exc_info:
+            await th.get_thread(
+                GetThreadRequest(thread_id="thread-legacy-only"),
+                _http_request("alice"),
+            )
+
+        assert exc_info.value.status_code == 404
+
+    async def test_get_thread_reidrata_metadados_ausentes_do_store_nativo(
+        self, session_store: SessionStore
+    ) -> None:
+        """Uma corrida de reconciliação não pode apagar o histórico da UI."""
+        await session_store.create_session(
+            "thread-native-only", user_id="alice", workspace_id="ws-1"
+        )
+        await session_store.append_message(
+            "thread-native-only", text_message(MessageRole.USER, "oi")
+        )
+
+        thread = await th.get_thread(
+            GetThreadRequest(thread_id="thread-native-only"), _http_request("alice")
+        )
+
+        assert thread.id == "thread-native-only"
+        assert thread.workspace_id == "ws-1"
+        assert thread.unread_count == 0
+
+    async def test_update_thread_de_outro_usuario_404_e_nao_persiste(
+        self, session_store: SessionStore, checkpoints_db: aiosqlite.Connection
+    ) -> None:
+        """Verifica o comportamento de update thread de outro usuario 404 e nao persiste."""
+        await session_store.create_session("thread-bob", user_id="bob")
+        await th._upsert_session("thread-bob", title="Original")
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await th.update_thread(
+                UpdateThreadRequest(thread_id="thread-bob", title="Sequestrado"),
+                _http_request("alice"),
+            )
+        assert exc_info.value.status_code == 404
+
+        thread = await th.get_thread(GetThreadRequest(thread_id="thread-bob"))
+        assert thread.title == "Original"
+
+    async def test_delete_thread_de_outro_usuario_404_e_nao_apaga(
+        self, session_store: SessionStore
+    ) -> None:
+        """Verifica o comportamento de delete thread de outro usuario 404 e nao apaga."""
+        await session_store.create_session("thread-bob", user_id="bob")
+        await th._upsert_session("thread-bob")
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await th.delete_thread(
+                DeleteThreadRequest(thread_id="thread-bob"), _http_request("alice")
+            )
+        assert exc_info.value.status_code == 404
+
+        thread = await th.get_thread(GetThreadRequest(thread_id="thread-bob"))
+        assert thread.id == "thread-bob"
+
+    async def test_delete_thread_do_proprio_dono_remove(
+        self, session_store: SessionStore
+    ) -> None:
+        """Verifica o comportamento de delete thread do proprio dono remove."""
+        await session_store.create_session("thread-alice", user_id="alice")
+        await th._upsert_session("thread-alice")
+
+        await th.delete_thread(
+            DeleteThreadRequest(thread_id="thread-alice"), _http_request("alice")
+        )
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await th.get_thread(GetThreadRequest(thread_id="thread-alice"))
+        assert exc_info.value.status_code == 404
+
+    async def test_delete_thread_apaga_tambem_do_session_store(
+        self, session_store: SessionStore
+    ) -> None:
+        """Regressão real (2026-09-04): `delete_thread` só apagava de
+        `vectora_sessions`, nunca de `SessionStore` — a próxima rodada de
+        `reconcile_vectora_sessions` (boot ou hora em hora) encontrava a
+        thread ainda viva em `sessions.db` e a recriava na sidebar, fazendo
+        uma conversa apagada pelo usuário reaparecer sozinha."""
+        from backend.vtypes.message import MessageRole, text_message
+
+        await session_store.create_session("thread-alice", user_id="alice")
+        await session_store.append_message(
+            "thread-alice", text_message(MessageRole.USER, "oi")
+        )
+        await th._upsert_session("thread-alice")
+        await th._increment_message_count("thread-alice")
+
+        await th.delete_thread(
+            DeleteThreadRequest(thread_id="thread-alice"), _http_request("alice")
+        )
+
+        assert await session_store.get_session("thread-alice") is None
+
+        reconciled = await th.reconcile_vectora_sessions()
+
+        assert reconciled == 0
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await th.get_thread(GetThreadRequest(thread_id="thread-alice"))
+        assert exc_info.value.status_code == 404
+
+
+class TestUpsertSessionRegistersOwnership:
+    """`_upsert_session(..., user_id=...)` garante (idempotente) o registro
+    de posse em `SessionStore` antes de gravar metadados de UI — fecha o elo
+    entre as duas tabelas pra callers (ex.: `background_tasks.py`) que ainda
+    não têm a posse registrada quando chamam `_upsert_session`."""
+
+    async def test_upsert_com_user_id_cria_sessao_no_session_store(
+        self, session_store: SessionStore
+    ) -> None:
+        """Verifica o comportamento de upsert com user id cria sessao no session store."""
+        assert await session_store.get_session("thread-nova") is None
+
+        await th._upsert_session(
+            "thread-nova", workspace_id="ws-1", mode="code", user_id="alice"
+        )
+
+        session = await session_store.get_session("thread-nova")
+        assert session is not None
+        assert session["user_id"] == "alice"
+
+    async def test_upsert_sem_user_id_nao_mexe_no_session_store(
+        self, session_store: SessionStore
+    ) -> None:
+        """Par de erro: chamadores que já registraram a posse por conta
+        própria (ex.: `stream_chat`, via `session_store.create_session`
+        direto) não devem disparar uma segunda escrita ao omitir `user_id`."""
+        await th._upsert_session("thread-sem-user")
+
+        assert await session_store.get_session("thread-sem-user") is None
+
+    async def test_upsert_idempotente_nao_sobrescreve_dono_existente(
+        self, session_store: SessionStore
+    ) -> None:
+        """Verifica o comportamento de upsert idempotente nao sobrescreve dono existente."""
+        await session_store.create_session("thread-1", user_id="alice")
+
+        await th._upsert_session("thread-1", user_id="bob")
+
+        session = await session_store.get_session("thread-1")
+        assert session is not None
+        assert session["user_id"] == "alice"
+
+
+class TestCreateThreadRegistersOwnership:
+    async def test_create_thread_registra_posse_no_session_store(
+        self, session_store: SessionStore
+    ) -> None:
+        """Verifica o comportamento de create thread registra posse no session store."""
+        from backend.api.schemas import CreateThreadRequest
+
+        thread = await th.create_thread(
+            CreateThreadRequest(workspace_id=""), _http_request("alice")
+        )
+
+        session = await session_store.get_session(thread.id)
+        assert session is not None
+        assert session["user_id"] == "alice"
+
+    async def test_create_thread_usa_mode_explicito_quando_informado(
+        self, session_store: SessionStore
+    ) -> None:
+        """Regressão: sem `mode` explícito no request, o endpoint gravava
+        "code" fixo mesmo pra uma conversa criada em modo Chat — o campo
+        precisa ser respeitado quando o caller informa."""
+        from backend.api.schemas import CreateThreadRequest
+
+        thread = await th.create_thread(
+            CreateThreadRequest(workspace_id="", mode="chat"), _http_request("alice")
+        )
+
+        session = await session_store.get_session(thread.id)
+        assert session is not None
+        assert session["mode"] == "chat"
+
+    async def test_create_thread_sem_mode_mantem_default_code(
+        self, session_store: SessionStore
+    ) -> None:
+        """Erro/borda: `mode` ausente/vazio preserva o comportamento
+        histórico do endpoint (default "code"), sem quebrar callers
+        existentes que nunca informaram o campo."""
+        from backend.api.schemas import CreateThreadRequest
+
+        thread = await th.create_thread(
+            CreateThreadRequest(workspace_id=""), _http_request("alice")
+        )
+
+        session = await session_store.get_session(thread.id)
+        assert session is not None
+        assert session["mode"] == "code"
+
+
+class TestMarkThreadRead:
+    """Garante que o cursor de leitura é isolado, monotônico e idempotente."""
+
+    async def test_usuario_so_nao_gera_notificacao_de_resposta(
+        self, session_store
+    ) -> None:
+        """Tool calls e a mensagem do usuário não viram notificações falsas."""
+        await session_store.create_session("thread-user-only", user_id="alice")
+        await session_store.append_message(
+            "thread-user-only", text_message(MessageRole.USER, "oi")
+        )
+        await th._upsert_session("thread-user-only")
+        await th._increment_message_count("thread-user-only")
+
+        assert await th._unread_count("thread-user-only", "alice") == 0
+
+    async def test_tools_nao_sao_contadas_como_respostas(self, session_store) -> None:
+        """Verifica o comportamento de tools nao sao contadas como respostas."""
+        await session_store.create_session("thread-tools", user_id="alice")
+        await session_store.append_message(
+            "thread-tools", text_message(MessageRole.USER, "busque")
+        )
+        await session_store.append_message(
+            "thread-tools", text_message(MessageRole.TOOL, "resultado")
+        )
+        await session_store.append_message(
+            "thread-tools", text_message(MessageRole.ASSISTANT, "encontrei")
+        )
+        await th._upsert_session("thread-tools")
+        await th._increment_message_count("thread-tools")
+
+        assert await th._unread_count("thread-tools", "alice") == 1
+
+    async def test_cursor_isolado_por_usuario(
+        self, session_store: SessionStore
+    ) -> None:
+        """Verifica o comportamento de cursor isolado por usuario."""
+        await session_store.create_session("thread-alice", user_id="alice")
+        await th._upsert_session("thread-alice")
+        await th._increment_message_count("thread-alice")
+        await th._increment_message_count("thread-alice")
+
+        result = await th.mark_thread_read("thread-alice", _http_request("alice"))
+
+        assert result == {"thread_id": "thread-alice", "unread_count": 0}
+        assert await th._unread_count("thread-alice", "alice") == 0
+        assert await th._unread_count("thread-alice", "bob") == 2
+
+    async def test_usuario_sem_posse_recebe_404(
+        self, session_store: SessionStore
+    ) -> None:
+        """Verifica o comportamento de usuario sem posse recebe 404."""
+        await session_store.create_session("thread-alice", user_id="alice")
+        await th._upsert_session("thread-alice")
+        await th._increment_message_count("thread-alice")
+
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await th.mark_thread_read("thread-alice", _http_request("bob"))
+
+        assert exc_info.value.status_code == 404
+
+    async def test_leitura_de_thread_inexistente_nao_cria_cursor(
+        self, session_store: SessionStore
+    ) -> None:
+        """Verifica o comportamento de leitura de thread inexistente nao cria cursor."""
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await th.mark_thread_read("thread-missing", _http_request("alice"))
+
+        assert exc_info.value.status_code == 404
+        db = await th._get_db()
+        async with db.execute(
+            "SELECT 1 FROM thread_read_cursors WHERE thread_id = ?",
+            ("thread-missing",),
+        ) as cursor:
+            assert await cursor.fetchone() is None
+
+    async def test_listagem_de_runs_de_thread_inexistente_rejeita_usuario(
+        self, session_store: SessionStore
+    ) -> None:
+        """A listagem de AgentRun não pode consultar uma thread órfã."""
+        from fastapi import HTTPException
+
+        with pytest.raises(HTTPException) as exc_info:
+            await th.list_thread_agent_runs("thread-missing", _http_request("alice"))
+
+        assert exc_info.value.status_code == 404
+
+    async def test_repetir_leitura_e_idempotente_e_novas_mensagens_voltam_a_contar(
+        self, session_store
+    ) -> None:
+        """Verifica o comportamento de repetir leitura e idempotente e novas mensagens voltam a contar."""
+        await session_store.create_session("thread-alice", user_id="alice")
+        await th._upsert_session("thread-alice")
+        await th._increment_message_count("thread-alice")
+
+        await th.mark_thread_read("thread-alice", _http_request("alice"))
+        await th.mark_thread_read("thread-alice", _http_request("alice"))
+        assert await th._unread_count("thread-alice", "alice") == 0
+
+        await th._increment_message_count("thread-alice")
+        assert await th._unread_count("thread-alice", "alice") == 1
+
+    async def test_cursor_nao_regride_em_atualizacao_concorrente(
+        self, session_store
+    ) -> None:
+        """Verifica o comportamento de cursor nao regride em atualizacao concorrente."""
+        await session_store.create_session("thread-alice", user_id="alice")
+        await th._upsert_session("thread-alice")
+        for _ in range(3):
+            await th._increment_message_count("thread-alice")
+
+        request = _http_request("alice")
+        await th.mark_thread_read("thread-alice", request)
+        db = await th._get_db()
+        await db.execute(
+            "UPDATE vectora_sessions SET message_count = 2 WHERE thread_id = ?",
+            ("thread-alice",),
+        )
+        await db.commit()
+        await th.mark_thread_read("thread-alice", request)
+
+        async with db.execute(
+            "SELECT read_count FROM thread_read_cursors WHERE thread_id = ? AND user_id = ?",
+            ("thread-alice", "alice"),
+        ) as cursor:
+            row = await cursor.fetchone()
+        assert row == (3,)
+
+
+class TestHistoryHttpOwnership:
+    """As rotas HTTP de histórico aplicam posse com dois usuários reais."""
+
+    async def test_historico_de_outro_usuario_responde_404_sem_conteudo(
+        self,
+        session_store: SessionStore,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Alice lê a própria thread; Bob recebe 404 (nunca 500) nas duas rotas
+        de histórico e a resposta não carrega mensagens nem anexos."""
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from starlette.requests import Request as StarletteRequest
+        from starlette.types import ASGIApp, Receive, Scope, Send
+
+        from backend.services import agent_factory
+
+        async def _store() -> SessionStore:
+            return session_store
+
+        monkeypatch.setattr(agent_factory, "get_session_store", _store)
+        await session_store.create_session("thread-alice", user_id="alice", mode="code")
+        await th._upsert_session("thread-alice", title="Privada")
+        await session_store.append_message_recorded(
+            "thread-alice", text_message(MessageRole.USER, "segredo da alice")
+        )
+        await th._increment_message_count("thread-alice")
+
+        class _UserFromHeader:
+            def __init__(self, app: ASGIApp) -> None:
+                self.app = app
+
+            async def __call__(
+                self, scope: Scope, receive: Receive, send: Send
+            ) -> None:
+                if scope["type"] == "http":
+                    user_id = StarletteRequest(scope).headers.get("x-test-user")
+                    scope.setdefault("state", {})["user"] = (
+                        MagicMock(id=user_id) if user_id else None
+                    )
+                await self.app(scope, receive, send)
+
+        app = FastAPI()
+        app.include_router(th.router)
+        app.add_middleware(_UserFromHeader)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        for user, expected_status in (("alice", 200), ("bob", 404)):
+            headers = {"x-test-user": user}
+            for response in (
+                client.post(
+                    "/vectora.chat.v1.ThreadService/GetHistory",
+                    json={"thread_id": "thread-alice"},
+                    headers=headers,
+                ),
+                client.get("/threads/thread-alice/history", headers=headers),
+            ):
+                assert response.status_code == expected_status, response.text
+                if expected_status == 200:
+                    assert "segredo da alice" in response.text
+                    continue
+                assert "segredo da alice" not in response.text
+                assert "messages" not in response.json()
+                assert "attachments" not in response.text

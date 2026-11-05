@@ -1,0 +1,315 @@
+"""``VectoraPostgresStore`` — armazenamento persistente de memórias/skills do
+agente sobre ``asyncpg``.
+
+Mesma lógica de ``backend/persistence/native/store.py::VectoraStore``
+(SQLite) — só o transporte SQL muda (``$1``/``$2``, ``JSONB``). Implementa
+``backend/storage/protocols.py::StoreBackend`` diretamente.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
+
+from backend.persistence.native.store import (
+    Item,
+    SearchItem,
+    _cosine_similarity,
+    _matches_filter,
+    _ns_from_str,
+    _ns_to_str,
+    get_text_at_path,
+    is_store_value_expired,
+)
+from backend.persistence.telemetry import telemetry
+
+if TYPE_CHECKING:
+    import asyncpg
+
+    from backend.storage.protocols import HealthResult
+
+_SETUP_SQL = """
+CREATE TABLE IF NOT EXISTS vectora_store_items (
+    namespace TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value JSONB NOT NULL,
+    embedding JSONB,
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (namespace, key)
+);
+CREATE INDEX IF NOT EXISTS idx_vectora_store_items_namespace
+    ON vectora_store_items(namespace);
+"""
+
+
+class VectoraPostgresStore:
+    """Store async sobre ``asyncpg.Pool``. Mesmo shape de ``index`` que
+    ``VectoraStore`` aceita."""
+
+    def __init__(
+        self, pool: asyncpg.Pool, *, index: dict[str, Any] | None = None
+    ) -> None:
+        """Inicializa o estado da instância."""
+        self._pool = pool
+        self._index = index
+        self._is_setup = False
+
+    async def setup(self) -> None:
+        """Executa a operação setup."""
+        if self._is_setup:
+            return
+        async with self._pool.acquire() as conn:
+            await conn.execute(_SETUP_SQL)
+        self._is_setup = True
+
+    async def aget(self, namespace: tuple[str, ...], key: str) -> Item | None:
+        """Executa a operação aget."""
+        started = time.perf_counter()
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT value, created_at, updated_at FROM vectora_store_items "
+                "WHERE namespace = $1 AND key = $2",
+                _ns_to_str(namespace),
+                key,
+            )
+        if row is None:
+            await telemetry.record_storage_operation(
+                backend="postgres",
+                operation="get",
+                namespace=namespace,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                result_count=0,
+            )
+            return None
+        value = row["value"]
+        value = json.loads(value) if isinstance(value, str) else value
+        if is_store_value_expired(value):
+            await telemetry.record_storage_operation(
+                backend="postgres",
+                operation="get",
+                namespace=namespace,
+                duration_ms=(time.perf_counter() - started) * 1000,
+                result_count=0,
+            )
+            return None
+        await telemetry.record_storage_operation(
+            backend="postgres",
+            operation="get",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            result_count=1,
+        )
+        return Item(
+            value=value,
+            key=key,
+            namespace=namespace,
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+        )
+
+    async def aput(
+        self, namespace: tuple[str, ...], key: str, value: dict[str, Any]
+    ) -> None:
+        """Executa a operação aput."""
+        started = time.perf_counter()
+        await self.setup()
+        namespace_str = _ns_to_str(namespace)
+        async with self._pool.acquire() as conn:
+            embedding_json = await self._embed_for_index(value)
+
+            now = datetime.now(UTC)
+            await conn.execute(
+                "INSERT INTO vectora_store_items "
+                "(namespace, key, value, embedding, created_at, updated_at) "
+                "VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $5) "
+                "ON CONFLICT (namespace, key) DO UPDATE SET "
+                "value = EXCLUDED.value, embedding = EXCLUDED.embedding, "
+                "updated_at = EXCLUDED.updated_at",
+                namespace_str,
+                key,
+                json.dumps(value, ensure_ascii=False),
+                embedding_json,
+                now,
+            )
+        await telemetry.record_storage_operation(
+            backend="postgres",
+            operation="put",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            bytes_written=len(json.dumps(value, ensure_ascii=False).encode()),
+        )
+
+    async def adelete(self, namespace: tuple[str, ...], key: str) -> None:
+        """Executa a operação adelete."""
+        started = time.perf_counter()
+        await self.setup()
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                "DELETE FROM vectora_store_items WHERE namespace = $1 AND key = $2",
+                _ns_to_str(namespace),
+                key,
+            )
+        await telemetry.record_storage_operation(
+            backend="postgres",
+            operation="delete",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+        )
+
+    async def purge_expired(self) -> int:
+        """Remove itens expirados em uma passagem de manutenção limitada."""
+        await self.setup()
+        now = datetime.now(UTC)
+        removed = 0
+        async with self._pool.acquire() as conn:
+            last_key: tuple[str, str] | None = None
+            while True:
+                if last_key is None:
+                    rows = await conn.fetch(
+                        "SELECT namespace, key, value FROM vectora_store_items "
+                        "ORDER BY namespace, key LIMIT 200"
+                    )
+                else:
+                    rows = await conn.fetch(
+                        "SELECT namespace, key, value FROM vectora_store_items "
+                        "WHERE (namespace, key) > ($1, $2) "
+                        "ORDER BY namespace, key LIMIT 200",
+                        *last_key,
+                    )
+                if not rows:
+                    break
+                for row in rows:
+                    value = row["value"]
+                    parsed = value
+                    if isinstance(value, str):
+                        try:
+                            parsed = json.loads(value)
+                        except (TypeError, ValueError):
+                            continue
+                    if isinstance(parsed, dict) and is_store_value_expired(
+                        parsed, now=now
+                    ):
+                        result = await conn.execute(
+                            "DELETE FROM vectora_store_items WHERE namespace = $1 AND key = $2 AND value = $3",
+                            row["namespace"],
+                            row["key"],
+                            value,
+                        )
+                        removed += int(result.rsplit(" ", 1)[-1])
+                last_key = (str(rows[-1]["namespace"]), str(rows[-1]["key"]))
+                if len(rows) < 200:
+                    break
+        return removed
+
+    async def asearch(
+        self,
+        namespace: tuple[str, ...],
+        *,
+        query: str | None = None,
+        limit: int = 10,
+        filter: dict[str, Any] | None = None,  # noqa: A002 — mesmo nome do protocolo
+        offset: int = 0,
+        include_expired: bool = False,
+    ) -> list[SearchItem]:
+        """Executa a operação asearch."""
+        started = time.perf_counter()
+        await self.setup()
+        prefix = _ns_to_str(namespace)
+        async with self._pool.acquire() as conn:
+            if prefix:
+                rows = await conn.fetch(
+                    "SELECT namespace, key, value, embedding, created_at, updated_at "
+                    "FROM vectora_store_items WHERE namespace = $1 OR namespace LIKE $2",
+                    prefix,
+                    f"{prefix}\x1e%",
+                )
+            else:
+                rows = await conn.fetch(
+                    "SELECT namespace, key, value, embedding, created_at, updated_at "
+                    "FROM vectora_store_items"
+                )
+
+        query_vector = await self._embed_query(query)
+
+        candidates: list[tuple[float | None, SearchItem]] = []
+        for row in rows:
+            value = row["value"]
+            value = json.loads(value) if isinstance(value, str) else value
+            if not include_expired and is_store_value_expired(value):
+                continue
+            if not _matches_filter(value, filter):
+                continue
+            embedding = row["embedding"]
+            score: float | None = None
+            if query_vector is not None and embedding:
+                embedding_vec = (
+                    json.loads(embedding) if isinstance(embedding, str) else embedding
+                )
+                score = _cosine_similarity(query_vector, embedding_vec)
+            elif query_vector is not None:
+                continue
+            candidates.append(
+                (
+                    score,
+                    SearchItem(
+                        namespace=_ns_from_str(row["namespace"]),
+                        key=row["key"],
+                        value=value,
+                        created_at=row["created_at"],
+                        updated_at=row["updated_at"],
+                        score=score,
+                    ),
+                )
+            )
+
+        if query_vector is not None:
+            candidates.sort(key=lambda pair: pair[0] or 0.0, reverse=True)
+
+        page = candidates[offset : offset + limit]
+        result = [item for _, item in page]
+        await telemetry.record_storage_operation(
+            backend="postgres",
+            operation="search",
+            namespace=namespace,
+            duration_ms=(time.perf_counter() - started) * 1000,
+            result_count=len(result),
+        )
+        return result
+
+    async def health(self) -> HealthResult:
+        """Executa a operação health."""
+        from backend.storage.protocols import _err, _ok
+
+        try:
+            await self.setup()
+            async with self._pool.acquire() as conn:
+                await conn.execute("SELECT 1")
+            return _ok()
+        except Exception as exc:
+            return _err(str(exc))
+
+    async def _embed_for_index(self, value: dict[str, Any]) -> str | None:
+        """Executa a operação  embed for index."""
+        if self._index is None:
+            return None
+        fields = self._index.get("fields", ["$"])
+        texts: list[str] = []
+        for field in fields:
+            texts.extend(get_text_at_path(value, field))
+        if not texts:
+            return None
+        vectors = await self._index["embed"](texts)
+        dims = self._index["dims"]
+        avg = [sum(v[i] for v in vectors) / len(vectors) for i in range(dims)]
+        return json.dumps(avg)
+
+    async def _embed_query(self, query: str | None) -> list[float] | None:
+        """Executa a operação  embed query."""
+        if not query or self._index is None:
+            return None
+        vectors = await self._index["embed"]([query])
+        return vectors[0] if vectors else None

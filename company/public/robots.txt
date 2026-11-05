@@ -1,8 +1,0 @@
-User-agent: *
-Allow: /
-
-# Páginas autenticadas — não indexar
-Disallow: /dashboard/
-Disallow: /dashboard
-
-Sitemap: https://vectora.company/sitemap.xml

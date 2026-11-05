@@ -1,0 +1,1632 @@
+"""Modelo de Kanban sobre ``vectora_background_tasks``.
+
+Extensão do schema existente, não um banco paralelo — o Vectora já tem
+``BackgroundTask`` com ``kind="subagent"`` e worktree isolado
+(``backend/scheduling/delegate.py``).
+
+Três mecanismos vêm do Hermes (``hermes_cli/kanban_db.py``):
+
+- **Claim atômico por CAS**: ``UPDATE ... WHERE status='ready' AND claim_lock
+  IS NULL``. Ler-depois-escrever deixaria dois workers pegarem o mesmo card.
+- **TTL no claim**: worker que morre sem liberar tem o card devolvido por
+  expiração, em vez de deixá-lo preso em ``running`` para sempre.
+- **Bloqueio tipado**: ``dependency`` fica em ``todo`` (não há ação humana
+  possível, some do radar até a promoção automática); os demais vão pra
+  ``blocked``, onde alguém precisa agir.
+
+Invariante de produto: delegação síncrona (``task()`` no meio da conversa)
+**não** participa do board — só background tasks. Isso já é o comportamento
+do Vectora e é o mesmo desacoplamento do Hermes.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import json
+import logging
+import uuid
+import weakref
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any, NoReturn
+
+import aiosqlite
+
+if TYPE_CHECKING:
+    from aiosqlite import Connection as SQLiteConnection
+
+    from backend.llm.systemone.harness import SystemOneHarness
+
+logger = logging.getLogger(__name__)
+
+#: Ciclo completo. `triage` e `archived` ficam fora das colunas principais
+#: da UI, mas existem no modelo.
+KANBAN_STATUSES: tuple[str, ...] = (
+    "triage",
+    "todo",
+    "scheduled",
+    "ready",
+    "running",
+    "blocked",
+    "review",
+    "done",
+    "archived",
+)
+
+#: `dependency` é resolvido pela máquina; os outros esperam uma pessoa.
+BLOCK_KINDS: tuple[str, ...] = (
+    "dependency",
+    "needs_input",
+    "capability",
+    "transient",
+)
+
+_DEFAULT_CLAIM_TTL_S = 900
+_VERSION_CHECKED: weakref.WeakSet[SQLiteConnection] = weakref.WeakSet()
+
+#: Transições acionáveis por ação humana direta (drag-and-drop no board ou
+#: `PATCH .../tasks/{id}` com campo `status`). `running` só é alcançado pelo
+#: claim atômico do scheduler (`claim_task`) e `done` só pela run terminando
+#: de verdade — nenhum dos dois aparece como alvo aqui, então nenhuma ação
+#: manual chega lá por mais que o alvo esteja em `KANBAN_STATUSES`.
+MANUAL_TRANSITIONS: dict[str, frozenset[str]] = {
+    "todo": frozenset({"ready", "triage"}),
+    "ready": frozenset({"triage"}),
+    "blocked": frozenset({"ready"}),
+    #: Reprovar review — devolve pro fluxo ativo. Aprovar (`review` →
+    #: `done`) NÃO entra aqui de propósito: é um endpoint dedicado
+    #: (`POST /tasks/{id}/review/approve`), pra não abrir um `*→done`
+    #: genérico pro drag-and-drop e pra registrar quem aprovou.
+    "review": frozenset({"ready"}),
+    #: Reabertura manual de uma task já concluída — único caminho de volta
+    #: pra `done`, nunca automático.
+    "done": frozenset({"review"}),
+}
+
+#: Bloqueios consecutivos (não-`dependency`) antes de escalar pra `triage`
+#: em vez de deixar o card preso em `blocked` pra sempre esperando alguém
+#: notar. Zera quando a task sai de `blocked` com sucesso (`set_status`
+#: pra `ready`/`done`, ou `unblock_task` explícito).
+BLOCK_RECURRENCE_LIMIT = 3
+
+
+def _cas_conditions(
+    expected_status: str | None,
+    expected_updated_at: str | None,
+    expected_version: int | str | None,
+) -> tuple[list[str], list[str | int]]:
+    """Monta predicados e parâmetros CAS de forma única para o Kanban."""
+    where_parts = ["id = ?"]
+    params: list[str | int] = []
+    if expected_status is not None:
+        where_parts.append("status = ?")
+        params.append(expected_status)
+    if expected_updated_at is not None:
+        where_parts.append("updated_at = ?")
+        params.append(expected_updated_at)
+    if expected_version is not None:
+        where_parts.append("version = ?")
+        params.append(
+            int(expected_version)
+            if isinstance(expected_version, int)
+            or (isinstance(expected_version, str) and expected_version.isdecimal())
+            else expected_version
+        )
+    return where_parts, params
+
+
+async def _get_db() -> aiosqlite.Connection:
+    """Mesmo banco de `vectora_background_tasks` — não `checkpoints.db`.
+
+    `vectora_background_tasks`/`vectora_task_links` vivem em
+    `settings.db_dsn` (aplicado por `schema.sql`), não no banco de
+    threads/checkpoints usado por `threads.py::_get_db`. Usar o banco
+    errado aqui faz todo claim/status do Kanban cair num banco sem essas
+    tabelas — o try/except do `tick()` silencia o erro, então o sintoma
+    vira só "nada do Kanban nunca atualiza".
+    """
+    from backend.scheduling.background_tasks import _get_db as _tasks_db
+
+    return await _tasks_db()
+
+
+async def _ensure_version_column(db: SQLiteConnection) -> None:
+    """Upgrade legacy task connections before a fenced mutation/read."""
+    if db in _VERSION_CHECKED:
+        return
+    try:
+        async with db.execute("PRAGMA table_info(vectora_background_tasks)") as cur:
+            rows = await cur.fetchall()
+            # O banco de tarefas normalmente usa ``dict`` como row_factory,
+            # enquanto vários testes e conexões diretas usam ``aiosqlite.Row``.
+            # Ambos representam o nome da coluna na posição ``1``/``name``;
+            # acessar apenas por índice quebra o scheduler em produção.
+            columns = {
+                str(row["name"] if isinstance(row, dict) else row[1]) for row in rows
+            }
+        if columns and "version" not in columns:
+            await db.execute(
+                "ALTER TABLE vectora_background_tasks "
+                "ADD COLUMN version INTEGER NOT NULL DEFAULT 1"
+            )
+            await db.commit()
+        if columns:
+            _VERSION_CHECKED.add(db)
+    except Exception:
+        logger.warning("kanban: falha ao atualizar coluna version", exc_info=True)
+
+
+def _agora() -> datetime:
+    """Executa a operação  agora."""
+    return datetime.now(UTC)
+
+
+async def _raise_claim_failure(
+    db: aiosqlite.Connection, task_id: str, authorized_run_id: str
+) -> NoReturn:
+    """Diferencia perda do claim de conflito CAS concorrente."""
+    async with db.execute(
+        "SELECT claim_lock, claim_expires_at FROM vectora_background_tasks "
+        "WHERE id = ?",
+        (task_id,),
+    ) as cur:
+        latest = await cur.fetchone()
+    await db.rollback()
+    now_iso = _agora().isoformat()
+    if (
+        latest is not None
+        and latest["claim_lock"] == authorized_run_id
+        and latest["claim_expires_at"]
+        and latest["claim_expires_at"] > now_iso
+    ):
+        raise ValueError("conflito CAS: a versão da task mudou durante a transição")
+    raise ValueError("execução perdeu o claim da task")
+
+
+async def _emit_kanban_event(
+    task_id: str,
+    status: str,
+    *,
+    block_kind: str | None = None,
+    block_reason: str | None = None,
+) -> None:
+    """Notifica o board (SSE) sobre a mudança de status do card.
+
+    Reaproveita o canal genérico de webhooks (`_emit_sse_event`) em vez de
+    um endpoint dedicado — o frontend já assina `/webhook/events`. Falha
+    aqui é só a camada de notificação em tempo real: a transação de status
+    já foi commitada por quem chamou, então um erro de emissão não pode
+    propagar e desfazer o que já aconteceu no banco.
+    """
+    try:
+        from backend.api.handlers.webhooks import _emit_sse_event
+
+        # `board_id` não chega por parâmetro dos callers (set_status,
+        # unblock_task, block_task) — uma query pequena aqui, não um
+        # replay de assinatura em cada call site. Sem isso, um board
+        # reconciliando por SSE não sabe se o evento é dele (cairia
+        # sempre no fallback de refetch completo).
+        board_id = None
+        try:
+            db = await _get_db()
+            await _ensure_version_column(db)
+            async with db.execute(
+                "SELECT board_id FROM vectora_background_tasks WHERE id = ?",
+                (task_id,),
+            ) as cur:
+                row = await cur.fetchone()
+            board_id = row["board_id"] if row else None
+        except Exception:
+            logger.debug(
+                "kanban: falha ao buscar board_id pro evento SSE", exc_info=True
+            )
+
+        _emit_sse_event(
+            provider="kanban",
+            event_type="kanban_task.status_changed",
+            data={
+                "task_id": task_id,
+                "board_id": board_id,
+                "status": status,
+                "block_kind": block_kind,
+                "block_reason": block_reason,
+            },
+        )
+    except Exception:
+        logger.debug("kanban: falha ao emitir evento SSE de status", exc_info=True)
+
+
+async def _record_task_event(
+    task_id: str,
+    from_status: str | None,
+    to_status: str,
+    *,
+    block_kind: str | None = None,
+    block_reason: str | None = None,
+) -> None:
+    """Grava a transição em `vectora_task_events` — a timeline consultável
+    que `_emit_kanban_event` (SSE efêmero) nunca persiste.
+
+    Mesmo contrato de falha do `_emit_kanban_event`: a transição de status já
+    foi commitada por quem chamou, então um erro aqui é só perda de uma linha
+    de histórico, não pode desfazer a transição real.
+    """
+    try:
+        db = await _get_db()
+        await _ensure_version_column(db)
+        await db.execute(
+            "INSERT INTO vectora_task_events "
+            "(id, task_id, from_status, to_status, block_kind, block_reason) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                str(uuid.uuid4()),
+                task_id,
+                from_status,
+                to_status,
+                block_kind,
+                block_reason,
+            ),
+        )
+        await db.commit()
+    except Exception:
+        logger.debug("kanban: falha ao gravar evento de timeline", exc_info=True)
+
+
+async def get_task_status(task_id: str) -> dict[str, Any]:
+    """Executa a operação get task status."""
+    db = await _get_db()
+    await _ensure_version_column(db)
+    async with db.execute(
+        "SELECT status, block_kind, block_reason, claim_lock, claim_expires_at, updated_at, version "
+        "FROM vectora_background_tasks WHERE id = ?",
+        (task_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        msg = f"task {task_id!r} não existe"
+        raise ValueError(msg)
+    st = dict(row)
+    if "version" not in st or st["version"] is None:
+        st["version"] = 1
+    return st
+
+
+async def authorize_task_session(task_id: str, session_id: str) -> None:
+    """Authorize a task mutation for the session that owns the task.
+
+    Raises ``ValueError`` when the task does not exist or its persisted
+    session differs from ``session_id``.
+    """
+    db = await _get_db()
+    await _ensure_version_column(db)
+    async with db.execute(
+        "SELECT session_id FROM vectora_background_tasks WHERE id = ?", (task_id,)
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise ValueError(f"task {task_id!r} não existe")
+    if row["session_id"] != session_id:
+        raise ValueError("task não pertence à sessão atual")
+
+
+async def set_status(
+    task_id: str,
+    status: str,
+    *,
+    authorized_run_id: str | None = None,
+    expected_status: str | None = None,
+    expected_updated_at: str | None = None,
+    expected_version: int | str | None = None,
+) -> None:
+    """Atualiza o status do card, opcionalmente sob fencing de uma run ou CAS.
+
+    Quando ``authorized_run_id`` é informado, a escrita só ocorre enquanto o
+    claim da run continua vigente; uma perda do claim levanta ``ValueError``.
+    Quando ``expected_status``, ``expected_updated_at`` ou ``expected_version``
+    são informados, a mutação exige que o registro coincida exatamente com essas
+    condições; se divergirem (rowcount 0), levanta ``ValueError`` por conflito.
+    """
+    if status not in KANBAN_STATUSES:
+        msg = (
+            f"status {status!r} fora da taxonomia — válidos: "
+            f"{', '.join(KANBAN_STATUSES)}"
+        )
+        raise ValueError(msg)
+    db = await _get_db()
+    await _ensure_version_column(db)
+    async with db.execute(
+        "SELECT status, trigger_type, trigger_config "
+        "FROM vectora_background_tasks WHERE id = ?",
+        (task_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    from_status = row["status"] if row else None
+    next_run_at: str | None = None
+    interval_config_raw: object | None = None
+    is_interval_completion = (
+        authorized_run_id is not None
+        and status in ("ready", "done")
+        and row is not None
+        and row["trigger_type"] == "interval"
+    )
+    if is_interval_completion:
+        # Advance the occurrence in the same transaction that releases its
+        # claim; otherwise another scheduler can reclaim the old due time.
+        from backend.scheduling.background_tasks import _next_run
+
+        interval_config_raw = row["trigger_config"]
+
+        def _next_interval_run(raw: object) -> str | None:
+            """Executa a operação  next interval run."""
+            config_value: object = raw
+            if isinstance(raw, str):
+                try:
+                    config_value = json.loads(raw)
+                except json.JSONDecodeError:
+                    config_value = {}
+            config = config_value if isinstance(config_value, dict) else {}
+            cron_expr = config.get("cron_expr")
+            return _next_run(cron_expr if isinstance(cron_expr, str) else None)
+
+        next_run_at = _next_interval_run(interval_config_raw)
+
+    where_parts, extra_params = _cas_conditions(
+        expected_status, expected_updated_at, expected_version
+    )
+
+    if status in ("ready", "done"):
+        # Saída bem-sucedida do ciclo de bloqueio — zera o contador de
+        # escalonamento (ver BLOCK_RECURRENCE_LIMIT), senão uma task que
+        # falhou 2x e depois teve sucesso carregaria o histórico pra
+        # sempre em vez de resetar a régua.
+        if authorized_run_id is None:
+            query = (
+                "UPDATE vectora_background_tasks SET status = ?, block_count = 0, "  # noqa: S608  # nosec B608
+                "version = version + 1, updated_at = datetime('now') "
+                f"WHERE {' AND '.join(where_parts)}"
+            )
+            cur = await db.execute(query, (status, task_id, *extra_params))
+        elif is_interval_completion:
+            # A concurrent schedule edit may replace trigger_config after
+            # the snapshot above. Retry from the fresh config rather than
+            # overwriting its next_run_at with the old cron expression.
+            where_interval = [
+                *where_parts,
+                "claim_lock = ?",
+                "claim_expires_at > ?",
+                "trigger_config = ?",
+            ]
+            query = (
+                "UPDATE vectora_background_tasks SET status = ?, "  # noqa: S608  # nosec B608
+                "block_count = 0, next_run_at = ?, claim_lock = NULL, "
+                "claim_expires_at = NULL, version = version + 1, updated_at = datetime('now') "
+                f"WHERE {' AND '.join(where_interval)}"
+            )
+            while True:
+                cur = await db.execute(
+                    query,
+                    (
+                        status,
+                        next_run_at,
+                        task_id,
+                        *extra_params,
+                        authorized_run_id,
+                        _agora().isoformat(),
+                        interval_config_raw,
+                    ),
+                )
+                if cur.rowcount:
+                    break
+                async with db.execute(
+                    "SELECT trigger_config, status, updated_at, version, "
+                    "claim_lock, claim_expires_at "
+                    "FROM vectora_background_tasks WHERE id = ?",
+                    (task_id,),
+                ) as latest_cur:
+                    latest = await latest_cur.fetchone()
+                now_iso = _agora().isoformat()
+                if (
+                    latest is None
+                    or latest["claim_lock"] != authorized_run_id
+                    or not latest["claim_expires_at"]
+                    or latest["claim_expires_at"] <= now_iso
+                ):
+                    await db.rollback()
+                    raise ValueError("execução perdeu o claim da task")
+                # A failed CAS is a real conflict unless the interval
+                # configuration changed concurrently.  Retrying with the
+                # same snapshot would issue the identical UPDATE forever
+                # while the claim remains valid.
+                if expected_status is not None and latest["status"] != expected_status:
+                    await db.rollback()
+                    raise ValueError("concorrência detectada: status foi modificado")
+                if (
+                    expected_updated_at is not None
+                    and latest["updated_at"] != expected_updated_at
+                ):
+                    await db.rollback()
+                    raise ValueError(
+                        "concorrência detectada: updated_at foi modificado"
+                    )
+                if expected_version is not None and str(latest["version"]) != str(
+                    expected_version
+                ):
+                    await db.rollback()
+                    raise ValueError("concorrência detectada: versão foi modificada")
+                if latest["trigger_config"] == interval_config_raw:
+                    await db.rollback()
+                    raise ValueError(
+                        "concorrência detectada: registro foi modificado por outra operação"
+                    )
+                interval_config_raw = latest["trigger_config"]
+                next_run_at = _next_interval_run(interval_config_raw)
+        else:
+            where_run = [*where_parts, "claim_lock = ?", "claim_expires_at > ?"]
+            query = (
+                "UPDATE vectora_background_tasks SET status = ?, "  # noqa: S608  # nosec B608
+                "block_count = 0, claim_lock = NULL, claim_expires_at = NULL, "
+                "version = version + 1, updated_at = datetime('now') "
+                f"WHERE {' AND '.join(where_run)}"
+            )
+            cur = await db.execute(
+                query,
+                (
+                    status,
+                    task_id,
+                    *extra_params,
+                    authorized_run_id,
+                    _agora().isoformat(),
+                ),
+            )
+    elif authorized_run_id is None:
+        query = (
+            "UPDATE vectora_background_tasks SET status = ?, "  # noqa: S608  # nosec B608
+            "version = version + 1, updated_at = datetime('now') "
+            f"WHERE {' AND '.join(where_parts)}"
+        )
+        cur = await db.execute(query, (status, task_id, *extra_params))
+    else:
+        where_run = [*where_parts, "claim_lock = ?", "claim_expires_at > ?"]
+        query = (
+            "UPDATE vectora_background_tasks SET status = ?, "  # noqa: S608  # nosec B608
+            "claim_lock = NULL, claim_expires_at = NULL, "
+            "version = version + 1, updated_at = datetime('now') "
+            f"WHERE {' AND '.join(where_run)}"
+        )
+        cur = await db.execute(
+            query,
+            (
+                status,
+                task_id,
+                *extra_params,
+                authorized_run_id,
+                _agora().isoformat(),
+            ),
+        )
+    if cur.rowcount == 0:
+        await db.rollback()
+        if authorized_run_id is not None:
+            async with db.execute(
+                "SELECT status, updated_at, version, claim_lock, claim_expires_at "
+                "FROM vectora_background_tasks WHERE id = ?",
+                (task_id,),
+            ) as latest_cur:
+                latest = await latest_cur.fetchone()
+            now_iso = _agora().isoformat()
+            claim_valid = bool(
+                latest
+                and latest["claim_lock"] == authorized_run_id
+                and latest["claim_expires_at"]
+                and latest["claim_expires_at"] > now_iso
+            )
+            if claim_valid and (
+                (expected_status is not None and latest["status"] != expected_status)
+                or (
+                    expected_updated_at is not None
+                    and latest["updated_at"] != expected_updated_at
+                )
+                or (
+                    expected_version is not None
+                    and str(latest["version"]) != str(expected_version)
+                )
+            ):
+                raise ValueError(
+                    "concorrência detectada: filtros CAS foram modificados"
+                )
+            raise ValueError("execução perdeu o claim da task")
+        if (
+            expected_status is not None
+            or expected_updated_at is not None
+            or expected_version is not None
+        ):
+            raise ValueError(
+                "concorrência detectada: registro foi modificado por outra operação"
+            )
+    await db.commit()
+    await _emit_kanban_event(task_id, status)
+    await _record_task_event(task_id, from_status, status)
+
+
+async def complete_run_and_set_status(
+    run_id: str,
+    task_id: str,
+    summary: str,
+    target_status: str,
+    *,
+    expected_run_status: str = "running",
+) -> bool:
+    """Conclui a run e libera/avança seu card em uma única transação.
+
+    O ``claim_lock`` identifica a execução, portanto a conclusão pode usar o
+    próprio lock mesmo depois do TTL expirar: enquanto ele ainda pertence à
+    run, nenhum worker concorrente pode reivindicar o card. Se o lock já foi
+    limpo ou trocado, toda a transação é revertida e o chamador trata a perda
+    da corrida como uma conclusão descartada.
+    """
+    if target_status not in KANBAN_STATUSES:
+        raise ValueError(f"status inválido: {target_status!r}")
+
+    db = await _get_db()
+    await _ensure_version_column(db)
+    async with db.execute(
+        "SELECT status, trigger_type, trigger_config, claim_lock "
+        "FROM vectora_background_tasks WHERE id = ?",
+        (task_id,),
+    ) as cur:
+        task_row = await cur.fetchone()
+    if task_row is None:
+        await db.rollback()
+        return False
+
+    from_status = task_row["status"]
+    next_run_at: str | None = None
+    interval_completion = (
+        target_status == "ready" and task_row["trigger_type"] == "interval"
+    )
+    if interval_completion:
+        from backend.scheduling.background_tasks import _next_run
+
+        raw_config: object = task_row["trigger_config"]
+        config: object = raw_config
+        if isinstance(raw_config, str):
+            try:
+                config = json.loads(raw_config)
+            except json.JSONDecodeError:
+                config = {}
+        cron_expr = config.get("cron_expr") if isinstance(config, dict) else None
+        next_run_at = _next_run(cron_expr if isinstance(cron_expr, str) else None)
+
+    run_cur = await db.execute(
+        "UPDATE vectora_background_runs SET status = 'done', summary = ?, "
+        "finished_at = ? WHERE id = ? AND status = ?",
+        (
+            summary[:4000],
+            _agora().isoformat(),
+            run_id,
+            expected_run_status,
+        ),
+    )
+    if run_cur.rowcount == 0:
+        await db.rollback()
+        return False
+
+    if interval_completion:
+        task_cur = await db.execute(
+            "UPDATE vectora_background_tasks SET status = ?, block_count = 0, "
+            "version = version + 1, next_run_at = ?, claim_lock = NULL, "
+            "claim_expires_at = NULL, updated_at = datetime('now') WHERE id = ? AND claim_lock = ?",
+            (target_status, next_run_at, task_id, run_id),
+        )
+    else:
+        task_cur = await db.execute(
+            "UPDATE vectora_background_tasks SET status = ?, block_count = 0, "
+            "version = version + 1, claim_lock = NULL, claim_expires_at = NULL, "
+            "updated_at = datetime('now') WHERE id = ? AND claim_lock = ?",
+            (target_status, task_id, run_id),
+        )
+    if task_cur.rowcount == 0:
+        await db.rollback()
+        return False
+
+    await db.commit()
+    # Notifications are deliberately post-commit. A transient SSE/timeline
+    # failure must never turn a committed completion into an HTTP error.
+    with contextlib.suppress(Exception):
+        await _emit_kanban_event(task_id, target_status)
+    with contextlib.suppress(Exception):
+        await _record_task_event(task_id, from_status, target_status)
+    with contextlib.suppress(Exception):
+        await recompute_ready()
+    return True
+
+
+async def manual_transition(
+    task_id: str,
+    target_status: str,
+    *,
+    expected_status: str | None = None,
+    expected_version: int | str | None = None,
+    authorized_session_id: str | None = None,
+    authorized_run_id: str | None = None,
+) -> None:
+    """Move a task por ação humana direta (drag-and-drop ou `PATCH` de status).
+
+    Valida a transição contra `MANUAL_TRANSITIONS`, não só o alvo contra
+    `KANBAN_STATUSES` — `set_status` sozinho aceitaria `*→running`/`*→done`,
+    que precisam ficar exclusivos do claim atômico e da run terminando.
+    `blocked→ready` passa por `unblock_task` (mesma função do botão
+    "Desbloquear") para também limpar `block_kind`/`block_reason`.
+    Permite validação otimista de concorrência via `expected_status` e `expected_version`.
+    """
+    estado = await get_task_status(task_id)
+    if authorized_session_id is not None:
+        db = await _get_db()
+        await _ensure_version_column(db)
+        async with db.execute(
+            "SELECT session_id FROM vectora_background_tasks WHERE id = ?",
+            (task_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None or row["session_id"] != authorized_session_id:
+            raise ValueError("task não pertence à sessão atual")
+    atual = estado["status"]
+    if expected_status is not None and atual != expected_status:
+        raise ValueError(
+            f"concorrência detectada: status atual {atual!r} difere do esperado {expected_status!r}"
+        )
+    if expected_version is not None:
+        versao_atual = estado.get("version")
+        if versao_atual is not None and str(versao_atual) != str(expected_version):
+            raise ValueError(
+                f"concorrência detectada: versão atual {versao_atual!r} difere da esperada {expected_version!r}"
+            )
+    permitidos = MANUAL_TRANSITIONS.get(atual, frozenset())
+    if target_status not in permitidos:
+        msg = f"transição {atual!r} → {target_status!r} não é permitida manualmente"
+        raise ValueError(msg)
+
+    cas_expected_status = expected_status or atual
+    cas_expected_updated_at = estado.get("updated_at")
+    cas_expected_version = expected_version or estado.get("version")
+
+    if atual == "blocked" and target_status == "ready":
+        await unblock_task(
+            task_id,
+            authorized_run_id=authorized_run_id,
+            expected_status=cas_expected_status,
+            expected_updated_at=cas_expected_updated_at,
+            expected_version=cas_expected_version,
+        )
+        return
+    await set_status(
+        task_id,
+        target_status,
+        authorized_run_id=authorized_run_id,
+        expected_status=cas_expected_status,
+        expected_updated_at=cas_expected_updated_at,
+        expected_version=cas_expected_version,
+    )
+
+
+async def claim_task(
+    task_id: str, run_id: str, *, ttl_s: int = _DEFAULT_CLAIM_TTL_S
+) -> bool:
+    """Reivindica a task para `run_id`. `False` quando outro já pegou.
+
+    O CAS está no `WHERE`: só troca de dono se ainda estiver `ready`/
+    `scheduled` e sem claim. `scheduled` entra aqui porque toda task
+    recorrente/agendada nasce nesse status e só o tick do scheduler decide
+    *quando* ela é due — não é o status quem barra isso,
+    é o filtro por `next_run_at` em `_list_due_interval_tasks`. Checar
+    antes e gravar depois abriria a janela em que dois workers leem
+    "livre" e ambos gravam.
+    """
+    expira = (_agora() + timedelta(seconds=ttl_s)).isoformat()
+    db = await _get_db()
+    await _ensure_version_column(db)
+    cur = await db.execute(
+        """
+        UPDATE vectora_background_tasks
+           SET status = 'running',
+               claim_lock = ?,
+               claim_expires_at = ?,
+               version = version + 1,
+               updated_at = datetime('now')
+         WHERE id = ?
+           AND status IN ('ready', 'scheduled')
+           AND claim_lock IS NULL
+        """,
+        (run_id, expira, task_id),
+    )
+    await db.commit()
+    return cur.rowcount > 0
+
+
+async def ensure_task_claim(
+    task_id: str, run_id: str, *, ttl_s: int = _DEFAULT_CLAIM_TTL_S
+) -> bool:
+    """Mantém ou recupera o claim da própria run sem roubar outro worker.
+
+    Uma run pausada para aprovação pode sobreviver ao TTL do claim. Ela pode
+    reassumir o card somente enquanto o lock ainda é dela ou depois que o
+    lock foi liberado; um claim pertencente a outra run sempre é recusado.
+    """
+    if not run_id:
+        return False
+    expira = (_agora() + timedelta(seconds=ttl_s)).isoformat()
+    db = await _get_db()
+    await _ensure_version_column(db)
+    async with db.execute(
+        "SELECT claim_lock, claim_expires_at FROM vectora_background_tasks "
+        "WHERE id = ?",
+        (task_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        return False
+    cur = await db.execute(
+        "UPDATE vectora_background_tasks SET status = 'running', claim_lock = ?, "
+        "claim_expires_at = ?, version = version + 1, updated_at = datetime('now') WHERE id = ? AND "
+        "((claim_lock = ?) OR "
+        "(claim_lock IS NULL AND status IN ('ready', 'scheduled')))",
+        (run_id, expira, task_id, run_id),
+    )
+    await db.commit()
+    return cur.rowcount > 0
+
+
+async def authorize_task_claim(task_id: str, run_id: str) -> None:
+    """Confirma que uma execução ainda detém o claim do card.
+
+    Levanta ``ValueError`` para IDs ausentes, claims pertencentes a outra
+    execução ou claims expirados; isso impede que uma run zumbi altere um
+    card já reivindicado por outro worker.
+    """
+    if not run_id:
+        raise ValueError("run_id ausente no contexto da execução")
+    db = await _get_db()
+    await _ensure_version_column(db)
+    async with db.execute(
+        "SELECT claim_lock, claim_expires_at FROM vectora_background_tasks "
+        "WHERE id = ?",
+        (task_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise ValueError("task não encontrada")
+    if row["claim_lock"] != run_id:
+        raise ValueError("execução não possui o claim atual da task")
+    try:
+        expirado = datetime.fromisoformat(row["claim_expires_at"]) <= _agora()
+    except (TypeError, ValueError):
+        expirado = True
+    if expirado:
+        raise ValueError("claim da execução expirou")
+
+
+async def heartbeat_claim(
+    task_id: str, run_id: str, *, ttl_s: int = _DEFAULT_CLAIM_TTL_S
+) -> bool:
+    """Estende o TTL do claim — não é um "estou vivo" simbólico.
+
+    Só o dono do claim consegue estender: sem essa checagem, um worker
+    zumbi manteria vivo o claim de outro.
+    """
+    expira = (_agora() + timedelta(seconds=ttl_s)).isoformat()
+    db = await _get_db()
+    await _ensure_version_column(db)
+    cur = await db.execute(
+        "UPDATE vectora_background_tasks SET claim_expires_at = ? "
+        "WHERE id = ? AND claim_lock = ?",
+        (expira, task_id, run_id),
+    )
+    await db.commit()
+    return cur.rowcount > 0
+
+
+async def release_stale_claims() -> int:
+    """Devolve pra `ready` os claims expirados. Roda no tick do scheduler."""
+    agora = _agora().isoformat()
+    db = await _get_db()
+    await _ensure_version_column(db)
+    cur = await db.execute(
+        """
+        UPDATE vectora_background_tasks
+           SET status = 'ready',
+               claim_lock = NULL,
+               claim_expires_at = NULL,
+               version = version + 1,
+               updated_at = datetime('now')
+         WHERE claim_lock IS NOT NULL
+           AND claim_expires_at IS NOT NULL
+           AND claim_expires_at < ?
+        """,
+        (agora,),
+    )
+    await db.commit()
+    if cur.rowcount:
+        logger.info("kanban: %s claim(s) expirado(s) devolvido(s)", cur.rowcount)
+    return cur.rowcount
+
+
+async def block_task(
+    task_id: str,
+    kind: str,
+    reason: str,
+    *,
+    authorized_run_id: str | None = None,
+    allow_expired_claim: bool = False,
+) -> None:
+    """Bloqueia a task. `dependency` fica em `todo`; o resto vai pra `blocked`.
+
+    Bloqueios não-`dependency` incrementam `block_count`; ao atingir
+    `BLOCK_RECURRENCE_LIMIT`, escala pra `triage` em vez de `blocked` — um
+    card que falha sempre do mesmo jeito precisa de decisão humana, não de
+    ficar invisível na coluna esperando alguém notar.
+    """
+    if kind not in BLOCK_KINDS:
+        msg = (
+            f"tipo de bloqueio {kind!r} fora da taxonomia — válidos: "
+            f"{', '.join(BLOCK_KINDS)}"
+        )
+        raise ValueError(msg)
+
+    db = await _get_db()
+    await _ensure_version_column(db)
+
+    if kind == "dependency":
+        async with db.execute(
+            "SELECT status FROM vectora_background_tasks WHERE id = ?", (task_id,)
+        ) as cur:
+            row = await cur.fetchone()
+        from_status = row["status"] if row else None
+        # Bloqueio por dependência não é acionável por ninguém: colocá-lo em
+        # `blocked` encheria a coluna de cards que a pessoa não pode destravar.
+        if authorized_run_id is None:
+            cur = await db.execute(
+                "UPDATE vectora_background_tasks SET status = 'todo', block_kind = ?, "
+                "block_reason = ?, claim_lock = NULL, claim_expires_at = NULL, "
+                "version = version + 1, updated_at = datetime('now') WHERE id = ?",
+                (kind, reason, task_id),
+            )
+        elif allow_expired_claim:
+            cur = await db.execute(
+                "UPDATE vectora_background_tasks SET status = 'todo', "
+                "block_kind = ?, block_reason = ?, claim_lock = NULL, "
+                "claim_expires_at = NULL, version = version + 1, updated_at = datetime('now') "
+                "WHERE id = ? AND (claim_lock = ? OR (claim_lock IS NULL "
+                "AND status IN ('ready', 'running', 'scheduled')))",
+                (kind, reason, task_id, authorized_run_id),
+            )
+        else:
+            cur = await db.execute(
+                "UPDATE vectora_background_tasks SET status = 'todo', block_kind = ?, "
+                "block_reason = ?, claim_lock = NULL, claim_expires_at = NULL, "
+                "version = version + 1, updated_at = datetime('now') WHERE id = ? AND claim_lock = ? "
+                "AND claim_expires_at > ?",
+                (kind, reason, task_id, authorized_run_id, _agora().isoformat()),
+            )
+        if authorized_run_id is not None and cur.rowcount == 0:
+            await _raise_claim_failure(db, task_id, authorized_run_id)
+        await db.commit()
+        await _emit_kanban_event(task_id, "todo", block_kind=kind, block_reason=reason)
+        await _record_task_event(
+            task_id, from_status, "todo", block_kind=kind, block_reason=reason
+        )
+        return
+
+    async with db.execute(
+        "SELECT status, block_count FROM vectora_background_tasks WHERE id = ?",
+        (task_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    from_status = row["status"] if row else None
+    novo_count = ((row["block_count"] if row else 0) or 0) + 1
+
+    if novo_count >= BLOCK_RECURRENCE_LIMIT:
+        status = "triage"
+        reason = (
+            f"{reason} — bloqueada {novo_count}x seguidas, revisão manual necessária"
+        )
+    else:
+        status = "blocked"
+
+    if authorized_run_id is None:
+        cur = await db.execute(
+            "UPDATE vectora_background_tasks SET status = ?, block_kind = ?, "
+            "block_reason = ?, block_count = ?, claim_lock = NULL, "
+            "claim_expires_at = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ?",
+            (status, kind, reason, novo_count, task_id),
+        )
+    elif allow_expired_claim:
+        cur = await db.execute(
+            "UPDATE vectora_background_tasks SET status = ?, block_kind = ?, "
+            "block_reason = ?, block_count = ?, claim_lock = NULL, "
+            "claim_expires_at = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ? "
+            "AND (claim_lock = ? OR (claim_lock IS NULL AND status IN "
+            "('ready', 'running', 'scheduled')))",
+            (status, kind, reason, novo_count, task_id, authorized_run_id),
+        )
+    else:
+        cur = await db.execute(
+            "UPDATE vectora_background_tasks SET status = ?, block_kind = ?, "
+            "block_reason = ?, block_count = ?, claim_lock = NULL, "
+            "claim_expires_at = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ? "
+            "AND claim_lock = ? AND claim_expires_at > ?",
+            (
+                status,
+                kind,
+                reason,
+                novo_count,
+                task_id,
+                authorized_run_id,
+                _agora().isoformat(),
+            ),
+        )
+    if authorized_run_id is not None and cur.rowcount == 0:
+        await _raise_claim_failure(db, task_id, authorized_run_id)
+    await db.commit()
+    await _emit_kanban_event(task_id, status, block_kind=kind, block_reason=reason)
+    await _record_task_event(
+        task_id, from_status, status, block_kind=kind, block_reason=reason
+    )
+
+
+async def cancel_run_and_block(
+    run_id: str,
+    task_id: str,
+    summary: str,
+    reason: str,
+    *,
+    kind: str = "needs_input",
+) -> bool:
+    """Cancela uma run pendente e bloqueia seu card atomicamente.
+
+    A condição do card aceita o claim da própria run mesmo expirado, mas nunca
+    o claim de outra execução. Assim o cleanup de claims não pode reabrir um
+    card depois que o cancelamento foi confirmado, e qualquer falha em uma das
+    duas escritas desfaz ambas.
+    """
+    if kind not in BLOCK_KINDS:
+        raise ValueError(f"tipo de bloqueio inválido: {kind!r}")
+
+    db = await _get_db()
+    await _ensure_version_column(db)
+    async with db.execute(
+        "SELECT status FROM vectora_background_runs WHERE id = ?", (run_id,)
+    ) as cur:
+        run_row = await cur.fetchone()
+    if run_row is None or run_row["status"] != "awaiting_approval":
+        await db.rollback()
+        return False
+
+    async with db.execute(
+        "SELECT status, block_count, claim_lock "
+        "FROM vectora_background_tasks WHERE id = ?",
+        (task_id,),
+    ) as cur:
+        task_row = await cur.fetchone()
+    if task_row is None:
+        await db.rollback()
+        return False
+
+    from_status = task_row["status"]
+    block_count = (task_row["block_count"] or 0) + 1
+    block_reason = reason
+    if block_count >= BLOCK_RECURRENCE_LIMIT:
+        target_status = "triage"
+        block_reason = (
+            f"{reason} — bloqueada {block_count}x seguidas, revisão manual necessária"
+        )
+    else:
+        target_status = "blocked"
+
+    run_cur = await db.execute(
+        "UPDATE vectora_background_runs SET status = 'cancelled', summary = ?, "
+        "finished_at = ? WHERE id = ? AND status = 'awaiting_approval'",
+        (summary[:4000], _agora().isoformat(), run_id),
+    )
+    if run_cur.rowcount == 0:
+        await db.rollback()
+        return False
+
+    task_cur = await db.execute(
+        "UPDATE vectora_background_tasks SET status = ?, block_kind = ?, "
+        "block_reason = ?, block_count = ?, claim_lock = NULL, "
+        "claim_expires_at = NULL, version = version + 1, updated_at = datetime('now') WHERE id = ? "
+        "AND (claim_lock = ? OR (claim_lock IS NULL AND status IN "
+        "('ready', 'running', 'scheduled')))",
+        (
+            target_status,
+            kind,
+            block_reason,
+            block_count,
+            task_id,
+            run_id,
+        ),
+    )
+    if task_cur.rowcount == 0:
+        await db.rollback()
+        return False
+
+    await db.commit()
+    with contextlib.suppress(Exception):
+        await _emit_kanban_event(
+            task_id,
+            target_status,
+            block_kind=kind,
+            block_reason=block_reason,
+        )
+    with contextlib.suppress(Exception):
+        await _record_task_event(
+            task_id,
+            from_status,
+            target_status,
+            block_kind=kind,
+            block_reason=block_reason,
+        )
+    return True
+
+
+async def unblock_task(
+    task_id: str,
+    *,
+    authorized_run_id: str | None = None,
+    expected_status: str | None = None,
+    expected_updated_at: str | None = None,
+    expected_version: int | str | None = None,
+) -> None:
+    """Desbloqueia um card e limpa seus metadados de bloqueio.
+
+    Com ``authorized_run_id``, a alteração exige um claim vigente da mesma
+    run e levanta ``ValueError`` se o fencing rejeitar a escrita.
+    Com ``expected_status``, ``expected_updated_at`` ou ``expected_version``,
+    aplica CAS na mutação e levanta ``ValueError`` se houver conflito de concorrência.
+    """
+    db = await _get_db()
+    await _ensure_version_column(db)
+    async with db.execute(
+        "SELECT status FROM vectora_background_tasks WHERE id = ?", (task_id,)
+    ) as cur:
+        row = await cur.fetchone()
+    from_status = row["status"] if row else None
+
+    where_parts, extra_params = _cas_conditions(
+        expected_status, expected_updated_at, expected_version
+    )
+
+    if authorized_run_id is None:
+        query = (
+            "UPDATE vectora_background_tasks SET status = 'ready', block_kind = NULL, "  # noqa: S608  # nosec B608
+            "block_reason = NULL, block_count = 0, version = version + 1, updated_at = datetime('now') "
+            f"WHERE {' AND '.join(where_parts)}"
+        )
+        cur = await db.execute(query, (task_id, *extra_params))
+    else:
+        where_run = [*where_parts, "claim_lock = ?", "claim_expires_at > ?"]
+        query = (
+            "UPDATE vectora_background_tasks SET status = 'ready', block_kind = NULL, "  # noqa: S608  # nosec B608
+            "block_reason = NULL, block_count = 0, version = version + 1, updated_at = datetime('now') "
+            f"WHERE {' AND '.join(where_run)}"
+        )
+        cur = await db.execute(
+            query,
+            (task_id, *extra_params, authorized_run_id, _agora().isoformat()),
+        )
+    if cur.rowcount == 0:
+        if authorized_run_id is not None:
+            await _raise_claim_failure(db, task_id, authorized_run_id)
+        await db.rollback()
+        if (
+            expected_status is not None
+            or expected_updated_at is not None
+            or expected_version is not None
+        ):
+            raise ValueError(
+                "concorrência detectada: registro foi modificado por outra operação"
+            )
+    await db.commit()
+    await _emit_kanban_event(task_id, "ready", block_kind=None, block_reason=None)
+    await _record_task_event(task_id, from_status, "ready")
+
+
+async def get_dependencies(task_id: str) -> list[dict[str, Any]]:
+    """Pais diretos de `task_id` (não transitivos) com status atual —
+    fonte real do contador N/M e da lista `blocked_by` no card do Kanban,
+    substituindo o campo que hoje o frontend declara mas o backend nunca
+    populava."""
+    db = await _get_db()
+    await _ensure_version_column(db)
+    async with db.execute(
+        """
+        SELECT t.id, t.name, t.status
+        FROM vectora_task_links l
+        JOIN vectora_background_tasks t ON t.id = l.parent_id
+        WHERE l.child_id = ?
+        ORDER BY t.created_at
+        """,
+        (task_id,),
+    ) as cur:
+        rows = await cur.fetchall()
+    return [{"id": r["id"], "name": r["name"], "status": r["status"]} for r in rows]
+
+
+async def get_progress(task_id: str) -> dict[str, int] | None:
+    """Rollup de subtasks diretas (`task_id` como pai) — `{done, total}`.
+
+    `None` (não `{"done": 0, "total": 0}`) quando a task não tem subtask
+    nenhuma: o card do Kanban desenha a barra de progresso só quando há
+    algo pra medir — `{0, 0}` renderizaria uma barra vazia sem sentido
+    pra toda task folha (a maioria delas).
+    """
+    db = await _get_db()
+    await _ensure_version_column(db)
+    async with db.execute(
+        """
+        SELECT COUNT(*) AS total,
+               COUNT(*) FILTER (WHERE t.status IN ('done', 'archived')) AS done
+        FROM vectora_task_links l
+        JOIN vectora_background_tasks t ON t.id = l.child_id
+        WHERE l.parent_id = ?
+        """,
+        (task_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    total = row["total"] if row else 0
+    if not total:
+        return None
+    if row is None:
+        return None
+    return {"done": row["done"], "total": total}
+
+
+async def get_progress_batch(task_ids: list[str]) -> dict[str, dict[str, int]]:
+    """Mesmo rollup de `get_progress`, em lote — usado pelo board agregado
+    (`GET .../board`) pra não virar uma query por card. Chaves ausentes no
+    dict de retorno = sem subtask (mesmo `None` implícito de `get_progress`).
+    """
+    if not task_ids:
+        return {}
+    db = await _get_db()
+    await _ensure_version_column(db)
+    query = (
+        "SELECT l.parent_id AS task_id, COUNT(*) AS total, "
+        "COUNT(*) FILTER (WHERE t.status IN ('done', 'archived')) AS done "
+        "FROM vectora_task_links l "
+        "JOIN vectora_background_tasks t ON t.id = l.child_id "
+        "WHERE l.parent_id IN (SELECT value FROM json_each(?)) "
+        "GROUP BY l.parent_id"
+    )
+    async with db.execute(query, (json.dumps(task_ids),)) as cur:
+        rows = await cur.fetchall()
+    return {r["task_id"]: {"done": r["done"], "total": r["total"]} for r in rows}
+
+
+async def get_comment_counts_batch(task_ids: list[str]) -> dict[str, int]:
+    """Contagem de comentários por task, em lote — mesma razão de existir
+    de `get_progress_batch`."""
+    if not task_ids:
+        return {}
+    db = await _get_db()
+    await _ensure_version_column(db)
+    query = (
+        "SELECT task_id, COUNT(*) AS n FROM vectora_task_comments "
+        "WHERE task_id IN (SELECT value FROM json_each(?)) GROUP BY task_id"
+    )
+    async with db.execute(query, (json.dumps(task_ids),)) as cur:
+        rows = await cur.fetchall()
+    return {r["task_id"]: r["n"] for r in rows}
+
+
+async def get_dependencies_batch(
+    task_ids: list[str],
+) -> dict[str, list[dict[str, Any]]]:
+    """Mesma lista de `get_dependencies` (pais diretos), em lote."""
+    if not task_ids:
+        return {}
+    db = await _get_db()
+    await _ensure_version_column(db)
+    query = (
+        "SELECT l.child_id AS task_id, t.id, t.name, t.status "
+        "FROM vectora_task_links l "
+        "JOIN vectora_background_tasks t ON t.id = l.parent_id "
+        "WHERE l.child_id IN (SELECT value FROM json_each(?)) "
+        "ORDER BY t.created_at"
+    )
+    async with db.execute(query, (json.dumps(task_ids),)) as cur:
+        rows = await cur.fetchall()
+    out: dict[str, list[dict[str, Any]]] = {tid: [] for tid in task_ids}
+    for r in rows:
+        out[r["task_id"]].append(
+            {"id": r["id"], "name": r["name"], "status": r["status"]}
+        )
+    return out
+
+
+async def _depende_de(task_id: str, db: SQLiteConnection | None = None) -> set[str]:
+    """Ancestrais de `task_id` — usado pra detectar ciclo."""
+    if db is None:
+        db = await _get_db()
+        await _ensure_version_column(db)
+    vistos: set[str] = set()
+    fila = [task_id]
+    while fila:
+        atual = fila.pop()
+        async with db.execute(
+            "SELECT parent_id FROM vectora_task_links WHERE child_id = ?", (atual,)
+        ) as cur:
+            pais = [r["parent_id"] for r in await cur.fetchall()]
+        for pai in pais:
+            if pai not in vistos:
+                vistos.add(pai)
+                fila.append(pai)
+    return vistos
+
+
+async def add_dependency(parent_id: str, child_id: str) -> None:
+    """`child_id` só fica pronto quando `parent_id` conclui."""
+    if parent_id == child_id:
+        msg = "dependência circular: uma task não pode depender de si mesma"
+        raise ValueError(msg)
+
+    db = await _get_db()
+    await _ensure_version_column(db)
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        deps = await _depende_de(parent_id, db=db)
+        if child_id in deps:
+            msg = (
+                f"dependência circular: {parent_id!r} já depende (direta ou "
+                f"indiretamente) de {child_id!r}"
+            )
+            raise ValueError(msg)
+
+        await db.execute(
+            "INSERT OR IGNORE INTO vectora_task_links (parent_id, child_id) VALUES (?, ?)",
+            (parent_id, child_id),
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+
+async def remove_dependency(parent_id: str, child_id: str) -> bool:
+    """Remove o vínculo `parent_id → child_id`, se existir.
+
+    `False` quando o vínculo não existia (nada a remover) — o caller (HTTP
+    handler) decide se isso é 404 ou um no-op silencioso; aqui é só o fato.
+    """
+    db = await _get_db()
+    await _ensure_version_column(db)
+    cur = await db.execute(
+        "DELETE FROM vectora_task_links WHERE parent_id = ? AND child_id = ?",
+        (parent_id, child_id),
+    )
+    await db.commit()
+    return cur.rowcount > 0
+
+
+async def recompute_ready() -> int:
+    """Promove pra `ready` as tasks em `todo` com todos os pais concluídos.
+
+    Chamado quando uma task chega em `done`. Um filho com dois pais espera
+    os dois — promover com um só o faria rodar sem o resultado do outro.
+    """
+    db = await _get_db()
+    await _ensure_version_column(db)
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        async with db.execute(
+            """
+            SELECT t.id
+              FROM vectora_background_tasks t
+             WHERE t.status = 'todo'
+               AND EXISTS (
+                     SELECT 1 FROM vectora_task_links l WHERE l.child_id = t.id
+                   )
+               AND NOT EXISTS (
+                     SELECT 1
+                       FROM vectora_task_links l
+                       JOIN vectora_background_tasks p ON p.id = l.parent_id
+                      WHERE l.child_id = t.id
+                        AND p.status != 'done'
+                   )
+            """
+        ) as cur:
+            prontas = [r["id"] for r in await cur.fetchall()]
+
+        promoted = 0
+        for task_id in prontas:
+            cur = await db.execute(
+                "UPDATE vectora_background_tasks SET status = 'ready', "
+                "block_kind = NULL, block_reason = NULL, "
+                "version = version + 1, updated_at = datetime('now') WHERE id = ? AND status = 'todo'",
+                (task_id,),
+            )
+            promoted += cur.rowcount
+        await db.commit()
+        return promoted
+    except Exception:
+        await db.rollback()
+        raise
+
+
+async def approve_review(task_id: str, user_id: str) -> None:
+    """Aprova uma task em `review`, movendo pra `done`.
+
+    Endpoint dedicado (não `manual_transition`/`MANUAL_TRANSITIONS`) de
+    propósito: `review → done` nunca deveria abrir como transição genérica
+    de drag-and-drop — precisa registrar QUEM aprovou, o que
+    `manual_transition` não faz. `review → ready` (reprovar) segue pelo
+    caminho genérico normalmente.
+    """
+    db = await _get_db()
+    await _ensure_version_column(db)
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        async with db.execute(
+            "SELECT status FROM vectora_background_tasks WHERE id = ?",
+            (task_id,),
+        ) as cur:
+            row = await cur.fetchone()
+        if row is None or row["status"] != "review":
+            st = row["status"] if row else "inexistente"
+            msg = f"task está em {st!r}, não em 'review' — nada a aprovar"
+            raise ValueError(msg)
+
+        await db.execute(
+            "UPDATE vectora_background_tasks SET status = 'done', block_count = 0, "
+            "version = version + 1, updated_at = datetime('now') WHERE id = ?",
+            (task_id,),
+        )
+        comment_id = str(uuid.uuid4())
+        await db.execute(
+            "INSERT INTO vectora_task_comments (id, task_id, user_id, body) VALUES (?, ?, ?, ?)",
+            (comment_id, task_id, user_id, "✓ Review aprovada."),
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+
+    with contextlib.suppress(Exception):
+        await _emit_kanban_event(task_id, "done")
+    with contextlib.suppress(Exception):
+        await _record_task_event(task_id, "review", "done")
+    with contextlib.suppress(Exception):
+        await recompute_ready()
+
+
+async def add_comment(task_id: str, user_id: str, body: str) -> dict[str, Any]:
+    """Grava um comentário no card. Corpo vazio/whitespace é recusado —
+    não existe comentário sem conteúdo no board."""
+    corpo = body.strip()
+    if not corpo:
+        msg = "comentário vazio não é permitido"
+        raise ValueError(msg)
+
+    comment_id = str(uuid.uuid4())
+    db = await _get_db()
+    await _ensure_version_column(db)
+    await db.execute(
+        "INSERT INTO vectora_task_comments (id, task_id, user_id, body) "
+        "VALUES (?, ?, ?, ?)",
+        (comment_id, task_id, user_id, corpo),
+    )
+    await db.commit()
+    async with db.execute(
+        "SELECT id, task_id, user_id, body, created_at "
+        "FROM vectora_task_comments WHERE id = ?",
+        (comment_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise RuntimeError("comentário recém-criado não foi encontrado")
+    return dict(row)
+
+
+async def list_comments(task_id: str) -> list[dict[str, Any]]:
+    """Comentários do card em ordem cronológica."""
+    db = await _get_db()
+    await _ensure_version_column(db)
+    async with db.execute(
+        "SELECT id, task_id, user_id, body, created_at "
+        "FROM vectora_task_comments WHERE task_id = ? ORDER BY created_at ASC",
+        (task_id,),
+    ) as cur:
+        rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def list_events(task_id: str) -> list[dict[str, Any]]:
+    """Timeline de transições de status do card, em ordem cronológica —
+    gravada por `_record_task_event` a cada `set_status`/`block_task`/
+    `unblock_task`."""
+    db = await _get_db()
+    await _ensure_version_column(db)
+    async with db.execute(
+        "SELECT id, task_id, from_status, to_status, block_kind, block_reason, "
+        "created_at FROM vectora_task_events WHERE task_id = ? "
+        "ORDER BY created_at ASC",
+        (task_id,),
+    ) as cur:
+        rows = await cur.fetchall()
+    return [dict(r) for r in rows]
+
+
+async def get_card_version_snapshot(task_id: str) -> dict[str, Any]:
+    """Lê um snapshot curto do card fora de qualquer inferência e calcula `card_version`."""
+    db = await _get_db()
+    await _ensure_version_column(db)
+    async with db.execute(
+        "SELECT id, status, block_kind, block_reason, block_count, "
+        "claim_lock, claim_expires_at, updated_at, session_id, version "
+        "FROM vectora_background_tasks WHERE id = ?",
+        (task_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise ValueError(f"task {task_id!r} não existe")
+    snapshot = dict(row)
+    version_token = (
+        f"{snapshot.get('status')}|{snapshot.get('version')}|"
+        f"{snapshot.get('claim_lock')}|{snapshot.get('block_count')}"
+    )
+    snapshot["card_version"] = version_token
+    return snapshot
+
+
+async def classify_block_kind_with_systemone(
+    task_id: str,
+    error_summary: str,
+    *,
+    harness: SystemOneHarness | None,
+    workspace_id: str = "default",
+    default_kind: str = "needs_input",
+) -> tuple[str, str]:
+    """Classifica o tipo de bloqueio em modo consultivo/shadow sem manter transação aberta.
+
+    Retorna `(block_kind, template_justification)` preservando `default_kind` em falha
+    ou quando o harness estiver em modo `off`/`shadow`.
+    """
+    if default_kind not in BLOCK_KINDS:
+        default_kind = "needs_input"
+    if harness is None:
+        return default_kind, f"template:default_block_kind({default_kind})"
+
+    try:
+        res = await harness.classify_kanban_block(
+            workspace_id=workspace_id,
+            task_id=task_id,
+            error_summary=error_summary,
+        )
+    except Exception:
+        logger.warning(
+            "kanban: falha na classificação SystemOne de bloqueio", exc_info=True
+        )
+        return default_kind, f"template:fallback_on_error({default_kind})"
+
+    if not res.is_usable_recommendation or res.response is None:
+        return default_kind, f"template:non_enforced({','.join(res.reason_codes)})"
+
+    ans = res.response.answers.get("block_kind")
+    selection = getattr(ans, "selection", None)
+    if isinstance(selection, str) and selection in BLOCK_KINDS:
+        conf = getattr(ans, "confidence", 0.0) or 0.0
+        return (
+            selection,
+            f"template:systemone_block_kind(kind={selection},confidence={conf:.2f},decision_id={res.decision_id})",
+        )
+    return default_kind, f"template:invalid_selection_fallback({default_kind})"
+
+
+async def propose_transition_with_systemone(
+    task_id: str,
+    *,
+    harness: SystemOneHarness,
+    workspace_id: str = "default",
+    evidence_summary: str = "",
+    authorized_session_id: str | None = None,
+) -> dict[str, Any]:
+    """Gera uma proposta consultiva de transição vinculada à versão atual do card.
+
+    Nunca mantém transação aberta durante a inferência e restringe as opções a
+    `MANUAL_TRANSITIONS[current_status] + ['no_recommendation']`.
+    """
+    snapshot = await get_card_version_snapshot(task_id)
+    if (
+        authorized_session_id is not None
+        and snapshot.get("session_id") != authorized_session_id
+    ):
+        raise ValueError("task não pertence à sessão atual")
+
+    current_status = str(snapshot["status"])
+    card_version = str(snapshot["card_version"])
+    allowed_targets = sorted(MANUAL_TRANSITIONS.get(current_status, frozenset()))
+
+    if not allowed_targets:
+        return {
+            "task_id": task_id,
+            "current_status": current_status,
+            "recommended_status": "no_recommendation",
+            "card_version": card_version,
+            "is_usable": False,
+            "justification": f"template:no_manual_transitions_from({current_status})",
+        }
+
+    res = await harness.propose_kanban_transition(
+        workspace_id=workspace_id,
+        task_id=task_id,
+        current_status=current_status,
+        allowed_targets=allowed_targets,
+        card_version=card_version,
+        evidence_summary=evidence_summary,
+    )
+
+    recommended = "no_recommendation"
+    if res.is_usable_recommendation and res.response is not None:
+        ans = res.response.answers.get("target_status")
+        sel = getattr(ans, "selection", "no_recommendation")
+        if sel in allowed_targets:
+            recommended = sel
+
+    return {
+        "task_id": task_id,
+        "decision_id": res.decision_id,
+        "current_status": current_status,
+        "recommended_status": recommended,
+        "allowed_targets": allowed_targets,
+        "card_version": card_version,
+        "claim_lock": snapshot.get("claim_lock"),
+        "is_usable": res.is_usable_recommendation
+        and recommended != "no_recommendation",
+        "requires_hitl": res.policy_result.requires_hitl,
+        "justification": (
+            f"template:kanban_transition_proposal("
+            f"from={current_status},to={recommended},version={card_version},"
+            f"outcome={res.policy_result.outcome})"
+        ),
+    }
+
+
+async def apply_verified_transition_proposal(
+    proposal: dict[str, Any],
+    *,
+    authorized_session_id: str | None = None,
+    authorized_run_id: str | None = None,
+) -> bool:
+    """Revalida versão do card, estado, dependências e claim antes de aplicar uma proposta."""
+    task_id = str(proposal["task_id"])
+    target = str(proposal.get("recommended_status", "no_recommendation"))
+    expected_card_version = str(proposal["card_version"])
+
+    if target == "no_recommendation" or not proposal.get("is_usable", False):
+        return False
+
+    current_snapshot = await get_card_version_snapshot(task_id)
+    if current_snapshot["card_version"] != expected_card_version:
+        raise ValueError("card_version mudou durante a inferência; proposta invalidada")
+
+    if (
+        authorized_run_id is not None
+        and current_snapshot.get("claim_lock") != authorized_run_id
+    ):
+        raise ValueError("execução perdeu o claim da task antes de aplicar a proposta")
+
+    if target == "ready":
+        deps = await get_dependencies(task_id)
+        unresolved = [d["id"] for d in deps if d["status"] != "done"]
+        if unresolved:
+            raise ValueError(
+                f"dependências pendentes impedem transição para 'ready': {', '.join(unresolved)}"
+            )
+
+    await manual_transition(
+        task_id,
+        target,
+        expected_status=str(current_snapshot["status"]),
+        expected_version=current_snapshot.get("version"),
+        authorized_session_id=authorized_session_id,
+        authorized_run_id=authorized_run_id,
+    )
+    return True

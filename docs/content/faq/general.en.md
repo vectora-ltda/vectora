@@ -4,7 +4,7 @@ weight: 1
 ---
 
 **Is Vectora open source?**
-No. It's commercial, closed-source software — you run it on your infra, but the code belongs to Vectora Company. Same model as Cursor, Linear, or Notion.
+Yes. The source code is public under the GNU AGPL-3.0 license. You can use, study, modify and redistribute it; if you distribute a modified version or offer it as a network service, you must publish its source under the same license. Vectora Ltda holds the copyright and also offers a commercial license for those who can't comply with the AGPL — contact contato@vectora.company.
 
 **Do I need an account to use Free?**
 No. Free runs 100% locally, no signup, no dependency on `services.vectora.company` whatsoever.

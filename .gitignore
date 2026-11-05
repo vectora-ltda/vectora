@@ -358,8 +358,15 @@ AbilitySystem_repo/
 /.wip/
 /desktop/dist-electron
 /desktop/build-resources
-/vectora/frontend/dist-electron/
-/vectora/frontend/electron/build-resources/dev-cert.pfx
+/frontend/dist-electron/
+/frontend/electron/build-resources/dev-cert.pfx
+**/vectora-release-key/
+**/cert_privado.pfx
+**/vectora-codesign-public.cer
+**/cert_base64.txt
+**/private-key.asc
+**/private_key.asc
+**/*private*.asc
 *.gen.ts
 *.exe
 *.blockmap
@@ -367,7 +374,6 @@ AbilitySystem_repo/
 env.gha
 /graphify
 /.scons-logs
-/company/supabase/.temp
 /.agents
 *.xml
 /docs/.docusaurus
@@ -375,8 +381,8 @@ env.gha
 # mesmo motivo do !docs/_vendor/**/data/** acima — "*.xml" também casava
 # com o layout de RSS vendorizado do Hextra, e RSS está habilitado (hugo.toml).
 !docs/_vendor/**/*.xml
-/vectora/frontend/project.inlang
-/vectora/resources
+/frontend/project.inlang
+/resources
 /ai-jail-master
 /chrome-devtools-mcp-main
 /hermes-agent
@@ -392,4 +398,11 @@ env.gha
 !.vectora/
 !.vectora/skills.lock.json
 /.audit-home
-vectora/audit-rg.txt
+/audit-rg.txt
+
+# Relatório do Nuitka e saída legada do context graph
+/nuitka-report.xml
+graphify-out/
+# Conteúdo de .vectora/ fica fora do git, exceto o lock de skills
+.vectora/*
+!.vectora/skills.lock.json

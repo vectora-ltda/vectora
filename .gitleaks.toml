@@ -1,0 +1,21 @@
+# Configuração do gitleaks: as regras padrão, mais uma lista de caminhos onde os
+# achados são valores fictícios (testes, exemplos de documentação e textos de
+# tradução). Um segredo real em qualquer outro lugar continua reprovando.
+title = "Vectora"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Fixtures de teste, exemplos de documentação e traduções"
+paths = [
+  '''^tests/''',
+  '''^frontend/(src|tests|e2e)/.*(\.test\.|__tests__|fixtures)''',
+  '''^frontend/messages/''',
+  '''^docs/content/''',
+  # Caminhos anteriores à mudança do app para a raiz, que ainda aparecem no
+  # histórico dos commits varridos.
+  '''^vectora/tests/''',
+  '''^vectora/frontend/messages/''',
+  '''^company/messages/''',
+]

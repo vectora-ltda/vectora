@@ -1,27 +1,93 @@
 # Contribuindo com o Vectora
 
-Este arquivo reúne as regras de contribuição relacionadas ao fluxo de branches, milestones e releases. A documentação pública do site permanece em `docs/`; detalhes operacionais de desenvolvimento devem ficar aqui ou nos workflows do repositório.
+Obrigado pelo interesse. Este arquivo explica como preparar o ambiente, escolher uma tarefa e abrir um PR. A documentação para quem usa o produto fica em `docs/` (site público); a documentação de desenvolvimento fica aqui e nas issues do repositório.
+
+## Antes de começar
+
+- Leia o [código de conduta](CODE_OF_CONDUCT.md).
+- Para relatar uma vulnerabilidade, **não abra issue**: siga o [SECURITY.md](SECURITY.md).
+- O Vectora é licenciado sob a AGPL-3.0 ([LICENSE](LICENSE)). Para contribuir você precisa aceitar o [CLA](CLA.md), que permite à Vectora Ltda distribuir o projeto também sob outras licenças. O aceite é um comentário no primeiro PR: `Li o CLA.md e concordo com os seus termos.`
+
+## Ambiente
+
+Requisitos: [uv](https://docs.astral.sh/uv/) (instala o Python 3.13), Node.js 24 ou superior e [pnpm](https://pnpm.io/).
+
+```bash
+git clone https://github.com/vectora-ltda/vectora.git
+cd vectora
+uv sync
+pnpm --dir frontend install
+cp .env.example .env
+```
+
+Para subir o backend em desenvolvimento: `uv run vectora start`.
+
+## Checks
+
+O hook de pre-commit é a fonte de verdade e roda os mesmos checks do CI.
+
+```bash
+uv run pre-commit install
+uv run pre-commit run --all-files
+uv run ruff check backend tests
+uv run ty check backend tests
+uv run pytest tests/unit
+pnpm --dir frontend run typecheck
+pnpm --dir frontend exec oxlint
+```
+
+`scons lint` e `scons tests` rodam o conjunto completo a partir da raiz. Rode os checks da área que você mexeu e diga no PR o que rodou e o que não rodou.
+
+## Regras do código
+
+- **Testes primeiro:** um bug começa por um teste que o reproduz; uma funcionalidade nova traz pelo menos um teste do caminho feliz e um do caminho de erro.
+- **Tipos:** Python com anotações completas e `ty` limpo; TypeScript estrito e `tsc --noEmit` limpo.
+- **Texto da interface:** nunca fixo no código. Passe por `m()` de `@/lib/paraglide/messages` e adicione a chave nos três idiomas (`messages/en.json`, `es.json`, `pt.json`); depois rode `pnpm --dir frontend run i18n:compile`.
+- **I/O assíncrono:** rede, banco, arquivos e subprocessos usam `async`/`await`. Nada de `requests` nem `subprocess.run` no backend.
+- **Ferramentas do agente** capturam exceções e devolvem um erro tipado ao modelo, com log estruturado.
+- **Conteúdo lido por ferramentas** (arquivos, páginas, resultados) é dado não confiável e nunca tem autoridade de instrução.
+- **Comentários** descrevem o que o código faz e as invariantes que ele preserva; não registram histórico, planejamento nem tarefas pendentes.
+- Planejamento fica em issues e em markdown; stubs, `TODO` e mocks não entram no código de produção.
+
+## Spec em issue antes do PR
+
+O Vectora segue o desenvolvimento guiado por spec **dentro das issues**. Muita gente escreve a spec localmente e só mostra o resultado; aqui a spec é escrita e discutida em público, na issue, antes de existir código. Quem abre um PR já encontra a decisão tomada e revisa a implementação contra ela.
+
+- **Feature (`feat:`) sempre tem issue com spec.** Um PR de feature sem issue vinculada é questionado por inteiro, junto com todas as modificações dele, e pode ser fechado até a spec existir.
+- **Correção (`fix:`) depende.** Um bug pequeno e óbvio, com teste que o reproduz, pode abrir o PR direto. Correção que muda contrato, comportamento visível, segurança ou toca várias áreas precisa de issue. Na dúvida, abra a issue.
+- **Demais tipos** (`refactor:`, `perf:`, `docs:`, `test:`, `ci:`, `chore:`) seguem o critério da correção; uma mudança de arquitetura segue a regra de feature.
+
+A spec fica no corpo da issue e traz:
+
+- **objetivo** e **não objetivos**;
+- o **comportamento esperado**, com exemplos de entrada e saída;
+- os **critérios de aceite**, com casos felizes e de erro;
+- **riscos**, dependências e impacto em contratos, segurança e dados;
+- o **plano de testes**.
+
+Só comece a implementar depois de um mantenedor confirmar na issue que a spec está pronta. Se a implementação revelar que a spec estava errada, atualize a issue antes de mudar o PR.
+
+O PR aponta para a issue com **uma linha só** no corpo: `Closes #N` (a issue fecha quando o PR é mesclado), `Refs #N` (o PR é uma parte de uma issue maior) ou `Spec: #N`. É a única referência a issue aceita no texto do PR.
+
+## Fluxo de trabalho
+
+1. Escolha uma issue ou abra uma com a spec, conforme a seção acima. As marcadas com `good first issue` e `help wanted` são as indicadas para quem está chegando; comente na issue antes de começar.
+2. Crie uma branch a partir da base certa (veja abaixo).
+3. Faça mudanças pequenas e focadas; cada commit usa Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`, `ci:`, `chore:`).
+4. Abra o PR com título no mesmo formato, em português, e descreva o que muda e como você verificou. O título e a descrição não podem citar ferramentas de IA, planos de trabalho nem números de issue ou PR, exceto a linha de vínculo com a spec; o CI recusa.
+5. Atenda à revisão. Um PR só é mesclado com os checks obrigatórios verdes e o aceite do CLA.
 
 ## Linhas de release
 
-O branch `master` é a linha da próxima minor (`0.2`). A linha `release/0.1` é o destino de manutenção da série `0.1.x`; ambas são publicadas pelo Release Please em PRs independentes.
+A configuração das linhas está em `.github/release-lines.json`.
 
-PRs que apontam para `master` devem usar a milestone `0.2`, incluindo o trabalho do ecossistema VEXT. PRs de manutenção que apontam para `release/0.1` devem usar `0.1.x`. A milestone acompanha a linha de destino porque o Release Please calcula cada branch a partir dos commits que foram incorporados nele.
+| Linha                      | Branch base   | Milestone |
+| -------------------------- | ------------- | --------- |
+| Manutenção da série atual  | `master`      | `0.3.x`   |
+| Desenvolvimento da próxima | `release/0.4` | `0.4`     |
 
-Uma milestone deve ser escolhida antes da aprovação do PR. O workflow `Validate release milestone` verifica a combinação entre base, milestone e tipo de mudança e bloqueia combinações incompatíveis.
+Todo PR usa a base da linha que ele atinge e a milestone correspondente; o workflow `PR Release Milestone` atribui a milestone e bloqueia combinações incompatíveis. As versões são calculadas dos commits pelo workflow de release, que abre o PR `chore(master): release X.Y.Z`. Uma correção aplicada na linha de manutenção também precisa chegar à linha de desenvolvimento; o workflow de propagação abre esse PR.
 
-## Release Please
+## O que o CI executa em PRs
 
-O workflow do Release Please é disparado por pushes em `master` e `release/0.1`. Ele calcula cada linha de forma independente e usa o alvo explícito para criar ou atualizar a PR correspondente: `master` gera a próxima minor e `release/0.1` gera a próxima versão patch `0.1.x`. Milestones não filtram commits depois do merge; o branch de destino é o que separa os históricos.
-
-PRs automatizados do Release Please são aceitos apenas quando o head pertence ao repositório Vectora, usa o nome de branch gerado pelo workflow e possui o label `autorelease: pending`. Título ou label sem a origem e a branch esperadas não são suficientes para isentar a validação.
-
-O canal de atualização acompanha a linha de release: `master`/`0.2.x` publica em `latest`, enquanto `release/0.1`/`0.1.x` publica em `maintenance`. O workflow passa esse canal explicitamente ao publicador e os instaladores `v0.1.x` continuam recebendo apenas atualizações da linha de manutenção. Downloads públicos para novas instalações continuam usando `latest`.
-
-## Propagação de correções
-
-Uma correção aplicada em `release/0.1` deve ser encaminhada explicitamente para `master` por merge ou cherry-pick quando também fizer parte da próxima minor. Mudanças de `master` não são backportadas automaticamente para a linha estável; o PR de propagação deve receber a milestone compatível com a linha que será publicada.
-
-## Commits e revisão
-
-Cada mudança lógica deve usar uma mensagem de Conventional Commits, como `fix: ...`, `feat: ...`, `docs: ...` ou `chore: ...`. Antes de pedir revisão, confirme que a milestone está correta e que os checks obrigatórios do PR passaram.
+Os workflows de PR rodam a versão do próprio PR. Eles validam título (Conventional Commits), ausência de referências proibidas no texto do PR, milestone, labels, lint, tipos, testes, varredura de segurança (Snyk) e o build dos instaladores. PRs de fork rodam sem segredos: rotulagem, milestone e comentários automáticos só valem para branches do próprio repositório.
