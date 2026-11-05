@@ -1209,8 +1209,15 @@ def _is_vext_pr(pull_request: PullRequestPayload) -> bool:
     return bool(_VEXT_TOKEN.search(pull_request.title) or _VEXT_TOKEN.search(head_ref))
 
 
-def validate_pull_request(event: EventPayload) -> list[str]:
-    """Retorna erros de validação acionáveis para um evento de pull request."""
+def validate_pull_request(
+    event: EventPayload, stack_root_base: str | None = None
+) -> list[str]:
+    """Retorna erros de validação acionáveis para um evento de pull request.
+
+    `stack_root_base` é a branch da linha de release que fica na raiz de uma
+    pilha de PRs (resolvida pelo workflow seguindo as bases pelas PRs abertas).
+    Uma PR empilhada de head interno é validada contra a linha dessa raiz.
+    """
     parsed_event = _parse_event(event)
     if parsed_event is None:
         return ["O payload do webhook de pull request é inválido."]
@@ -1230,6 +1237,12 @@ def validate_pull_request(event: EventPayload) -> list[str]:
     ) and _is_internal_head(parsed_event, pull_request):
         return []
     line = _line_for_base(base)
+    if (
+        line is None
+        and stack_root_base
+        and _is_internal_head(parsed_event, pull_request)
+    ):
+        line = _line_for_base(stack_root_base)
     if line is None:
         configured_bases = ", ".join(
             configured.branch
@@ -1303,7 +1316,9 @@ def validate_milestone_main() -> int:
                 if validated_head_repo
                 else None,
             )
-    errors = validate_pull_request(payload)
+    errors = validate_pull_request(
+        payload, stack_root_base=os.environ.get("CURRENT_STACK_ROOT_BASE") or None
+    )
     if errors:
         for error in errors:
             print(f"::error::{error}")

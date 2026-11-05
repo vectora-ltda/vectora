@@ -90,6 +90,100 @@ describe("lint-i18n", () => {
     }
   });
 
+  describe("--changed with the pull request commits", () => {
+    const git = (cwd: string, ...args: string[]) =>
+      execFileAsync("git", args, { cwd }).then(({ stdout }) => stdout.trim());
+
+    const runChanged = (cwd: string, env: Record<string, string>) =>
+      execFileAsync(
+        process.execPath,
+        [
+          join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"),
+          join(process.cwd(), "scripts", "lint-i18n.ts"),
+          "--changed",
+        ],
+        { cwd, env: { ...process.env, GITHUB_BASE_REF: "stale", ...env } },
+      );
+
+    async function repoWithHead(headFile: string, headSource: string) {
+      const root = await mkdtemp(join(tmpdir(), "lint-i18n-changed-"));
+      const frontend = join(root, "frontend");
+      await mkdir(frontend);
+      await git(root, "init", "-q");
+      await git(root, "config", "user.email", "t@example.com");
+      await git(root, "config", "user.name", "t");
+      await writeFile(join(root, "README.md"), "raiz");
+      await git(root, "add", "-A");
+      await git(root, "commit", "-q", "-m", "raiz");
+      // Simula o runner de uma PR empilhada: `origin/<base>` aponta para um
+      // ponto antes de qualquer arquivo do frontend, então a diff contra ele
+      // trataria os arquivos antigos como alterados.
+      await git(root, "update-ref", "refs/remotes/origin/stale", "HEAD");
+      await writeFile(join(frontend, "old.tsx"), "<button>Antigo</button>");
+      await git(root, "add", "-A");
+      await git(root, "commit", "-q", "-m", "base");
+      const base = await git(root, "rev-parse", "HEAD");
+      await writeFile(join(frontend, headFile), headSource);
+      await git(root, "add", "-A");
+      await git(root, "commit", "-q", "-m", "head");
+      const head = await git(root, "rev-parse", "HEAD");
+      return { root, frontend, base, head };
+    }
+
+    it("lints only what the pull request changed, not older violations", async () => {
+      const { root, frontend, base, head } = await repoWithHead(
+        "novo.tsx",
+        "<button>{m.save()}</button>",
+      );
+      try {
+        const result = await runChanged(frontend, {
+          PR_BASE_SHA: base,
+          PR_HEAD_SHA: head,
+        });
+        expect(`${result.stdout}\n${result.stderr}`).not.toContain("old.tsx");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("fails for a violation introduced by the pull request", async () => {
+      const { root, frontend, base, head } = await repoWithHead(
+        "novo.tsx",
+        "<button>Salvar</button>",
+      );
+      try {
+        await expect(
+          runChanged(frontend, { PR_BASE_SHA: base, PR_HEAD_SHA: head }),
+        ).rejects.toMatchObject({
+          code: 1,
+          stderr: expect.stringContaining("novo.tsx"),
+        });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+
+    it("ignores malformed commit ids and falls back to the base branch", async () => {
+      const { root, frontend } = await repoWithHead(
+        "novo.tsx",
+        "<button>{m.save()}</button>",
+      );
+      try {
+        await expect(
+          runChanged(frontend, {
+            PR_BASE_SHA: "--output=/tmp/x",
+            PR_HEAD_SHA: "not-a-sha",
+          }),
+        ).rejects.toMatchObject({
+          code: 1,
+          stderr: expect.stringContaining("old.tsx"),
+        });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  });
+
   it("applies exclusions to every path mode", () => {
     expect(isIgnoredPath("components/__tests__/fixture.tsx")).toBe(true);
     expect(isIgnoredPath("components\\__tests__\\fixture.tsx")).toBe(true);

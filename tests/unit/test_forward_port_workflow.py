@@ -461,9 +461,12 @@ def test_pull_request_workflows_that_write_skip_forks() -> None:
     checks = (WORKFLOW.parent / "pr-checks.yml").read_text(encoding="utf-8")
 
     assert same_repo in labeler
-    assert same_repo in milestone.split("id: assign-milestone", 1)[1].split(
-        "uses: actions/github-script", 1
-    )[0]
+    assert (
+        same_repo
+        in milestone.split("id: assign-milestone", 1)[1].split(
+            "uses: actions/github-script", 1
+        )[0]
+    )
     comment = checks.split("\n  comment-no-plan-metadata:\n", 1)[1]
     assert same_repo in comment.split("\n    steps:", 1)[0]
 
@@ -642,3 +645,20 @@ def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline(
     assert 'git push origin "$TAG"' in content
     assert "gh release create" in content
     assert "--publish never" in content
+
+
+def test_milestone_workflow_resolves_the_release_line_of_stacked_prs() -> None:
+    """Uma PR empilhada herda a linha de release da raiz da pilha: o workflow
+    segue as bases pelas PRs abertas, atribui a milestone da raiz e repassa a
+    raiz ao validador."""
+    content = (WORKFLOW.parent / "pr-release-milestone.yml").read_text(encoding="utf-8")
+
+    assert "github.rest.pulls.list" in content
+    assert 'core.setOutput("stack_root", stackRoot)' in content
+    assert (
+        "CURRENT_STACK_ROOT_BASE: ${{ steps.assign-milestone.outputs.stack_root }}"
+        in content
+    )
+    assert "head.repo?.full_name" in content
+    # A busca é limitada e não entra em ciclo de bases.
+    assert "seen.has(cursor)" in content

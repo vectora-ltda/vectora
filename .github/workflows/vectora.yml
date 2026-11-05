@@ -127,6 +127,9 @@ jobs:
         run: pnpm exec oxlint
       - name: Lint i18n (no hardcoded UI strings)
         working-directory: frontend
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: pnpm lint:i18n -- --changed
       - name: Type check (tsc --noEmit)
         working-directory: frontend
