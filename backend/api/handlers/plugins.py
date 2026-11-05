@@ -130,7 +130,11 @@ async def delete_plugin(request: Request, name: str) -> dict:
 async def verify_plugin(request: Request, name: str) -> dict:
     """Health-check: conecta ao servidor e lista suas tools."""
     workspace_id = _authorized_workspace(request)
-    server = next((s for s in list_servers(_user_id(request)) if s.name == name), None)
+    server = None
+    for configured in list_servers(_user_id(request)):
+        if configured.name == name:
+            server = configured
+            break
     if server is None:
         raise HTTPException(status_code=404, detail="Servidor não encontrado.")
     if not mcp_policy.evaluate(server.name, workspace_id).allowed:

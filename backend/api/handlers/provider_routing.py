@@ -370,6 +370,19 @@ class LlamaCppSidecarRequest(BaseModel):
     jinja: bool = False
 
 
+def _managed_runtime_executable(runtime_root: Path, requested: Path) -> Path | None:
+    """Devolve o llama-server do diretório gerenciado que corresponde a ``requested``.
+
+    O caminho devolvido vem da listagem do disco, não do valor recebido.
+    """
+    for entry in runtime_root.rglob("*"):
+        if entry.name.lower() not in {"llama-server", "llama-server.exe"}:
+            continue
+        if entry.is_file() and entry.resolve() == requested:
+            return entry.resolve()
+    return None
+
+
 def _llamacpp_runtime_root() -> Path:
     """Executa a operação  llamacpp runtime root."""
     return (settings.vectora_home / "tools" / "llama.cpp").resolve()
@@ -3713,18 +3726,16 @@ async def check_llamacpp_runtime(
     _: ProviderAdmin,
 ) -> dict[str, object]:
     """Testa ``--version`` apenas em um runtime gerenciado pelo Vectora."""
-    executable = Path(body.path).expanduser().resolve()
+    requested = Path(body.path).expanduser().resolve()
     runtime_root = _llamacpp_runtime_root()
-    if runtime_root not in executable.parents:
+    if runtime_root not in requested.parents:
         raise HTTPException(
             status_code=400, detail="runtime precisa estar no diretório gerenciado"
         )
-    if not await asyncio.to_thread(
-        executable.is_file
-    ) or executable.name.lower() not in {
-        "llama-server",
-        "llama-server.exe",
-    }:
+    executable = await asyncio.to_thread(
+        _managed_runtime_executable, runtime_root, requested
+    )
+    if executable is None:
         raise HTTPException(status_code=400, detail="binário llama-server inválido")
     try:
         process = await asyncio.create_subprocess_exec(
