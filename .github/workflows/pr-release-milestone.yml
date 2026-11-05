@@ -51,9 +51,40 @@ jobs:
               fs.readFileSync(".github/release-lines.json", "utf8"),
             );
             const base = context.payload.pull_request.base.ref;
-            const line = [config.development, config.maintenance].find(
-              ({ branch }) => branch === base,
-            );
+            const lines = [config.development, config.maintenance];
+            let line = lines.find(({ branch }) => branch === base);
+            let stackRoot = "";
+
+            // PR empilhada: a base é a branch de outra PR aberta. Segue as
+            // bases pelas PRs abertas do repositório até chegar a uma linha de
+            // release; a milestone é a da linha que fica na raiz da pilha.
+            if (!line) {
+              const { owner: repoOwner, repo: repoName } = context.repo;
+              const open = await github.paginate(github.rest.pulls.list, {
+                owner: repoOwner,
+                repo: repoName,
+                state: "open",
+                per_page: 100,
+              });
+              const seen = new Set();
+              let cursor = base;
+              while (cursor && !seen.has(cursor) && seen.size < 20) {
+                seen.add(cursor);
+                const parent = open.find(
+                  (pr) =>
+                    pr.head.ref === cursor &&
+                    pr.head.repo?.full_name === `${repoOwner}/${repoName}`,
+                );
+                if (!parent) break;
+                cursor = parent.base.ref;
+                line = lines.find(({ branch }) => branch === cursor);
+                if (line) {
+                  stackRoot = cursor;
+                  break;
+                }
+              }
+            }
+            core.setOutput("stack_root", stackRoot);
 
             if (!line) {
               core.info(`Skipping unsupported pull-request base: ${base}`);
@@ -150,5 +181,6 @@ jobs:
           GITHUB_EVENT_PATH: ${{ github.event_path }}
           CURRENT_RELEASE_MILESTONE: ${{ steps.assign-milestone.outputs.current_milestone || github.event.pull_request.milestone.title }}
           CURRENT_PR_BASE: ${{ steps.assign-milestone.outputs.current_base || github.event.pull_request.base.ref }}
+          CURRENT_STACK_ROOT_BASE: ${{ steps.assign-milestone.outputs.stack_root }}
           CURRENT_PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
           CURRENT_PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
