@@ -461,9 +461,12 @@ def test_pull_request_workflows_that_write_skip_forks() -> None:
     checks = (WORKFLOW.parent / "pr-checks.yml").read_text(encoding="utf-8")
 
     assert same_repo in labeler
-    assert same_repo in milestone.split("id: assign-milestone", 1)[1].split(
-        "uses: actions/github-script", 1
-    )[0]
+    assert (
+        same_repo
+        in milestone.split("id: assign-milestone", 1)[1].split(
+            "uses: actions/github-script", 1
+        )[0]
+    )
     comment = checks.split("\n  comment-no-plan-metadata:\n", 1)[1]
     assert same_repo in comment.split("\n    steps:", 1)[0]
 
@@ -642,3 +645,31 @@ def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline(
     assert 'git push origin "$TAG"' in content
     assert "gh release create" in content
     assert "--publish never" in content
+
+
+def test_release_build_injects_the_gateway_secret_from_github_secrets() -> None:
+    """O segredo do gateway entra no instalador pelo build, vindo do secret do
+    GitHub, e nunca por valor escrito no repositório."""
+    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+    release_native = content.split("\n  release-native:\n", 1)[1].split(
+        "\n  linux-package-install:\n", 1
+    )[0]
+
+    assert "VECTORA_APP_SECRET: ${{ secrets.VECTORA_APP_SECRET }}" in release_native
+    assert ">> backend/defaults.env" in release_native
+    inject = release_native.index(">> backend/defaults.env")
+    assert inject < release_native.index("Build hybrid")
+
+
+def test_gitleaks_runs_on_every_pull_request_with_a_pinned_version() -> None:
+    """Varredura de segredos na árvore e nos commits do PR, com a ferramenta
+    fixada em versão exata."""
+    content = (WORKFLOW.parent / "gitleaks.yml").read_text(encoding="utf-8")
+
+    assert "pull_request:" in content
+    assert "fetch-depth: 0" in content
+    assert "GITLEAKS_VERSION: v8." in content
+    assert "gitleaks/v8@${{ env.GITLEAKS_VERSION }}" in content
+    assert "gitleaks dir" in content
+    assert "gitleaks git" in content
+    assert "--redact" in content

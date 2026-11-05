@@ -510,8 +510,8 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
 
     # Gateway client (ex-relay) — WebSocket persistente para receber webhooks
     # e callbacks OAuth. Só inicia quando GATEWAY_ENABLED=true (padrão);
-    # VECTORA_APP_SECRET é um secret fixo por produto (settings.py), igual
-    # em toda instalação — sem ele o handshake de /register nunca autentica.
+    # VECTORA_APP_SECRET vem do build oficial ou do ambiente (settings.py);
+    # sem ele o handshake de /register não autentica e o cliente não sobe.
     _gateway_client = None
     try:
         from backend.settings import get_settings as _gs_gateway
