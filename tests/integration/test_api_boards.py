@@ -7,6 +7,7 @@ contexto de execução. Coexiste com `/sessions/{thread_id}/background/*`
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -208,8 +209,10 @@ async def test_get_board_view_agrupa_por_coluna_e_dono_errado_e_404(db):
     assert wrong_owner.value.status_code == 404
 
 
-async def test_board_batch_queries_treatem_ids_como_dados(db):
+async def test_board_batch_queries_treatem_ids_como_dados(db, monkeypatch):
     """IDs com sintaxe SQL devem continuar sendo valores, nunca parte da query."""
+    from backend.scheduling import background_tasks as bg
+    from backend.scheduling import kanban
     from backend.scheduling.kanban import (
         get_comment_counts_batch,
         get_dependencies_batch,
@@ -217,10 +220,34 @@ async def test_board_batch_queries_treatem_ids_como_dados(db):
     )
 
     ids = ["id-inexistente'); DROP TABLE vectora_background_tasks; --"]
+    queries: list[tuple[str, tuple[Any, ...]]] = []
+    connection = await bg._get_db()
 
-    assert await get_progress_batch(ids) == {}
-    assert await get_comment_counts_batch(ids) == {}
-    assert await get_dependencies_batch(ids) == {ids[0]: []}
+    class RecordingConnection:
+        def execute(self, query: str, parameters: tuple[Any, ...] = ()) -> Any:
+            queries.append((query, parameters))
+            return connection.execute(query, parameters)
+
+    async def get_recording_connection() -> RecordingConnection:
+        return RecordingConnection()
+
+    async def skip_legacy_upgrade(_connection: Any) -> None:
+        return None
+
+    monkeypatch.setattr(kanban, "_get_db", get_recording_connection)
+    monkeypatch.setattr(kanban, "_ensure_version_column", skip_legacy_upgrade)
+
+    try:
+        assert await get_progress_batch(ids) == {}
+        assert await get_comment_counts_batch(ids) == {}
+        assert await get_dependencies_batch(ids) == {ids[0]: []}
+    finally:
+        await connection.close()
+
+    assert len(queries) == 3
+    for query, parameters in queries:
+        assert "json_each(?)" in query
+        assert parameters == (json.dumps(ids),)
 
     # Efeito observável: a tabela continua disponível após os três caminhos.
     assert await get_boards(_req()) == []
