@@ -303,10 +303,27 @@ def _strip_bot_blocks(body: str) -> str:
     return _AUTO_GENERATED_BLOCK.sub("", body)
 
 
+# Linha só com o vínculo à issue que traz a spec (`Closes #12`, `Refs #12`,
+# `Spec: #12` ou a URL da issue). É a única referência a rastreador aceita no
+# corpo do PR; o título e qualquer outra linha continuam sob a regra geral.
+_ISSUE_LINK_LINE = re.compile(
+    r"^\s*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?|refs?|spec)\s*:?\s+"
+    r"(?:#[1-9]\d*|https://github\.com/[^\s/]+/[^\s/]+/issues/[1-9]\d*)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _strip_issue_links(body: str) -> str:
+    """Remove as linhas que são só o vínculo com a issue da spec."""
+    return "\n".join(
+        line for line in body.splitlines() if not _ISSUE_LINK_LINE.match(line)
+    )
+
+
 def pr_metadata_main() -> int:
     """Executa a operação main."""
     title = os.environ.get("PR_TITLE", "")
-    body = _strip_bot_blocks(os.environ.get("PR_BODY", "") or "")
+    body = _strip_issue_links(_strip_bot_blocks(os.environ.get("PR_BODY", "") or ""))
 
     violations: list[tuple[str, str]] = []
     if _PR_METADATA_PATTERN.search(title):
@@ -325,7 +342,9 @@ def pr_metadata_main() -> int:
         "ferramenta/revisor de IA (CodeRabbit, Claude, Copilot, etc) — mesma "
         "regra dos comentários de código (CLAUDE.md §1, que cobre também "
         "mensagens de PR). Descreva só o que a mudança faz; histórico de "
-        "planejamento deve ficar em .claude/plans/ ou na issue/discussão apropriada."
+        "planejamento deve ficar em .claude/plans/ ou na issue/discussão apropriada. "
+        "A única referência a issue aceita no corpo é o vínculo com a spec, "
+        "numa linha só (`Closes #N`, `Refs #N` ou `Spec: #N`)."
     )
     return 1
 

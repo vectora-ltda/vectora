@@ -16,7 +16,9 @@ Não use `docs/` para planos internos, handoffs de implementação, auditorias, 
 
 Mantenha as mudanças restritas ao que foi pedido. Antes de commitar, inspecione a árvore de trabalho e o diff em stage; adicione só os arquivos pretendidos e deixe segredos, `.env` locais e artefatos gerados fora dos commits. Use Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:` ou `ci:`) com uma mensagem que explique a mudança.
 
-Títulos e descrições de PR e de issue são escritos em português, com o prefixo do Conventional Commits no título. Não cite ferramentas ou revisores de IA, planos de trabalho (Sprint, Bloco, Fase) nem números de issue ou PR nesses textos; o CI recusa.
+Títulos e descrições de PR e de issue são escritos em português, com o prefixo do Conventional Commits no título. Não cite ferramentas ou revisores de IA, planos de trabalho (Sprint, Bloco, Fase) nem números de issue ou PR nesses textos; o CI recusa. A única exceção é uma linha só com o vínculo à issue da spec (`Closes #N`, `Refs #N` ou `Spec: #N`) no corpo do PR.
+
+O desenvolvimento é guiado por spec, e a spec mora em issue, nunca só em arquivo local. Uma feature (`feat:`) sempre tem issue com spec, confirmada por um mantenedor antes da implementação, e o PR a vincula; sem ela o PR de feature é questionado por inteiro. Uma correção (`fix:`) pode dispensar a issue quando for pequena e óbvia. Antes de abrir um PR de feature, confira se a issue existe; se não existir, proponha escrevê-la em vez de abrir o PR.
 
 Não crie git worktrees por conta própria: trabalhe no checkout em uso e só use uma worktree quando o usuário pedir.
 
