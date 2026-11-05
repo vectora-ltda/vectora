@@ -60,7 +60,6 @@ Os recursos incluídos nesta versão são listados abaixo.
 
 As correções incluídas nesta versão são listadas abaixo.
 
-- fix: restaura a tela inicial da interface (#432)
 - fix: endurece validacao de entradas e caminhos (#431)
 - fix: remove o segredo do gateway do código e adiciona varredura de segredos (#428)
 - fix(ci): consolidate release workflow corrections
@@ -217,7 +216,6 @@ As correções abaixo complementam os recursos descritos.
 
 As correções incluídas na linha 0.3 são listadas abaixo.
 
-- Restaura a tela inicial da interface: a raiz e as rotas aninhadas passam a receber o `index.html` no Electron, e o fallback continua recusando arquivos fora do bundle ([#432](https://github.com/vectora-ltda/vectora/pull/432)).
 - Endurece a validação de entradas e caminhos na API do backend e na ponte do Electron ([#431](https://github.com/vectora-ltda/vectora/pull/431)).
 - Remove o segredo do gateway do código (`VECTORA_APP_SECRET`), que o build oficial passa a injetar a partir de um secret, e adiciona varredura de segredos com `gitleaks` no pre-commit e no CI ([#428](https://github.com/vectora-ltda/vectora/pull/428)).
 - Corrige a consistência de sequência e cursor do histórico, mensagens órfãs e a persistência de estado de erro.
