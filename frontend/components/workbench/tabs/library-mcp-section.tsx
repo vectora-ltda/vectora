@@ -8,11 +8,22 @@
  * persistidos via POST /auth/envs — o MCP instalado passa a aparecer na
  * aba Integrações como uma entrada "Customizada" automaticamente, já que
  * ela lista qualquer env key órfã do catálogo.
+ *
+ * "Adicionar MCP manual" (stdio/sse/http + política de tools) reaproveita
+ * o componente PluginsTab.
  */
 
-import { useEffect, useMemo, useState } from "react";
-import { Download, Loader2, Puzzle, Star, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import {
+  ChevronDown,
+  ChevronUp,
+  Download,
+  Loader2,
+  Puzzle,
+  Trash2,
+} from "lucide-react";
 
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -23,11 +34,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { PluginsTab } from "@/components/settings/environment/tabs/plugins-tab";
 import { m } from "@/lib/paraglide/messages";
 import { useLibraryStore, type MCPConnector } from "@/lib/stores/library-store";
 import { useWindowsStore } from "@/lib/stores/windows-store";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
-import { LibraryCard, LibraryTag } from "./library-card";
 import type { LibraryItem } from "./library-tab";
 
 async function saveEnvVar(key: string, value: string): Promise<void> {
@@ -91,21 +102,23 @@ function ConfigureDialog({
       setError(m.library_mcp_error_missing_env({ key: missing }));
       return;
     }
-    setError(null);
-    const requiresConfirmation = [
-      "community_listed",
-      "unsigned",
-      "verification_unavailable",
-    ].includes(connector.trust_state ?? "");
-    if (connector.trust_state === "invalid") {
-      setError(m.library_mcp_trust_invalid_install());
-      return;
-    }
-    if (requiresConfirmation && !window.confirm(m.library_mcp_trust_confirm()))
-      return;
-
     setSaving(true);
+    setError(null);
     try {
+      const requiresConfirmation = [
+        "community_listed",
+        "unsigned",
+        "verification_unavailable",
+      ].includes(connector.trust_state ?? "");
+      if (connector.trust_state === "invalid") {
+        setError(m.library_mcp_invalid_install());
+        return;
+      }
+      if (
+        requiresConfirmation &&
+        !window.confirm(m.library_mcp_unverified_confirm())
+      )
+        return;
       await Promise.all(
         connector.env_vars.map((key) => saveEnvVar(key, values[key].trim())),
       );
@@ -171,16 +184,40 @@ function ConnectorCard({
   connector,
   installed,
   onChanged,
-  onOpen,
+  threadId,
 }: {
   connector: MCPConnector;
   installed: boolean;
   onChanged: () => void;
-  onOpen: () => void;
+  threadId?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [configuring, setConfiguring] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const openCanvasDocument = useWindowsStore((s) => s.openCanvasDocument);
+  const activeWorkspaceId = useWorkspacesStore((s) => s.active_id);
+  const trustLabel = (state: MCPConnector["trust_state"] | undefined) => {
+    switch (state) {
+      case "vectora_verified":
+        return m.library_mcp_verified();
+      case "publisher_signed":
+        return m.library_skills_trust_publisher_signed();
+      case "community_listed":
+        return m.library_skills_trust_community_listed();
+      case "unsigned":
+        return m.library_skills_trust_unsigned();
+      case "invalid":
+        return m.library_skills_trust_invalid();
+      case "verification_unavailable":
+        return m.library_skills_trust_verification_unavailable();
+      default:
+        return null;
+    }
+  };
+  const badgeLabel = trustLabel(
+    connector.trust_state ??
+      (connector.vectora_verified ? "vectora_verified" : undefined),
+  );
 
   const handleInstallClick = () => {
     if (connector.env_vars.length > 0) {
@@ -200,12 +237,12 @@ function ConnectorCard({
         "verification_unavailable",
       ].includes(connector.trust_state ?? "");
       if (connector.trust_state === "invalid") {
-        setError(m.library_mcp_trust_invalid_install());
+        setError(m.library_mcp_invalid_install());
         return;
       }
       if (
         requiresConfirmation &&
-        !window.confirm(m.library_mcp_trust_confirm())
+        !window.confirm(m.library_mcp_unverified_confirm())
       )
         return;
       const result = await installMcp(connector.id, requiresConfirmation);
@@ -234,141 +271,15 @@ function ConnectorCard({
     }
   };
 
-  const verified = connector.vectora_verified === true;
-  const publisherUrl = (() => {
-    if (!connector.publisher_url) return null;
-    try {
-      const url = new URL(connector.publisher_url);
-      return url.protocol === "https:" || url.protocol === "http:"
-        ? url.href
-        : null;
-    } catch {
-      return null;
-    }
-  })();
-  const publisher = connector.publisher?.trim();
-  const stars = connector.stars_count ?? 0;
-  const downloads = connector.downloads_count ?? 0;
-
-  return (
-    <LibraryCard
-      onClick={onOpen}
-      icon={
-        connector.icon_url ? (
-          <img
-            src={connector.icon_url}
-            alt=""
-            className="size-full rounded object-cover"
-          />
-        ) : (
-          <Puzzle className="size-3.5" />
-        )
-      }
-      title={connector.name}
-      description={connector.description}
-      tags={
-        <>
-          {verified && (
-            <LibraryTag verified>{m.library_mcp_verified()}</LibraryTag>
-          )}
-        </>
-      }
-      action={
-        <Button
-          variant={installed ? "outline" : "default"}
-          size="sm"
-          className={
-            installed
-              ? "h-[19px] rounded-md border-[#555] bg-transparent px-1.5 py-1 text-[9px] text-muted-foreground"
-              : "h-[19px] rounded-md border-0 bg-[#d4d4d4] px-1.5 py-1 text-[9px] font-medium text-[#1a1a1a] hover:bg-white"
-          }
-          onClick={installed ? handleUninstall : handleInstallClick}
-          disabled={busy}
-        >
-          {busy ? (
-            <Loader2 className="size-[11px] animate-spin" />
-          ) : installed ? (
-            <>
-              <Trash2 className="size-[11px]" />
-              {m.library_mcp_uninstall()}
-            </>
-          ) : (
-            <>
-              <Download className="size-[11px]" />
-              {m.library_mcp_install()}
-            </>
-          )}
-        </Button>
-      }
-      footer={
-        <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
-          {publisher &&
-            (publisherUrl ? (
-              <a
-                href={publisherUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="truncate hover:text-foreground"
-                onClick={(event) => event.stopPropagation()}
-              >
-                {m.library_mcp_preview_publisher({ publisher })}
-              </a>
-            ) : (
-              <span className="truncate">
-                {m.library_mcp_preview_publisher({ publisher })}
-              </span>
-            ))}
-          {stars > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <Star className="size-3" />
-              {m.library_mcp_preview_stars({ count: stars })}
-            </span>
-          )}
-          {downloads > 0 && (
-            <span>{m.library_mcp_preview_downloads({ count: downloads })}</span>
-          )}
-          {error && <p className="basis-full text-destructive">{error}</p>}
-        </div>
-      }
-    >
-      {configuring && (
-        <ConfigureDialog
-          connector={connector}
-          onClose={() => setConfiguring(false)}
-          onInstalled={onChanged}
-        />
-      )}
-    </LibraryCard>
-  );
-}
-
-export function McpSection({
-  query,
-  threadId = "library",
-}: {
-  query: string;
-  threadId?: string;
-}) {
-  const connectors = useLibraryStore((s) => s.mcpItems);
-  const sourceStatus = useLibraryStore(
-    (s) => s.mcpStatus ?? { status: "never" },
-  );
-  const installedIds = useLibraryStore((s) => s.mcpInstalledIds);
-  const loading = useLibraryStore((s) => s.mcpLoading);
-  const error = useLibraryStore((s) => s.mcpError);
-  const ensureMcpLoaded = useLibraryStore((s) => s.ensureMcpLoaded);
-  const invalidateMcp = useLibraryStore((s) => s.invalidateMcp);
-  const openCanvasDocument = useWindowsStore((s) => s.openCanvasDocument);
-
-  const openConnector = (connector: MCPConnector) => {
-    const workspaceId = useWorkspacesStore.getState().active_id;
-    const workspaceKey = workspaceId ?? "no-workspace";
+  const openPreview = (event: MouseEvent<HTMLDivElement>) => {
+    if (!threadId || (event.target as HTMLElement).closest("button")) return;
+    const workspaceId = activeWorkspaceId ?? "no-workspace";
     openCanvasDocument({
-      id: `mcp:${workspaceKey}:${threadId}:${connector.id}`,
+      id: `mcp:${workspaceId}:${threadId}:${connector.id}`,
       kind: "mcp-preview",
-      workspaceId,
+      workspaceId: activeWorkspaceId,
       threadId,
-      title: m.library_mcp_preview_title({ name: connector.name }),
+      title: connector.name,
       mcp: {
         id: connector.id,
         name: connector.name,
@@ -378,15 +289,107 @@ export function McpSection({
         homepage: connector.homepage,
         category: connector.category,
         iconUrl: connector.icon_url,
-        publisher: connector.publisher,
-        publisherUrl: connector.publisher_url,
-        starsCount: connector.stars_count,
-        downloadsCount: connector.downloads_count,
-        runtimeHint: connector.runtime_hint,
-        transport: connector.transport,
       },
     });
   };
+
+  return (
+    <div
+      className="rounded-lg border bg-card p-3 space-y-2"
+      role={threadId ? "button" : undefined}
+      tabIndex={threadId ? 0 : undefined}
+      onClick={threadId ? openPreview : undefined}
+    >
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-md bg-muted flex items-center justify-center shrink-0 overflow-hidden">
+          {connector.icon_url ? (
+            <img
+              src={connector.icon_url}
+              alt=""
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <span
+              className="text-sm font-semibold text-muted-foreground"
+              aria-hidden="true"
+            >
+              {connector.name.slice(0, 1).toUpperCase()}
+            </span>
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <span className="block text-sm font-medium truncate">
+            {connector.name}
+          </span>
+          <p className="text-xs text-muted-foreground truncate">
+            {connector.description}
+          </p>
+          <div className="flex items-center gap-1.5 min-w-0 pt-0.5">
+            {connector.category !== "community" && (
+              <Badge
+                variant="secondary"
+                className="text-[10px] h-4 px-1.5 shrink-0"
+              >
+                {connector.category}
+              </Badge>
+            )}
+            {badgeLabel && (
+              <Badge className="text-[10px] h-4 px-1.5 shrink-0">
+                {badgeLabel}
+              </Badge>
+            )}
+          </div>
+        </div>
+        <Button
+          variant={installed ? "outline" : "default"}
+          size="sm"
+          className="h-7 text-xs shrink-0"
+          onClick={installed ? handleUninstall : handleInstallClick}
+          disabled={busy}
+        >
+          {busy ? (
+            <Loader2 className="w-3 h-3 animate-spin" />
+          ) : installed ? (
+            <>
+              <Trash2 className="w-3 h-3 mr-1.5" />
+              {m.library_mcp_uninstall()}
+            </>
+          ) : (
+            <>
+              <Download className="w-3 h-3 mr-1.5" />
+              {m.library_mcp_install()}
+            </>
+          )}
+        </Button>
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+      {configuring && (
+        <ConfigureDialog
+          connector={connector}
+          onClose={() => setConfiguring(false)}
+          onInstalled={onChanged}
+        />
+      )}
+    </div>
+  );
+}
+
+export function McpSection({
+  query,
+  onCountChange,
+  threadId,
+}: {
+  query: string;
+  onCountChange?: (count: number) => void;
+  threadId?: string;
+}) {
+  const connectors = useLibraryStore((s) => s.mcpItems);
+  const installedIds = useLibraryStore((s) => s.mcpInstalledIds);
+  const loading = useLibraryStore((s) => s.mcpLoading);
+  const error = useLibraryStore((s) => s.mcpError);
+  const ensureMcpLoaded = useLibraryStore((s) => s.ensureMcpLoaded);
+  const invalidateMcp = useLibraryStore((s) => s.invalidateMcp);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const load = useMemo(
     () => async () => {
@@ -407,6 +410,10 @@ export function McpSection({
     return () => clearTimeout(timer);
   }, [query, ensureMcpLoaded]);
 
+  useEffect(() => {
+    onCountChange?.(connectors.length);
+  }, [connectors.length, onCountChange]);
+
   if (loading) {
     return (
       <div className="flex justify-center py-6">
@@ -418,36 +425,23 @@ export function McpSection({
   if (connectors.length === 0) {
     return (
       <div className="py-4 space-y-3">
-        {sourceStatus.status === "unavailable" && (
-          <p className="text-xs text-destructive text-center" role="status">
-            {m.library_mcp_status_unavailable()}
-          </p>
-        )}
-        {sourceStatus.status === "never" && (
-          <p
-            className="text-xs text-muted-foreground text-center"
-            role="status"
-          >
-            {m.library_mcp_status_never()}
-          </p>
-        )}
         <p className="text-xs text-muted-foreground text-center">
           {m.library_empty_mcp()}
         </p>
         {error && (
           <p className="text-xs text-destructive text-center">{error}</p>
         )}
+        <AdvancedToggle
+          open={showAdvanced}
+          onToggle={() => setShowAdvanced((v) => !v)}
+        />
+        {showAdvanced && <PluginsTab />}
       </div>
     );
   }
 
   return (
     <div className="space-y-2 py-1">
-      {sourceStatus.status === "unavailable" && (
-        <p className="text-xs text-destructive" role="status">
-          {m.library_mcp_status_unavailable()}
-        </p>
-      )}
       {error && <p className="text-xs text-destructive">{error}</p>}
       {connectors.map((connector) => (
         <ConnectorCard
@@ -455,9 +449,37 @@ export function McpSection({
           connector={connector}
           installed={installedIds.has(connector.id)}
           onChanged={load}
-          onOpen={() => openConnector(connector)}
+          threadId={threadId}
         />
       ))}
+      <AdvancedToggle
+        open={showAdvanced}
+        onToggle={() => setShowAdvanced((v) => !v)}
+      />
+      {showAdvanced && <PluginsTab />}
     </div>
+  );
+}
+
+function AdvancedToggle({
+  open,
+  onToggle,
+}: {
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors pt-1"
+    >
+      {open ? (
+        <ChevronUp className="w-3.5 h-3.5" />
+      ) : (
+        <ChevronDown className="w-3.5 h-3.5" />
+      )}
+      {m.library_mcp_advanced_toggle()}
+    </button>
   );
 }
