@@ -4422,7 +4422,9 @@ async def search_memory_unified(
 
 
 @workspace_scoped_router.post("/rag/ingest", response_model=RagIngestResponse)
-async def rag_ingest(workspace_id: str, body: RagIngestRequest) -> RagIngestResponse:
+async def rag_ingest(
+    workspace_id: str, body: RagIngestRequest, request: Request
+) -> RagIngestResponse:
     """Indexa uma pasta no RAG diretamente (walk + chunk + enqueue por job).
 
     Valida o caminho na hora (erro imediato se inválido) e enfileira os chunks
@@ -4436,16 +4438,36 @@ async def rag_ingest(workspace_id: str, body: RagIngestRequest) -> RagIngestResp
     from fastapi import HTTPException
 
     from backend.embedding.rag_ingest import ingest_directory
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
     from backend.services import rag_buckets
     from backend.services.security import is_safe_file_path
     from backend.workspace.runtime_settings import runtime_settings
 
-    if not is_safe_file_path(body.path) or not Path(body.path).is_dir():
+    if not is_safe_file_path(body.path):
+        raise HTTPException(
+            status_code=400, detail="Caminho inválido ou fora do escopo."
+        )
+    try:
+        ingest_path, _safe_root_id = await _resolve_and_authorize_dir(
+            body.path,
+            _is_privileged(request),
+            get_safe_root_registry(),
+            strict=True,
+        )
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    if not ingest_path.is_dir():
         raise HTTPException(
             status_code=400, detail="Caminho inválido ou fora do escopo."
         )
 
-    bucket_name = body.bucket_name or Path(body.path).name or body.path
+    body = body.model_copy(update={"path": str(ingest_path)})
+    bucket_name = body.bucket_name or ingest_path.name or str(ingest_path)
     bucket = rag_buckets.create_bucket(
         runtime_settings,
         workspace_id=workspace_id,
@@ -4509,6 +4531,7 @@ async def rag_ingest(workspace_id: str, body: RagIngestRequest) -> RagIngestResp
 async def rag_ingest_preview(
     workspace_id: str,
     path: str,
+    request: Request,
     file_types: str = "all",
     include_exts: str | None = None,
     exclude_exts: str | None = None,
@@ -4523,15 +4546,34 @@ async def rag_ingest_preview(
     from fastapi import HTTPException
 
     from backend.embedding.rag_ingest import list_matching_files
+    from backend.rbac.safe_roots import (
+        SafeRootPersistenceError,
+        get_safe_root_registry,
+    )
     from backend.services.security import is_safe_file_path
 
-    if not is_safe_file_path(path) or not Path(path).is_dir():
+    if not is_safe_file_path(path):
+        raise HTTPException(
+            status_code=400, detail="Caminho inválido ou fora do escopo."
+        )
+    try:
+        ingest_path, _safe_root_id = await _resolve_and_authorize_dir(
+            path,
+            _is_privileged(request),
+            get_safe_root_registry(),
+            strict=True,
+        )
+    except SafeRootPersistenceError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    if not ingest_path.is_dir():
         raise HTTPException(
             status_code=400, detail="Caminho inválido ou fora do escopo."
         )
 
     files, total = list_matching_files(
-        path,
+        str(ingest_path),
         file_types=file_types,
         include_exts=include_exts,
         exclude_exts=exclude_exts,
