@@ -187,7 +187,12 @@ class WorkspaceRegistry:
     def get(self, workspace_id: str) -> Workspace | None:
         """Retorna workspace por ID ou None se não existir."""
         self._load()
-        return self._workspaces.get(workspace_id)
+        found: Workspace | None = None
+        for known_id, workspace in self._workspaces.items():
+            if known_id == workspace_id:
+                found = workspace
+                break
+        return found
 
     def claim_if_unowned(self, workspace_id: str, user_id: str) -> Workspace | None:
         """Atomically claim a legacy workspace for its first tool caller.

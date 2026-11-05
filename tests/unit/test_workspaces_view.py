@@ -1185,9 +1185,14 @@ class TestRagIngestPreview:
 
         (tmp_path / "a.py").write_text("1", encoding="utf-8")
         (tmp_path / "b.md").write_text("1", encoding="utf-8")
+        request = _fake_request()
+        request.state.user.role = "root"
 
         result = await rag_ingest_preview(
-            workspace_id="vws", path=str(tmp_path), file_types="markdown"
+            workspace_id="vws",
+            path=str(tmp_path),
+            request=request,
+            file_types="markdown",
         )
 
         assert result.total == 1
@@ -1201,10 +1206,12 @@ class TestRagIngestPreview:
         from backend.services import security as security_mod
 
         monkeypatch.setattr(security_mod, "is_safe_file_path", lambda _p: False)
+        request = _fake_request()
+        request.state.user.role = "root"
 
         with pytest.raises(HTTPException) as exc_info:
             await ws_handlers_mod.rag_ingest_preview(
-                workspace_id="vws", path=str(tmp_path)
+                workspace_id="vws", path=str(tmp_path), request=request
             )
 
         assert exc_info.value.status_code == 400

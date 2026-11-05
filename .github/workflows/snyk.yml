@@ -97,16 +97,16 @@ jobs:
           all-extras: "true"
           working-directory: .
       # O plano gratuito do Snyk não lê uv.lock; o lock é exportado para
-      # requirements.txt e o plugin pip inspeciona o .venv sincronizado pelo
-      # setup-uv, que tem exatamente as versões travadas. O plugin depende de
-      # pkg_resources, que o setuptools 81 em diante não traz mais; o projeto exige
-      # uma versão nova, então o downgrade vale só para este scan, sem resolver
-      # dependências.
+      # O plugin pip do Snyk precisa do pip instalado no interpretador informado
+      # em --command para construir a árvore de dependências. O uv sync não semeia
+      # pip no ambiente. O plugin também depende de pkg_resources, removido do
+      # setuptools 81 em diante; ambos são instalados apenas neste ambiente de scan,
+      # sem resolver ou alterar as dependências travadas do projeto.
       - name: Exporta uv.lock para requirements
         run: |
           uv export --frozen --no-hashes --no-emit-project --all-extras \
             --format requirements-txt -o snyk-requirements.txt
-          uv pip install --no-config --python .venv/bin/python --reinstall --no-deps "setuptools<81"
+          uv pip install --no-config --python .venv/bin/python --reinstall --no-deps pip "setuptools<81"
       - uses: snyk/actions/setup@9adf32b1121593767fc3c057af55b55db032dc04 # v1.0.0
         with:
           snyk-version: v${{ env.SNYK_CLI_VERSION }}
@@ -140,10 +140,15 @@ jobs:
       - name: snyk code test
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        run: >-
-          snyk code test
-          --severity-threshold=high
-          --sarif-file-output=snyk-code.sarif
+        # O Snyk Code não aplica arquivo de política nem comentários de supressão:
+        # os achados já analisados ficam em .github/snyk-code-baseline.json, com
+        # motivo e prazo, e qualquer achado fora dele reprova o job.
+        run: |
+          status=0
+          snyk code test --severity-threshold=high --sarif-file-output=snyk-code.sarif || status=$?
+          if [ "$status" -eq 0 ]; then exit 0; fi
+          if [ "$status" -ne 1 ]; then exit "$status"; fi
+          python3 utils/snyk_baseline.py snyk-code.sarif .github/snyk-code-baseline.json
       # Publica os achados na aba Security > Code scanning mesmo quando o
       # passo anterior falha por severidade.
       - name: Envia SARIF para o code scanning

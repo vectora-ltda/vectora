@@ -680,15 +680,17 @@ def test_gitleaks_runs_on_every_pull_request_with_a_pinned_version() -> None:
 
 
 def test_snyk_scans_resolve_their_prerequisites() -> None:
-    """O scan npm precisa do node_modules e o plugin pip precisa do pkg_resources,
-    que as versões 81 em diante do setuptools removeram."""
+    """Os plugins npm e pip precisam das dependências de análise instaladas."""
     content = (WORKFLOW.parent / "snyk.yml").read_text(encoding="utf-8")
     node = content.split("\n  node-deps:\n", 1)[1].split("\n  python-deps:\n", 1)[0]
     python = content.split("\n  python-deps:\n", 1)[1].split("\n  code:\n", 1)[0]
 
     assert "pnpm install --frozen-lockfile --ignore-scripts" in node
     assert node.index("pnpm install") < node.index("snyk test")
-    assert '"setuptools<81"' in python
+    assert (
+        "uv pip install --no-config --python .venv/bin/python --reinstall "
+        '--no-deps pip "setuptools<81"' in python
+    )
 
 
 def test_milestone_workflow_resolves_the_release_line_of_stacked_prs() -> None:

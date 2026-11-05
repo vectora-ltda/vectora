@@ -1283,7 +1283,11 @@ async def test_storage_connection(request: Request) -> dict:
 
         from backend.storage.dev_stack import DEFAULT_START_COMMANDS
 
-        expected_command = DEFAULT_START_COMMANDS.get(backend)
+        expected_command = None
+        for known_backend, known_command in DEFAULT_START_COMMANDS.items():
+            if known_backend == backend:
+                expected_command = known_command
+                break
         requested_command = body.get("start_command")
         if expected_command is None or requested_command != expected_command:
             result["error"] = f"Comando de inicialização não permitido para {backend}."

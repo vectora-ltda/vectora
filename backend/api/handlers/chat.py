@@ -16,9 +16,11 @@ from __future__ import annotations
 import base64
 import binascii
 import contextlib
+import hashlib
 import json
 import logging
 import os
+import re
 import uuid
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -424,9 +426,14 @@ def _persist_image_file(thread_id: str, att: Attachment) -> Path | None:
         ):
             logger.warning("chat: imagem rejeitada antes de persistir: %s", att.name)
             return None
-        ext = Path(att.name).suffix or _EXT_BY_MIME.get(att.mime_type, "")
+        ext = _EXT_BY_MIME.get(normalized_mime, "")
         filename = f"{uuid.uuid4().hex}{ext}"
-        safe_thread = thread_id.replace("/", "").replace("\\", "").replace("..", "")
+        safe_thread = (
+            thread_id
+            if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", thread_id)
+            and ".." not in thread_id
+            else hashlib.sha256(thread_id.encode("utf-8")).hexdigest()
+        )
         attachment_root = settings.vectora_home / _CHAT_ATTACHMENTS_DIRNAME
         if not attachment_root.exists():
             attachment_root.mkdir(parents=True, exist_ok=True)

@@ -466,6 +466,22 @@ async function storeSetCookie(cookieStr: string): Promise<void> {
  * transporte IPC, fazendo streaming da resposta (incl. SSE). ``vectora-app://
  * app/<path>`` → backend ``/<path>``.
  */
+/**
+ * Caminho enviado ao backend: reconstruído contra uma origem fixa e aceito
+ * somente quando continua nela, sem host nem esquema vindos do request.
+ */
+function backendRequestPath(source: URL): string {
+  const segments = source.pathname
+    .split("/")
+    .filter((segment) => segment !== "")
+    .map((segment) => encodeURIComponent(decodeURIComponent(segment)));
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    throw new Error("Caminho inválido para a ponte local.");
+  }
+  const query = new URLSearchParams(source.search).toString();
+  return `/${segments.join("/")}${query ? `?${query}` : ""}`;
+}
+
 async function forwardToBackend(request: Request): Promise<Response> {
   const url = new URL(request.url);
   if (
@@ -504,7 +520,7 @@ async function forwardToBackend(request: Request): Promise<Response> {
       {
         ...backendTransport(),
         method: request.method,
-        path: url.pathname + url.search,
+        path: backendRequestPath(url),
         headers,
       },
       (res) => {

@@ -390,19 +390,21 @@ async def _validate_runtime_executable(
 ) -> str:
     """Valida o binário oficial antes de publicar uma versão como ativa."""
     root = trusted_root.resolve() if trusted_root is not None else None
-    candidates: list[Path] = []
-    for raw_path in files:
-        candidate = Path(raw_path).resolve()
-        if candidate.name.lower() not in {"llama-server", "llama-server.exe"}:
+    wanted = {str(Path(raw_path).resolve()) for raw_path in files}
+    listed = (
+        await asyncio.to_thread(lambda: list(root.rglob("*")))
+        if root is not None
+        else [Path(raw_path).resolve() for raw_path in files]
+    )
+    executable: Path | None = None
+    for entry in listed:
+        if entry.name.lower() not in {"llama-server", "llama-server.exe"}:
             continue
-        if not candidate.is_file():
-            continue
-        if root is not None and root not in candidate.parents:
-            continue
-        candidates.append(candidate)
-    if not candidates:
+        if str(entry.resolve()) in wanted and entry.is_file():
+            executable = entry
+            break
+    if executable is None:
         raise ValueError("release não contém llama-server")
-    executable = candidates[0]
     try:
         process = await asyncio.create_subprocess_exec(
             str(executable),
@@ -2104,11 +2106,31 @@ async def start_llamacpp_sidecar(
         raise HTTPException(status_code=400, detail="sidecar deve usar loopback")
     if not 1024 <= body.port <= 65535:
         raise HTTPException(status_code=400, detail="porta inválida")
+    sidecar_executable: Path | None = None
+    requested_executable = Path(body.executable).expanduser().resolve()
+    managed_entries = await asyncio.to_thread(
+        lambda: list(_llamacpp_runtime_root().rglob("*"))
+    )
+    for entry in managed_entries:
+        if entry.name.lower() not in {"llama-server", "llama-server.exe"}:
+            continue
+        if str(entry.resolve()) == str(requested_executable) and entry.is_file():
+            sidecar_executable = entry
+            break
+    sidecar_host = ""
+    for loopback in ("127.0.0.1", "localhost", "::1"):
+        if loopback == body.host:
+            sidecar_host = loopback
+            break
+    if sidecar_executable is None:
+        raise HTTPException(
+            status_code=400, detail="runtime precisa estar no diretório gerenciado"
+        )
     try:
         await start_llamacpp(
-            body.executable,
+            sidecar_executable,
             body.model,
-            host=body.host,
+            host=sidecar_host,
             port=body.port,
             alias=body.alias,
             mmproj=body.mmproj,
@@ -2244,16 +2266,13 @@ async def start_installed_huggingface_model(
         runtime_dir = Path(candidate_directory).expanduser().resolve()
         if runtime_root_resolved not in runtime_dir.parents:
             continue
-        candidate_executable = next(
-            (
-                path
-                for path in await asyncio.to_thread(
-                    lambda path=runtime_dir: list(path.rglob("*"))
-                )
-                if path.name.lower() in {"llama-server", "llama-server.exe"}
-            ),
-            None,
-        )
+        candidate_executable = None
+        for path in await asyncio.to_thread(
+            lambda path=runtime_dir: list(path.rglob("*"))
+        ):
+            if path.name.lower() in {"llama-server", "llama-server.exe"}:
+                candidate_executable = path
+                break
         if candidate_executable is None or not await asyncio.to_thread(
             candidate_executable.is_file
         ):
@@ -3713,18 +3732,20 @@ async def check_llamacpp_runtime(
     _: ProviderAdmin,
 ) -> dict[str, object]:
     """Testa ``--version`` apenas em um runtime gerenciado pelo Vectora."""
-    executable = Path(body.path).expanduser().resolve()
+    requested = Path(body.path).expanduser().resolve()
     runtime_root = _llamacpp_runtime_root()
-    if runtime_root not in executable.parents:
+    if runtime_root not in requested.parents:
         raise HTTPException(
             status_code=400, detail="runtime precisa estar no diretório gerenciado"
         )
-    if not await asyncio.to_thread(
-        executable.is_file
-    ) or executable.name.lower() not in {
-        "llama-server",
-        "llama-server.exe",
-    }:
+    executable: Path | None = None
+    for entry in await asyncio.to_thread(lambda: list(runtime_root.rglob("*"))):
+        if entry.name.lower() not in {"llama-server", "llama-server.exe"}:
+            continue
+        if str(entry.resolve()) == str(requested) and entry.is_file():
+            executable = entry
+            break
+    if executable is None:
         raise HTTPException(status_code=400, detail="binário llama-server inválido")
     try:
         process = await asyncio.create_subprocess_exec(

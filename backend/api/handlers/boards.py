@@ -16,7 +16,7 @@ atual usa.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
@@ -25,6 +25,24 @@ from backend.api.handlers.background import BoardOut as BackgroundBoardOut
 from backend.scheduling.boards import Board
 
 router = APIRouter(prefix="/boards", tags=["boards"])
+
+
+def _canonical_task_ids(task_ids: list[str]) -> list[str]:
+    """Retain only canonical UUID task IDs before using them in batch queries.
+
+    Background task IDs are generated server-side as UUIDs. Revalidating the
+    values returned from persistence gives the SQL batch helpers a narrow,
+    explicit identifier set even if a malformed legacy row is encountered.
+    The query helpers still bind every ID as data; this check is defense in depth.
+    """
+    canonical: list[str] = []
+    for task_id in task_ids:
+        try:
+            parsed = UUID(task_id)
+        except (ValueError, AttributeError):
+            continue
+        canonical.append(str(parsed))
+    return canonical
 
 
 def _user_id(request: Request) -> str:
@@ -163,7 +181,7 @@ async def get_board_view(request: Request, board_id: str) -> BackgroundBoardOut:
     await _require_own_board(board_id, uid)
 
     tasks = await list_tasks_by_board(board_id)
-    ids = [t.id for t in tasks]
+    ids = _canonical_task_ids([t.id for t in tasks])
 
     progress_map = await get_progress_batch(ids)
     comments_map = await get_comment_counts_batch(ids)
