@@ -60,6 +60,9 @@ Os recursos incluídos nesta versão são listados abaixo.
 
 As correções incluídas nesta versão são listadas abaixo.
 
+- fix: restaura a tela inicial da interface (#432)
+- fix: endurece validacao de entradas e caminhos (#431)
+- fix: remove o segredo do gateway do código e adiciona varredura de segredos (#428)
 - fix(ci): consolidate release workflow corrections
 - fix(docs): usar logo invertida nos assets do site (#323)
 - fix: corrigir avisos do oxlint no Monaco Godot (#320)
@@ -116,6 +119,18 @@ As correções incluídas nesta versão são listadas abaixo.
 - fix(frontend): tela de Integrações dirigida 100% pelo registry do backend (#50)
 - fix(backend,services): hardening real do túnel do gateway (secret separado do token público) (#49)
 - fix(services): remove fallback cross-arch que quebrava update entre versões (#48)
+
+### Código aberto, CI e release
+
+O trabalho de abertura do código e de infraestrutura incluído nesta versão é listado abaixo.
+
+- docs: define a spec em issue antes do PR de feature e aceita o vínculo com a issue (#430)
+- docs: adota a AGPL-3.0 e atualiza a documentação para código aberto (#427)
+- chore: corrige caminhos, pipelines e ferramentas de release após mover o app para a raiz (#425)
+- refactor: move o app para a raiz do repositório (#424)
+- ci: roda a versão do PR nos workflows de PR (#426)
+- ci: add Snyk dependency and code scanning (#422)
+- ci: corrigir automação de releases e assinatura de artefatos (#421)
 
 # Changelog
 
@@ -184,12 +199,27 @@ A navegação usa o Chromium distribuído com o Electron.
 - Usa Chromium no Browser Workbench e no fallback de `fetch_url` sem chave ou após quota/rate limit; a busca consulta o provider configurado e pode recorrer à API DuckDuckGo, enquanto `web_crawl` e `web_map` exigem `TAVILY_API_KEY`, sem fallback Chromium ([#382](https://github.com/vectora-ltda/vectora/pull/382), [#355](https://github.com/vectora-ltda/vectora/pull/355)).
 - Ajusta o fluxo de release e os testes locais de providers ([#408](https://github.com/vectora-ltda/vectora/pull/408)).
 
+##### Código aberto, CI e release
+
+O repositório passa a conter só o app e a documentação, preparado para ser aberto.
+
+- Move o conteúdo de `vectora/` para a raiz do repositório e tira `company/`, `services/` e `docker/` dele; ajusta workflows, `SConstruct`, pre-commit e testes à nova estrutura ([#424](https://github.com/vectora-ltda/vectora/pull/424), [#425](https://github.com/vectora-ltda/vectora/pull/425)).
+- Adota a AGPL-3.0 (`LICENSE`), com `CLA.md`, `CODE_OF_CONDUCT.md` e `THIRD_PARTY_NOTICES.md` gerado a partir das licenças do `uv` e do `pnpm`; a Vectora Ltda continua titular do código ([#427](https://github.com/vectora-ltda/vectora/pull/427)).
+- Passa a exigir a spec em uma issue antes do PR de feature e aceita no PR a linha de vínculo com a issue (`Closes #N`, `Refs #N` ou `Spec: #N`) ([#430](https://github.com/vectora-ltda/vectora/pull/430)).
+- Consolida a configuração de release em `.github/release-lines.json` e os utilitários em `utils/release.py` e `utils/checks.py` ([#425](https://github.com/vectora-ltda/vectora/pull/425)).
+- Seleciona tags e manifests da linha ativa, permite reavaliar o Release Please por `workflow_dispatch`, gera `SHA256SUMS` em toda distribuição e assina os artefatos quando há credenciais: Authenticode no Windows e assinatura ad-hoc no macOS, com notarização apenas com as credenciais Apple completas ([#421](https://github.com/vectora-ltda/vectora/pull/421)).
+- Roda nos PRs a versão dos workflows do próprio PR, e não a da `master` ([#426](https://github.com/vectora-ltda/vectora/pull/426)).
+- Adiciona varredura do Snyk para dependências npm, dependências Python e código (SAST) em PRs para `master` e `release/**`, em push na `master`, semanalmente e sob demanda ([#422](https://github.com/vectora-ltda/vectora/pull/422)).
+
 As correções abaixo complementam os recursos descritos.
 
 ### Bug Fixes
 
 As correções incluídas na linha 0.3 são listadas abaixo.
 
+- Restaura a tela inicial da interface: a raiz e as rotas aninhadas passam a receber o `index.html` no Electron, e o fallback continua recusando arquivos fora do bundle ([#432](https://github.com/vectora-ltda/vectora/pull/432)).
+- Endurece a validação de entradas e caminhos na API do backend e na ponte do Electron ([#431](https://github.com/vectora-ltda/vectora/pull/431)).
+- Remove o segredo do gateway do código (`VECTORA_APP_SECRET`), que o build oficial passa a injetar a partir de um secret, e adiciona varredura de segredos com `gitleaks` no pre-commit e no CI ([#428](https://github.com/vectora-ltda/vectora/pull/428)).
 - Corrige a consistência de sequência e cursor do histórico, mensagens órfãs e a persistência de estado de erro.
 - Corrige a comparação de contratos para referências, enums, limites e combinadores de schema.
 - Libera os guards de navegação, filtra cópias expiradas de memória e protege a restauração de checkpoints contra links simbólicos.
