@@ -696,7 +696,6 @@ def _resolve_workspace_id(
             if active is not None:
                 return active.id
 
-        # deepcode ignore PT: o workspace_registry só guarda pastas autorizadas pelo usuário
         ws = workspace_registry.get_or_create_session_workspace(thread_id, user_id)
         workspace_registry.set_active(ws.id, user_id)
         return ws.id
@@ -987,7 +986,6 @@ async def stream_chat(
 
             workspace = workspace_registry.get(workspace_id)
             project_root = str(workspace.cwd) if workspace is not None else None
-        # deepcode ignore PT: o diretório vem de um workspace registrado e autorizado
         native_agent = await agent_factory.get_native_agent(
             user_id,
             chat_mode=chat_mode,
@@ -1102,7 +1100,6 @@ async def stream_chat(
 
             ws = workspace_registry.get(workspace_id)
             if ws is not None:
-                # deepcode ignore PT: o diretório vem de um workspace registrado e autorizado
                 pinned = await build_pinned_context(thread_id, ws.cwd)
                 if pinned:
                     user_vmsg = _prepend_text_context(user_vmsg, pinned)
@@ -1366,7 +1363,6 @@ async def resume_chat(
 
             workspace = workspace_registry.get(selector_workspace_id)
             project_root = str(workspace.cwd) if workspace is not None else None
-        # deepcode ignore PT: o diretório vem de um workspace registrado e autorizado
         native_agent = await agent_factory.get_native_agent(
             resume_user_id,
             chat_mode=selector_chat_mode,
@@ -1563,7 +1559,6 @@ async def get_tools(http_request: Request) -> GetToolsResponse:
         from backend.services.tool_resolver import resolve_tools
 
         workspace_id = str(getattr(http_request.state, "workspace_id", "") or "")
-        # deepcode ignore CommandInjection: servidores MCP stdio são configurados pelo usuário e exigem confirmação de confiança antes de executar
         resolved = await resolve_tools(
             _user_id_from_request(http_request), workspace_id=workspace_id
         )

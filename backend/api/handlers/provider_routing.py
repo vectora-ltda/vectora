@@ -406,7 +406,6 @@ async def _validate_runtime_executable(
     if executable is None:
         raise ValueError("release não contém llama-server")
     try:
-        # deepcode ignore CommandInjection: o llama-server vem do diretório de runtime gerenciado e a rota exige a ponte do desktop
         process = await asyncio.create_subprocess_exec(
             str(executable),
             "--version",
@@ -2128,7 +2127,6 @@ async def start_llamacpp_sidecar(
             status_code=400, detail="runtime precisa estar no diretório gerenciado"
         )
     try:
-        # deepcode ignore CommandInjection: o executável vem do diretório de runtime gerenciado; modelo e opções são validados em start_llamacpp
         await start_llamacpp(
             sidecar_executable,
             body.model,
@@ -2280,7 +2278,6 @@ async def start_installed_huggingface_model(
         ):
             continue
         try:
-            # deepcode ignore CommandInjection: o executável vem do diretório de runtime gerenciado; modelo e opções são validados em start_llamacpp
             await start_llamacpp(
                 candidate_executable,
                 model_path,

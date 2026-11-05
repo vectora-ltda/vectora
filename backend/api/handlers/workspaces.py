@@ -390,7 +390,6 @@ async def create_workspace(
             )
         except SafeRootPersistenceError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
-    # deepcode ignore PT: a pasta é autorizada pelas safe roots antes de registrar o workspace
     ws = workspace_registry.create(
         str(resolved_path), trust=body.trust, git_init=body.git_init, user_id=uid
     )
@@ -1343,7 +1342,6 @@ async def workspace_file_raw(
     if media_type in active_content_types:
         media_type = "application/octet-stream"
         headers["Content-Disposition"] = "attachment"
-    # deepcode ignore PT: _resolve_inside confina o caminho ao workspace
     return _StarletteFileResponse(resolved, media_type=media_type, headers=headers)
 
 
@@ -2591,7 +2589,6 @@ async def pr_list(
             break
     if not pr_state:
         return PullRequestListResponse(available=False, message="Estado inválido.")
-    # deepcode ignore CommandInjection: gh recebe argv (sem shell); o estado vem de uma lista fixa e o cwd de um workspace autorizado
     result = await _gh_run(
         [
             "pr",
@@ -2665,7 +2662,6 @@ async def pr_create(
     ]
     if body.draft:
         args.append("--draft")
-    # deepcode ignore CommandInjection: gh recebe argv (sem shell); a branch base é validada e o cwd vem de um workspace autorizado
     result = await _gh_run(args, cwd=cwd, user_id=context.user_id)
     if result.get("status") == "ok":
         return StatusResponse(status="ok", message=result.get("output", ""))
@@ -2985,7 +2981,6 @@ async def resolve_conflict(  # noqa: PLR0911
                     status="error",
                     message="Conteúdo obrigatório para resolution=content.",
                 )
-            # deepcode ignore PT: _resolve_inside confina o caminho ao workspace
             Path(full_path).write_text(body.content, encoding="utf-8")
         else:
             return StatusResponse(
@@ -3201,7 +3196,6 @@ async def delete_fs_node(
     try:
         if permanent:
             if resolved.is_dir():
-                # deepcode ignore PT: _resolve_inside confina o caminho ao workspace
                 _shutil.rmtree(resolved)
             else:
                 resolved.unlink()
@@ -3238,7 +3232,6 @@ async def move_fs_node(workspace_id: str, body: MoveFsNodeRequest) -> StatusResp
         )
     try:
         dst.parent.mkdir(parents=True, exist_ok=True)
-        # deepcode ignore PT: _resolve_inside confina o caminho ao workspace
         _shutil.move(str(src), str(dst))
         return StatusResponse(status="ok")
     except OSError as exc:
@@ -3832,7 +3825,6 @@ async def browser_start(workspace_id: str, body: BrowserStartRequest) -> StatusR
     env = {**__import__("os").environ, **cfg.env}
     cmd = [cfg.runtimeExecutable, *cfg.runtimeArgs]
     try:
-        # deepcode ignore CommandInjection: launch.json é a configuração de execução que o usuário confiou ao marcar o workspace como confiável
         proc = await _asyncio.create_subprocess_exec(
             *cmd,
             cwd=ws.cwd,
@@ -4517,7 +4509,6 @@ async def rag_ingest(
 
     async def _run() -> None:
         try:
-            # deepcode ignore PT: a pasta é autorizada pelas safe roots antes da ingestão
             result = await ingest_directory(
                 body.path,
                 file_types=body.file_types,
@@ -4601,7 +4592,6 @@ async def rag_ingest_preview(
             status_code=400, detail="Caminho inválido ou fora do escopo."
         )
 
-    # deepcode ignore PT: a pasta é autorizada pelas safe roots antes da ingestão
     files, total = list_matching_files(
         str(ingest_path),
         file_types=file_types,
