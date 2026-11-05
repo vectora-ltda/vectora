@@ -208,6 +208,10 @@ export async function filesUnder(root: string): Promise<string[]> {
   return files;
 }
 
+function isCommitId(value: string | undefined): value is string {
+  return value !== undefined && /^[0-9a-f]{7,64}$/i.test(value);
+}
+
 /** Runs the command-line checker and reports violations to stderr. */
 export async function runCli(args = process.argv.slice(2)): Promise<number> {
   const root = resolve(process.cwd());
@@ -219,8 +223,6 @@ export async function runCli(args = process.argv.slice(2)): Promise<number> {
     const baseRef = process.env.GITHUB_BASE_REF;
     const baseSha = process.env.PR_BASE_SHA;
     const headSha = process.env.PR_HEAD_SHA;
-    const isCommitId = (value: string | undefined): value is string =>
-      value !== undefined && /^[0-9a-f]{7,64}$/i.test(value);
     // Os commits do próprio PR vencem: em PRs empilhados o HEAD do runner é
     // um merge que carrega a pilha inteira, e `origin/<base>...HEAD` listaria
     // arquivos que o PR não mexeu.

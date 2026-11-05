@@ -8,6 +8,49 @@ import { filesUnder, isIgnoredPath, lintSource, runCli } from "./lint-i18n";
 
 const execFileAsync = promisify(execFile);
 
+function git(cwd: string, ...args: string[]) {
+  return execFileAsync("git", args, { cwd }).then(({ stdout }) =>
+    stdout.trim(),
+  );
+}
+
+function runChanged(cwd: string, env: Record<string, string>) {
+  return execFileAsync(
+    process.execPath,
+    [
+      join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"),
+      join(process.cwd(), "scripts", "lint-i18n.ts"),
+      "--changed",
+    ],
+    { cwd, env: { ...process.env, GITHUB_BASE_REF: "stale", ...env } },
+  );
+}
+
+async function repoWithHead(headFile: string, headSource: string) {
+  const root = await mkdtemp(join(tmpdir(), "lint-i18n-changed-"));
+  const frontend = join(root, "frontend");
+  await mkdir(frontend);
+  await git(root, "init", "-q");
+  await git(root, "config", "user.email", "t@example.com");
+  await git(root, "config", "user.name", "t");
+  await writeFile(join(root, "README.md"), "raiz");
+  await git(root, "add", "-A");
+  await git(root, "commit", "-q", "-m", "raiz");
+  // Simula o runner de uma PR empilhada: `origin/<base>` aponta para um
+  // ponto antes de qualquer arquivo do frontend, então a diff contra ele
+  // trataria os arquivos antigos como alterados.
+  await git(root, "update-ref", "refs/remotes/origin/stale", "HEAD");
+  await writeFile(join(frontend, "old.tsx"), "<button>Antigo</button>");
+  await git(root, "add", "-A");
+  await git(root, "commit", "-q", "-m", "base");
+  const base = await git(root, "rev-parse", "HEAD");
+  await writeFile(join(frontend, headFile), headSource);
+  await git(root, "add", "-A");
+  await git(root, "commit", "-q", "-m", "head");
+  const head = await git(root, "rev-parse", "HEAD");
+  return { root, frontend, base, head };
+}
+
 describe("lint-i18n", () => {
   it("reports visible JSX text and text attributes", () => {
     const violations = lintSource(
@@ -91,45 +134,6 @@ describe("lint-i18n", () => {
   });
 
   describe("--changed with the pull request commits", () => {
-    const git = (cwd: string, ...args: string[]) =>
-      execFileAsync("git", args, { cwd }).then(({ stdout }) => stdout.trim());
-
-    const runChanged = (cwd: string, env: Record<string, string>) =>
-      execFileAsync(
-        process.execPath,
-        [
-          join(process.cwd(), "node_modules", "tsx", "dist", "cli.mjs"),
-          join(process.cwd(), "scripts", "lint-i18n.ts"),
-          "--changed",
-        ],
-        { cwd, env: { ...process.env, GITHUB_BASE_REF: "stale", ...env } },
-      );
-
-    async function repoWithHead(headFile: string, headSource: string) {
-      const root = await mkdtemp(join(tmpdir(), "lint-i18n-changed-"));
-      const frontend = join(root, "frontend");
-      await mkdir(frontend);
-      await git(root, "init", "-q");
-      await git(root, "config", "user.email", "t@example.com");
-      await git(root, "config", "user.name", "t");
-      await writeFile(join(root, "README.md"), "raiz");
-      await git(root, "add", "-A");
-      await git(root, "commit", "-q", "-m", "raiz");
-      // Simula o runner de uma PR empilhada: `origin/<base>` aponta para um
-      // ponto antes de qualquer arquivo do frontend, então a diff contra ele
-      // trataria os arquivos antigos como alterados.
-      await git(root, "update-ref", "refs/remotes/origin/stale", "HEAD");
-      await writeFile(join(frontend, "old.tsx"), "<button>Antigo</button>");
-      await git(root, "add", "-A");
-      await git(root, "commit", "-q", "-m", "base");
-      const base = await git(root, "rev-parse", "HEAD");
-      await writeFile(join(frontend, headFile), headSource);
-      await git(root, "add", "-A");
-      await git(root, "commit", "-q", "-m", "head");
-      const head = await git(root, "rev-parse", "HEAD");
-      return { root, frontend, base, head };
-    }
-
     it("lints only what the pull request changed, not older violations", async () => {
       const { root, frontend, base, head } = await repoWithHead(
         "novo.tsx",
