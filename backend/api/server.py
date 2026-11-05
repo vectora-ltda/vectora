@@ -1006,20 +1006,15 @@ def create_app(serve_static: bool = True) -> FastAPI:
         async def _spa_or_static(request: Request, filename: str) -> FastAPIResponse:
             # Se for arquivo real na raiz do bundle, serve direto.
             """Executa a operação  spa or static."""
-            if (
-                not filename
-                or Path(filename).name != filename
-                or "/" in filename
-                or "\\" in filename
-            ):
+            if "\\" in filename:
                 return FastAPIResponse(status_code=404)
-            requested_candidate = chat_static / filename
-            if requested_candidate.is_symlink():
-                return FastAPIResponse(status_code=404)
-            candidate = requested_candidate.resolve()
             try:
+                requested_candidate = chat_static / filename
+                if requested_candidate.is_symlink():
+                    return FastAPIResponse(status_code=404)
+                candidate = requested_candidate.resolve()
                 candidate.relative_to(chat_static.resolve())
-            except ValueError:
+            except (OSError, RuntimeError, ValueError):
                 # path traversal — bloqueia
                 return FastAPIResponse(status_code=404)
             if candidate.is_file():

@@ -11,6 +11,7 @@ Valida:
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 from fastapi import FastAPI
@@ -342,3 +343,31 @@ class TestChatModeWithoutStaticDir:
         c = TestClient(app, raise_server_exceptions=False)
         resp = c.get("/health")
         assert resp.status_code == 200
+
+
+class TestChatModeWithStaticDir:
+    def test_root_serves_the_spa_entrypoint(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        from backend.api import server
+
+        static_root = tmp_path / "frontend-dist"
+        (static_root / "assets").mkdir(parents=True)
+        (static_root / "index.html").write_text(
+            '<!doctype html><html><body><div id="root"></div></body></html>',
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "false")
+        monkeypatch.setattr(server, "_chat_static_root", lambda: static_root)
+
+        client = TestClient(
+            server.create_app(serve_static=True), raise_server_exceptions=False
+        )
+        response = client.get("/")
+        nested_route_response = client.get("/settings/models")
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/html")
+        assert '<div id="root"></div>' in response.text
+        assert nested_route_response.status_code == 200
+        assert '<div id="root"></div>' in nested_route_response.text
