@@ -109,6 +109,7 @@ async def get_catalog(q: str | None = None) -> list[dict]:
 async def post_install(req: InstallRequest, request: Request) -> dict:
     _authorize_workspace(request, req.workspace_id)
     try:
+        # deepcode ignore PT: o bucket_id é validado por _validate_bucket_id antes de montar qualquer caminho
         collection = await download_memory_bucket(
             req.bucket_id, workspace_id=req.workspace_id
         )

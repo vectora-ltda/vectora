@@ -123,6 +123,7 @@ async def list_user_skills(
 ) -> SkillsListResponse:
     """Lista as skills instaladas para o usuário autenticado."""
     target = _authorized_target(request, scope, target, workspace_id)
+    # deepcode ignore PT: o alvo vem de um workspace autorizado ou de um identificador de runtime validado
     skills = list_skills(_user_id(request), scope, target)
     return {"skills": [s.model_dump() for s in skills], "total": len(skills)}
 
@@ -236,6 +237,7 @@ async def install_user_skill(
                 status_code=404, detail="Skill não encontrada no catálogo."
             )
         target = _authorized_target(request, body.scope, body.target, body.workspace_id)
+        # deepcode ignore PT: o alvo vem de um workspace autorizado ou de um identificador de runtime validado
         skill = install_skill(
             _user_id(request),
             entry.source,
@@ -258,6 +260,7 @@ async def delete_user_skill(
 ) -> RemovalResponse:
     """Remove uma skill instalada."""
     target = _authorized_target(request, scope, target, workspace_id)
+    # deepcode ignore PT: o alvo vem de um workspace autorizado ou de um identificador de runtime validado
     removed = remove_skill(_user_id(request), skill_id, scope, target)
     if not removed:
         raise HTTPException(status_code=404, detail="Skill não encontrada.")
@@ -274,6 +277,7 @@ async def verify_user_skill(
 ) -> dict:
     """Revalida o SKILL.md da skill (útil após edição manual no disco)."""
     target = _authorized_target(request, scope, target, workspace_id)
+    # deepcode ignore PT: o alvo vem de um workspace autorizado ou de um identificador de runtime validado
     return verify_skill(_user_id(request), skill_id, scope, target)
 
 

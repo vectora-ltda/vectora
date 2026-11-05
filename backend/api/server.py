@@ -1001,6 +1001,13 @@ def create_app(serve_static: bool = True) -> FastAPI:
             name="vite-assets",
         )
 
+        static_root = chat_static.resolve()
+        static_files: dict[str, Path] = {}
+        for entry in static_root.rglob("*"):
+            if entry.is_symlink() or not entry.is_file():
+                continue
+            static_files[entry.relative_to(static_root).as_posix()] = entry
+
         # Arquivos da raiz (favicon, manifest, ícones) servidos sob demanda.
         @app.get("/{filename:path}", include_in_schema=False)
         async def _spa_or_static(request: Request, filename: str) -> FastAPIResponse:
@@ -1008,17 +1015,11 @@ def create_app(serve_static: bool = True) -> FastAPI:
             """Executa a operação  spa or static."""
             if "\\" in filename:
                 return FastAPIResponse(status_code=404)
-            try:
-                requested_candidate = chat_static / filename
-                if requested_candidate.is_symlink():
-                    return FastAPIResponse(status_code=404)
-                candidate = requested_candidate.resolve()
-                candidate.relative_to(chat_static.resolve())
-            except (OSError, RuntimeError, ValueError):
-                # path traversal — bloqueia
-                return FastAPIResponse(status_code=404)
-            if candidate.is_file():
-                return FileResponse(candidate)
+            # Só arquivos que existem no bundle são servidos: o caminho vem
+            # do índice montado na subida, nunca do valor da requisição.
+            served = static_files.get(filename)
+            if served is not None and served.is_file():
+                return FileResponse(served)
             # Caso contrário, devolve index.html — o router client-side
             # processa a rota.
             return FileResponse(chat_static / "index.html")

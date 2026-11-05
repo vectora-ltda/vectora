@@ -65,6 +65,7 @@ async def inspect_local_backup(
 ) -> dict[str, object]:
     """Inspeciona arquivo escolhido pelo diálogo nativo sem escrever estado."""
     _require_desktop_bridge(x_vectora_desktop_bridge)
+    # deepcode ignore PT: arquivo escolhido pelo diálogo nativo; a rota exige a ponte do desktop
     return _preview_payload(inspect_backup(payload.archive_path))
 
 
@@ -107,6 +108,7 @@ async def restore_local_backup(
             await agent_factory.aclose(strict=True)
             await threads.close_db()
             await auth.close_db()
+            # deepcode ignore PT: arquivo escolhido pelo diálogo nativo; a rota exige a ponte do desktop
             preview = restore_backup(payload.archive_path, db_path, selected)
             await reopen_consumers()
             return _preview_payload(preview)

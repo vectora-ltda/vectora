@@ -1563,6 +1563,7 @@ async def delete_thread(
     await session_store.delete_session(request.thread_id)
     from backend.services.assets import asset_store
 
+    # deepcode ignore PT: o caminho vem do índice interno de assets, não da requisição
     asset_store.delete_thread_assets(request.thread_id)
     from backend.services.desktop_windows import desktop_window_registry
 
