@@ -1,0 +1,33 @@
+{
+  "id": "rest-client",
+  "name": "REST Client",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "frontend": "dist/frontend.js",
+  "backend": "dist/backend.js",
+  "api_version": 1,
+  "protocol_version": 1,
+  "runtime": "node",
+  "entrypoint": "dist/backend.js",
+  "frontend_entrypoint": "dist/frontend.js",
+  "backend_entrypoint": "dist/backend.js",
+  "permissions": [
+    "network",
+    "workspace.read"
+  ],
+  "publisher": "Vectora",
+  "contributions": {
+    "workbench": [
+      {
+        "id": "rest-client",
+        "title": "REST Client",
+        "icon": "Package",
+        "entrypoint": "dist/frontend.js"
+      }
+    ],
+    "shortcuts": [],
+    "footer": []
+  },
+  "description": "Compose and execute HTTP requests from files in the current workspace.",
+  "icon": "assets/icon.svg"
+}

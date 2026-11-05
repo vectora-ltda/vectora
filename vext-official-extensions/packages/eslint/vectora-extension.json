@@ -1,0 +1,26 @@
+{
+  "id": "eslint",
+  "name": "ESLint",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "frontend": "dist/frontend.js",
+  "backend": "dist/backend.js",
+  "api_version": 1,
+  "protocol_version": 1,
+  "runtime": "node",
+  "entrypoint": "dist/backend.js",
+  "frontend_entrypoint": "dist/frontend.js",
+  "backend_entrypoint": "dist/backend.js",
+  "permissions": [
+    "process.spawn",
+    "workspace.read"
+  ],
+  "publisher": "Vectora",
+  "contributions": {
+    "workbench": [],
+    "shortcuts": [],
+    "footer": []
+  },
+  "description": "Run ESLint diagnostics for the current workspace and inspect actionable fixes.",
+  "icon": "assets/icon.svg"
+}

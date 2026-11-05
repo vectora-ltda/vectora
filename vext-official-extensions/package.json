@@ -1,0 +1,15 @@
+{
+  "name": "vext-official-extensions",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Official full-stack extensions for the Vectora Extension ecosystem.",
+  "license": "Apache-2.0",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "check": "npm run build && npm run test && npm run validate:manifests",
+    "validate:manifests": "node scripts/validate-manifests.mjs"
+  },
+  "engines": { "node": ">=20" }
+}
