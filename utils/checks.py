@@ -77,13 +77,13 @@ _AI_TOOL_PATTERN: re.Pattern[str] = re.compile(
     r"(?i:\b(?:coderabbit(?:ai)?|claude(?:\s*code)?|chatgpt|copilot|codex)\b)(?!\.md)"
 )
 
-# Proíbe referências a rastreadores de tarefas, revisões abertas e automações de CI em comentários.
+# Proíbe referências a rastreadores de tarefas e a revisões abertas (issues e pull requests).
 _TRACKER_PATTERN: re.Pattern[str] = re.compile(
-    r"(?i:\b(?:issue|issues)\s*#?[1-9]\d*\b|#[1-9]\d*\b|\bpull\s+requests?(?:\s*#?[1-9]\d*)?\b|\b(?:pull\s*request|pr)\s*#?[1-9]\d*\b|https?://github\.com/[^\s/]+/[^\s/]+/(?:issues|pull)/[1-9]\d*|\bgha\b|\bgithub\s+actions\b)"
+    r"(?i:\b(?:issue|issues)\s*#?[1-9]\d*\b|#[1-9]\d*\b|\bpull\s+requests?(?:\s*#?[1-9]\d*)?\b|\b(?:pull\s*request|pr)\s*#?[1-9]\d*\b|https?://github\.com/[^\s/]+/[^\s/]+/(?:issues|pull)/[1-9]\d*)"
 )
 
 # Padrão único para metadados e comentários: planos artificiais,
-# ferramentas de IA e referências a rastreadores ou automações.
+# ferramentas de IA e referências a rastreadores.
 _PR_METADATA_PATTERN: re.Pattern[str] = re.compile(
     f"{_PLAN_PATTERN.pattern}|{_AI_TOOL_PATTERN.pattern}|{_TRACKER_PATTERN.pattern}"
 )
@@ -259,7 +259,7 @@ def no_plan_main(argv: list[str]) -> int:
     if had_violation:
         print(
             "\nComentários de código não referenciam Sprint/Bloco/Fase, ferramentas de IA "
-            "(CodeRabbit, Claude, Copilot, etc), nem issues, PRs ou GitHub Actions (GHA). "
+            "(CodeRabbit, Claude, Copilot, etc), nem issues ou PRs. "
             "Reescreva descrevendo apenas o que o código faz atualmente — histórico de "
             "planejamento, issues e revisões mora em markdown, PR description ou na mensagem do commit."
         )

@@ -179,12 +179,19 @@ class TestTrackerDeteccao:
         assert len(_find_violations(issue)) == 1
         assert len(_find_violations(pull)) == 1
 
-    def test_bloqueia_gha_e_github_actions(self, tmp_path: Path) -> None:
-        """Verifica o comportamento de bloqueia gha e github actions."""
+    def test_aceita_gha_e_github_actions_mas_bloqueia_issue(
+        self, tmp_path: Path
+    ) -> None:
+        """GHA e GitHub Actions descrevem o ambiente de execução e são
+        permitidos; a referência a uma issue na mesma linha continua barrada."""
         path1 = _write(tmp_path, "b.py", "# rodado no GHA\nx = 1\n")
-        assert len(_find_violations(path1)) == 1
+        assert _find_violations(path1) == []
         path2 = _write(tmp_path, "c.py", "# fluxo do github actions\nx = 1\n")
-        assert len(_find_violations(path2)) == 1
+        assert _find_violations(path2) == []
+        path3 = _write(tmp_path, "d.py", "# .env.gha.example lista os secrets\nx = 1\n")
+        assert _find_violations(path3) == []
+        path4 = _write(tmp_path, "e.py", "# rodado no GHA, ver issue #12\nx = 1\n")
+        assert len(_find_violations(path4)) == 1
 
 
 class TestMain:
