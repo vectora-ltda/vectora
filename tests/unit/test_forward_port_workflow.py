@@ -689,3 +689,20 @@ def test_snyk_scans_resolve_their_prerequisites() -> None:
     assert "pnpm install --frozen-lockfile --ignore-scripts" in node
     assert node.index("pnpm install") < node.index("snyk test")
     assert '"setuptools<81"' in python
+
+
+def test_milestone_workflow_resolves_the_release_line_of_stacked_prs() -> None:
+    """Uma PR empilhada herda a linha de release da raiz da pilha: o workflow
+    segue as bases pelas PRs abertas, atribui a milestone da raiz e repassa a
+    raiz ao validador."""
+    content = (WORKFLOW.parent / "pr-release-milestone.yml").read_text(encoding="utf-8")
+
+    assert "github.rest.pulls.list" in content
+    assert 'core.setOutput("stack_root", stackRoot)' in content
+    assert (
+        "CURRENT_STACK_ROOT_BASE: ${{ steps.assign-milestone.outputs.stack_root }}"
+        in content
+    )
+    assert "head.repo?.full_name" in content
+    # A busca é limitada e não entra em ciclo de bases.
+    assert "seen.has(cursor)" in content
