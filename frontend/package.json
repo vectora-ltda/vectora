@@ -5,6 +5,7 @@
   "author": "Vectora Ltda <contato@vectora.company>",
   "homepage": "https://vectora.company",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "commonjs",
   "packageManager": "pnpm@11.5.0",
   "engines": {

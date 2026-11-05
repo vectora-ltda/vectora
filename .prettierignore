@@ -18,3 +18,6 @@ backend/contracts/
 # fora do pre-commit também (editor, scons lint futuro) — ignore aqui também.
 docs/content/
 docs/_vendor/
+
+# Gerado por utils/third_party_notices.py
+THIRD_PARTY_NOTICES.md

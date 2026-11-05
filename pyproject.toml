@@ -6,6 +6,8 @@ build-backend = "hatchling.build"
 name = "vectora"
 version = "0.3.0"
 description = "Vectora - Advanced AI Assistant"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
 readme = "README.md"
 authors = [{name = "Vectora Ltda", email = "contato@vectora.company"}]
 requires-python = ">=3.13"

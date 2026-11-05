@@ -1,0 +1,8 @@
+# Quem revisa por padrão. Mudanças em segurança, licença e build também passam
+# por estes donos.
+*                       @brunosrz
+/LICENSE                @brunosrz
+/CLA.md                 @brunosrz
+/SECURITY.md            @brunosrz
+/.github/               @brunosrz
+/backend/services/security.py  @brunosrz
