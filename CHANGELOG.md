@@ -1,3 +1,15 @@
+## [0.3.1] (2026-11-05)
+
+Esta seção reúne as alterações publicadas nesta versão.
+
+### Bug Fixes
+
+As correções incluídas nesta versão são listadas abaixo.
+
+- fix: restaura a tela inicial da interface (#432)
+- fix: endurece validacao de entradas e caminhos (#431)
+- fix: remove o segredo do gateway do código e adiciona varredura de segredos (#428)
+
 ## [0.3.0] (2026-11-04)
 
 Esta seção reúne as alterações publicadas nesta versão.
