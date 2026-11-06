@@ -1,9 +1,9 @@
 ---
-title: What's new in the 0.3 line
+title: What's new in version 0.1.24
 weight: 1
 ---
 
-The `release/0.3` line expands Vectora from a tool-enabled workspace into an agent runtime with identifiable runs, evidence, planning, policies, and evaluation. This page describes the line's composition, including PR #404 stacked on top of it. The `0.3.0` tag must still be published before this content represents a distributed release.
+Version 0.1.24 brings together Vectora's evolution from a tool-enabled workspace into an agent runtime with identifiable runs, evidence, planning, policies, and evaluation. This page describes the capabilities included in that version.
 
 ## What's included
 

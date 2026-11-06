@@ -83,8 +83,8 @@ A configuração das linhas está em `.github/release-lines.json`.
 
 | Linha                      | Branch base   | Milestone |
 | -------------------------- | ------------- | --------- |
-| Manutenção da série atual  | `master`      | `0.3.x`   |
-| Desenvolvimento da próxima | `release/0.4` | `0.4`     |
+| Manutenção da série atual  | `master`      | `0.1.x`   |
+| Desenvolvimento da próxima | `release/0.2` | `0.2`     |
 
 Todo PR usa a base da linha que ele atinge e a milestone correspondente; o workflow `PR Release Milestone` atribui a milestone e bloqueia combinações incompatíveis. As versões são calculadas dos commits pelo workflow de release, que abre o PR `chore(master): release X.Y.Z`. Uma correção aplicada na linha de manutenção também precisa chegar à linha de desenvolvimento; o workflow de propagação abre esse PR.
 

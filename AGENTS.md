@@ -30,7 +30,7 @@ O [CONTRIBUTING.md](CONTRIBUTING.md) é a referência completa do fluxo de contr
 - **Vínculo no PR.** O corpo do PR aponta a issue com uma linha só: `Closes #N`, `Refs #N` ou `Spec: #N`. É a única referência a issue aceita no texto do PR.
 - **Ambiente e checks.** `uv sync` e `pnpm --dir frontend install`, depois as verificações da seção 5. Rode as da área que mudou e informe o resultado.
 - **Fluxo.** Escolha ou abra a issue, crie a branch a partir da base certa, faça mudanças pequenas com Conventional Commits, abra o PR em português e atenda à revisão.
-- **Linhas de release.** `master` com a milestone `0.3.x` (manutenção) e `release/0.4` com a `0.4` (desenvolvimento), conforme `.github/release-lines.json`.
+- **Linhas de release.** `master` com a milestone `0.1.x` (manutenção) e `release/0.2` com a `0.2` (desenvolvimento), conforme `.github/release-lines.json`.
 - **CLA.** Contribuições de terceiros exigem o aceite do [CLA.md](CLA.md).
 - **Segurança e conduta.** Vulnerabilidades seguem o [SECURITY.md](SECURITY.md), nunca uma issue pública, e a convivência segue o [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 

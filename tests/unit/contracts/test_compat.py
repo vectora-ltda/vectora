@@ -283,7 +283,7 @@ def test_baseline_contract_tree_is_detected(monkeypatch, tmp_path) -> None:
     monkeypatch.setattr(
         contracts_cli.subprocess, "run", lambda *args, **kwargs: Result()
     )
-    assert contracts_cli._baseline_contains_contracts(tmp_path, "origin/release/0.3")
+    assert contracts_cli._baseline_contains_contracts(tmp_path, "origin/release/0.2")
 
 
 def test_baseline_contract_tree_missing_is_not_treated_as_drift(
@@ -300,5 +300,5 @@ def test_baseline_contract_tree_missing_is_not_treated_as_drift(
         contracts_cli.subprocess, "run", lambda *args, **kwargs: Result()
     )
     assert not contracts_cli._baseline_contains_contracts(
-        tmp_path, "origin/release/0.3"
+        tmp_path, "origin/release/0.2"
     )

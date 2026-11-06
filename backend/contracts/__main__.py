@@ -36,7 +36,7 @@ def _contract_baseline_ref() -> str:
     github_base = os.environ.get("GITHUB_BASE_REF", "").strip()
     if github_base:
         return f"origin/{github_base}"
-    return "origin/release/0.3"
+    return "origin/release/0.2"
 
 
 def _baseline_contains_contracts(repo_root: Path, baseline_ref: str) -> bool:

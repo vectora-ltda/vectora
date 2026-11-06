@@ -5,7 +5,7 @@ weight: 10
 
 Este guia explica como o Vectora controla o tráfego de saída do agente: a política de egress, que vale para as ferramentas de rede, e o isolamento de rede do sandbox, que vale para os comandos executados no worker.
 
-> **Status:** estas capacidades fazem parte da linha 0.3. Esta página não declara concluídos os testes live que ainda aparecem como `skipped`.
+> **Status:** estas capacidades estão incluídas na versão 0.1.24. Testes live marcados como `skipped` não comprovam funcionamento em ambiente real.
 
 ## Pré-requisitos
 

@@ -22,7 +22,7 @@ No seu núcleo, o Vectora fecha o **abismo de conhecimento** entre um LLM e sua 
 | Ver todos os comandos da CLI             | [Referência de CLI](./reference/cli)           |
 | Fazer deploy em um servidor              | [Requisitos](./deployment/requirements)        |
 | Entender auth, secrets e BYOK            | [Segurança](./security/authentication)         |
-| Conhecer as novidades da linha 0.3       | [Novidades da linha 0.3](./guides/release-0.3) |
+| Conhecer as novidades da versão 0.1.24    | [Novidades da versão 0.1.24](./guides/release-0.1.24) |
 
 ## O que o Vectora é (e não é)
 
@@ -35,7 +35,7 @@ Veja a [página de preços](https://vectora.company/#pricing) para os planos atu
 
 Antes de usar essas capacidades, confira os limites de plataforma, configuração e validação abaixo.
 
-## Limites da linha 0.3
+## Limites da versão 0.1.24
 
 - **Execução local:** o sandbox liga sozinho só quando o workspace não tem `vectora.toml` e o ambiente suporta isolamento nativo; com `vectora.toml`, vale a seção `[sandbox]` (`enabled = false` no modelo). O backend `local` funciona em Linux (no Windows, via WSL2; no macOS o sandbox não liga sozinho). `allow_tcp_ports` exige Landlock ABI V4 (kernel 6.7+), e uma lista vazia não restringe a rede. Veja [Sandbox](./concepts/sandbox) e [Políticas de egress](./guides/egress-policies). Um `vectora.toml` existente sem `[sandbox]` também desliga o sandbox (`enabled = false`); esse caso difere da ativação automática quando o arquivo está ausente. Uma distribuição WSL2 elegível não garante que bwrap esteja instalado. Sem ele, o worker usa um processo soft nativo sem isolamento de filesystem ou rede, mesmo com `lockdown = true`.
 - **Providers remotos:** com chaves BYOK ou endpoints de Ollama, OpenRouter e 9router, as solicitações saem da máquina onde o backend roda direto para o provider escolhido.

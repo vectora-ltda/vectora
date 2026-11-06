@@ -5,4 +5,4 @@ sidebar:
   open: true
 ---
 
-Practical guides for chat, workbenches, settings, Decision Models, run history, and the 0.3 release line, including the guides on Plan Mode and AgentRun, verification and Evaluation Lab, and egress policies. These pages describe content integrated into the release branch; check your installed version before using features still rolling out.
+Practical guides for chat, workbenches, settings, Decision Models, run history, and capabilities included in version 0.1.24, including Plan Mode and AgentRun, verification and Evaluation Lab, and egress policies. Check each capability's prerequisites and limitations before use.

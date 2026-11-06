@@ -1,9 +1,9 @@
 ---
-title: Novedades de la línea 0.3
+title: Novedades de la versión 0.1.24
 weight: 1
 ---
 
-La línea `release/0.3` amplía Vectora: de un workspace con herramientas pasa a un runtime de agentes con ejecuciones identificables, evidencias, planificación, policies y evaluación. Esta página describe la composición de la línea, incluido el PR #404 apilado sobre ella. La etiqueta `0.3.0` aún debe publicarse para que este contenido represente una release distribuida.
+La versión 0.1.24 reúne la evolución de Vectora: de un workspace con herramientas pasa a un runtime de agentes con ejecuciones identificables, evidencias, planificación, policies y evaluación. Esta página describe las capacidades incluidas en esa versión.
 
 ## Novedades
 

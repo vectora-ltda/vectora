@@ -5,7 +5,7 @@ weight: 9
 
 Este guia mostra como configurar os quality gates que verificam o resultado de uma execução e como usar o Evaluation Lab para gravar, reproduzir e comparar execuções.
 
-> **Status:** estas capacidades fazem parte da linha 0.3. Esta página não declara concluídos os testes live que ainda aparecem como `skipped`.
+> **Status:** estas capacidades estão incluídas na versão 0.1.24. Testes live marcados como `skipped` não comprovam funcionamento em ambiente real.
 
 ## Pré-requisitos
 
