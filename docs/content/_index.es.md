@@ -39,4 +39,3 @@ Este sitio contiene guías públicas de instalación, configuración, uso, segur
 - **Sandbox:** el aislamiento depende del sistema operativo, del worker disponible y de la configuración del workspace. En Windows se usa WSL2; si `bwrap` no está disponible, el fallback no aísla filesystem ni red. Lee [Sandbox](./concepts/sandbox) antes de confiar en la ejecución automatizada.
 - **Proveedores externos:** las solicitudes a LLM, embeddings, rerankers y búsqueda pueden enviar datos al servicio seleccionado. Una instalación local no significa que un proveedor remoto procese los datos localmente.
 - **Validación:** las pruebas unitarias, el replay de cassettes y las pruebas live omitidas cubren alcances distintos. Consulta [Verificación y Evaluation Lab](./guides/verification-lab) antes de interpretar resultados.
-

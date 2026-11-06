@@ -62,4 +62,3 @@ The code is licensed under [AGPL-3.0](https://github.com/vectora-ltda/vectora/bl
 ## Next step
 
 → [Quick start](./quick-start)
-

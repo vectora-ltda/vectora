@@ -59,4 +59,3 @@ Los snapshots de policy y las comprobaciones de egress se aplican a las rutas de
 - Para proveedores locales, verifica que el servicio y los modelos necesarios estén disponibles.
 - Distingue los resultados `passed`, `failed` y `skipped`. Una prueba `skipped` no valida la ruta live.
 - No uses replay como sustituto de una llamada real cuando el objetivo sea validar la integración live.
-

@@ -39,4 +39,3 @@ This site contains public installation, configuration, usage, security, and refe
 - **Sandbox:** isolation depends on the operating system, available worker, and workspace configuration. Windows uses WSL2; if required `bwrap` is unavailable, the fallback does not isolate the filesystem or network. Read [Sandbox](./concepts/sandbox) before trusting automated execution.
 - **External providers:** requests to LLMs, embedding models, rerankers, and search providers may send data to the selected service. A local installation does not mean a remote provider processes data locally.
 - **Validation:** unit tests, cassette replay, and skipped live tests cover different scopes. See [Verification and Evaluation Lab](./guides/verification-lab) before interpreting results.
-

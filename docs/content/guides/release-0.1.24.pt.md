@@ -59,4 +59,3 @@ Policy snapshots e verificações de egress aplicam regras aos caminhos de ferra
 - Para providers locais, confirme que o serviço e os pesos/modelos necessários estão disponíveis.
 - Identifique resultados `passed`, `failed` e `skipped` separadamente. Um teste `skipped` não valida o caminho live.
 - Não use replay como substituto de uma chamada real quando a integração live for o objetivo do teste.
-
