@@ -636,15 +636,19 @@ def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline(
     content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
 
     assert 'tags: ["v*"]' not in content
-    assert (
-        "contains(github.event.head_commit.message, 'chore(master): release ')"
-        in content
-    )
+    # A decisão de publicar vem do job release-trigger (commit do Release Please
+    # ou merge de PR da branch release/X.Y da série), nunca da mensagem solta.
+    assert "release-trigger:" in content
+    assert "contains(github.event.head_commit.message" not in content
+    assert content.count("needs.release-trigger.outputs.is_release == 'true'") == 5
     assert "tag-release:" in content
-    assert (
-        "needs: [release-native, publish-update-channel, publish-gha-bot-cli]"
-        in content
-    )
+    tag_job = content.split("  tag-release:", 1)[1]
+    assert "release-native," in tag_job.split("if:", 1)[0]
+    assert "release-trigger," in tag_job.split("if:", 1)[0]
+    assert "publish-update-channel," in tag_job.split("if:", 1)[0]
+    assert "publish-gha-bot-cli," in tag_job.split("if:", 1)[0]
+    assert "github.event_name == 'push'" in tag_job.split("runs-on:", 1)[0]
+    assert "github.ref == 'refs/heads/master'" in tag_job.split("runs-on:", 1)[0]
     assert 'git push origin "$TAG"' in content
     assert "gh release create" in content
     assert "--publish never" in content
