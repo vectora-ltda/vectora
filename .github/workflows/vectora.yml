@@ -1025,10 +1025,15 @@ jobs:
             Write-Host "Installer exit code: $($install.ExitCode)"
             Write-Host "Uninstall entries:"
             $uninstallKeys | Select-Object DisplayName, DisplayVersion, InstallLocation, UninstallString | Format-List | Out-String | Write-Host
-            Write-Host "Program directories:"
-            Get-ChildItem "$env:LOCALAPPDATA\Programs", $env:ProgramFiles -Directory -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.FullName }
-            Write-Host "Vectora.exe found on disk:"
-            Get-ChildItem "C:\Users", $env:ProgramFiles, ${env:ProgramFiles(x86)} -Filter Vectora.exe -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 5 | ForEach-Object { Write-Host $_.FullName }
+            Write-Host "Installer file:"
+            Get-ChildItem "$env:GITHUB_WORKSPACE\installers" -File | Select-Object Name, Length | Format-Table -AutoSize | Out-String | Write-Host
+            Write-Host "Install directory contents:"
+            $installDir = "$env:LOCALAPPDATA\Programs\Vectora"
+            if (Test-Path -LiteralPath $installDir) {
+              Get-ChildItem $installDir -Recurse -Depth 1 -ErrorAction SilentlyContinue | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 250 | Write-Host
+            }
+            Write-Host "Running processes from the installer:"
+            Get-Process | Where-Object { $_.Name -match "Vectora|vectora|Uninstall|nsis|Setup" } | Select-Object Name, Id, Path | Format-Table -AutoSize | Out-String -Width 250 | Write-Host
             throw "Installed Vectora.exe was not found in standard install locations."
           }
           Write-Host "Installed executable: $app"
