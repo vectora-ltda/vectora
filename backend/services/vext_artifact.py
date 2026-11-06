@@ -343,6 +343,12 @@ def verify_vext(
                 public_key = VerifyKey(base64.b64decode(public_key_b64, validate=True))
                 if public_key != verify_key:
                     raise ValueError("chave pública inesperada")
+                if archive.read(SIGNATURE_NAME) != signature:
+                    raise ValueError(
+                        "bytes da assinatura não correspondem ao manifesto"
+                    )
+                if archive.read(PUBLIC_KEY_NAME) != bytes(public_key):
+                    raise ValueError("chave pública não corresponde ao manifesto")
                 manifest_raw = json.loads(archive.read(MANIFEST_NAME))
                 verify_key.verify(
                     canonical_json({"manifest": manifest_raw, "integrity": integrity}),

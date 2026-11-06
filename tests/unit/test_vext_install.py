@@ -66,6 +66,43 @@ def test_rollback_rejeita_unsigned_sem_opt_in(tmp_path: Path) -> None:
         store.rollback("install.test", "1.0.0")
 
 
+def test_install_rejeita_unsigned_sem_opt_in(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _source(source, "1.0.0")
+    artifact = tmp_path / "unsigned.vext"
+    build_vext(source, artifact)
+    store = VextInstallStore(tmp_path / "extensions")
+
+    with pytest.raises(PermissionError, match="publisher confiável"):
+        store.install(artifact)
+
+    assert store.list_installed() == []
+    assert not store.state_path.exists()
+
+
+def test_failed_state_commit_removes_newly_staged_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _source(source, "1.0.0")
+    artifact = tmp_path / "unsigned.vext"
+    build_vext(source, artifact)
+    store = VextInstallStore(tmp_path / "extensions")
+
+    def fail_state_write(_: dict[str, str]) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(store, "_write_state", fail_state_write)
+
+    with pytest.raises(OSError, match="disk full"):
+        store.install(artifact, allow_unsigned=True)
+
+    assert list(store.versions.glob("**/package.vext")) == []
+    assert not store.state_path.exists()
+
+
 def test_install_rejeita_plataforma_incompativel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -118,6 +155,23 @@ def test_active_revalida_revogacao_antes_de_servir_artefato(tmp_path: Path) -> N
     trust.revoke("test", record.fingerprint)
     with pytest.raises(PermissionError, match="revogado"):
         store.active("install.test", trust_store=trust)
+
+
+def test_rollback_rejeita_publisher_revogado(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _source(source, "1.0.0")
+    key = SigningKey.generate()
+    artifact = tmp_path / "signed.vext"
+    build_vext(source, artifact, signing_key=key)
+    trust = VextTrustStore()
+    record = trust.add("test", key.verify_key)
+    store = VextInstallStore(tmp_path / "extensions")
+    store.install(artifact, trust_store=trust)
+    trust.revoke("test", record.fingerprint)
+
+    with pytest.raises(PermissionError, match="revogado"):
+        store.rollback("install.test", "1.0.0", trust_store=trust)
 
 
 _BAD_IDS = ["..", ".", "../x", "a/b", r"a\b", "", "A.b", "x" * 65, "a", "a/..", "/etc"]

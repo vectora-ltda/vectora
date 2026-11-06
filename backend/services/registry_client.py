@@ -138,6 +138,20 @@ def extension_download_url(extension_id: str, version: str) -> str:
     )
 
 
+def extension_versions_url(extension_id: str) -> str:
+    """Build the remote URL for an extension's published versions."""
+    from urllib.parse import quote
+
+    return f"{_registry_url()}/extensions/{quote(extension_id, safe='')}/versions"
+
+
+def extension_readme_url(extension_id: str) -> str:
+    """Build the remote URL for an extension's published README."""
+    from urllib.parse import quote
+
+    return f"{_registry_url()}/extensions/{quote(extension_id, safe='')}/readme"
+
+
 def _enterprise_registry_url() -> str:
     """Optional company registry; blank means the feature is disabled."""
     return os.getenv("VECTORA_ENTERPRISE_REGISTRY_URL", "").strip().rstrip("/")

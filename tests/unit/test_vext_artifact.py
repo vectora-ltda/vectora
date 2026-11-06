@@ -155,3 +155,105 @@ def test_inspect_rejects_file_directory_conflict(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="arquivo e diretório"):
         inspect_vext(artifact)
+
+
+@pytest.mark.parametrize(
+    ("member", "message"),
+    [
+        ("../escape.py", "caminho inseguro"),
+        ("/absolute.py", "caminho inseguro"),
+        ("C:/escape.py", "caminho inseguro"),
+    ],
+)
+def test_inspect_rejects_traversal_and_absolute_members(
+    tmp_path: Path, member: str, message: str
+) -> None:
+    artifact = tmp_path / "unsafe.vext"
+    manifest = {
+        "id": "unsafe.ext",
+        "name": "Unsafe",
+        "version": "1.0.0",
+        "api_version": 1,
+        "entrypoint": "main.py",
+    }
+    with zipfile.ZipFile(artifact, "w") as archive:
+        archive.writestr("vectora-extension.json", json.dumps(manifest))
+        archive.writestr("main.py", "def handle(method, params): return None")
+        archive.writestr(member, "escape")
+
+    from backend.services.vext import inspect_vext
+
+    with pytest.raises(ValueError, match=message):
+        inspect_vext(artifact)
+
+
+def test_inspect_rejects_duplicate_names_and_symlinks(tmp_path: Path) -> None:
+    from backend.services.vext import inspect_vext
+
+    manifest = {
+        "id": "unsafe.ext",
+        "name": "Unsafe",
+        "version": "1.0.0",
+        "api_version": 1,
+        "entrypoint": "main.py",
+    }
+    duplicate = tmp_path / "duplicate.vext"
+    with zipfile.ZipFile(duplicate, "w") as archive:
+        archive.writestr("vectora-extension.json", json.dumps(manifest))
+        archive.writestr("main.py", "safe")
+        archive.writestr("main.py", "replacement")
+    with pytest.raises(ValueError, match="nomes duplicados"):
+        inspect_vext(duplicate)
+
+    symlink = tmp_path / "symlink.vext"
+    info = zipfile.ZipInfo("linked.py")
+    info.create_system = 3
+    info.external_attr = (0o120777 << 16) | 0xA000
+    with zipfile.ZipFile(symlink, "w") as archive:
+        archive.writestr("vectora-extension.json", json.dumps(manifest))
+        archive.writestr("main.py", "safe")
+        archive.writestr(info, "../outside.py")
+    with pytest.raises(ValueError, match="links simbólicos"):
+        inspect_vext(symlink)
+
+
+def test_inspect_rejects_uncompressed_limit(tmp_path: Path, monkeypatch) -> None:
+    from backend.services import vext
+
+    artifact = tmp_path / "large.vext"
+    manifest = {
+        "id": "large.ext",
+        "name": "Large",
+        "version": "1.0.0",
+        "api_version": 1,
+        "entrypoint": "main.py",
+    }
+    with zipfile.ZipFile(artifact, "w") as archive:
+        archive.writestr("vectora-extension.json", json.dumps(manifest))
+        archive.writestr("main.py", "x" * 64)
+    monkeypatch.setattr(vext, "MAX_UNCOMPRESSED_BYTES", 32)
+
+    with pytest.raises(ValueError, match="descompactado"):
+        vext.inspect_vext(artifact)
+
+
+def test_verify_rejects_signature_bytes_changed_after_signing(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _source(source)
+    key = SigningKey.generate()
+    signed = tmp_path / "signed.vext"
+    build_vext(source, signed, signing_key=key)
+    altered = tmp_path / "altered.vext"
+    with (
+        zipfile.ZipFile(signed) as source_archive,
+        zipfile.ZipFile(altered, "w") as target_archive,
+    ):
+        for info in source_archive.infolist():
+            payload = source_archive.read(info.filename)
+            if info.filename == "signature/signature.bin":
+                payload = bytes([payload[0] ^ 1]) + payload[1:]
+            target_archive.writestr(info, payload)
+
+    with pytest.raises(ValueError, match="assinatura inválida"):
+        verify_vext(altered, verify_key=key.verify_key)

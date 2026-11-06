@@ -283,10 +283,7 @@ export function LibraryTab({ threadId }: LibraryTabProps) {
               containerClassName="data-[state=open]:flex data-[state=open]:min-h-0 data-[state=open]:flex-1 data-[state=open]:overflow-hidden"
               className="h-full overflow-y-auto pb-2 pl-2 pr-1"
             >
-              <MemoryBucketsSection
-                query={query}
-                onCountChange={() => undefined}
-              />
+              <MemoryBucketsSection query={query} />
             </AccordionContent>
           </AccordionItem>
           <AccordionItem
