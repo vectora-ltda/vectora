@@ -759,6 +759,14 @@ jobs:
           pnpm --dir frontend install --frozen-lockfile
           pnpm --dir frontend run electron:build
           if [ "${{ matrix.target }}" = "mac" ]; then
+            # Sem credenciais da Apple a configuração usa a identidade ad-hoc
+            # (`-`), que não envolve segredo. O electron-builder pula a
+            # assinatura em PRs por padrão e deixaria o .app com o selo do
+            # Electron quebrado; forçamos a assinatura ad-hoc para o teste de
+            # instalação verificar um pacote íntegro.
+            if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] || [ -z "${APPLE_TEAM_ID:-}" ]; then
+              export CSC_FOR_PULL_REQUEST=true
+            fi
             pnpm --dir frontend exec electron-builder --config "$RUNNER_TEMP/electron-builder.yml" --${{ matrix.target }} --${{ matrix.arch }} --publish never
           else
             pnpm --dir frontend exec electron-builder --config electron/electron-builder.yml --${{ matrix.target }} --${{ matrix.arch }} --publish never
@@ -1102,9 +1110,14 @@ jobs:
             exit 1
           }
           test -x "$executable"
-          echo "Installed executable: $executable -> $(readlink -f "$executable")"
-          stat -c '%a %U %n' /opt/Vectora/chrome-sandbox
-          ldd "$executable" | tee "$RUNNER_TEMP/vectora-ldd.log"
+          # O ldd resolve `$ORIGIN` pelo caminho recebido; num link simbólico
+          # ele aponta para /usr/bin e não acha as bibliotecas do app.
+          real_executable=$(readlink -f "$executable")
+          echo "Installed executable: $executable -> $real_executable"
+          if [ -e /opt/Vectora/chrome-sandbox ]; then
+            stat -c '%a %U %n' /opt/Vectora/chrome-sandbox
+          fi
+          ldd "$real_executable" | tee "$RUNNER_TEMP/vectora-ldd.log"
           if grep -q "not found" "$RUNNER_TEMP/vectora-ldd.log"; then
             echo "Installed Vectora has unresolved shared libraries." >&2
             exit 1
