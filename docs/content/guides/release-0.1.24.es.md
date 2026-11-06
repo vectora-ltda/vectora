@@ -1,9 +1,9 @@
 ---
-title: Novedades de la versión 0.1.23
+title: Novedades de la versión 0.1.24
 weight: 1
 ---
 
-La versión 0.1.23 reúne la evolución de Vectora: de un workspace con herramientas pasa a un runtime de agentes con ejecuciones identificables, evidencias, planificación, policies y evaluación. Esta página describe las capacidades incluidas en esa versión.
+La versión 0.1.24 reúne la evolución de Vectora: de un workspace con herramientas pasa a un runtime de agentes con ejecuciones identificables, evidencias, planificación, policies y evaluación. Esta página describe las capacidades incluidas en esa versión.
 
 ## Novedades
 

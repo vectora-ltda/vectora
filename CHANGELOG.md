@@ -2,7 +2,7 @@
 
 Este arquivo registra as alterações do Vectora, organizadas por versão.
 
-## [0.1.23] (2026-11-10)
+## [0.1.24] (2026-11-04)
 
 Esta seção reúne as alterações publicadas nesta versão.
 

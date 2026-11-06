@@ -86,10 +86,6 @@ A configuração das linhas está em `.github/release-lines.json`.
 | Manutenção da série atual  | `master`      | `0.1.x`   |
 | Desenvolvimento da próxima | `release/0.2` | `0.2`     |
 
-## Plataformas
-
-O Vectora oferece suporte a macOS somente em Apple Silicon (`arm64`). Não planejamos oferecer suporte a Macs Intel: a linha de hardware e sistema foi descontinuada pela Apple, e a cadeia de CI, dependências, sidecars e aplicações externas usadas pelo Vectora já não oferece uma base sustentável para mantê-la. Não adicione builds, testes ou documentação de suporte para macOS Intel.
-
 Todo PR usa a base da linha que ele atinge e a milestone correspondente; o workflow `PR Release Milestone` atribui a milestone e bloqueia combinações incompatíveis. As versões são calculadas dos commits pelo workflow de release, que abre o PR `chore(master): release X.Y.Z`. Uma correção aplicada na linha de manutenção também precisa chegar à linha de desenvolvimento; o workflow de propagação abre esse PR.
 
 ## Mudanças em `.github/`

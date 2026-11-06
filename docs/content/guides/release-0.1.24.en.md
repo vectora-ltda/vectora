@@ -1,9 +1,9 @@
 ---
-title: What's new in version 0.1.23
+title: What's new in version 0.1.24
 weight: 1
 ---
 
-Version 0.1.23 brings together Vectora's evolution from a tool-enabled workspace into an agent runtime with identifiable runs, evidence, planning, policies, and evaluation. This page describes the capabilities included in that version.
+Version 0.1.24 brings together Vectora's evolution from a tool-enabled workspace into an agent runtime with identifiable runs, evidence, planning, policies, and evaluation. This page describes the capabilities included in that version.
 
 ## What's included
 

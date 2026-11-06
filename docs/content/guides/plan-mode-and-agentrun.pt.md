@@ -5,7 +5,7 @@ weight: 5
 
 Este guia explica como planejar uma tarefa antes de executá-la, como acompanhar cada execução do agente pelo AgentRun e como as decisões de aprovação ficam registradas.
 
-> **Status:** estas capacidades estão incluídas na versão 0.1.23. Testes live marcados como `skipped` não comprovam funcionamento em ambiente real.
+> **Status:** estas capacidades estão incluídas na versão 0.1.24. Testes live marcados como `skipped` não comprovam funcionamento em ambiente real.
 
 ## Pré-requisitos
 

@@ -13,16 +13,16 @@ The Vectora application is **open source under AGPL-3.0**. See the [license](htt
 
 ## Start here
 
-| I want to...                          | Guide                                                |
-| ------------------------------------- | ---------------------------------------------------- |
-| Install the app                       | [Installation](./getting-started/installation)       |
-| Open the project for the first time   | [Quick start](./getting-started/quick-start)         |
-| Understand workspaces and permissions | [First workspace](./getting-started/first-workspace) |
-| Configure models and providers        | [Settings](./guides/using-settings)                  |
-| Use chat and tools                    | [Using the chat](./guides/using-the-chat)            |
-| Look up commands                      | [CLI reference](./reference/cli)                     |
-| Build from source or self-host        | [Deployment](./deployment/requirements)              |
-| See this version''s highlights        | [What''s new in 0.1.23](./guides/release-0.1.23)     |
+| I want to...                             | Go to                                          |
+| ----------------------------------------- | ----------------------------------------------- |
+| Install Vectora                           | [Installation](./getting-started/installation)   |
+| Run it in 5 minutes                       | [Quick start](./getting-started/quick-start) |
+| Understand the RAG pipeline               | [RAG & Context Graph](./concepts/rag)          |
+| Connect an MCP server (as a client)       | [MCP client](./reference/mcp-client)         |
+| See all CLI commands                      | [CLI reference](./reference/cli)             |
+| Deploy on a server                        | [Requirements](./deployment/requirements)      |
+| Understand auth, secrets, and BYOK        | [Security](./security/authentication)          |
+| Explore version 0.1.24                     | [What's new in 0.1.24](./guides/release-0.1.24) |
 
 ## Data and models
 
@@ -34,7 +34,7 @@ The default mode uses SQLite and LanceDB for local data and indexes. The `comple
 
 This site contains public installation, configuration, usage, security, and reference guides. It follows the stable `0.1.x` line; see the [repository changelog](https://github.com/vectora-ltda/vectora/blob/master/CHANGELOG.md) for the complete version history. Features may depend on configuration, operating system, provider, or external service. A skipped automated test does not establish operational availability.
 
-## Known limits in version 0.1.23
+## Limits of version 0.1.24
 
 - **Sandbox:** isolation depends on the operating system, available worker, and workspace configuration. Windows uses WSL2; if required `bwrap` is unavailable, the fallback does not isolate the filesystem or network. Read [Sandbox](./concepts/sandbox) before trusting automated execution.
 - **External providers:** requests to LLMs, embedding models, rerankers, and search providers may send data to the selected service. A local installation does not mean a remote provider processes data locally.

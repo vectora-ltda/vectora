@@ -13,16 +13,16 @@ La aplicación Vectora es **open source bajo AGPL-3.0**. Consulta la [licencia](
 
 ## Empieza aquí
 
-| Quiero...                           | Guía                                                  |
-| ----------------------------------- | ----------------------------------------------------- |
-| Instalar la aplicación              | [Instalación](./getting-started/installation)         |
-| Abrir el proyecto por primera vez   | [Inicio rápido](./getting-started/quick-start)        |
-| Entender los workspaces y permisos  | [Primer workspace](./getting-started/first-workspace) |
-| Configurar modelos y proveedores    | [Configuración](./guides/using-settings)              |
-| Usar el chat y las herramientas     | [Usar el chat](./guides/using-the-chat)               |
-| Consultar comandos                  | [Referencia de la CLI](./reference/cli)               |
-| Compilar desde el código u hospedar | [Despliegue](./deployment/requirements)               |
-| Ver las novedades de esta versión   | [Novedades de 0.1.23](./guides/release-0.1.23)        |
+| Quiero...                                  | Ir a                                             |
+| ------------------------------------------- | ------------------------------------------------- |
+| Instalar Vectora                            | [Instalación](./getting-started/installation)      |
+| Ejecutarlo en 5 minutos                     | [Inicio rápido](./getting-started/quick-start)   |
+| Entender el pipeline RAG                    | [RAG y Context Graph](./concepts/rag)             |
+| Conectar un servidor MCP (como cliente)     | [Cliente MCP](./reference/mcp-client)             |
+| Ver todos los comandos de la CLI            | [Referencia de la CLI](./reference/cli)           |
+| Desplegar en un servidor                    | [Requisitos](./deployment/requirements)           |
+| Entender auth, secretos y BYOK              | [Seguridad](./security/authentication)            |
+| Conocer las novedades de la versión 0.1.24   | [Novedades de la versión 0.1.24](./guides/release-0.1.24) |
 
 ## Datos y modelos
 
@@ -34,7 +34,7 @@ El modo predeterminado usa SQLite y LanceDB para datos e índices locales. La co
 
 Este sitio contiene guías públicas de instalación, configuración, uso, seguridad y referencia. Sigue la línea estable `0.1.x`; consulta el [changelog del repositorio](https://github.com/vectora-ltda/vectora/blob/master/CHANGELOG.md) para el historial completo. Las funciones pueden depender de la configuración, el sistema operativo, el proveedor o un servicio externo. Una prueba automatizada omitida (`skipped`) no demuestra disponibilidad operativa.
 
-## Límites conocidos de la versión 0.1.23
+## Límites de la versión 0.1.24
 
 - **Sandbox:** el aislamiento depende del sistema operativo, del worker disponible y de la configuración del workspace. En Windows se usa WSL2; si `bwrap` no está disponible, el fallback no aísla filesystem ni red. Lee [Sandbox](./concepts/sandbox) antes de confiar en la ejecución automatizada.
 - **Proveedores externos:** las solicitudes a LLM, embeddings, rerankers y búsqueda pueden enviar datos al servicio seleccionado. Una instalación local no significa que un proveedor remoto procese los datos localmente.

@@ -5,7 +5,7 @@ weight: 5
 
 This guide explains how to plan a task before running it, how to follow each agent run through AgentRun, and how approval decisions are recorded.
 
-> **Status:** these capabilities are included in version 0.1.23. Live tests marked `skipped` do not prove behavior in a real environment.
+> **Status:** these capabilities are included in version 0.1.24. Live tests marked `skipped` do not prove behavior in a real environment.
 
 ## Prerequisites
 

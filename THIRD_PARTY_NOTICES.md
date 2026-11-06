@@ -23,7 +23,7 @@ Cada item precisa de decisão antes de distribuir um build que o contenha.
 | --- | --- | --- |
 | pyinstaller | 6.22.3 | GPL-2.0-only |
 | pyinstaller-hooks-contrib | 2026.8 | Apache-2.0 AND GPL-2.0-only |
-| vectora | 0.1.23 | AGPL-3.0-only |
+| vectora | 0.1.24 | AGPL-3.0-only |
 | sentry | 0.45.0 | FSL-1.1-Apache-2.0 |
 
 ## Copyleft forte

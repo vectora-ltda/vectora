@@ -180,7 +180,7 @@ def test_release_please_requires_candidates_and_uses_canonical_branches() -> Non
     )
 
 
-@pytest.mark.parametrize("development", ["release/0.1.23", "release/0.2"])
+@pytest.mark.parametrize("development", ["release/0.1.24", "release/0.2"])
 async def test_sync_outputs_expand_stable_branch(
     tmp_path: Path, development: str
 ) -> None:

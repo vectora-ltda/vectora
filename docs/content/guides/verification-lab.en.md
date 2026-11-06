@@ -5,7 +5,7 @@ weight: 9
 
 This guide shows how to configure the quality gates that check a run's result and how to use the Evaluation Lab to record, replay, and compare runs.
 
-> **Status:** these capabilities are included in version 0.1.23. Live tests marked `skipped` do not prove behavior in a real environment.
+> **Status:** these capabilities are included in version 0.1.24. Live tests marked `skipped` do not prove behavior in a real environment.
 
 ## Prerequisites
 
