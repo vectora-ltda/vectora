@@ -1,5 +1,6 @@
 """Testes para conformidade de contratos HTTP e rotas críticas."""
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -85,6 +86,21 @@ def test_health_live_and_ready_endpoints() -> None:
     assert "checks" in data
     assert "store" in data["checks"]
     assert "lancedb" in data["checks"]
+
+
+def test_health_ready_reports_not_ready_when_lancedb_cannot_be_imported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Falha ao carregar o LanceDB nativo vira 503 com o diagnóstico, não 500."""
+    monkeypatch.setitem(sys.modules, "backend.storage.lancedb.connection", None)
+    client = TestClient(create_app(serve_static=False))
+
+    ready_res = client.get("/health/ready")
+
+    assert ready_res.status_code == 503
+    data = ready_res.json()
+    assert data["status"] == "not_ready"
+    assert data["checks"]["lancedb"] is False
 
 
 def test_settings_prefs_protected_by_auth(monkeypatch: pytest.MonkeyPatch) -> None:

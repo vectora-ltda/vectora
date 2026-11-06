@@ -897,25 +897,31 @@ def create_app(serve_static: bool = True) -> FastAPI:
         """Readiness probe: verifica se os serviços de persistência e dependências vitais estão prontos."""
         import asyncio
 
-        from backend.services import agent_factory
-        from backend.storage.lancedb.connection import get_lancedb
-
         async def _check_dependencies() -> tuple[bool, bool]:
             """Executa a operação  check dependencies."""
             s_ok = False
             l_ok = False
+            # Os imports ficam dentro do try: uma biblioteca nativa que não
+            # carrega (LanceDB, por exemplo) deve virar `not_ready` com o motivo
+            # no log, e não um 500 sem diagnóstico.
             try:
+                from backend.services import agent_factory
+
                 ss = await agent_factory.get_session_store()
                 st = await agent_factory.get_store()
                 s_ok = bool(ss is not None and st is not None)
             except Exception:
+                logger.warning("health/ready: store indisponível", exc_info=True)
                 s_ok = False
 
             try:
+                from backend.storage.lancedb.connection import get_lancedb
+
                 db = await get_lancedb()
                 _ = (await db.list_tables()).tables
                 l_ok = True
             except Exception:
+                logger.warning("health/ready: LanceDB indisponível", exc_info=True)
                 l_ok = False
 
             return s_ok, l_ok
@@ -925,6 +931,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
                 _check_dependencies(), timeout=3.0
             )
         except Exception:
+            logger.warning("health/ready: verificação excedeu o limite", exc_info=True)
             store_ok = False
             lancedb_ok = False
 
