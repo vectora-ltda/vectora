@@ -13,6 +13,7 @@ import os
 import queue
 import shutil
 import shutil as shutil_module
+import signal
 import subprocess  # nosec B404 - process is selected from validated runtime metadata
 import sys
 import tempfile
@@ -120,14 +121,14 @@ class VextHost:
         try:
             shutil.copy2(self.artifact, private_artifact)
             result = verify_vext(private_artifact)
+            ensure_supported_platform(result.manifest)
+            if self.trust_store is not None:
+                self.trust_store.verify(private_artifact)
+            elif not self.allow_unsigned:
+                raise PermissionError("artefato VEXT exige publisher confiável")
         except Exception:
             private_artifact.unlink(missing_ok=True)
             raise
-        ensure_supported_platform(result.manifest)
-        if self.trust_store is not None:
-            self.trust_store.verify(private_artifact)
-        elif not self.allow_unsigned:
-            raise PermissionError("artefato VEXT exige publisher confiável")
         self.manifest = result.manifest
         self.policy = CapabilityPolicy.from_manifest(result.manifest)
         self.root = Path(tempfile.mkdtemp(prefix="vectora-vext-"))
@@ -211,6 +212,10 @@ class VextHost:
                 errors="replace",
                 env=environment,
                 shell=False,
+                creationflags=(
+                    subprocess.CREATE_NEW_PROCESS_GROUP if os.name == "nt" else 0
+                ),
+                start_new_session=os.name != "nt",
             )
             self._start_pipe_readers()
             return result.manifest
@@ -408,12 +413,36 @@ class VextHost:
     def stop(self) -> None:
         """Terminate the adapter and delete its extracted artifact."""
         if self.process is not None and self.process.poll() is None:
-            self.process.terminate()
+            process = self.process
+            if os.name == "nt":
+                taskkill = shutil.which("taskkill")
+                if taskkill is not None:
+                    killer = subprocess.Popen(  # nosec B603 - taskkill is resolved from Windows, args are fixed except PID
+                        [taskkill, "/PID", str(process.pid), "/T", "/F"],
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        shell=False,
+                    )
+                    with suppress(subprocess.TimeoutExpired):
+                        killer.wait(timeout=2)
+                else:
+                    process.terminate()
+            else:
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGTERM)
             try:
-                self.process.wait(timeout=2)
+                process.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=2)
+                if os.name == "nt":
+                    process.kill()
+                else:
+                    with suppress(ProcessLookupError):
+                        os.killpg(process.pid, signal.SIGKILL)
+                process.wait(timeout=2)
+            if os.name != "nt":
+                # The adapter may exit while a descendant ignores SIGTERM.
+                with suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
         for pipe in (
             self.process.stdout if self.process is not None else None,
             self.process.stderr if self.process is not None else None,

@@ -150,3 +150,31 @@ def test_icon_cannot_run_scripts_even_when_opened_directly(
         assert "default-src 'none'" in csp
         assert "sandbox" in csp
         assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_install_rejects_upload_above_configured_limit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from backend.api.handlers import vext
+
+    client = _client(monkeypatch, tmp_path)
+    monkeypatch.setattr(vext, "MAX_PACKAGE_BYTES", 2)
+
+    response = client.post(
+        "/vext/install",
+        files={"artifact": ("extension.vext", b"larger", "application/zip")},
+    )
+
+    assert response.status_code == 413
+
+
+def test_lifecycle_returns_not_found_for_missing_extension(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    client = _client(monkeypatch, tmp_path)
+
+    assert client.post("/vext/missing.ext/deactivate").status_code == 404
+    assert (
+        client.post("/vext/missing.ext/activate", json={"version": "1.0.0"}).status_code
+        == 422
+    )

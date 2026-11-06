@@ -1,4 +1,6 @@
 import json
+import os
+import time
 from pathlib import Path
 
 import pytest
@@ -135,3 +137,89 @@ def test_host_bounds_noisy_runtime_output() -> None:
 
     assert host._response_queue.qsize() == 1
     assert host._response_queue.get_nowait() == OVERSIZED_RESPONSE
+
+
+def test_host_rejects_malformed_jsonrpc_response(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _source(source, ["workspace.read"])
+    (source / "main.py").write_text(
+        "print('not-json', flush=True)\n"
+        "def handle(method, params): return {'ok': True}\n",
+        encoding="utf-8",
+    )
+    artifact = tmp_path / "malformed.vext"
+    build_vext(source, artifact)
+    host = VextHost(artifact, allow_unsigned=True, sandbox_required=False)
+    host.start()
+    try:
+        with pytest.raises(ValueError, match="resposta JSON-RPC inválida"):
+            host.request("ping")
+    finally:
+        host.stop()
+
+
+def test_host_timeout_terminates_runtime(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _source(source, ["workspace.read"])
+    (source / "main.py").write_text(
+        "import time\n"
+        "def handle(method, params):\n"
+        "    time.sleep(30)\n"
+        "    return {'ok': True}\n",
+        encoding="utf-8",
+    )
+    artifact = tmp_path / "timeout.vext"
+    build_vext(source, artifact)
+    host = VextHost(
+        artifact,
+        allow_unsigned=True,
+        request_timeout=0.1,
+        sandbox_required=False,
+    )
+    host.start()
+
+    with pytest.raises(TimeoutError, match="excedeu o prazo"):
+        host.request("slow")
+
+    assert host.process is None
+    assert host.root is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="verificação de process group POSIX")
+def test_host_timeout_kills_descendant_processes(tmp_path: Path) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    _source(source, ["workspace.read"])
+    pid_path = tmp_path / "child.pid"
+    (source / "main.py").write_text(
+        "import subprocess, sys, time\n"
+        "def handle(method, params):\n"
+        "    child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])\n"
+        f"    open({str(pid_path)!r}, 'w').write(str(child.pid))\n"
+        "    time.sleep(60)\n",
+        encoding="utf-8",
+    )
+    artifact = tmp_path / "descendant.vext"
+    build_vext(source, artifact)
+    host = VextHost(
+        artifact,
+        allow_unsigned=True,
+        request_timeout=0.2,
+        sandbox_required=False,
+    )
+    host.start()
+    with pytest.raises(TimeoutError):
+        host.request("spawn")
+
+    child_pid = int(pid_path.read_text(encoding="utf-8"))
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        try:
+            os.kill(child_pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    else:
+        pytest.fail("processo descendente continuou ativo após parar o host")

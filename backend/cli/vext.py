@@ -75,6 +75,24 @@ def main(argv: list[str] | None = None) -> int:
     install.add_argument("--allow-unsigned", action="store_true")
     install.add_argument("--public-key", type=Path)
 
+    list_command = commands.add_parser("list", help="list installed extensions")
+    list_command.add_argument("--root", type=Path, required=True)
+
+    activate = commands.add_parser("activate", help="activate an installed version")
+    activate.add_argument("extension_id")
+    activate.add_argument("version")
+    activate.add_argument("--root", type=Path, required=True)
+    activate.add_argument("--public-key", type=Path)
+    activate.add_argument("--allow-unsigned", action="store_true")
+
+    deactivate = commands.add_parser("deactivate", help="deactivate an extension")
+    deactivate.add_argument("extension_id")
+    deactivate.add_argument("--root", type=Path, required=True)
+
+    uninstall = commands.add_parser("uninstall", help="remove an extension")
+    uninstall.add_argument("extension_id")
+    uninstall.add_argument("--root", type=Path, required=True)
+
     rollback = commands.add_parser("rollback", help="activate an installed version")
     rollback.add_argument("extension_id")
     rollback.add_argument("version")
@@ -157,6 +175,30 @@ def main(argv: list[str] | None = None) -> int:
                     }
                 )
             )
+        elif args.command == "list":
+            records = VextInstallStore(args.root).list_installed()
+            console.print(
+                json.dumps(
+                    [
+                        {
+                            "id": item.extension_id,
+                            "version": item.version,
+                            "active": item.active,
+                        }
+                        for item in records
+                    ]
+                )
+            )
+        elif args.command == "deactivate":
+            changed = VextInstallStore(args.root).deactivate(args.extension_id)
+            if not changed:
+                raise ValueError("extensão não instalada")
+            console.print(json.dumps({"id": args.extension_id, "active": False}))
+        elif args.command == "uninstall":
+            removed = VextInstallStore(args.root).uninstall(args.extension_id)
+            if not removed:
+                raise ValueError("extensão não instalada")
+            console.print(json.dumps({"id": args.extension_id, "uninstalled": True}))
         elif args.command == "install":
             trust_store = None
             if args.public_key:
@@ -190,7 +232,12 @@ def main(argv: list[str] | None = None) -> int:
                     / "package.vext"
                 )
                 trust_store.add(inspect_vext(rollback_artifact).manifest.publisher, key)
-            installed = VextInstallStore(args.root).rollback(
+            lifecycle = (
+                VextInstallStore(args.root).activate
+                if args.command == "activate"
+                else VextInstallStore(args.root).rollback
+            )
+            installed = lifecycle(
                 args.extension_id,
                 args.version,
                 trust_store=trust_store,
@@ -205,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
                     }
                 )
             )
-    except (OSError, ValueError, zipfile.BadZipFile) as exc:
+    except (OSError, PermissionError, ValueError, zipfile.BadZipFile) as exc:
         parser.exit(2, f"vext: {exc}\n")
     return 0
 

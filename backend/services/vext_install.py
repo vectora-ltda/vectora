@@ -159,10 +159,6 @@ class VextInstallStore:
         elif allow_unsigned:
             # Explicit development opt-in for unsigned local artifacts.
             pass
-        elif trust_store is None:
-            # Preserve the read-only store API for callers that only need
-            # metadata; serving APIs pass a trust store and fail closed.
-            pass
         else:
             raise PermissionError("artefato VEXT exige publisher confiável")
         extension_id = result.manifest.id
@@ -171,6 +167,7 @@ class VextInstallStore:
             destination = self._version_dir(extension_id, version)
             destination.parent.mkdir(parents=True, exist_ok=True)
             existing = destination / "package.vext"
+            created_destination = False
             if existing.is_file():
                 existing_result = verify_vext(existing)
                 if existing_result.content_digest != result.content_digest:
@@ -195,12 +192,18 @@ class VextInstallStore:
                     elif not allow_unsigned:
                         raise PermissionError("artefato VEXT exige publisher confiável")
                     temporary.replace(destination)
+                    created_destination = True
                 finally:
                     if temporary.exists():
                         shutil.rmtree(temporary)
             state = self._read_state()
             state[extension_id] = version
-            self._write_state(state)
+            try:
+                self._write_state(state)
+            except Exception:
+                if created_destination:
+                    shutil.rmtree(destination, ignore_errors=True)
+                raise
         return InstalledExtension(
             extension_id, version, destination / "package.vext", True
         )
