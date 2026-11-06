@@ -1045,6 +1045,13 @@ jobs:
               $archive = Join-Path $archiveDir "app-arm64.7z"
               if (Test-Path -LiteralPath $archive) {
                 & $sevenZip l $archive 2>&1 | Select-String -Pattern "Vectora.exe|ffmpeg.dll|libEGL.dll|libGLESv2.dll" | ForEach-Object { Write-Host $_.Line }
+                Write-Host "7-Zip version:"
+                & $sevenZip 2>&1 | Select-Object -First 2 | ForEach-Object { Write-Host $_ }
+                Write-Host "Compression methods used by the app archive:"
+                & $sevenZip l -slt $archive 2>&1 | Select-String -Pattern "^Method = " | ForEach-Object { $_.Line } | Sort-Object -Unique | ForEach-Object { Write-Host $_ }
+                $probeDir = Join-Path $archiveDir "probe"
+                & $sevenZip x $archive "-o$probeDir" Vectora.exe -y 2>&1 | Select-Object -Last 3 | ForEach-Object { Write-Host $_ }
+                Write-Host "Vectora.exe extracted by 7-Zip: $(Test-Path -LiteralPath (Join-Path $probeDir 'Vectora.exe'))"
               }
             }
             Write-Host "Windows Defender status and detections:"
