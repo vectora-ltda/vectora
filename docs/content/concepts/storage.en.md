@@ -14,7 +14,7 @@ Vectora has two storage modes, controlled by the `STORAGE_MODE` variable. The ch
 | BaseStore (long-term memory) | SQLite                         | Qdrant/Postgres                     |
 | Cache / KV                   | —                              | Redis                               |
 | External infrastructure      | none                           | Postgres + Qdrant + Redis           |
-| License                      | Free or Pro                    | Requires Pro                        |
+| License                      | Free or Pro                    | Requires an active Pro entitlement  |
 
 ## The rule that never changes: identity stays in SQLite
 
@@ -24,7 +24,7 @@ Regardless of `STORAGE_MODE`, **users, sessions, audit logs, and settings always
 
 There's no documented technical limit forcing a migration to complete. LanceDB is local (memory-mapped, no server) and SQLite runs in WAL mode (concurrent readers don't block the writer). Use lite when:
 
-- You're a single user or a small team.
+- You're using Vectora locally as an individual.
 - You want **zero infrastructure** — no Docker, no external services, nothing else to keep running besides Vectora itself.
 - You don't need replication/backup managed by a third-party database service.
 
@@ -35,7 +35,7 @@ It's not about "handling more users" — it's about **durability and managed inf
 - You already run Postgres/Redis/Qdrant at your company and want to consolidate backup, monitoring, and high availability in one place.
 - You want Qdrant's native hybrid vector search (dense + sparse) instead of local LanceDB.
 - You want a distributed cache (Redis) shared across multiple Vectora instances behind a load balancer.
-- It's a requirement of your Pro/Enterprise plan or an internal compliance policy.
+- You have an active Pro entitlement and need this topology for infrastructure or internal compliance requirements. Self-hosting the databases does not remove the entitlement requirement.
 
 ## How to enable it
 

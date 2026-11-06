@@ -38,7 +38,7 @@ The **orchestrator** is the supervisor: it answers directly for simple questions
 
 The same backend serves three different surfaces, at the same time:
 
-1. **Web chat** — multi-user React interface, with a workbench (files, git, terminal, browser, RAG, Context Graph, Kanban) shared between you and the agent — see [Using the chat](../guides/using-the-chat) and [Using the workbench](../guides/using-the-workbench).
+1. **Web chat** — React interface for individual local use and, with a Pro entitlement, multi-member operation; its workbench (files, git, terminal, browser, RAG, Context Graph, Kanban) is shared between you and the agent — see [Using the chat](../guides/using-the-chat) and [Using the workbench](../guides/using-the-workbench).
 2. **CLI** — `vectora start`, `vectora config`, `vectora storage` — see the [CLI reference](../reference/cli).
 3. **MCP client** — Vectora connects to MCP servers you install (a connector marketplace, plus manual registration) so the agent can use their tools. Vectora does not expose itself as an MCP server to other harnesses — see [MCP client](../reference/mcp-client).
 
@@ -47,6 +47,12 @@ The same backend serves three different surfaces, at the same time:
 Vectora is distributed under the [AGPL-3.0 license](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). You can run it on your machine or infrastructure and study, modify, and redistribute the code under the license terms. The license does not mean every feature has been validated for production or that external services are free.
 
 Local storage uses SQLite and LanceDB. AI providers and external integrations are configured by the operator; costs, retention, and use of data sent to them follow each connected service's policies. Features that depend on Vectora Services may require an account or entitlement. See the [repository](https://github.com/vectora-ltda/vectora), the [contribution guide](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md), and [releases](https://github.com/vectora-ltda/vectora/releases) for verifiable information.
+
+## Free and Pro
+
+The open-source license and the commercial plan are separate. Individual local use of the app and CLI is free and requires no account. Core product features — including RAG, Library, Browser, Sandbox, Context Graph, HITL, and Decision Models — are not gated by Pro. External AI providers may charge for their own usage.
+
+A **Pro** entitlement is required to invite additional members and operate as a team, use the Pro VPS hosting flow, use advanced storage (Postgres, Qdrant, and Redis), trigger tasks by webhook, and use Vectora Connect or the GitHub Actions review bot. Priority support follows the current commercial terms. Self-hosting the app or databases does not replace the entitlement. See [plans and pricing](https://vectora.company/#pricing).
 
 ## Next step
 

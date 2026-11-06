@@ -14,7 +14,7 @@ Vectora tem dois modos de storage, controlados pela variável `STORAGE_MODE`. A 
 | BaseStore (memória longo prazo) | SQLite                             | Qdrant/Postgres                     |
 | Cache / KV                      | —                                  | Redis                               |
 | Infraestrutura externa          | nenhuma                            | Postgres + Qdrant + Redis           |
-| Licença                         | Free ou Pro                        | Requer Pro                          |
+| Licença                         | Free ou Pro                        | Requer entitlement Pro              |
 
 ## Regra que nunca muda: identidade fica em SQLite
 
@@ -24,7 +24,7 @@ Independente do `STORAGE_MODE`, **usuários, sessões, auditoria e configuraçõ
 
 Não existe um limite técnico documentado que force a migração pra complete. LanceDB é local (memory-mapped, sem servidor) e SQLite roda em modo WAL (leitores concorrentes não bloqueiam o escritor). Use lite quando:
 
-- Você é um usuário único ou um time pequeno.
+- Você usa o Vectora localmente como usuário individual.
 - Você quer **zero infraestrutura** — sem Docker, sem serviços externos, sem outra coisa pra manter no ar além do próprio Vectora.
 - Você não precisa de replicação/backup gerenciado por um serviço de banco de dados terceirizado.
 
@@ -35,7 +35,7 @@ Não é sobre "aguentar mais usuários" — é sobre **durabilidade e infraestru
 - Você já opera Postgres/Redis/Qdrant na sua empresa e quer consolidar backup, monitoramento e alta disponibilidade num único lugar.
 - Você quer busca vetorial híbrida (denso + esparso) nativa do Qdrant, em vez do LanceDB local.
 - Você quer cache distribuído (Redis) compartilhado entre múltiplas instâncias do Vectora atrás de um load balancer.
-- É requisito do seu plano Pro/Enterprise ou de uma política de compliance interna.
+- Você tem entitlement Pro ativo e precisa dessa topologia por exigência de infraestrutura ou de uma política de compliance interna. Hospedar os bancos por conta própria não remove o requisito do entitlement.
 
 ## Como ativar
 
