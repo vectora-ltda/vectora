@@ -103,6 +103,33 @@ def test_health_ready_reports_not_ready_when_lancedb_cannot_be_imported(
     assert data["checks"]["lancedb"] is False
 
 
+def test_lancedb_is_optional_only_on_windows_arm64_without_the_package() -> None:
+    """O LanceDB não tem wheel para Windows ARM64; só lá a sonda não o exige."""
+    from backend.api.server import lancedb_required
+
+    assert lancedb_required("win32", "ARM64", installed=False) is False
+    assert lancedb_required("win32", "ARM64", installed=True) is True
+    assert lancedb_required("win32", "AMD64", installed=False) is True
+    assert lancedb_required("linux", "aarch64", installed=False) is True
+    assert lancedb_required("darwin", "arm64", installed=False) is True
+
+
+def test_health_ready_is_ready_when_lancedb_is_not_required(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sem LanceDB numa plataforma que não o suporta, o app continua pronto."""
+    monkeypatch.setitem(sys.modules, "backend.storage.lancedb.connection", None)
+    monkeypatch.setattr("backend.api.server.lancedb_required", lambda *_a, **_k: False)
+    client = TestClient(create_app(serve_static=False))
+
+    ready_res = client.get("/health/ready")
+
+    assert ready_res.status_code == 200
+    data = ready_res.json()
+    assert data["status"] == "ready"
+    assert data["checks"]["lancedb"] is False
+
+
 def test_settings_prefs_protected_by_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     """Verifica o comportamento de settings prefs protected by auth."""
     monkeypatch.setenv("VECTORA_AUTH_REQUIRED", "true")

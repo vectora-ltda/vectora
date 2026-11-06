@@ -79,6 +79,17 @@ from backend.api.handlers.workspaces import (
 logger = logging.getLogger(__name__)
 
 
+def lancedb_required(platform_name: str, machine: str, *, installed: bool) -> bool:
+    """Indica se a sonda de readiness deve exigir o LanceDB nesta plataforma.
+
+    O LanceDB não publica wheel para Windows ARM64 e o pyproject não o instala
+    lá; nesse alvo, sem o pacote, a ausência é esperada e não torna o app
+    não-pronto. Em qualquer outra plataforma ele continua obrigatório.
+    """
+    unsupported = platform_name == "win32" and machine.upper() == "ARM64"
+    return installed or not unsupported
+
+
 def _gateway_local_url() -> str:
     """Return the configured local URL for gateway-forwarded calls."""
     host = os.environ.get("VECTORA_GATEWAY_LOCAL_HOST") or "localhost"
@@ -935,7 +946,15 @@ def create_app(serve_static: bool = True) -> FastAPI:
             store_ok = False
             lancedb_ok = False
 
-        is_ready = bool(store_ok and lancedb_ok)
+        import importlib.util
+        import platform
+
+        lancedb_needed = lancedb_required(
+            sys.platform,
+            platform.machine(),
+            installed=importlib.util.find_spec("lancedb") is not None,
+        )
+        is_ready = bool(store_ok and (lancedb_ok or not lancedb_needed))
         response.status_code = 200 if is_ready else 503
 
         return HealthReadyResponse(
