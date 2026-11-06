@@ -78,6 +78,9 @@ from backend.api.handlers.workspaces import (
 
 logger = logging.getLogger(__name__)
 
+# Tempo que a sonda de readiness espera antes de responder `not_ready`.
+READINESS_TIMEOUT_SECONDS = 3.0
+
 
 def lancedb_required(platform_name: str, machine: str, *, installed: bool) -> bool:
     """Indica se a sonda de readiness deve exigir o LanceDB nesta plataforma.
@@ -937,12 +940,23 @@ def create_app(serve_static: bool = True) -> FastAPI:
 
             return s_ok, l_ok
 
+        # A conexão fria ao LanceDB pode passar do limite da sonda. A verificação
+        # segue em segundo plano (shield) e a chamada seguinte a reaproveita,
+        # em vez de reiniciar e ser cancelada de novo a cada consulta.
+        check = getattr(app.state, "readiness_check", None)
+        if check is None or check.done():
+            check = asyncio.ensure_future(_check_dependencies())
+            app.state.readiness_check = check
         try:
             store_ok, lancedb_ok = await asyncio.wait_for(
-                _check_dependencies(), timeout=3.0
+                asyncio.shield(check), timeout=READINESS_TIMEOUT_SECONDS
             )
+        except TimeoutError:
+            logger.warning("health/ready: verificação excedeu o limite")
+            store_ok = False
+            lancedb_ok = False
         except Exception:
-            logger.warning("health/ready: verificação excedeu o limite", exc_info=True)
+            logger.warning("health/ready: verificação falhou", exc_info=True)
             store_ok = False
             lancedb_ok = False
 

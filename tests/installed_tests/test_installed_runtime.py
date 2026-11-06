@@ -153,8 +153,17 @@ def test_installed_backend_becomes_live(installed_server: str) -> None:
 
 
 def test_installed_storage_is_ready(installed_server: str) -> None:
-    # A primeira conexão ao LanceDB pode fazer cold-start no host do usuário.
-    status, payload = _request_json(f"{installed_server}/health/ready", timeout=20.0)
+    # A primeira conexão ao LanceDB pode fazer cold-start no host do usuário:
+    # a sonda responde 503 enquanto ela termina, então o teste a consulta de
+    # novo até ficar pronta ou estourar o prazo.
+    deadline = time.monotonic() + 60
+    while True:
+        status, payload = _request_json(
+            f"{installed_server}/health/ready", timeout=20.0
+        )
+        if status == 200 or time.monotonic() >= deadline:
+            break
+        time.sleep(1.0)
     assert status == 200, (
         f"/health/ready respondeu {status}: {payload}\n"
         f"Log do backend instalado:\n{_startup_log_tail(installed_server)}"

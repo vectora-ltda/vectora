@@ -1037,6 +1037,16 @@ jobs:
             if (Test-Path -LiteralPath $sevenZip) {
               & $sevenZip l $installer.FullName 2>&1 | Select-String -Pattern "Vectora.exe|ffmpeg.dll|libEGL.dll|app-arm64|app-64" | ForEach-Object { Write-Host $_.Line }
             }
+            Write-Host "Files inside the installer app archive:"
+            $archiveDir = Join-Path $env:RUNNER_TEMP "installer-archive"
+            New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
+            if (Test-Path -LiteralPath $sevenZip) {
+              & $sevenZip e "-o$archiveDir" $installer.FullName "`$PLUGINSDIR\app-arm64.7z" -y 2>&1 | Out-Null
+              $archive = Join-Path $archiveDir "app-arm64.7z"
+              if (Test-Path -LiteralPath $archive) {
+                & $sevenZip l $archive 2>&1 | Select-String -Pattern "Vectora.exe|ffmpeg.dll|libEGL.dll|libGLESv2.dll" | ForEach-Object { Write-Host $_.Line }
+              }
+            }
             Write-Host "Windows Defender status and detections:"
             Get-MpComputerStatus -ErrorAction SilentlyContinue | Select-Object RealTimeProtectionEnabled, AntivirusEnabled | Format-List | Out-String | Write-Host
             Get-MpThreatDetection -ErrorAction SilentlyContinue | Select-Object -First 10 ThreatID, ProcessName, Resources | Format-List | Out-String -Width 250 | Write-Host
