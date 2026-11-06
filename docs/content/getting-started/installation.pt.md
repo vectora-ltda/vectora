@@ -62,4 +62,3 @@ O código está sob [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/mast
 ## Próximo passo
 
 → [Início rápido](./quick-start)
-

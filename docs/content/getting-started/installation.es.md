@@ -62,4 +62,3 @@ El código está bajo [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/ma
 ## Siguiente paso
 
 → [Inicio rápido](./quick-start)
-
