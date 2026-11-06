@@ -3,22 +3,22 @@ title: Commercial services
 weight: 2
 ---
 
-## Does open-source Vectora require a Pro entitlement?
+## Does open-source Vectora require a subscription?
 
-Not for individual local use of the app and CLI. The code is distributed under the [AGPL-3.0 license](https://github.com/vectora-ltda/vectora/blob/master/LICENSE); the Pro entitlement and commercial services are separate. External providers may charge for usage under their own terms.
+Not for individual local use of the app and CLI. The code is distributed under the [AGPL-3.0 license](https://github.com/vectora-ltda/vectora/blob/master/LICENSE); the Pro plan and commercial services are separate. External providers may charge for usage under their own terms.
 
 ## What requires Pro?
 
-A Pro entitlement enables member invitations and multi-member operation, the Vectora VPS hosting flow, advanced storage with Postgres/Qdrant/Redis, webhook-triggered tasks, Vectora Connect, and the GitHub Actions review bot. It also includes priority support under the current commercial terms. See [entitlements and pricing](https://vectora.company/#pricing).
+A Pro entitlement enables member invitations and multi-member operation, the Vectora VPS hosting flow, advanced storage with Postgres/Qdrant/Redis, webhook-triggered tasks, Vectora Connect, and the GitHub Actions review bot. The plan also includes priority support under the current commercial terms. See [plans and pricing](https://vectora.company/#pricing).
 
 ## Are the app's core features paid?
 
-No. RAG, Library, Browser, Sandbox, Context Graph, HITL, and Decision Models are not gated by a Pro entitlement for individual local use. The open license permits studying, modifying, and redistributing the code under its terms; it does not grant a Pro entitlement to the services.
+No. RAG, Library, Browser, Sandbox, Context Graph, HITL, and Decision Models are not gated by Pro for individual local use. The open license permits studying, modifying, and redistributing the code under its terms; it does not grant entitlement to Pro services.
 
 ## Will canceling Pro delete my local data?
 
-Your data remains on infrastructure you administer. The entitlement controls access to Pro features; keep your own backups and check the current terms for billing and cancellation details.
+Your data remains on infrastructure you administer. Entitlement controls access to Pro features; keep your own backups and check the current terms for subscription and cancellation details.
 
 ## Where can I find current terms?
 
-See [Vectora Company entitlements and pricing](https://vectora.company/#pricing). Availability, prices, and commercial terms may change and are separate from the open-source license.
+See [Vectora Company plans and pricing](https://vectora.company/#pricing). Availability, prices, and commercial terms may change and are separate from the open-source license.

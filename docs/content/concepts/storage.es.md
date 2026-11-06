@@ -14,7 +14,7 @@ Vectora tiene dos modos de almacenamiento, controlados por la variable `STORAGE_
 | BaseStore (memoria a largo plazo) | SQLite                            | Qdrant/Postgres                      |
 | Cache / KV                        | —                                  | Redis                                |
 | Infraestructura externa           | ninguna                           | Postgres + Qdrant + Redis            |
-| Suscripción                       | Free o Pro                        | Requiere suscripción Pro activa       |
+| Licencia                          | Free o Pro                        | Requiere entitlement Pro activo      |
 
 ## La regla que nunca cambia: la identidad queda en SQLite
 
@@ -35,7 +35,7 @@ No se trata de "manejar más usuarios" — se trata de **durabilidad e infraestr
 - Ya ejecutas Postgres/Redis/Qdrant en tu empresa y quieres consolidar backup, monitoreo y alta disponibilidad en un solo lugar.
 - Quieres la búsqueda vectorial híbrida nativa de Qdrant (dense + sparse) en lugar del LanceDB local.
 - Quieres un caché distribuido (Redis) compartido entre múltiples instancias de Vectora detrás de un balanceador de carga.
-- Tienes una suscripción Pro activa y necesitas esta topología por requisitos de infraestructura o cumplimiento interno. Alojar las bases de datos por tu cuenta no sustituye la suscripción.
+- Tienes un entitlement Pro activo y necesitas esta topología por requisitos de infraestructura o cumplimiento interno. Alojar las bases de datos por tu cuenta no elimina el requisito del entitlement.
 
 ## Cómo activarlo
 

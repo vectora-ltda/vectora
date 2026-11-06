@@ -14,7 +14,7 @@ Vectora has two storage modes, controlled by the `STORAGE_MODE` variable. The ch
 | BaseStore (long-term memory) | SQLite                         | Qdrant/Postgres                     |
 | Cache / KV                   | —                              | Redis                               |
 | External infrastructure      | none                           | Postgres + Qdrant + Redis           |
-| Entitlement                  | Free or Pro                    | Requires an active Pro entitlement  |
+| License                      | Free or Pro                    | Requires an active Pro entitlement  |
 
 ## The rule that never changes: identity stays in SQLite
 
@@ -35,7 +35,7 @@ It's not about "handling more users" — it's about **durability and managed inf
 - You already run Postgres/Redis/Qdrant at your company and want to consolidate backup, monitoring, and high availability in one place.
 - You want Qdrant's native hybrid vector search (dense + sparse) instead of local LanceDB.
 - You want a distributed cache (Redis) shared across multiple Vectora instances behind a load balancer.
-- You have an active Pro entitlement and need this topology for infrastructure or internal compliance requirements. Self-hosting the databases does not replace the entitlement.
+- You have an active Pro entitlement and need this topology for infrastructure or internal compliance requirements. Self-hosting the databases does not remove the entitlement requirement.
 
 ## How to enable it
 
