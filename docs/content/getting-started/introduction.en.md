@@ -46,13 +46,13 @@ The same backend serves three different surfaces, at the same time:
 
 Vectora is distributed under the [AGPL-3.0 license](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). You can run it on your machine or infrastructure and study, modify, and redistribute the code under the license terms. The license does not mean every feature has been validated for production or that external services are free.
 
-Local storage uses SQLite and LanceDB. AI providers and external integrations are configured by the operator; costs, retention, and use of data sent to them follow each connected service's policies. Features that depend on Vectora Services may require an account or entitlement. See the [repository](https://github.com/vectora-ltda/vectora), the [contribution guide](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md), and [releases](https://github.com/vectora-ltda/vectora/releases) for verifiable information.
+Local storage uses SQLite and LanceDB. AI providers and external integrations are configured by the operator; costs, retention, and use of data sent to them follow each connected service's policies. Features that depend on Vectora Services may require an account or an active entitlement. See the [repository](https://github.com/vectora-ltda/vectora), the [contribution guide](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md), and [releases](https://github.com/vectora-ltda/vectora/releases) for verifiable information.
 
 ## Free and Pro
 
-The open-source license and the commercial plan are separate. Individual local use of the app and CLI is free and requires no account. Core product features — including RAG, Library, Browser, Sandbox, Context Graph, HITL, and Decision Models — are not gated by Pro. External AI providers may charge for their own usage.
+The open-source license and commercial entitlements are separate. Individual local use of the app and CLI is free and requires no account. Core product features — including RAG, Library, Browser, Sandbox, Context Graph, HITL, and Decision Models — are not gated by the Pro entitlement. External AI providers may charge for their own usage.
 
-A **Pro** entitlement is required to invite additional members and operate as a team, use the Pro VPS hosting flow, use advanced storage (Postgres, Qdrant, and Redis), trigger tasks by webhook, and use Vectora Connect or the GitHub Actions review bot. Priority support follows the current commercial terms. Self-hosting the app or databases does not replace the entitlement. See [plans and pricing](https://vectora.company/#pricing).
+A **Pro** entitlement is required to invite additional members and operate as a team, use the Pro VPS hosting flow, use advanced storage (Postgres, Qdrant, and Redis), trigger tasks by webhook, and use Vectora Connect or the GitHub Actions review bot. Priority support follows the current commercial terms. Self-hosting the app or databases does not replace the entitlement. See [entitlements and pricing](https://vectora.company/#pricing).
 
 ## Next step
 

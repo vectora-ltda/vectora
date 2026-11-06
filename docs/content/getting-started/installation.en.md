@@ -57,7 +57,7 @@ Credentials can be configured in **Settings → AI Models** or **Provider Routin
 
 ## License and services
 
-The code is licensed under [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). Local use of the app does not require a commercial license; features that depend on paid services may require an account or entitlement. This does not change the code license terms.
+The code is licensed under [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). Local use of the app does not require a commercial license; features that depend on paid services may require an account or an active entitlement. This does not change the code license terms.
 
 ## Next step
 
