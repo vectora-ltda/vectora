@@ -1032,6 +1032,15 @@ jobs:
             if (Test-Path -LiteralPath $installDir) {
               Get-ChildItem $installDir -Recurse -Depth 1 -ErrorAction SilentlyContinue | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 250 | Write-Host
             }
+            Write-Host "Installer entries for the app executable and Electron libraries:"
+            $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+            if (Test-Path -LiteralPath $sevenZip) {
+              & $sevenZip l $installer.FullName 2>&1 | Select-String -Pattern "Vectora.exe|ffmpeg.dll|libEGL.dll|app-arm64|app-64" | ForEach-Object { Write-Host $_.Line }
+            }
+            Write-Host "Windows Defender status and detections:"
+            Get-MpComputerStatus -ErrorAction SilentlyContinue | Select-Object RealTimeProtectionEnabled, AntivirusEnabled | Format-List | Out-String | Write-Host
+            Get-MpThreatDetection -ErrorAction SilentlyContinue | Select-Object -First 10 ThreatID, ProcessName, Resources | Format-List | Out-String -Width 250 | Write-Host
+            Get-WinEvent -FilterHashtable @{ LogName = "Microsoft-Windows-Windows Defender/Operational"; Id = 1116, 1117 } -MaxEvents 5 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.Message }
             Write-Host "Running processes from the installer:"
             Get-Process | Where-Object { $_.Name -match "Vectora|vectora|Uninstall|nsis|Setup" } | Select-Object Name, Id, Path | Format-Table -AutoSize | Out-String -Width 250 | Write-Host
             throw "Installed Vectora.exe was not found in standard install locations."
