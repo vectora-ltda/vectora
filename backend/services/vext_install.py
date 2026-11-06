@@ -1,0 +1,339 @@
+"""Atomic installation, activation and rollback for VEXT artifacts."""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import re
+import shutil
+import tempfile
+import zipfile
+from collections.abc import Generator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from pathlib import Path
+
+from backend.services.vext import ensure_supported_platform
+from backend.services.vext_artifact import verify_vext
+from backend.services.vext_registry import VextTrustStore
+
+logger = logging.getLogger(__name__)
+
+# Mesmo formato do `id` do manifesto. Ids e versões entram em caminhos do
+# disco: só estes formatos são aceitos, o que exclui separadores, `..` e
+# caminhos absolutos.
+EXTENSION_ID_PATTERN = r"^[a-z][a-z0-9_.-]{1,63}$"
+_EXTENSION_ID = re.compile(EXTENSION_ID_PATTERN)
+VERSION_PATTERN = r"^[0-9A-Za-z][0-9A-Za-z.+_-]{0,63}$"
+_VERSION = re.compile(VERSION_PATTERN)
+
+
+def checked_extension_id(extension_id: str) -> str:
+    """Devolve o id se ele for um nome de extensão seguro para usar em caminhos."""
+    if not _EXTENSION_ID.fullmatch(extension_id):
+        raise ValueError("id de extensão inválido")
+    return extension_id
+
+
+def checked_version(version: str) -> str:
+    """Devolve a versão se ela for um nome seguro para usar em caminhos."""
+    if not _VERSION.fullmatch(version) or ".." in version:
+        raise ValueError("versão inválida")
+    return version
+
+
+@dataclass(frozen=True, slots=True)
+class InstalledExtension:
+    """A version recorded by the local extension store."""
+
+    extension_id: str
+    version: str
+    artifact: Path
+    active: bool
+
+
+class VextInstallStore:
+    """Manage immutable versions with atomic activation and rollback."""
+
+    def __init__(self, root: str | Path) -> None:
+        self.root: Path = Path(root)
+        self.versions: Path = self.root / "versions"
+        self.state_path: Path = self.root / "active.json"
+        self.lock_path: Path = self.root / ".install.lock"
+
+    def _version_dir(self, extension_id: str, version: str) -> Path:
+        """Diretório de uma versão, garantidamente dentro de `versions/`."""
+        directory = (
+            self.versions
+            / checked_extension_id(extension_id)
+            / checked_version(version)
+        )
+        if not directory.resolve().is_relative_to(self.versions.resolve()):
+            raise ValueError("caminho fora do diretório de versões")
+        return directory
+
+    @contextmanager
+    def _lock(self) -> Generator[None]:
+        """Serialize publication and activation across processes."""
+        self.root.mkdir(parents=True, exist_ok=True)
+        handle = self.lock_path.open("a+b")
+        use_fcntl = False
+        try:
+            try:
+                import fcntl
+
+                flock = getattr(fcntl, "flock")  # noqa: B009
+                lock_ex = getattr(fcntl, "LOCK_EX")  # noqa: B009
+                lock_un = getattr(fcntl, "LOCK_UN")  # noqa: B009
+                use_fcntl = True
+                flock(handle.fileno(), lock_ex)
+            except ImportError:
+                import msvcrt
+
+                locking = getattr(msvcrt, "locking")  # noqa: B009
+                lock = getattr(msvcrt, "LK_LOCK")  # noqa: B009
+                locking(handle.fileno(), lock, 1)
+            yield
+        finally:
+            if use_fcntl:
+                flock(handle.fileno(), lock_un)
+            else:
+                locking = getattr(msvcrt, "locking")  # noqa: B009
+                unlock = getattr(msvcrt, "LK_UNLCK")  # noqa: B009
+                locking(handle.fileno(), unlock, 1)
+            handle.close()
+
+    def _read_state(self) -> dict[str, str]:
+        if not self.state_path.exists():
+            return {}
+        try:
+            value = json.loads(self.state_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("estado de extensões inválido") from exc
+        if not isinstance(value, dict) or not all(
+            isinstance(key, str) and isinstance(item, str)
+            for key, item in value.items()
+        ):
+            raise ValueError("estado de extensões inválido")
+        return value
+
+    def _write_state(self, state: dict[str, str]) -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        temporary = self.state_path.with_name(
+            f".{self.state_path.name}.{os.getpid()}.tmp"
+        )
+        payload = json.dumps(
+            state, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+        try:
+            with temporary.open("wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            temporary.replace(self.state_path)
+            try:
+                directory_fd = os.open(self.root, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError:
+                # Directory fsync is unavailable on some Windows filesystems.
+                pass
+        finally:
+            temporary.unlink(missing_ok=True)
+
+    def install(
+        self,
+        artifact: str | Path,
+        *,
+        trust_store: VextTrustStore | None = None,
+        allow_unsigned: bool = False,
+    ) -> InstalledExtension:
+        """Verify and atomically install one immutable artifact version."""
+        result = verify_vext(artifact)
+        ensure_supported_platform(result.manifest)
+        if trust_store is not None:
+            trust_store.verify(artifact)
+        elif allow_unsigned:
+            # Explicit development opt-in for unsigned local artifacts.
+            pass
+        else:
+            raise PermissionError("artefato VEXT exige publisher confiável")
+        extension_id = result.manifest.id
+        version = result.manifest.version
+        with self._lock():
+            destination = self._version_dir(extension_id, version)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            existing = destination / "package.vext"
+            created_destination = False
+            if existing.is_file():
+                existing_result = verify_vext(existing)
+                if existing_result.content_digest != result.content_digest:
+                    raise ValueError("versão já instalada com conteúdo diferente")
+            else:
+                temporary = Path(
+                    tempfile.mkdtemp(prefix=f".{version}.", dir=destination.parent)
+                )
+                try:
+                    shutil.copy2(result.path, temporary / "package.vext")
+                    (temporary / "manifest.json").write_text(
+                        result.manifest.model_dump_json(indent=2), encoding="utf-8"
+                    )
+                    staged_artifact = temporary / "package.vext"
+                    staged_result = verify_vext(staged_artifact)
+                    if staged_result.content_digest != result.content_digest:
+                        raise ValueError(
+                            "artefato temporário alterado durante instalação"
+                        )
+                    if trust_store is not None:
+                        trust_store.verify(staged_artifact)
+                    elif not allow_unsigned:
+                        raise PermissionError("artefato VEXT exige publisher confiável")
+                    temporary.replace(destination)
+                    created_destination = True
+                finally:
+                    if temporary.exists():
+                        shutil.rmtree(temporary)
+            state = self._read_state()
+            state[extension_id] = version
+            try:
+                self._write_state(state)
+            except Exception:
+                if created_destination:
+                    shutil.rmtree(destination, ignore_errors=True)
+                raise
+        return InstalledExtension(
+            extension_id, version, destination / "package.vext", True
+        )
+
+    def active(
+        self,
+        extension_id: str,
+        *,
+        trust_store: VextTrustStore | None = None,
+        allow_unsigned: bool = False,
+    ) -> InstalledExtension | None:
+        """Return the active version after revalidating its trust policy.
+
+        Activation is not a permanent trust decision: a publisher may be
+        revoked after installation.  Serving or starting an active artifact
+        must therefore verify the current signature/revocation state again.
+        """
+        checked_extension_id(extension_id)
+        version = self._read_state().get(extension_id)
+        if version is None:
+            return None
+        artifact = self._version_dir(extension_id, version) / "package.vext"
+        if not artifact.is_file():
+            raise ValueError("versão ativa não existe")
+        result = verify_vext(artifact)
+        if result.manifest.id != extension_id or result.manifest.version != version:
+            raise ValueError("versão ativa não corresponde ao manifesto")
+        if trust_store is not None:
+            trust_store.verify(artifact)
+        elif allow_unsigned:
+            pass
+        # Without a trust store this method is metadata-only for backwards
+        # compatibility; serving endpoints always provide one.
+        return InstalledExtension(extension_id, version, artifact, True)
+
+    def deactivate(self, extension_id: str) -> bool:
+        """Deactivate an extension while retaining its immutable versions."""
+        checked_extension_id(extension_id)
+        with self._lock():
+            state = self._read_state()
+            if extension_id not in state:
+                return False
+            del state[extension_id]
+            self._write_state(state)
+            return True
+
+    def uninstall(self, extension_id: str) -> bool:
+        """Delete an extension and its immutable local versions."""
+        checked_extension_id(extension_id)
+        with self._lock():
+            state = self._read_state()
+            directory = self.versions / extension_id
+            if not directory.resolve().is_relative_to(self.versions.resolve()):
+                raise ValueError("caminho fora do diretório de versões")
+            if extension_id not in state and not directory.exists():
+                return False
+            state.pop(extension_id, None)
+            self._write_state(state)
+            if directory.exists():
+                shutil.rmtree(directory)
+            return True
+
+    def activate(
+        self,
+        extension_id: str,
+        version: str,
+        *,
+        trust_store: VextTrustStore | None = None,
+        allow_unsigned: bool = False,
+    ) -> InstalledExtension:
+        """Activate an installed version without downloading or replacing it."""
+        return self.rollback(
+            extension_id,
+            version,
+            trust_store=trust_store,
+            allow_unsigned=allow_unsigned,
+        )
+
+    def rollback(
+        self,
+        extension_id: str,
+        version: str,
+        *,
+        trust_store: VextTrustStore | None = None,
+        allow_unsigned: bool = False,
+    ) -> InstalledExtension:
+        """Activate a previously installed version under the same trust policy."""
+        checked_extension_id(extension_id)
+        checked_version(version)
+        with self._lock():
+            artifact = self._version_dir(extension_id, version) / "package.vext"
+            if not artifact.is_file():
+                raise ValueError("versão para rollback não está instalada")
+            result = verify_vext(artifact)
+            ensure_supported_platform(result.manifest)
+            if trust_store is not None:
+                trust_store.verify(artifact)
+            elif not allow_unsigned:
+                raise PermissionError("artefato VEXT exige publisher confiável")
+            if result.manifest.id != extension_id or result.manifest.version != version:
+                raise ValueError("versão instalada não corresponde ao manifesto")
+            state = self._read_state()
+            state[extension_id] = version
+            self._write_state(state)
+            return InstalledExtension(extension_id, version, artifact, True)
+
+    def list_installed(self) -> list[InstalledExtension]:
+        """List all installed versions and their active state."""
+        state = self._read_state()
+        records: list[InstalledExtension] = []
+        if not self.versions.exists():
+            return records
+        for artifact in sorted(self.versions.glob("*/*/package.vext")):
+            try:
+                result = verify_vext(artifact)
+            except (OSError, ValueError, zipfile.BadZipFile) as exc:
+                logger.warning(
+                    "Skipping invalid installed VEXT artifact",
+                    extra={"artifact": str(artifact), "error": str(exc)},
+                )
+                continue
+            records.append(
+                InstalledExtension(
+                    result.manifest.id,
+                    result.manifest.version,
+                    artifact,
+                    state.get(result.manifest.id) == result.manifest.version,
+                )
+            )
+        return records
+
+
+__all__ = ["InstalledExtension", "VextInstallStore"]

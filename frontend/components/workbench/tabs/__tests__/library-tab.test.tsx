@@ -38,6 +38,10 @@ vi.mock("../library-memory-buckets-section", () => ({
     ),
 }));
 
+vi.mock("../library-extensions-section", () => ({
+  ExtensionsSection: () => <p>No extensions available yet.</p>,
+}));
+
 import { LibraryTab } from "../library-tab";
 
 const fixtures = vi.hoisted(() => ({ populated: false }));
@@ -48,13 +52,14 @@ afterEach(() => {
 });
 
 describe("LibraryTab", () => {
-  it("renderiza as 3 seções (MCP, Skills, Memory Buckets)", () => {
+  it("renderiza as quatro seções da Library", () => {
     render(<LibraryTab threadId="t1" />);
     expect(screen.getByText("MCP", { selector: "span" })).toBeTruthy();
     expect(screen.getByText("Skills", { selector: "span" })).toBeTruthy();
     expect(
       screen.getByText("Memory Buckets", { selector: "span" }),
     ).toBeTruthy();
+    expect(screen.getByText("Extensions", { selector: "span" })).toBeTruthy();
   });
 
   it("mantém as três seções fechadas ao iniciar", () => {
