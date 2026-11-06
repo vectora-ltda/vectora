@@ -24,11 +24,14 @@ else
   ln -sf "$APP_BIN" "$COMMAND_LINK"
 fi
 
-# O chrome-sandbox só precisa de SUID em kernels sem user namespaces.
-if ! { [[ -L /proc/self/ns/user ]] && unshare --user true; }; then
-  chmod 4755 "$APP_DIR/chrome-sandbox" || true
-else
-  chmod 0755 "$APP_DIR/chrome-sandbox" || true
+# O chrome-sandbox só precisa de SUID em kernels sem user namespaces. Algumas
+# versões do Electron não o trazem; nesse caso não há nada a ajustar.
+if [ -e "$APP_DIR/chrome-sandbox" ]; then
+  if ! { [[ -L /proc/self/ns/user ]] && unshare --user true; }; then
+    chmod 4755 "$APP_DIR/chrome-sandbox" || true
+  else
+    chmod 0755 "$APP_DIR/chrome-sandbox" || true
+  fi
 fi
 
 if hash update-mime-database 2>/dev/null; then
