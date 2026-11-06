@@ -56,7 +56,12 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: "26"
-      - run: npm install @commitlint/cli @commitlint/config-conventional
+      # Versões exatas: o passo roda num job com `pull-requests: write`, então
+      # nada de instalar a última versão publicada a cada execução.
+      - run: >-
+          npm install --no-save --no-audit --no-fund
+          @commitlint/cli@21.2.4
+          @commitlint/config-conventional@21.2.4
       # body-max-line-length/footer-max-line-length/body-leading-blank
       # desligadas: o GitHub sempre garante linha em branco entre título e
       # corpo, e quebra o corpo em linhas curtas — essas regras dariam falso
