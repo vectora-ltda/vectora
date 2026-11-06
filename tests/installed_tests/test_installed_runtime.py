@@ -15,6 +15,17 @@ from pathlib import Path
 
 import pytest
 
+# Log de inicialização de cada backend de teste, para os testes anexarem o
+# diagnóstico do app instalado quando uma verificação falha.
+_STARTUP_LOGS: dict[str, Path] = {}
+
+
+def _startup_log_tail(base_url: str, max_chars: int = 6000) -> str:
+    path = _STARTUP_LOGS.get(base_url)
+    if path is None or not path.is_file():
+        return "(log de inicialização indisponível)"
+    return path.read_text(encoding="utf-8", errors="replace")[-max_chars:]
+
 
 def _installed_executable() -> Path:
     value = os.environ.get("VECTORA_INSTALLED_EXECUTABLE")
@@ -80,6 +91,7 @@ def installed_server(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
             start_new_session=os.name != "nt",
         )
     base_url = f"http://127.0.0.1:{port}"
+    _STARTUP_LOGS[base_url] = startup_log_path
     deadline = time.monotonic() + 75
     try:
         while time.monotonic() < deadline:
@@ -141,9 +153,21 @@ def test_installed_backend_becomes_live(installed_server: str) -> None:
 
 
 def test_installed_storage_is_ready(installed_server: str) -> None:
-    # A primeira conexão ao LanceDB pode fazer cold-start no host do usuário.
-    status, payload = _request_json(f"{installed_server}/health/ready", timeout=20.0)
-    assert status == 200, payload
+    # A primeira conexão ao LanceDB pode fazer cold-start no host do usuário:
+    # a sonda responde 503 enquanto ela termina, então o teste a consulta de
+    # novo até ficar pronta ou estourar o prazo.
+    deadline = time.monotonic() + 60
+    while True:
+        status, payload = _request_json(
+            f"{installed_server}/health/ready", timeout=20.0
+        )
+        if status == 200 or time.monotonic() >= deadline:
+            break
+        time.sleep(1.0)
+    assert status == 200, (
+        f"/health/ready respondeu {status}: {payload}\n"
+        f"Log do backend instalado:\n{_startup_log_tail(installed_server)}"
+    )
     assert payload.get("status") == "ready"
 
 

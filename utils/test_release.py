@@ -744,6 +744,71 @@ def test_null_version_fails_with_controlled_error() -> None:
         select_update_channel(None)
 
 
+# ── release-promotion ────────────────────────────────────────────────────────
+
+
+def _lines(maintenance_milestone: str = "0.3.x") -> ReleaseLines:
+    return ReleaseLines.model_validate(
+        {
+            "version_files": ["pyproject.toml"],
+            "development": {"branch": "release/0.4", "milestone": "0.4"},
+            "maintenance": {"branch": "master", "milestone": maintenance_milestone},
+        }
+    )
+
+
+def test_maintenance_release_branch_follows_the_maintenance_milestone() -> None:
+    assert release.maintenance_release_branch(_lines("0.3.x")) == "release/0.3"
+    assert release.maintenance_release_branch(_lines("1.12.x")) == "release/1.12"
+
+
+def test_maintenance_release_branch_is_none_for_an_unusual_milestone() -> None:
+    assert release.maintenance_release_branch(_lines("hotfix")) is None
+
+
+def test_release_please_commit_is_a_release_promotion() -> None:
+    assert release.is_release_promotion(
+        "chore(master): release 0.3.1 (#500)", [], _lines()
+    )
+
+
+def test_pull_request_from_the_maintenance_release_branch_is_a_promotion() -> None:
+    assert release.is_release_promotion(
+        "fix: corrige o empacotamento (#501)", ["release/0.3"], _lines()
+    )
+
+
+def test_pull_request_from_another_branch_is_not_a_promotion() -> None:
+    assert not release.is_release_promotion(
+        "fix: corrige o empacotamento (#501)", ["feat/vext-base"], _lines()
+    )
+
+
+def test_pull_request_from_another_release_line_is_not_a_promotion() -> None:
+    assert not release.is_release_promotion(
+        "fix: x (#502)", ["release/0.4", "release/0.2"], _lines()
+    )
+
+
+def test_commit_without_associated_pull_request_is_not_a_promotion() -> None:
+    assert not release.is_release_promotion("fix: direto na master", [], _lines())
+
+
+def test_release_promotion_command_reads_message_and_head_refs(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(release, "_release_lines", lambda: _lines())
+    monkeypatch.setenv("COMMIT_MESSAGE", "fix: algo (#9)")
+    monkeypatch.setenv("PULL_HEAD_REFS", "feat/a\nrelease/0.3\n")
+
+    assert release.release_promotion_main([]) == 0
+    assert capsys.readouterr().out.strip() == "true"
+
+    monkeypatch.setenv("PULL_HEAD_REFS", "feat/a")
+    assert release.release_promotion_main([]) == 0
+    assert capsys.readouterr().out.strip() == "false"
+
+
 # ── validate-milestone ───────────────────────────────────────────────────────
 
 

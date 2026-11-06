@@ -78,6 +78,20 @@ from backend.api.handlers.workspaces import (
 
 logger = logging.getLogger(__name__)
 
+# Tempo que a sonda de readiness espera antes de responder `not_ready`.
+READINESS_TIMEOUT_SECONDS = 3.0
+
+
+def lancedb_required(platform_name: str, machine: str, *, installed: bool) -> bool:
+    """Indica se a sonda de readiness deve exigir o LanceDB nesta plataforma.
+
+    O LanceDB não publica wheel para Windows ARM64 e o pyproject não o instala
+    lá; nesse alvo, sem o pacote, a ausência é esperada e não torna o app
+    não-pronto. Em qualquer outra plataforma ele continua obrigatório.
+    """
+    unsupported = platform_name == "win32" and machine.upper() == "ARM64"
+    return installed or not unsupported
+
 
 def _gateway_local_url() -> str:
     """Return the configured local URL for gateway-forwarded calls."""
@@ -897,38 +911,64 @@ def create_app(serve_static: bool = True) -> FastAPI:
         """Readiness probe: verifica se os serviços de persistência e dependências vitais estão prontos."""
         import asyncio
 
-        from backend.services import agent_factory
-        from backend.storage.lancedb.connection import get_lancedb
-
         async def _check_dependencies() -> tuple[bool, bool]:
             """Executa a operação  check dependencies."""
             s_ok = False
             l_ok = False
+            # Os imports ficam dentro do try: uma biblioteca nativa que não
+            # carrega (LanceDB, por exemplo) deve virar `not_ready` com o motivo
+            # no log, e não um 500 sem diagnóstico.
             try:
+                from backend.services import agent_factory
+
                 ss = await agent_factory.get_session_store()
                 st = await agent_factory.get_store()
                 s_ok = bool(ss is not None and st is not None)
             except Exception:
+                logger.warning("health/ready: store indisponível", exc_info=True)
                 s_ok = False
 
             try:
+                from backend.storage.lancedb.connection import get_lancedb
+
                 db = await get_lancedb()
                 _ = (await db.list_tables()).tables
                 l_ok = True
             except Exception:
+                logger.warning("health/ready: LanceDB indisponível", exc_info=True)
                 l_ok = False
 
             return s_ok, l_ok
 
+        # A conexão fria ao LanceDB pode passar do limite da sonda. A verificação
+        # segue em segundo plano (shield) e a chamada seguinte a reaproveita,
+        # em vez de reiniciar e ser cancelada de novo a cada consulta.
+        check = getattr(app.state, "readiness_check", None)
+        if check is None or check.done():
+            check = asyncio.ensure_future(_check_dependencies())
+            app.state.readiness_check = check
         try:
             store_ok, lancedb_ok = await asyncio.wait_for(
-                _check_dependencies(), timeout=3.0
+                asyncio.shield(check), timeout=READINESS_TIMEOUT_SECONDS
             )
+        except TimeoutError:
+            logger.warning("health/ready: verificação excedeu o limite")
+            store_ok = False
+            lancedb_ok = False
         except Exception:
+            logger.warning("health/ready: verificação falhou", exc_info=True)
             store_ok = False
             lancedb_ok = False
 
-        is_ready = bool(store_ok and lancedb_ok)
+        import importlib.util
+        import platform
+
+        lancedb_needed = lancedb_required(
+            sys.platform,
+            platform.machine(),
+            installed=importlib.util.find_spec("lancedb") is not None,
+        )
+        is_ready = bool(store_ok and (lancedb_ok or not lancedb_needed))
         response.status_code = 200 if is_ready else 503
 
         return HealthReadyResponse(

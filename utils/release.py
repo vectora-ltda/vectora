@@ -1362,6 +1362,52 @@ def update_channel_main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
+# ── release-promotion: Reconhece o push na master que deve publicar o release ──
+
+
+_RELEASE_COMMIT_MARKER = "chore(master): release "
+_MAINTENANCE_MILESTONE = re.compile(r"^(?P<major>\d+)\.(?P<minor>\d+)\.x$")
+
+
+def maintenance_release_branch(config: ReleaseLines) -> str | None:
+    """Retorna `release/X.Y` da série de manutenção, derivada da sua milestone."""
+    match = _MAINTENANCE_MILESTONE.fullmatch(config.maintenance.milestone)
+    if match is None:
+        return None
+    return f"release/{match.group('major')}.{match.group('minor')}"
+
+
+def is_release_promotion(
+    commit_message: str,
+    pull_head_refs: Sequence[str],
+    config: ReleaseLines | None = None,
+) -> bool:
+    """Indica se um push na linha de manutenção deve publicar o release.
+
+    Vale para o commit do Release Please e para o merge de uma PR cuja cabeça é
+    a branch `release/X.Y` da série de manutenção, que republica a versão que
+    ainda não chegou a ser publicada. `pull_head_refs` deve trazer só as
+    cabeças de PRs do próprio repositório mescladas na linha de manutenção.
+    """
+    if _RELEASE_COMMIT_MARKER in commit_message:
+        return True
+    branch = maintenance_release_branch(config or _release_lines())
+    return branch is not None and branch in pull_head_refs
+
+
+def release_promotion_main(argv: Sequence[str] | None = None) -> int:
+    """Imprime `true` ou `false` a partir de COMMIT_MESSAGE e PULL_HEAD_REFS."""
+    del argv
+    refs = [
+        ref.strip()
+        for ref in os.environ.get("PULL_HEAD_REFS", "").splitlines()
+        if ref.strip()
+    ]
+    promotion = is_release_promotion(os.environ.get("COMMIT_MESSAGE", ""), refs)
+    print("true" if promotion else "false")
+    return 0
+
+
 # ── CLI ─────────────────────────────────────────────────────────────────────
 
 
@@ -1375,6 +1421,7 @@ _COMMANDS: dict[str, tuple[Callable[..., int], bool]] = {
     "normalize-changelog": (normalize_changelog_main, False),
     "validate-milestone": (validate_milestone_main, False),
     "update-channel": (update_channel_main, True),
+    "release-promotion": (release_promotion_main, True),
 }
 
 

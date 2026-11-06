@@ -376,20 +376,61 @@ jobs:
       - name: E2E tests
         run: uv run pytest tests/e2e/ -m live -v --timeout=180 --tb=short
 
-  # ── 5. Resolve release line ─────────────────────────────────────────────
+  # ── 5. Decide se este push publica um release ──────────────────────────
+  # Um push na master publica quando o commit é o do Release Please ou quando
+  # é o merge de uma PR vinda da branch `release/X.Y` da série de manutenção
+  # (republicação de uma versão que ainda não foi publicada). Qualquer outro
+  # evento resulta em `false`; PRs e branches nunca publicam.
+  release-trigger:
+    name: Detect release promotion
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      is_release: ${{ steps.detect.outputs.is_release }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/setup-uv
+        with:
+          python-version: "3.13"
+          sync: "false"
+          working-directory: .
+      - name: Detect release promotion
+        id: detect
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          PULL_HEAD_REFS=""
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF" = "refs/heads/master" ]; then
+            # Só cabeças de PRs do próprio repositório, já mescladas na master.
+            PULL_HEAD_REFS=$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/pulls" \
+              --jq '.[] | select(.merged_at != null and .base.ref == "master" and .head.repo.full_name == env.GITHUB_REPOSITORY) | .head.ref')
+            export PULL_HEAD_REFS
+            is_release=$(uv run --no-project --with "pydantic>=2.13.4" python utils/release.py release-promotion)
+          else
+            is_release=false
+          fi
+          echo "is_release=$is_release" >> "$GITHUB_OUTPUT"
+          echo "Release promotion: $is_release"
+
+  # ── 5b. Resolve release line ────────────────────────────────────────────
   # Both native builds and R2/KV publication consume this single output. In
   # particular, a manual dispatch must use the checked-out package version,
   # rather than deriving a different channel from the Git ref.
   release-channel:
     name: Resolve release version and update channel
-    needs: [test-unit, test-external]
+    needs: [test-unit, test-external, release-trigger]
     if: >-
       github.event_name == 'pull_request' ||
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
       github.ref == 'refs/heads/master' &&
-      contains(github.event.head_commit.message, 'chore(master): release '))
+      needs.release-trigger.outputs.is_release == 'true')
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.value }}
@@ -422,14 +463,14 @@ jobs:
   # after the complete matrix succeeds.
   release-native:
     name: Release native (${{ matrix.target }}/${{ matrix.arch }})
-    needs: [test-unit, test-external, release-channel]
+    needs: [test-unit, test-external, release-channel, release-trigger]
     if: >-
       github.event_name == 'pull_request' ||
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
       github.ref == 'refs/heads/master' &&
-      contains(github.event.head_commit.message, 'chore(master): release '))
+      needs.release-trigger.outputs.is_release == 'true')
     env:
       # Nuitka escolhe clang/gcc + ccache no Linux/macOS, MSVC + clcache
       # (vendorizado dentro do próprio pacote nuitka) no Windows — cada um lê
@@ -504,8 +545,8 @@ jobs:
         # do próprio pacote nuitka) no MSVC, não o binário ccache.
         if: runner.os != 'Windows'
         shell: bash
-        env:
-          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+        # O ccache é uma fórmula oficial do Homebrew; não há tap de terceiros
+        # para confiar, então a variável de bypass deprecada não é necessária.
         run: |
           case "${{ runner.os }}" in
             Linux) sudo apt-get update -qq && sudo apt-get install -y ccache ;;
@@ -718,6 +759,14 @@ jobs:
           pnpm --dir frontend install --frozen-lockfile
           pnpm --dir frontend run electron:build
           if [ "${{ matrix.target }}" = "mac" ]; then
+            # Sem credenciais da Apple a configuração usa a identidade ad-hoc
+            # (`-`), que não envolve segredo. O electron-builder pula a
+            # assinatura em PRs por padrão e deixaria o .app com o selo do
+            # Electron quebrado; forçamos a assinatura ad-hoc para o teste de
+            # instalação verificar um pacote íntegro.
+            if [ -z "${APPLE_ID:-}" ] || [ -z "${APPLE_APP_SPECIFIC_PASSWORD:-}" ] || [ -z "${APPLE_TEAM_ID:-}" ]; then
+              export CSC_FOR_PULL_REQUEST=true
+            fi
             pnpm --dir frontend exec electron-builder --config "$RUNNER_TEMP/electron-builder.yml" --${{ matrix.target }} --${{ matrix.arch }} --publish never
           else
             pnpm --dir frontend exec electron-builder --config electron/electron-builder.yml --${{ matrix.target }} --${{ matrix.arch }} --publish never
@@ -852,9 +901,22 @@ jobs:
               esac
               executable=/opt/Vectora/vectora
               test -x "$executable"
+              command -v vectora >/dev/null || {
+                echo "O pacote não instalou o comando vectora no PATH em $DISTRO_IMAGE." >&2
+                exit 1
+              }
+              test "$(readlink -f "$(command -v vectora)")" = "$executable" || {
+                echo "O comando vectora não aponta para $executable em $DISTRO_IMAGE." >&2
+                exit 1
+              }
               ldd "$executable" | tee /tmp/vectora-ldd.txt
               if grep -q "not found" /tmp/vectora-ldd.txt; then
                 echo "Vectora has unresolved runtime libraries in $DISTRO_IMAGE" >&2
+                exit 1
+              fi
+              alsa=$(grep -m1 "libasound\.so" /tmp/vectora-ldd.txt | sed -E "s/.*=> ([^ ]+).*/\1/")
+              if [ -n "$alsa" ] && ! grep -aq snd_device_name_get_hint "$alsa"; then
+                echo "A libasound resolvida ($alsa) não exporta o ALSA real em $DISTRO_IMAGE." >&2
                 exit 1
               fi
               command -v xvfb-run
@@ -949,9 +1011,57 @@ jobs:
             $install = Start-Process -FilePath $installer.FullName -ArgumentList @("/S") -Wait -PassThru
           }
           if ($install.ExitCode -ne 0) { throw "Installer failed with exit code $($install.ExitCode)." }
+          # Instaladores NSIS podem relançar a si mesmos e devolver o controle
+          # antes de terminar de copiar os arquivos.
+          Wait-Process -Name $installer.BaseName -Timeout 180 -ErrorAction SilentlyContinue
+          $uninstallKeys = foreach ($hive in "HKCU:", "HKLM:") {
+            Get-ItemProperty "$hive\Software\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+              Where-Object { $_.DisplayName -like "*Vectora*" }
+          }
           $candidates = @("$env:LOCALAPPDATA\Programs\Vectora\Vectora.exe", "$env:ProgramFiles\Vectora\Vectora.exe", "${env:ProgramFiles(x86)}\Vectora\Vectora.exe")
+          $candidates += $uninstallKeys | Where-Object { $_.InstallLocation } | ForEach-Object { Join-Path $_.InstallLocation "Vectora.exe" }
           $app = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-          if (-not $app) { throw "Installed Vectora.exe was not found in standard install locations." }
+          if (-not $app) {
+            Write-Host "Installer exit code: $($install.ExitCode)"
+            Write-Host "Uninstall entries:"
+            $uninstallKeys | Select-Object DisplayName, DisplayVersion, InstallLocation, UninstallString | Format-List | Out-String | Write-Host
+            Write-Host "Installer file:"
+            Get-ChildItem "$env:GITHUB_WORKSPACE\installers" -File | Select-Object Name, Length | Format-Table -AutoSize | Out-String | Write-Host
+            Write-Host "Install directory contents:"
+            $installDir = "$env:LOCALAPPDATA\Programs\Vectora"
+            if (Test-Path -LiteralPath $installDir) {
+              Get-ChildItem $installDir -Recurse -Depth 1 -ErrorAction SilentlyContinue | Select-Object FullName, Length | Format-Table -AutoSize | Out-String -Width 250 | Write-Host
+            }
+            Write-Host "Installer entries for the app executable and Electron libraries:"
+            $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+            if (Test-Path -LiteralPath $sevenZip) {
+              & $sevenZip l $installer.FullName 2>&1 | Select-String -Pattern "Vectora.exe|ffmpeg.dll|libEGL.dll|app-arm64|app-64" | ForEach-Object { Write-Host $_.Line }
+            }
+            Write-Host "Files inside the installer app archive:"
+            $archiveDir = Join-Path $env:RUNNER_TEMP "installer-archive"
+            New-Item -ItemType Directory -Force -Path $archiveDir | Out-Null
+            if (Test-Path -LiteralPath $sevenZip) {
+              & $sevenZip e "-o$archiveDir" $installer.FullName "`$PLUGINSDIR\app-arm64.7z" -y 2>&1 | Out-Null
+              $archive = Join-Path $archiveDir "app-arm64.7z"
+              if (Test-Path -LiteralPath $archive) {
+                & $sevenZip l $archive 2>&1 | Select-String -Pattern "Vectora.exe|ffmpeg.dll|libEGL.dll|libGLESv2.dll" | ForEach-Object { Write-Host $_.Line }
+                Write-Host "7-Zip version:"
+                & $sevenZip 2>&1 | Select-Object -First 2 | ForEach-Object { Write-Host $_ }
+                Write-Host "Compression methods used by the app archive:"
+                & $sevenZip l -slt $archive 2>&1 | Select-String -Pattern "^Method = " | ForEach-Object { $_.Line } | Sort-Object -Unique | ForEach-Object { Write-Host $_ }
+                $probeDir = Join-Path $archiveDir "probe"
+                & $sevenZip x $archive "-o$probeDir" Vectora.exe -y 2>&1 | Select-Object -Last 3 | ForEach-Object { Write-Host $_ }
+                Write-Host "Vectora.exe extracted by 7-Zip: $(Test-Path -LiteralPath (Join-Path $probeDir 'Vectora.exe'))"
+              }
+            }
+            Write-Host "Windows Defender status and detections:"
+            Get-MpComputerStatus -ErrorAction SilentlyContinue | Select-Object RealTimeProtectionEnabled, AntivirusEnabled | Format-List | Out-String | Write-Host
+            Get-MpThreatDetection -ErrorAction SilentlyContinue | Select-Object -First 10 ThreatID, ProcessName, Resources | Format-List | Out-String -Width 250 | Write-Host
+            Get-WinEvent -FilterHashtable @{ LogName = "Microsoft-Windows-Windows Defender/Operational"; Id = 1116, 1117 } -MaxEvents 5 -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_.Message }
+            Write-Host "Running processes from the installer:"
+            Get-Process | Where-Object { $_.Name -match "Vectora|vectora|Uninstall|nsis|Setup" } | Select-Object Name, Id, Path | Format-Table -AutoSize | Out-String -Width 250 | Write-Host
+            throw "Installed Vectora.exe was not found in standard install locations."
+          }
           Write-Host "Installed executable: $app"
           $stdout = "$env:RUNNER_TEMP\vectora.stdout.log"
           $stderr = "$env:RUNNER_TEMP\vectora.stderr.log"
@@ -1025,12 +1135,27 @@ jobs:
           test -n "$deb" || { echo "Downloaded .deb installer is missing." >&2; exit 1; }
           sudo apt-get install -y xvfb "$deb"
           dpkg-query -s vectora | grep -F "Status: install ok installed"
-          executable=$(command -v vectora)
+          executable=$(command -v vectora || true)
+          test -n "$executable" || {
+            echo "O pacote não instalou o comando vectora no PATH." >&2
+            exit 1
+          }
           test -x "$executable"
-          echo "Installed executable: $executable"
-          ldd "$executable" | tee "$RUNNER_TEMP/vectora-ldd.log"
+          # O ldd resolve `$ORIGIN` pelo caminho recebido; num link simbólico
+          # ele aponta para /usr/bin e não acha as bibliotecas do app.
+          real_executable=$(readlink -f "$executable")
+          echo "Installed executable: $executable -> $real_executable"
+          if [ -e /opt/Vectora/chrome-sandbox ]; then
+            stat -c '%a %U %n' /opt/Vectora/chrome-sandbox
+          fi
+          ldd "$real_executable" | tee "$RUNNER_TEMP/vectora-ldd.log"
           if grep -q "not found" "$RUNNER_TEMP/vectora-ldd.log"; then
             echo "Installed Vectora has unresolved shared libraries." >&2
+            exit 1
+          fi
+          alsa=$(grep -m1 "libasound\.so" "$RUNNER_TEMP/vectora-ldd.log" | sed -E "s/.*=> ([^ ]+).*/\1/")
+          if [ -n "$alsa" ] && ! grep -aq snd_device_name_get_hint "$alsa"; then
+            echo "A libasound resolvida ($alsa) não exporta o ALSA real." >&2
             exit 1
           fi
           set +e
@@ -1070,6 +1195,7 @@ jobs:
       [
         release-native,
         release-channel,
+        release-trigger,
         linux-package-install,
         desktop-install-smoke,
       ]
@@ -1078,7 +1204,7 @@ jobs:
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
       github.ref == 'refs/heads/master' &&
-      contains(github.event.head_commit.message, 'chore(master): release '))
+      needs.release-trigger.outputs.is_release == 'true')
     runs-on: ubuntu-24.04
     concurrency:
       group: vectora-production-update-channel
@@ -1140,13 +1266,13 @@ jobs:
   # versionado servido via GET /gha-bot/download/:version.
   publish-gha-bot-cli:
     name: Publish gha-bot CLI binary (R2)
-    needs: release-native
+    needs: [release-native, release-trigger]
     if: >-
       (github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/master') ||
       (github.event_name == 'push' &&
       github.ref == 'refs/heads/master' &&
-      contains(github.event.head_commit.message, 'chore(master): release '))
+      needs.release-trigger.outputs.is_release == 'true')
     runs-on: ubuntu-24.04
     environment:
       name: production
@@ -1195,11 +1321,17 @@ jobs:
   # workflow do Release Please para preparar a próxima PR.
   tag-release:
     name: Tag and publish release
-    needs: [release-native, publish-update-channel, publish-gha-bot-cli]
+    needs:
+      [
+        release-native,
+        release-trigger,
+        publish-update-channel,
+        publish-gha-bot-cli,
+      ]
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/master' &&
-      contains(github.event.head_commit.message, 'chore(master): release ')
+      needs.release-trigger.outputs.is_release == 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: write
