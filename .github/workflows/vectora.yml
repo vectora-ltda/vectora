@@ -545,8 +545,8 @@ jobs:
         # do próprio pacote nuitka) no MSVC, não o binário ccache.
         if: runner.os != 'Windows'
         shell: bash
-        env:
-          HOMEBREW_NO_REQUIRE_TAP_TRUST: "1"
+        # O ccache é uma fórmula oficial do Homebrew; não há tap de terceiros
+        # para confiar, então a variável de bypass deprecada não é necessária.
         run: |
           case "${{ runner.os }}" in
             Linux) sudo apt-get update -qq && sudo apt-get install -y ccache ;;
