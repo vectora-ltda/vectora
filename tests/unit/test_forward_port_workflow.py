@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 
@@ -652,6 +653,15 @@ def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline(
     assert 'git push origin "$TAG"' in content
     assert "gh release create" in content
     assert "--publish never" in content
+
+
+def test_commitlint_packages_are_installed_with_exact_versions() -> None:
+    """O job que comenta no PR não instala a última versão publicada a cada execução."""
+    content = (WORKFLOW.parent / "pr-checks.yml").read_text(encoding="utf-8")
+
+    assert re.search(r"@commitlint/cli@\d+\.\d+\.\d+(\s|$)", content)
+    assert re.search(r"@commitlint/config-conventional@\d+\.\d+\.\d+(\s|$)", content)
+    assert not re.search(r"@commitlint/[a-z-]+(\s|$)", content)
 
 
 def test_release_build_injects_the_gateway_secret_from_github_secrets() -> None:
