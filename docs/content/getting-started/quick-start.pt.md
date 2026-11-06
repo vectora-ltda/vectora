@@ -37,3 +37,4 @@ Abra a aba **Memory** da workbench para consultar a base de conhecimento e os re
 - [Usando as configurações](../../guides/using-settings)
 - [Decision Models](../../guides/decision-models)
 - [Troubleshooting](../troubleshooting)
+

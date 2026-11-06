@@ -57,8 +57,9 @@ Las credenciales se pueden configurar en **Configuración → Modelos de IA** o 
 
 ## Licencia y servicios
 
-El código está bajo [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). El uso local individual es gratuito; las funciones que dependen de servicios de pago pueden requerir una cuenta o una suscripción Pro activa. Esto no cambia los términos de licencia del código.
+El código está bajo [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). El uso local de la aplicación no requiere una licencia comercial; las funciones que dependen de servicios de pago pueden requerir una cuenta o entitlement. Esto no cambia los términos de licencia del código.
 
 ## Siguiente paso
 
 → [Inicio rápido](./quick-start)
+

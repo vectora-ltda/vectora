@@ -3,9 +3,9 @@ title: Changelog
 weight: 9
 ---
 
-Este changelog resume los cambios disponibles en Vectora. La versión publicada más reciente es la **0.1.23**, lanzada el 10 de noviembre de 2026. Consulta el [changelog completo](https://github.com/vectora-ltda/vectora/blob/master/CHANGELOG.md) y las [releases](https://github.com/vectora-ltda/vectora/releases) para ver el historial y descargar los artefactos publicados.
+Este changelog resume los cambios disponibles en Vectora. La versión publicada más reciente es la **0.1.24**, lanzada el 4 de noviembre de 2026. Consulta el [changelog completo](https://github.com/vectora-ltda/vectora/blob/master/CHANGELOG.md) y las [releases](https://github.com/vectora-ltda/vectora/releases) para ver el historial y descargar los artefactos publicados.
 
-## 0.1.23 — 10 de noviembre de 2026
+## 0.1.24 — 4 de noviembre de 2026
 
 ### Novedades
 

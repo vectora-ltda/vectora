@@ -46,13 +46,7 @@ O mesmo backend atende três superfícies diferentes, ao mesmo tempo:
 
 O Vectora é distribuído sob a licença [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). Você pode executar a aplicação na sua máquina ou infraestrutura e estudar, modificar e redistribuir o código conforme os termos da licença. A licença não significa que todos os recursos tenham sido validados para produção ou que serviços externos sejam gratuitos.
 
-O modo de armazenamento local usa SQLite e LanceDB. Providers de IA e integrações externas são configurados pelo operador; custos, retenção e uso dos dados enviados seguem as políticas de cada serviço conectado. Recursos que dependem do Vectora Services podem exigir conta ou uma assinatura ativa. Consulte o [repositório](https://github.com/vectora-ltda/vectora), o [guia de contribuição](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md) e a [página de releases](https://github.com/vectora-ltda/vectora/releases) para informações verificáveis.
-
-## Assinaturas Free e Pro
-
-A licença de código aberto e a assinatura comercial são coisas diferentes. O uso local individual do aplicativo e da CLI é gratuito e não exige conta. Os recursos centrais do produto — incluindo RAG, Library, Browser, Sandbox, Context Graph, HITL e Decision Models — não são bloqueados pela assinatura Pro. O uso de provedores externos pode gerar custos cobrados por esses provedores.
-
-Uma assinatura **Pro** ativa é exigida para convidar outros membros e operar em equipe, hospedar uma instância Vectora em VPS pelo fluxo Pro, usar o storage avançado (Postgres, Qdrant e Redis), disparar tarefas por webhook e usar Vectora Connect ou o bot de revisão do GitHub Actions. O suporte prioritário segue os termos comerciais vigentes. Hospedar por conta própria os bancos ou o app não substitui a assinatura. Consulte as [assinaturas e os preços](https://vectora.company/#pricing).
+O modo de armazenamento local usa SQLite e LanceDB. Providers de IA e integrações externas são configurados pelo operador; custos, retenção e uso dos dados enviados seguem as políticas de cada serviço conectado. Recursos que dependem do Vectora Services podem exigir conta ou entitlement. Consulte o [repositório](https://github.com/vectora-ltda/vectora), o [guia de contribuição](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md) e a [página de releases](https://github.com/vectora-ltda/vectora/releases) para informações verificáveis.
 
 ## Próximo passo
 
