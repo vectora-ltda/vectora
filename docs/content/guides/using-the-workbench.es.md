@@ -11,7 +11,7 @@ El workbench es el panel lateral del chat — una franja delgada y siempre visib
 - Haz clic en un ícono de la franja lateral para abrir esa pestaña; hacer clic en la pestaña ya activa colapsa el panel.
 - El botón **X** en el encabezado del panel cierra la pestaña actual.
 
-## Las 9 pestañas
+## Pestañas del workbench
 
 ### Terminal
 
@@ -48,6 +48,10 @@ Rutinas en segundo plano para la sesión: tareas programadas (cron) o disparadas
 ### Buscar
 
 Busca en todos los archivos del workspace. El prefijo `r:` habilita el modo regex (ej.: `r:function\s+\w+`). Resultados agrupados por archivo, con vista previa de línea — clic abre el archivo en la posición exacta.
+
+### Library
+
+Gestiona skills, plugins MCP y Memory Buckets instalados para el usuario. Cada integración depende de su configuración.
 
 ### Context Graph
 

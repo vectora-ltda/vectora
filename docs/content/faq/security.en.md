@@ -4,16 +4,16 @@ weight: 3
 ---
 
 **Does my data leave my server?**
-Not to Vectora Company's backend. It only goes out to the APIs you configured yourself (LLM, Cohere/Voyage, Tavily) and to MCP servers you installed.
+It depends on the features you use. External providers receive data needed for requests you send; remote integrations receive data needed for their operations. Vectora may also use auxiliary services for authentication, licensing, updates, or enabled features. See [BYOK & Privacy](../../security/byok-privacy).
 
 **Does Vectora have end-to-end encryption?**
-Not in the classic SaaS sense — see [BYOK & Privacy](../../security/byok-privacy) for the full threat model. Passwords are Argon2id, secrets live in an AES-256 vault, but conversation content stays in the clear on your own server (which you operate).
+No. The backend must read content to run tools, index the workspace, and send context to the selected model. Protect the machine and backups that store your data.
 
 **How does Vectora handle prompt injection?**
-Content coming from tools (files read, web pages, function call results) does **not** carry the authority of a direct user message. When that content contains a high-impact instruction (delete, exfiltrate, run a script), the agent stops and asks before acting.
+Content from files, pages, and tool results is treated as untrusted input. The agent also applies policies and HITL approvals to operations according to the permission mode and workspace configuration. These controls reduce risk, but do not make it safe to execute external instructions without review.
 
 **Can I restrict what the agent can do?**
-Yes — permission modes (always ask / accept edits / autonomous / plan), per-MCP-server tool policy, global tool toggles for admins, and the per-workspace trust folder mechanism.
+Yes. Configure HITL mode, tool policies, workspace trust, and sandbox controls. The availability of each protection depends on platform and configuration. See the [security](../../security/) and [workspace](../../getting-started/first-workspace) guides.
 
 **Where do I report a vulnerability?**
-`security@vectora.company`, with responsible disclosure.
+Follow the repository's [security policy](https://github.com/vectora-ltda/vectora/blob/master/SECURITY.md) instead of publishing details in an issue.

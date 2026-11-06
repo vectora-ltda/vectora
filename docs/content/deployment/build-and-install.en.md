@@ -3,7 +3,7 @@ title: Building from Source
 weight: 3
 ---
 
-The official build pipeline uses [SCons](https://scons.org/) as the orchestrator, run from the monorepo root.
+The official build pipeline uses [SCons](https://scons.org/) as the orchestrator, run from the repository root.
 
 ## Pipeline
 
@@ -24,7 +24,7 @@ scons release          # full build + native installer for the current OS
 
 - Python 3.13 (pinned — the Nuitka version in use doesn't support 3.14 yet)
 - [uv](https://docs.astral.sh/uv/)
-- Node.js 24+ and `pnpm`
+- Node.js 26 and `pnpm`
 - On Windows: Visual Studio Build Tools (MSVC) + Windows SDK, for Nuitka's C toolchain
 
 ## Quality

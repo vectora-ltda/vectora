@@ -26,7 +26,7 @@ You (CLI / Web Chat / MCP client)
    │         │
    └────┬────┘
         ▼
-  160+ native tools (files, git, terminal, browser, RAG, web, integrations)
+  Native tools (files, git, terminal, browser, RAG, web, integrations)
         │
         ▼
   SQLite + LanceDB (lite, default)  or  Postgres + Qdrant + Redis (complete)
@@ -42,14 +42,11 @@ The same backend serves three different surfaces, at the same time:
 2. **CLI** — `vectora start`, `vectora config`, `vectora storage` — see the [CLI reference](../reference/cli).
 3. **MCP client** — Vectora connects to MCP servers you install (a connector marketplace, plus manual registration) so the agent can use their tools. Vectora does not expose itself as an MCP server to other harnesses — see [MCP client](../reference/mcp-client).
 
-## Free vs. Pro
+## Open source and operation
 
-Vectora is **commercial, closed-source software** — you run it on your own infrastructure, but the code belongs to Vectora Company (same model as Cursor, Linear, Notion).
+Vectora is distributed under the [AGPL-3.0 license](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). You can run it on your machine or infrastructure and study, modify, and redistribute the code under the license terms. The license does not mean every feature has been validated for production or that external services are free.
 
-- **Free** — 100% local, no account, no dependency on Vectora Company whatsoever. You bring your own API keys (LLM, Cohere/Voyage for embeddings, Tavily for web search). Lite storage (SQLite + LanceDB).
-- **Pro** — optional, covers trial/billing/licensing through `services.vectora.company` (a small Cloudflare Worker, not a "Vectora Cloud" hosting your instance). Unlocks multi-user web chat, complete storage (Postgres + Qdrant + Redis), and webhook-triggered automations.
-
-See [current pricing](https://vectora.company/#pricing).
+Local storage uses SQLite and LanceDB. AI providers and external integrations are configured by the operator; costs, retention, and use of data sent to them follow each connected service's policies. Features that depend on Vectora Services may require an account or entitlement. See the [repository](https://github.com/vectora-ltda/vectora), the [contribution guide](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md), and [releases](https://github.com/vectora-ltda/vectora/releases) for verifiable information.
 
 ## Next step
 

@@ -4,16 +4,16 @@ weight: 3
 ---
 
 **Meus dados saem do meu servidor?**
-Não pro backend da Vectora Company. Eles saem só pras APIs que você mesmo configurou (LLM, Cohere/Voyage, Tavily) e pra MCP servers que você instalou.
+Depende dos recursos usados. Providers externos recebem os dados necessários às solicitações que você envia; integrações remotas recebem os dados necessários às suas operações. O Vectora também pode usar serviços auxiliares para autenticação, licenciamento, atualizações ou funções habilitadas. Veja [BYOK e privacidade](../../security/byok-privacy).
 
-**O Vectora tem criptografia ponta-a-ponta?**
-Não no sentido de SaaS clássico — veja [BYOK & Privacidade](../../security/byok-privacy) pro modelo de ameaça completo. Senhas são Argon2id, secrets ficam num vault AES-256, mas o conteúdo das conversas fica em claro no seu próprio servidor (que é operado por você).
+**O Vectora tem criptografia ponta a ponta?**
+Não. O backend precisa ler o conteúdo para executar ferramentas, indexar o workspace e enviar contexto ao modelo escolhido. Proteja a máquina e os backups que armazenam os dados.
 
 **Como o Vectora lida com prompt injection?**
-Conteúdo vindo de tools (arquivos lidos, páginas web, resultados de function calls) **não** tem autoridade de mensagem direta do usuário. Quando esse conteúdo contém uma instrução de alto impacto (deletar, exfiltrar, executar script), o agente para e pergunta antes de agir.
+O conteúdo de arquivos, páginas e resultados de ferramentas é tratado como entrada não confiável. O agente também aplica políticas e aprovações HITL às operações conforme o modo de permissão e a configuração do workspace. Esses controles reduzem riscos, mas não tornam seguro executar instruções externas sem revisão.
 
 **Posso restringir o que o agente pode fazer?**
-Sim — modos de permissão (perguntar sempre / aceitar edições / autônomo / plano), tool policy por servidor MCP, toggle de tools globais pra admin, e o mecanismo de trust folder por workspace.
+Sim. Configure o modo HITL, políticas de ferramentas, confiança do workspace e controles do sandbox. A disponibilidade de cada proteção depende da plataforma e da configuração. Consulte os guias de [segurança](../../security/) e [workspaces](../../getting-started/first-workspace).
 
 **Onde reporto uma vulnerabilidade?**
-`security@vectora.company`, com divulgação responsável.
+Siga a [política de segurança do repositório](https://github.com/vectora-ltda/vectora/blob/master/SECURITY.md), em vez de publicar detalhes em uma issue.

@@ -1,19 +1,16 @@
 ---
-title: Billing
+title: Serviços comerciais
 weight: 2
 ---
 
-**Como funciona o billing?**
-Trial/assinatura/licenciamento são geridos por `services.vectora.company`, um Worker Cloudflare pequeno — não um "Vectora Cloud" que hospeda sua instância. Pagamento internacional via Stripe; no Brasil, via Asaas (PIX, boleto, cartão).
+**O Vectora open source exige assinatura?**
+Não para executar o código localmente. A licença do aplicativo é [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE); recursos conectados a serviços comerciais podem ter requisitos e termos próprios.
 
-**O que muda entre Free e Pro?**
-Free é 100% local, sem conta. Pro desbloqueia chat web multi-usuário, storage complete (Postgres+Qdrant+Redis) e automações disparadas por webhook — veja [preços atualizados](https://vectora.company/#pricing).
+**Quais recursos dependem de um serviço comercial?**
+Isso depende da versão e do recurso. Consulte a descrição e os termos atuais em [vectora.company](https://vectora.company/) antes de habilitar um serviço.
 
-**Cancelar a assinatura apaga meus dados?**
-Não. Seus dados ficam no **seu** servidor — cancelar a assinatura só rebaixa o tier de volta pra Free (recursos Pro deixam de funcionar), não deleta nada localmente.
+**Cancelar um serviço apaga meus dados locais?**
+Os dados locais ficam na infraestrutura que você administra. Antes de alterar uma assinatura ou configuração de serviço, confira os efeitos descritos nos termos vigentes e mantenha seus próprios backups.
 
-**Onde vejo meu `VECTORA_TOKEN`?**
-No [dashboard](https://vectora.company/dashboard), seção Token — pode ser revelado de novo sempre que precisar. Use "Rotacionar" só se suspeitar que ele vazou (invalida o token atual e gera um novo).
-
-**Tem trial gratuito?**
-Sim — verifique a duração e condições atuais na [página de preços](https://vectora.company/#pricing).
+**Onde encontro preços e suporte?**
+Consulte as informações atuais no [site da Vectora](https://vectora.company/). O uso do código aberto e os serviços comerciais são tratados separadamente.

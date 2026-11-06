@@ -1,19 +1,19 @@
 ---
-title: Security
+title: Seguridad
 weight: 3
 ---
 
 **¿Mis datos salen de mi servidor?**
-No hacia el backend de Vectora Company. Solo salen hacia las APIs que tú mismo configuraste (LLM, Cohere/Voyage, Tavily) y hacia servidores MCP que instalaste.
+Depende de las funciones que uses. Los proveedores externos reciben los datos necesarios para las solicitudes que envías; las integraciones remotas reciben los datos necesarios para sus operaciones. Vectora también puede usar servicios auxiliares para autenticación, licencias, actualizaciones o funciones habilitadas. Consulta [BYOK y privacidad](../../security/byok-privacy).
 
 **¿Vectora tiene cifrado de extremo a extremo?**
-No en el sentido clásico de SaaS — ver [BYOK y Privacidad](../../security/byok-privacy) para el modelo de amenazas completo. Las contraseñas son Argon2id, los secretos viven en una bóveda AES-256, pero el contenido de las conversaciones queda en texto plano en tu propio servidor (que tú operas).
+No. El backend necesita leer el contenido para ejecutar herramientas, indexar el workspace y enviar contexto al modelo seleccionado. Protege la máquina y las copias de seguridad que almacenan tus datos.
 
-**¿Cómo maneja Vectora la inyección de prompts?**
-El contenido que viene de herramientas (archivos leídos, páginas web, resultados de llamadas a funciones) **no** lleva la autoridad de un mensaje directo del usuario. Cuando ese contenido contiene una instrucción de alto impacto (borrar, exfiltrar, ejecutar un script), el agente se detiene y pregunta antes de actuar.
+**¿Cómo gestiona Vectora la inyección de prompts?**
+El contenido de archivos, páginas y resultados de herramientas se trata como entrada no confiable. El agente también aplica políticas y aprobaciones HITL a las operaciones según el modo de permisos y la configuración del workspace. Estos controles reducen los riesgos, pero no hacen seguro ejecutar instrucciones externas sin revisión.
 
-**¿Puedo restringir lo que el agente puede hacer?**
-Sí — modos de permiso (siempre preguntar / aceptar ediciones / autónomo / plan), política de herramientas por servidor MCP, interruptores globales de herramientas para admins, y el mecanismo de carpeta confiable por workspace.
+**¿Puedo restringir lo que puede hacer el agente?**
+Sí. Configura el modo HITL, las políticas de herramientas, la confianza del workspace y los controles del sandbox. La disponibilidad de cada protección depende de la plataforma y la configuración. Consulta las guías de [seguridad](../../security/) y [workspaces](../../getting-started/first-workspace).
 
-**¿Dónde reporto una vulnerabilidad?**
-`security@vectora.company`, con divulgación responsable.
+**¿Dónde informo de una vulnerabilidad?**
+Sigue la [política de seguridad del repositorio](https://github.com/vectora-ltda/vectora/blob/master/SECURITY.md) en lugar de publicar detalles en una issue.

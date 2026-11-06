@@ -1,52 +1,40 @@
 ---
-title: Início Rápido
+title: Início rápido
 weight: 3
 ---
 
-Este guia leva do zero à primeira resposta do agente em poucos minutos.
+Este guia cobre o primeiro uso depois da instalação. Para compilar o projeto, use o [guia de instalação](../installation).
 
-## 1. Suba o Vectora
+## 1. Inicie o Vectora e configure um modelo
 
-Depois de [instalado](../installation), abra o app (ou `uv run vectora start --port 8080` + `pnpm --dir frontend dev` em dev). O primeiro acesso pede cadastro — o primeiro usuário a se cadastrar vira **administrador root** da instância.
+Abra o aplicativo. Em uma instalação local nova, crie a conta inicial e siga o fluxo de configuração. Em seguida, abra **Configurações → Modelos de IA** para escolher os modelos padrão e configurar os providers necessários. Use **Provider Routing** para endpoints e roteamento.
 
-## 2. Configure um provedor de LLM
+Configure apenas o que pretende usar. Um provider remoto pode receber as solicitações e os dados necessários à tarefa; modelos locais precisam estar instalados e executando no ambiente do backend. Veja [Configurações](../../guides/using-settings) e [BYOK e privacidade](../../security/byok-privacy).
 
-Abra **Configurações → Preferências → Geral** e escolha um provedor (Google Gemini, OpenAI, Anthropic, Cohere ou Ollama local). Sem chave de API configurada em nenhum provedor, o seletor de modelo do chat fica vazio.
+## 2. Abra um workspace
 
-Se você prefere configurar por variável de ambiente em vez da UI, edite `.env` (dev) ou `~/.vectora/.env` (instalação nativa):
+No seletor de workspace, adicione a pasta do projeto. Um workspace é o limite de contexto para arquivos, terminal, Git, busca e ferramentas do agente.
 
-```env
-LLM_PROVIDER=google-genai
-GOOGLE_API_KEY=sua_chave_aqui
-COHERE_API_KEY=sua_chave_aqui   # obrigatório para RAG
-```
+Um workspace novo começa não confiável. Leia o aviso e confie nele apenas se você conhece a origem e aceita que o agente possa executar as operações permitidas pela configuração. Veja [Primeiro workspace](../first-workspace).
 
-## 3. Crie seu primeiro workspace
+## 3. Faça uma solicitação pequena
 
-Um workspace é uma pasta do seu sistema de arquivos que o Vectora pode ler (e, se você confiar nela, editar e executar comandos). No chat, use o seletor de workspace no topo pra apontar para um diretório de projeto.
-
-Na primeira vez que abrir uma pasta não confiável, o Vectora pede confirmação explícita ("Confio nesta pasta") antes de liberar escrita e terminal — veja [Primeiro workspace](../first-workspace).
-
-## 4. Mande sua primeira mensagem
-
-Experimente algo concreto, não genérico:
+Comece com uma pergunta que possa ser conferida:
 
 ```text
-Explique a arquitetura deste projeto olhando o package.json / pyproject.toml
+Resuma a estrutura deste projeto e indique os arquivos que usou como evidência.
 ```
 
-```text
-Rode os testes e me diga o que está falhando
-```
+Depois, teste uma alteração pequena em um branch de trabalho. O agente pode usar ferramentas ou delegar tarefas; permissões, políticas e gates HITL determinam se uma ação precisa de confirmação.
 
-O orchestrator decide sozinho se responde direto ou delega para o subagente `coder` (arquivos/git/terminal) ou `search` (busca web/RAG). Ações potencialmente destrutivas (escrever arquivo, rodar comando, `git push`) pausam pra sua aprovação — o chamado modo HITL (human-in-the-loop).
+## 4. Explore a busca do projeto
 
-## 5. Indexe conhecimento pro RAG (opcional, mas recomendado)
-
-Arraste uma pasta de documentação pro chat, ou use o painel **Memory (RAG)** na workbench pra indexar arquivos manualmente. Depois disso, perguntas sobre esse conteúdo vêm com citações `[1] [2]` rastreáveis até a fonte.
+Abra a aba **Memory** da workbench para consultar a base de conhecimento e os resultados recuperados. A indexação depende dos arquivos aceitos e dos providers configurados; verifique o resultado antes de confiar que uma pasta inteira foi indexada. [RAG e Context Graph](../../concepts/rag) explica os limites e as fontes de contexto.
 
 ## Próximos passos
 
-- [Usando o chat](../../guides/using-the-chat) — modos, seletor de modelo, permission modes
-- [Usando a workbench](../../guides/using-the-workbench) — as 9 abas do painel lateral
-- [Conceitos: RAG & Context Graph](../../concepts/rag) — como a recuperação de contexto funciona por baixo dos panos
+- [Usando o chat](../../guides/using-the-chat)
+- [Usando as configurações](../../guides/using-settings)
+- [Decision Models](../../guides/decision-models)
+- [Troubleshooting](../troubleshooting)
+

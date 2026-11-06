@@ -55,7 +55,7 @@ QDRANT_API_KEY=...
 REDIS_URL=redis://user:pass@host:6379/0
 ```
 
-Localmente, `scons docker` (a partir da raiz do monorepo, se você roda a partir do código-fonte) sobe os três serviços via Docker Compose pra testar o modo complete sem precisar de um provedor gerenciado.
+Localmente, `scons docker` (a partir da raiz do repositório, se você roda a partir do código-fonte) sobe os três serviços via Docker Compose pra testar o modo complete sem precisar de um provedor gerenciado.
 
 ## Migrando dados entre os modos
 

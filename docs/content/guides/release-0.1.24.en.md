@@ -23,7 +23,6 @@ See [subagents](../../concepts/sub-agents), [agent automation](../agent-automati
 
 ### Configurable HITL and Decision Models
 
-In PR #404, **Settings → AI Models** brings AI providers and the surfaces allowed to consult Decision Models together. The chat exposes a Decision Model menu and an HITL panel. Clef, Laya, JEV, or another compatible provider can return a structured `allow`, `deny`, or `requires_human` decision.
 
 To configure it:
 
@@ -61,4 +60,3 @@ Policy snapshots and egress checks apply to connected tool paths. Coverage is sp
 - Keep `passed`, `failed`, and `skipped` results distinct. A `skipped` test does not validate the live path.
 - Do not use replay instead of a live call when live integration is what you need to validate.
 
-PRs [#382](https://github.com/vectora-ltda/vectora/pull/382), [#400](https://github.com/vectora-ltda/vectora/pull/400), [#404](https://github.com/vectora-ltda/vectora/pull/404), [#408](https://github.com/vectora-ltda/vectora/pull/408), and [#414](https://github.com/vectora-ltda/vectora/pull/414) document the line's composition and follow-ups. Published tags and artifacts are the final source of availability information.

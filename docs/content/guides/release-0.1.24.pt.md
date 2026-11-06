@@ -23,7 +23,6 @@ Consulte [subagentes](../../concepts/sub-agents), [automação de agentes](../ag
 
 ### HITL e Decision Models configuráveis
 
-No PR #404, a aba **Configurações → Modelos de IA** reúne providers de IA e as superfícies que podem consultar Decision Models. O menu de Decision Model e o painel de HITL ficam acessíveis no chat. Clef, Laya, JEV ou outro provider compatível pode produzir uma decisão estruturada `allow`, `deny` ou `requires_human`.
 
 Para configurar:
 
@@ -61,4 +60,3 @@ Policy snapshots e verificações de egress aplicam regras aos caminhos de ferra
 - Identifique resultados `passed`, `failed` e `skipped` separadamente. Um teste `skipped` não valida o caminho live.
 - Não use replay como substituto de uma chamada real quando a integração live for o objetivo do teste.
 
-Os PRs [#382](https://github.com/vectora-ltda/vectora/pull/382), [#400](https://github.com/vectora-ltda/vectora/pull/400), [#404](https://github.com/vectora-ltda/vectora/pull/404), [#408](https://github.com/vectora-ltda/vectora/pull/408) e [#414](https://github.com/vectora-ltda/vectora/pull/414) documentam a composição e os complementos da linha. A tag e os artefatos publicados são a referência final para disponibilidade.

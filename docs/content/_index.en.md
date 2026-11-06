@@ -1,5 +1,5 @@
 ---
-title: Documentation
+title: Vectora Documentation
 type: docs
 cascade:
   type: docs
@@ -7,36 +7,36 @@ sidebar:
   open: true
 ---
 
-Vectora is an **AI-assisted development workspace** that runs on infrastructure you control. You and the agent work side by side in the same filesystem, terminal, Git, and browser; users configure MCP connectors. Models can be local or remote: when you choose an external provider, the required requests are sent to that service.
+**Vectora** is an AI-assisted development workspace. It brings chat, files, terminal, Git, browser, project search, and automation tools together while keeping the user in control of the workspace, permissions, and connected providers.
 
-At its core, Vectora closes the **knowledge gap** between an LLM and your current codebase, docs, and stack: a hybrid **RAG** pipeline (BM25 + dense vectors + reranker) for similarity retrieval, and a native **Context Graph** (workspace analyzed via tree-sitter + LLM extraction) for structural context.
+The project is **open source under AGPL-3.0**. See the [license](https://github.com/vectora-ltda/vectora/blob/master/LICENSE), [repository](https://github.com/vectora-ltda/vectora), [contribution guide](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md), and [public issues](https://github.com/vectora-ltda/vectora/issues). Optional commercial licensing and Vectora services are separate from the open-source code.
 
-## Where to start
+## Start here
 
-| I want to...                             | Go to                                          |
-| ----------------------------------------- | ----------------------------------------------- |
-| Install Vectora                           | [Installation](./getting-started/installation)   |
-| Run it in 5 minutes                       | [Quick start](./getting-started/quick-start) |
-| Understand the RAG pipeline               | [RAG & Context Graph](./concepts/rag)          |
-| Connect an MCP server (as a client)       | [MCP client](./reference/mcp-client)         |
-| See all CLI commands                      | [CLI reference](./reference/cli)             |
-| Deploy on a server                        | [Requirements](./deployment/requirements)      |
-| Understand auth, secrets, and BYOK        | [Security](./security/authentication)          |
-| Explore version 0.1.24                     | [What's new in 0.1.24](./guides/release-0.1.24) |
+| I want to... | Guide |
+| --- | --- |
+| Install the app | [Installation](./getting-started/installation) |
+| Open the project for the first time | [Quick start](./getting-started/quick-start) |
+| Understand workspaces and permissions | [First workspace](./getting-started/first-workspace) |
+| Configure models and providers | [Settings](./guides/using-settings) |
+| Use chat and tools | [Using the chat](./guides/using-the-chat) |
+| Look up commands | [CLI reference](./reference/cli) |
+| Build from source or self-host | [Deployment](./deployment/requirements) |
+| See this version''s highlights | [What''s new in 0.1.24](./guides/release-0.1.24) |
 
-## What Vectora is (and isn't)
+## Data and models
 
-Vectora is **commercial, closed-source software** — it isn't open source. You run it on your own infrastructure (your server, your VPS, your desktop), but the source code belongs to Vectora Company. It's the same model as Cursor, Linear, or Notion: the infra is yours, the code is the vendor's.
+Vectora can run locally or on a machine you administer. Local models can keep inference in your environment; when you configure a remote provider, the required requests are sent to that provider. Before connecting services, read [BYOK and privacy](./security/byok-privacy) and check what data each integration receives.
 
-- **Free** runs the local instance without requiring an account. External providers and connectors send the required requests to configured services; local models can be used when available.
-- **Pro** is optional and covers trial/billing/licensing via `services.vectora.company`, a small Cloudflare Worker — it isn't a "Vectora Cloud" that hosts or runs your instance for you. Upgrading changes which features are available (high-performance storage stack, multi-user web chat, webhook-triggered automations), never where the agent runs.
+The default mode uses SQLite and LanceDB for local data and indexes. The `complete` configuration connects external storage services that you operate. See [RAG and Context Graph](./concepts/rag), [storage](./concepts/storage), and [deployment requirements](./deployment/requirements).
 
-See the [pricing page](https://vectora.company/#pricing) for current plans.
+## About this documentation
 
-Before using these capabilities, check the platform, configuration and validation limits below.
+This site contains public installation, configuration, usage, security, and reference guides. It follows the stable `0.1.x` line; see the [repository changelog](https://github.com/vectora-ltda/vectora/blob/master/CHANGELOG.md) for the complete version history. Features may depend on configuration, operating system, provider, or external service. A skipped automated test does not establish operational availability.
 
-## Limits of version 0.1.24
+## Known limits in version 0.1.24
 
-- **Local execution:** the sandbox turns on automatically only when the workspace has no `vectora.toml` and the environment supports native isolation; with a `vectora.toml`, the `[sandbox]` section applies (`enabled = false` in the template). The `local` backend runs on Linux (on Windows, through WSL2; on macOS the sandbox does not turn on automatically). `allow_tcp_ports` requires Landlock ABI V4 (kernel 6.7+), and an empty list does not restrict the network. See [Sandbox](./concepts/sandbox) and [Egress policies](./guides/egress-policies). An existing `vectora.toml` without `[sandbox]` also disables the sandbox (`enabled = false`); this differs from automatic activation when the file is absent. An eligible WSL2 distribution does not guarantee bwrap is installed. Without it, the worker uses a native soft process without filesystem or network isolation, even with `lockdown = true`.
-- **Remote providers:** with BYOK keys or Ollama, OpenRouter, and 9router endpoints, requests go from the machine running the backend straight to the chosen provider.
-- **Skipped validations:** live tests marked as `skipped` do not prove live behavior; cassette replay does not replace a test against the real provider. See [Verification and Evaluation Lab](./guides/verification-lab).
+- **Sandbox:** isolation depends on the operating system, available worker, and workspace configuration. Windows uses WSL2; if required `bwrap` is unavailable, the fallback does not isolate the filesystem or network. Read [Sandbox](./concepts/sandbox) before trusting automated execution.
+- **External providers:** requests to LLMs, embedding models, rerankers, and search providers may send data to the selected service. A local installation does not mean a remote provider processes data locally.
+- **Validation:** unit tests, cassette replay, and skipped live tests cover different scopes. See [Verification and Evaluation Lab](./guides/verification-lab) before interpreting results.
+

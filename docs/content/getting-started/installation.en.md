@@ -3,65 +3,63 @@ title: Installation
 weight: 2
 ---
 
-Vectora ships as a **native desktop app** (Electron + a compiled Python backend) for Windows, macOS, and Linux, with built-in auto-update. There is no "single Docker image" of the product — Docker, when used, only spins up optional infrastructure (Postgres/Redis/Qdrant for complete mode), never Vectora itself.
+There are two ways to use Vectora: install a published desktop package or run the project from source. Desktop packages include the backend and frontend; Python and Node are not required to use the desktop app.
 
-## Option 1 — Native installer (recommended)
+## Install a published release
 
-Download the installer for your OS:
+Open the [Vectora GitHub releases](https://github.com/vectora-ltda/vectora/releases) and choose an artifact for your operating system and architecture. The current published build matrix covers:
 
-| OS      | Format                                   | Signing                                |
-| ------- | ---------------------------------------- | -------------------------------------- |
-| Windows | `.msi` or `.exe` (NSIS)                  | EV certificate (Azure Trusted Signing) |
-| macOS   | `.dmg` (Apple Silicon only)              | Apple Developer ID + notarized         |
-| Linux   | `.AppImage`, `.deb`, or `.rpm`           | unsigned                               |
+| System | Published architecture | Available formats |
+| --- | --- | --- |
+| Windows | x64 and ARM64 | `.exe`, `.msi` |
+| macOS | Apple Silicon (ARM64) | `.dmg` |
+| Linux | x64 and ARM64 | `.AppImage`, `.deb`, `.rpm` |
 
-Install normally (double-click / `dpkg -i` / `rpm -i`). The app opens with the backend already embedded — no separate Python, Node, or any other dependency to install.
+CI builds these artifacts; check each release page to see which files were actually published. Package availability does not guarantee that every Linux distribution has the same system dependencies. On Linux, review the package dependencies and your distribution's requirements before installing.
 
-Future updates arrive automatically via auto-update (served by `updates.vectora.company`).
+On Windows, run the installer and follow its prompts. On macOS, open the DMG and drag the app to Applications. On Linux, use your package manager for `.deb`/`.rpm`; for AppImage, grant execute permission before opening it. Signing and notarization vary by artifact and should be checked in the release information.
 
-## Option 2 — From source (dev)
+## Run from source
 
-To contribute or run in development mode:
+Use this option for development or to inspect and modify the project. Also see the [contribution guide](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md).
 
-**Requirements**: Python 3.13, [uv](https://docs.astral.sh/uv/), Node.js 24+, `pnpm`.
+**Requirements:** Python 3.13, [uv](https://docs.astral.sh/uv/), Node.js 26, and [pnpm](https://pnpm.io/).
 
 ```bash
-git clone https://github.com/vectora-company/vectora.git
-cd vectora/vectora
+git clone https://github.com/vectora-ltda/vectora.git
+cd vectora
 
-uv sync                          # Python dependencies
-pnpm --dir frontend install       # frontend dependencies
-
-cp .env.example .env
-# edit .env: GOOGLE_API_KEY (or another provider), COHERE_API_KEY, TAVILY_API_KEY
+uv sync
+pnpm --dir frontend install
 ```
 
-Two terminal windows:
+Copy `.env.example` to `.env` if you want environment variables for development. Personal settings for desktop installs are stored in `~/.vectora/` (on Windows, `%USERPROFILE%\.vectora\`). See [Configuration](./configuration) and the [environment variable reference](../../reference/config).
+
+Start the backend and serve the app:
 
 ```bash
-# Terminal 1 — full backend + SPA (port 8080)
-uv run vectora start --port 8080
+uv run vectora start
+```
 
-# Terminal 2 — frontend dev server (Vite, port 3000, proxies to the API)
+To develop the frontend with Vite, run this in another terminal:
+
+```bash
 pnpm --dir frontend dev
 ```
 
-Open `http://localhost:3000`. The first user to sign up becomes the root administrator.
+The first account created on an instance gets initial administration access. On a server exposed to a network, configure access and signup according to [Authentication](../../security/authentication); do not expose the port directly to the internet without TLS and access controls.
 
-## Required API keys
+## Providers and credentials
 
-| Key                                                                  | Required?    | For                                       |
-| -------------------------------------------------------------------- | ------------ | ----------------------------------------- |
-| An LLM provider (Gemini, OpenAI, Anthropic, Cohere, or local Ollama) | Yes          | Chat, code generation, response synthesis |
-| `COHERE_API_KEY` (or VoyageAI)                                       | Yes, for RAG | Embeddings + reranking                    |
-| `TAVILY_API_KEY`                                                     | Optional     | Web search                                |
+Configure at least one compatible chat provider. Embeddings, reranking, web search, transcription, and decision models are separate capabilities: configure only the provider needed for a feature you intend to use. Vectora does not require a Cohere key to start chat or a search key to use the workspace.
 
-The model selector in chat only shows providers with a configured key — no key, no provider in the list.
+Credentials can be configured in **Settings → AI Models** or **Provider Routing**, depending on the provider type, or through environment variables. Read [Model settings](../../guides/using-settings) and [BYOK and privacy](../../security/byok-privacy) before sending data to an external service.
 
-## License
+## License and services
 
-The app works **without a license** in Free mode (100% local). To unlock Pro features (multi-user web chat, complete storage, webhook-triggered automations), you need a `VECTORA_TOKEN`, obtained from the [dashboard](https://vectora.company/dashboard) after subscribing to a paid plan.
+The code is licensed under [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). Local use of the app does not require a commercial license; features that depend on paid services may require an account or entitlement. This does not change the code license terms.
 
 ## Next step
 
-→ [Quick start](../quick-start)
+→ [Quick start](./quick-start)
+

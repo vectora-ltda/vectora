@@ -26,7 +26,7 @@ Tú (CLI / Chat web / cliente MCP)
    │         │
    └────┬────┘
         ▼
-  160+ herramientas nativas (archivos, git, terminal, navegador, RAG, web, integraciones)
+  Herramientas nativas (archivos, git, terminal, navegador, RAG, web, integraciones)
         │
         ▼
   SQLite + LanceDB (lite, por defecto)  o  Postgres + Qdrant + Redis (completo)
@@ -42,14 +42,11 @@ El mismo backend sirve tres superficies distintas, al mismo tiempo:
 2. **CLI** — `vectora start`, `vectora config`, `vectora storage` — ver la [referencia de la CLI](../reference/cli).
 3. **Cliente MCP** — Vectora se conecta a servidores MCP que instales (un marketplace de conectores, más registro manual) para que el agente use sus herramientas. Vectora no se expone a sí mismo como servidor MCP para otros harnesses — ver [Cliente MCP](../reference/mcp-client).
 
-## Free vs. Pro
+## Código abierto y operación
 
-Vectora es **software comercial de código cerrado** — lo ejecutas en tu propia infraestructura, pero el código pertenece a Vectora Company (mismo modelo que Cursor, Linear, Notion).
+Vectora se distribuye bajo la licencia [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). Puedes ejecutarlo en tu equipo o infraestructura y estudiar, modificar y redistribuir el código según los términos de la licencia. La licencia no significa que todas las funciones estén validadas para producción ni que los servicios externos sean gratuitos.
 
-- **Free** — 100% local, sin cuenta, sin ninguna dependencia de Vectora Company. Traes tus propias API keys (LLM, Cohere/Voyage para embeddings, Tavily para búsqueda web). Almacenamiento lite (SQLite + LanceDB).
-- **Pro** — opcional, cubre trial/facturación/licenciamiento vía `services.vectora.company` (un pequeño Cloudflare Worker, no una "Vectora Cloud" que aloja tu instancia). Desbloquea chat web multiusuario, almacenamiento completo (Postgres + Qdrant + Redis) y automatizaciones disparadas por webhook.
-
-Consulta los [precios actuales](https://vectora.company/#pricing).
+El almacenamiento local usa SQLite y LanceDB. El operador configura los proveedores de IA y las integraciones externas; los costes, la retención y el uso de los datos enviados dependen de las políticas de cada servicio conectado. Las funciones que dependen de Vectora Services pueden requerir una cuenta o entitlement. Consulta el [repositorio](https://github.com/vectora-ltda/vectora), la [guía de contribución](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md) y las [releases](https://github.com/vectora-ltda/vectora/releases) para obtener información verificable.
 
 ## Siguiente paso
 

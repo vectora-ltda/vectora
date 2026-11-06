@@ -26,7 +26,7 @@ Você (CLI / Chat Web / MCP client)
    │         │
    └────┬────┘
         ▼
-  160+ tools nativas (arquivos, git, terminal, navegador, RAG, web, integrações)
+  Ferramentas nativas (arquivos, git, terminal, navegador, RAG, web, integrações)
         │
         ▼
   SQLite + LanceDB (lite, default)  ou  Postgres + Qdrant + Redis (complete)
@@ -42,14 +42,11 @@ O mesmo backend atende três superfícies diferentes, ao mesmo tempo:
 2. **CLI** — `vectora start`, `vectora config`, `vectora storage` — veja a [referência de CLI](../reference/cli).
 3. **MCP client** — o Vectora se conecta a servidores MCP que você instalar (um marketplace de conectores, mais registro manual) pra que o agente use as tools deles. O Vectora não se expõe como servidor MCP pra outros harnesses — veja [Cliente MCP](../reference/mcp-client).
 
-## Free vs. Pro
+## Código aberto e operação
 
-Vectora é **software comercial de código fechado** — você roda na sua infraestrutura, mas o código pertence à Vectora Company (mesmo modelo do Cursor, Linear, Notion).
+O Vectora é distribuído sob a licença [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). Você pode executar a aplicação na sua máquina ou infraestrutura e estudar, modificar e redistribuir o código conforme os termos da licença. A licença não significa que todos os recursos tenham sido validados para produção ou que serviços externos sejam gratuitos.
 
-- **Free** — 100% local, sem conta, sem nenhuma dependência da Vectora Company. Você traz suas próprias chaves de API (LLM, Cohere/Voyage para embeddings, Tavily para busca web). Storage lite (SQLite + LanceDB).
-- **Pro** — opcional, cobre trial/billing/licenciamento via `services.vectora.company` (um Worker Cloudflare pequeno, não um "Vectora Cloud" que hospeda sua instância). Desbloqueia chat web multi-usuário, storage complete (Postgres + Qdrant + Redis) e automações disparadas por webhook.
-
-Veja [preços atualizados](https://vectora.company/#pricing).
+O modo de armazenamento local usa SQLite e LanceDB. Providers de IA e integrações externas são configurados pelo operador; custos, retenção e uso dos dados enviados seguem as políticas de cada serviço conectado. Recursos que dependem do Vectora Services podem exigir conta ou entitlement. Consulte o [repositório](https://github.com/vectora-ltda/vectora), o [guia de contribuição](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md) e a [página de releases](https://github.com/vectora-ltda/vectora/releases) para informações verificáveis.
 
 ## Próximo passo
 
