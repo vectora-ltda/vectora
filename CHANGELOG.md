@@ -1,3 +1,13 @@
+## [0.3.1] (2026-11-07)
+
+Esta seção reúne as alterações publicadas nesta versão.
+
+### Bug Fixes
+
+As correções incluídas nesta versão são listadas abaixo.
+
+- fix(ci): corrigir a publicação da release e mover os binários para a GitHub Release (#449)
+
 # Changelog
 
 Este arquivo registra as alterações do Vectora, organizadas por versão.
