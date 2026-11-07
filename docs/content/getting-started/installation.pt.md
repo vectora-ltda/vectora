@@ -57,7 +57,7 @@ As chaves podem ser configuradas pela interface em **Configurações → Modelos
 
 ## Licença e serviços
 
-O código está sob [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). O uso do aplicativo local não exige uma licença comercial; funcionalidades que dependem dos serviços pagos podem exigir uma conta ou uma assinatura ativa. Isso não altera os termos da licença do código.
+O código está sob [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). O uso local individual é gratuito; recursos que dependem dos serviços pagos podem exigir uma conta ou uma assinatura Pro ativa. Isso não altera os termos da licença do código.
 
 ## Próximo passo
 
