@@ -3,10 +3,6 @@
 empacota launcher + backend.pyd + libs Python -> vectora.exe.
 
 Uso:  python build-hybrid.py [--jobs N]   (NUITKA_JOBS=N também funciona)
-
-Com VECTORA_BUILD_CLI=1, roda também uma segunda etapa de PyInstaller que
-empacota o mesmo backend.pyd sem Electron/GUI -> dist/vectora-cli/ (binário
-headless usado pela Vectora Bot Action em runners de CI).
 """
 
 import os
@@ -38,15 +34,6 @@ COLLECT_ALL = [
     "tiktoken",
     "tiktoken_ext",
 ]
-
-# Mesma lista, sem "lancedb" — só pro vectora-cli headless (Etapa 2b). RAG
-# não entra no caminho do gh-bot self-hosted: review_job.py roda a revisão
-# com um ToolRegistry() vazio (nenhuma tool, RAG incluído — ver achado de
-# segurança sobre isolar ferramentas de um diff de PR não-confiável), então
-# os binários nativos Rust/Arrow do lancedb (a maior fatia dos ~473 MiB que
-# estouravam o limite de 300 MiB do wrangler r2 object put) nunca são
-# exercitados nesse binário. O app desktop completo continua com RAG.
-COLLECT_ALL_CLI: list[str] = [pkg for pkg in COLLECT_ALL if pkg != "lancedb"]
 
 # Módulos que precisam de hidden-import adicional além do collect-all.
 # tiktoken_ext.openai_public é o plugin que define cl100k_base, p50k_base etc.;
@@ -192,8 +179,6 @@ def main() -> None:
             "resources/)."
         )
 
-    # Flags de PyInstaller comuns às duas etapas (desktop e vectora-cli
-    # headless abaixo) — construídas uma vez só, reusadas nas duas.
     collect: list[str] = []
     for pkg in COLLECT_ALL:
         collect += ["--collect-all", pkg]
@@ -203,10 +188,6 @@ def main() -> None:
     # backend.version.get_vectora_version() cai silenciosamente no fallback
     # "0.1.0", relatando a versão errada no log de startup.
     collect += ["--copy-metadata", "vectora"]
-    collect_cli: list[str] = []
-    for pkg in COLLECT_ALL_CLI:
-        collect_cli += ["--collect-all", pkg]
-    collect_cli += ["--copy-metadata", "vectora"]
     hidden: list[str] = []
     for mod in HIDDEN_IMPORTS:
         hidden += ["--hidden-import", mod]
@@ -303,49 +284,6 @@ def main() -> None:
         sum(f.stat().st_size for f in dist_dir.rglob("*") if f.is_file()) / 1048576
     )
     print(f"\nBUILD OK — {dist_dir}  ({total_mb:.1f} MB na pasta)")
-
-    # Etapa 2b (opcional) — vectora-cli: mesmo backend.pyd, sem Electron/GUI.
-    # Reusa o pyd já compilado na Etapa 1, roda só quando pedido explicitamente
-    # (workflow de release liga isso só na combinação linux/x64, pra virar o
-    # binário headless que a Vectora Bot Action roda em runners de CI). Sem
-    # nats-server/ffmpeg/ffprobe (--add-binary) nem lancedb (collect_cli, ver
-    # COLLECT_ALL_CLI acima) — nenhum necessário só pra revisar um diff de PR,
-    # e juntos eram a maior fatia dos ~473 MiB que estouravam o limite de
-    # 300 MiB do `wrangler r2 object put`.
-    if os.environ.get("VECTORA_BUILD_CLI") == "1":
-        run(
-            [
-                "uv",
-                "run",
-                "python",
-                "-m",
-                "PyInstaller",
-                "--onedir",
-                "--noconfirm",
-                "--name=vectora-cli",
-                f"--distpath={ROOT / 'dist'}",
-                f"--workpath={ROOT / 'build' / 'pyinstaller-cli'}",
-                f"--specpath={ROOT / 'build'}",
-                "--add-binary",
-                f"{pyd}{SEP}.",
-                "--add-data",
-                f"{VECTORA / 'backend' / 'assets'}{SEP}backend/assets",
-                "--add-data",
-                f"{VECTORA / 'backend' / 'storage' / 'migrations' / 'sqlite' / 'schema.sql'}{SEP}backend/storage/migrations/sqlite",
-                *collect_cli,
-                *hidden,
-                *excludes,
-                str(VECTORA / "launcher.py"),
-            ],
-            cwd=VECTORA,
-            desc="PyInstaller -> vectora-cli (headless)",
-            env={"PYTHONWARNINGS": "ignore::SyntaxWarning"},
-        )
-        cli_exe_name = "vectora-cli.exe" if sys.platform == "win32" else "vectora-cli"
-        cli_exe = ROOT / "dist" / "vectora-cli" / cli_exe_name
-        if not cli_exe.exists():
-            sys.exit(f"{cli_exe} não gerado")
-        print(f"BUILD OK — {cli_exe.parent}")
 
 
 if __name__ == "__main__":
