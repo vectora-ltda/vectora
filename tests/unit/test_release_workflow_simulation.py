@@ -28,12 +28,12 @@ DEFAULT_TOKEN = "token-padrao-do-actions"
 RELEASE_TOKEN = "token-com-permissao-de-workflows"
 
 INSTALLERS = [
-    "vectora-win-x64/Vectora-0.3.0-win-x64.exe",
-    "vectora-win-x64/Vectora-0.3.0-win-x64.exe.blockmap",
-    "vectora-win-x64/Vectora-0.3.0-win-x64.msi",
-    "vectora-mac-arm64/Vectora-0.3.0-mac-arm64.dmg",
-    "vectora-linux-x64/Vectora-0.3.0-linux-x64.AppImage",
-    "vectora-linux-x64/Vectora-0.3.0-linux-x64.deb",
+    "vectora-win-x64/Vectora-0.1.24-win-x64.exe",
+    "vectora-win-x64/Vectora-0.1.24-win-x64.exe.blockmap",
+    "vectora-win-x64/Vectora-0.1.24-win-x64.msi",
+    "vectora-mac-arm64/Vectora-0.1.24-mac-arm64.dmg",
+    "vectora-linux-x64/Vectora-0.1.24-linux-x64.AppImage",
+    "vectora-linux-x64/Vectora-0.1.24-linux-x64.deb",
 ]
 NOISE = [
     "vectora-win-x64/latest.yml",
@@ -44,7 +44,7 @@ NOISE = [
     "gha-bot-cli/_internal/docx/templates/default-docx-template/[Content_Types].xml",
 ]
 CHANGELOG = (
-    "# Changelog\n\n## [0.3.0] (2026-11-04)\n\n### Features\n\n- feat: algo (#1)\n"
+    "# Changelog\n\n## [0.1.24] (2026-11-04)\n\n### Features\n\n- feat: algo (#1)\n"
 )
 
 
@@ -61,7 +61,7 @@ def _prepare(
         shutil.copy(REPO_ROOT / "utils" / name, work / "utils" / name)
     shutil.copytree(REPO_ROOT / "utils" / "signing", work / "utils" / "signing")
     (work / "pyproject.toml").write_text(
-        '[project]\nname = "vectora"\nversion = "0.3.0"\n', encoding="utf-8"
+        '[project]\nname = "vectora"\nversion = "0.1.24"\n', encoding="utf-8"
     )
     (work / "CHANGELOG.md").write_text(changelog, encoding="utf-8")
     for relative in INSTALLERS + NOISE if files is None else files:
@@ -91,7 +91,7 @@ def _context(*, release_token: str = "") -> dict[str, object]:
             "R2_SECRET_ACCESS_KEY": "r2secret",
         },
         "needs": {
-            "release-channel": {"outputs": {"channel": "latest", "version": "0.3.0"}},
+            "release-channel": {"outputs": {"channel": "latest", "version": "0.1.24"}},
             "release-trigger": {"outputs": {"is_release": "true"}},
         },
     }
@@ -109,16 +109,16 @@ def _gh_rules(
     """Declara as respostas de GitHub esperadas para um cenário de release."""
     api = f"repos/{REPO}"
     tag_lookup = (
-        Rule(["api", f"{api}/commits/v0.3.0", "--jq", ".sha"], stdout=f"{tag_at}\n")
+        Rule(["api", f"{api}/commits/v0.1.24", "--jq", ".sha"], stdout=f"{tag_at}\n")
         if tag_at
         else Rule(
-            ["api", f"{api}/commits/v0.3.0", "--jq", ".sha"],
+            ["api", f"{api}/commits/v0.1.24", "--jq", ".sha"],
             stderr=tag_lookup_error,
             exit=1,
         )
         if tag_lookup_error
         else Rule(
-            ["api", f"{api}/commits/v0.3.0", "--jq", ".sha"],
+            ["api", f"{api}/commits/v0.1.24", "--jq", ".sha"],
             stderr="gh: Not Found (HTTP 404)\n",
             exit=1,
         )
@@ -143,7 +143,7 @@ def _gh_rules(
             [
                 "release",
                 "view",
-                "v0.3.0",
+                "v0.1.24",
                 "--repo",
                 REPO,
                 "--json",
@@ -153,10 +153,10 @@ def _gh_rules(
             ],
             stdout=f"{str(release_draft).lower()}\n",
         ),
-        Rule(["release", "view", "v0.3.0"], exit=0 if release_exists else 1),
-        Rule(["release", "create", "v0.3.0"]),
+        Rule(["release", "view", "v0.1.24"], exit=0 if release_exists else 1),
+        Rule(["release", "create", "v0.1.24"]),
         Rule(["release", "upload"], exit=upload_exit),
-        Rule(["release", "edit", "v0.3.0"]),
+        Rule(["release", "edit", "v0.1.24"]),
         Rule(["workflow", "run", "rotate-release-lines.yml"]),
     ]
 
@@ -211,12 +211,12 @@ def test_first_release_creates_the_tag_and_the_release_and_attaches_only_install
     uploaded = [Path(name).name for name in box.uploaded_files()]
     assert sorted(uploaded) == sorted(
         [
-            "Vectora-0.3.0-win-x64.exe",
-            "Vectora-0.3.0-win-x64.exe.blockmap",
-            "Vectora-0.3.0-win-x64.msi",
-            "Vectora-0.3.0-mac-arm64.dmg",
-            "Vectora-0.3.0-linux-x64.AppImage",
-            "Vectora-0.3.0-linux-x64.deb",
+            "Vectora-0.1.24-win-x64.exe",
+            "Vectora-0.1.24-win-x64.exe.blockmap",
+            "Vectora-0.1.24-win-x64.msi",
+            "Vectora-0.1.24-mac-arm64.dmg",
+            "Vectora-0.1.24-linux-x64.AppImage",
+            "Vectora-0.1.24-linux-x64.deb",
             "SHA256SUMS",
         ]
     )
@@ -237,9 +237,9 @@ def test_the_tag_is_created_through_the_api_as_an_annotated_tag(tmp_path: Path) 
     tag_call = next(c for c in box.calls("gh") if c.args[1].endswith("/git/tags"))
     ref_call = next(c for c in box.calls("gh") if c.args[1].endswith("/git/refs"))
     assert f"object={SHA}" in tag_call.args
-    assert "tag=v0.3.0" in tag_call.args
+    assert "tag=v0.1.24" in tag_call.args
     assert "type=commit" in tag_call.args
-    assert "ref=refs/tags/v0.3.0" in ref_call.args
+    assert "ref=refs/tags/v0.1.24" in ref_call.args
     assert f"sha={TAG_OBJECT}" in ref_call.args
 
 
@@ -251,14 +251,14 @@ def test_release_body_comes_from_the_changelog_section(tmp_path: Path) -> None:
     assert "--notes-file" in create.args
     assert "--generate-notes" not in create.args
     assert "--verify-tag" in create.args
-    assert "Vectora 0.3.0" in create.args
+    assert "Vectora 0.1.24" in create.args
 
 
 def test_release_falls_back_to_generated_notes_without_a_changelog_section(
     tmp_path: Path,
 ) -> None:
     """Verifica o fallback às notas do GitHub quando a versão não está no changelog."""
-    _, box = _run_tag_release(tmp_path, changelog="# Changelog\n\n## [0.2.0]\n\n- x\n")
+    _, box = _run_tag_release(tmp_path, changelog="# Changelog\n\n## [0.1.23]\n\n- x\n")
 
     create = next(c for c in box.calls("gh") if c.args[:2] == ["release", "create"])
     assert "--generate-notes" in create.args
@@ -445,8 +445,8 @@ def test_the_update_channel_publishes_only_a_manifest_that_points_to_the_release
     assert all(r.exit_code == 0 for r in _executed(results))
     [publish] = [c for c in box.calls("pnpm") if c.args[:2] == ["run", "release"]]
     assert "--channel=latest" in publish.args
-    assert "--version=0.3.0" in publish.args
-    assert f"--release-url=https://github.com/{REPO}/releases/download/v0.3.0" in (
+    assert "--version=0.1.24" in publish.args
+    assert f"--release-url=https://github.com/{REPO}/releases/download/v0.1.24" in (
         publish.args
     )
     assert any(arg.startswith("--dist=") for arg in publish.args)
