@@ -10,7 +10,7 @@ from release_notes import section_for_version
 
 CHANGELOG = """# Changelog
 
-## [0.3.0] (2026-11-10)
+## [0.1.24] (2026-11-04)
 
 Esta seção reúne as alterações publicadas nesta versão.
 
@@ -22,7 +22,7 @@ Esta seção reúne as alterações publicadas nesta versão.
 
 - fix: algo corrigido (#2)
 
-## [0.2.0] (2026-09-27)
+## [0.1.23] (2026-09-27)
 
 ### Features
 
@@ -35,18 +35,18 @@ Esta seção reúne as alterações publicadas nesta versão.
 
 
 def test_returns_the_section_of_the_version_without_its_heading() -> None:
-    section = section_for_version(CHANGELOG, "0.3.0")
+    section = section_for_version(CHANGELOG, "0.1.24")
 
     assert section is not None
     assert section.startswith("Esta seção reúne")
     assert "feat: algo novo" in section
     assert "fix: algo corrigido" in section
-    assert "## [0.3.0]" not in section
+    assert "## [0.1.24]" not in section
 
 
 def test_stops_at_the_next_second_level_heading() -> None:
     """Verifica que a extração não inclui notas da versão seguinte."""
-    older = section_for_version(CHANGELOG, "0.2.0")
+    older = section_for_version(CHANGELOG, "0.1.23")
 
     assert older == "### Features\n\n- feat: antigo (#3)"
     assert "nada disso entra" not in (older or "")
@@ -76,7 +76,7 @@ def test_main_prints_the_section(
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text(CHANGELOG, encoding="utf-8")
 
-    code = release_notes.main([str(changelog), "0.3.0"])
+    code = release_notes.main([str(changelog), "0.1.24"])
 
     assert code == 0
     assert "feat: algo novo" in capsys.readouterr().out
