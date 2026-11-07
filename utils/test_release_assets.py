@@ -29,6 +29,9 @@ INSTALLERS = [
     "Vectora-0.3.0-linux-aarch64.rpm",
     "Vectora-0.3.0-linux-x86_64.AppImage",
     "Vectora-0.3.0-rc.1-linux-arm64.deb",
+    "Vectora-0.3.0-win-x64.exe.blockmap",
+    "Vectora-0.3.0-linux-x64.AppImage.blockmap",
+    "Vectora-0.3.0-mac-arm64.dmg.blockmap",
 ]
 
 BRACKET_FILE = (
@@ -64,7 +67,6 @@ def test_ignores_everything_that_is_not_an_installer(tmp_path: Path) -> None:
         "gha-bot-cli/vectora-cli",
         "win-unpacked/Vectora.exe",
         "win-unpacked/resources/nats-server.exe",
-        "Vectora-0.3.0-win-x64.exe.blockmap",
         "Vectora-0.3.0-win-x64.exe.asc",
         "latest.yml",
         "latest-linux.yml",
@@ -79,13 +81,29 @@ def test_ignores_everything_that_is_not_an_installer(tmp_path: Path) -> None:
     assert [path.name for path in selection.assets] == ["Vectora-0.3.0-win-x64.exe"]
 
 
+def test_blockmaps_of_installers_are_attached_for_differential_updates(
+    tmp_path: Path,
+) -> None:
+    _touch(tmp_path, "Vectora-0.3.0-win-x64.exe")
+    _touch(tmp_path, "Vectora-0.3.0-win-x64.exe.blockmap")
+    _touch(tmp_path, "Vectora-0.3.0-win-x64.blockmap")  # sem instalador correspondente
+
+    selection = select_release_assets(tmp_path)
+
+    assert [path.name for path in selection.assets] == [
+        "Vectora-0.3.0-win-x64.exe",
+        "Vectora-0.3.0-win-x64.exe.blockmap",
+    ]
+
+
 REJECTED_NAMES = [
     "Vectora-0.3.0-win-x64[1].exe",
     "Vectora-0.3.0-win-x64*.exe",
     "Vectora-0.3.0-win-x64?.exe",
     "Vectora-0.3.0-win-x64 copy.exe",
     "Vectora-0.3.0-win-x64.exe.part",
-    "Vectora-0.3.0-win-x64.exe.blockmap",
+    "Vectora-0.3.0-win-x64.blockmap",
+    "Vectora-0.3.0-win-x64.exe.blockmap.asc",
     "Vectora-0.3.0-win-x64.exe.asc",
     "Vectora-latest-win-x64.exe",
     "vectora-0.3.0-win-x64.exe",
@@ -158,7 +176,7 @@ def test_stage_moves_only_the_installers_into_a_flat_directory(tmp_path: Path) -
     source = tmp_path / "dist-release"
     destination = tmp_path / "release-assets"
     _touch(source, "vectora-win-x64/Vectora-0.3.0-win-x64.exe", size=7)
-    _touch(source, "vectora-win-x64/Vectora-0.3.0-win-x64.exe.blockmap")
+    _touch(source, "vectora-win-x64/latest.yml")
     _touch(source, BRACKET_FILE)
 
     selection = stage_release_assets(source, destination)

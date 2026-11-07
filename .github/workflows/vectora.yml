@@ -1160,14 +1160,16 @@ jobs:
             }
           cat "$RUNNER_TEMP/vectora-installed-tests.log"
 
-  # ── 7. Publish to update channel (R2 + KV) ───────────────────────────────
-  # Roda uma única vez, depois que TODA a matriz (linux/mac/win) terminou —
-  # publicar de dentro de cada job da matriz faria read-modify-write
-  # concorrentes na mesma chave `config` do KV
-  # (publishVersionAndPrune), corrompendo o
-  # rollout_percent/previous_stable/history por race condition.
-  publish-update-channel:
-    name: Publish to update channel (R2 + KV)
+  # ── 7. Create the tag and the GitHub Release after distribution ──────────
+  # O commit da PR de release só vira uma versão publicada depois que os testes
+  # e os instaladores terminarem com sucesso. Este job cria a tag, a release e
+  # os anexos. Os binários ficam só na GitHub Release; o Cloudflare recebe depois
+  # apenas o manifesto que aponta para eles (job seguinte).
+  #
+  # Tudo que fala com o GitHub aqui usa o `gh`, para que o job possa ser
+  # simulado com um `gh` falso (utils/workflow_sim.py, CONTRIBUTING.md).
+  tag-release:
+    name: Tag and publish release
     needs:
       [
         release-native,
@@ -1177,11 +1179,167 @@ jobs:
         desktop-install-smoke,
       ]
     if: >-
-      (github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/master') ||
-      (github.event_name == 'push' &&
+      github.event_name == 'push' &&
       github.ref == 'refs/heads/master' &&
-      needs.release-trigger.outputs.is_release == 'true')
+      needs.release-trigger.outputs.is_release == 'true'
+    runs-on: ubuntu-24.04
+    environment:
+      name: production
+    permissions:
+      contents: write
+      actions: write
+    env:
+      # Tag e release usam RELEASE_TAG_TOKEN quando ele existe. O GitHub recusa
+      # que o GITHUB_TOKEN crie uma tag cujo commit tenha workflows diferentes
+      # dos da branch padrão (acontece quando a master avança antes de o job
+      # rodar de novo); um token com a permissão `workflows` não tem esse limite.
+      GH_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN || github.token }}
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Read released version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version=$(grep -m1 '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+          test -n "$version"
+          echo "value=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+      - name: Download desktop installers
+        uses: actions/download-artifact@v8
+        with:
+          pattern: vectora-*
+          path: dist-release
+          merge-multiple: true
+      - name: Select release assets
+        # Só os instaladores e os blockmaps deles, escolhidos pelo nome
+        # (utils/release_assets.py), vão para release-assets/. Manifestos de
+        # atualização e qualquer outro arquivo dos artefatos ficam de fora do
+        # checksum e do upload, e nenhum nome com caractere de glob chega ao
+        # `gh release upload`.
+        working-directory: .
+        run: python3 utils/release_assets.py stage dist-release release-assets
+      - name: Create release checksums and optional GPG signatures
+        working-directory: .
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: bash utils/signing/sign-release-artifacts.sh release-assets
+      - name: Check the release commit workflows
+        shell: bash
+        env:
+          RELEASE_TAG_TOKEN: ${{ secrets.RELEASE_TAG_TOKEN }}
+        run: |
+          set -euo pipefail
+          workflow_files() {
+            gh api "repos/$GITHUB_REPOSITORY/contents/.github/workflows?ref=$1" \
+              --jq '.[] | "\(.path) \(.sha)"' | sort
+          }
+          if diff <(workflow_files "$GITHUB_SHA") <(workflow_files "$DEFAULT_BRANCH") >/dev/null; then
+            echo "Os workflows de $GITHUB_SHA são os mesmos de $DEFAULT_BRANCH."
+          elif [[ -n "${RELEASE_TAG_TOKEN:-}" ]]; then
+            echo "Os workflows de $GITHUB_SHA diferem dos de $DEFAULT_BRANCH; a tag e a release usam o RELEASE_TAG_TOKEN."
+          else
+            echo "::warning::Os workflows de $GITHUB_SHA diferem dos de $DEFAULT_BRANCH. O GitHub costuma recusar que o GITHUB_TOKEN crie a tag nesse caso (\"refusing to allow a GitHub App to create or update workflow\"). Se a tag ou a release falhar, configure o secret RELEASE_TAG_TOKEN (veja o CONTRIBUTING.md)."
+          fi
+      - name: Create tag
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          existing="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha 2>/dev/null || true)"
+          if [[ -n "$existing" ]]; then
+            if [[ "$existing" != "$GITHUB_SHA" ]]; then
+              echo "::error::A tag $TAG já existe em $existing, e não em $GITHUB_SHA."
+              exit 1
+            fi
+            echo "A tag $TAG já aponta para $GITHUB_SHA."
+            exit 0
+          fi
+          tag_object="$(gh api "repos/$GITHUB_REPOSITORY/git/tags" \
+            -f tag="$TAG" -f message="Vectora $VERSION" \
+            -f object="$GITHUB_SHA" -f type=commit --jq .sha)"
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f ref="refs/tags/$TAG" -f sha="$tag_object" >/dev/null
+          echo "Tag $TAG criada em $GITHUB_SHA."
+      - name: Create GitHub Release
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.value }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "A release $TAG já existe."
+            exit 0
+          fi
+          # O corpo é a seção da versão no CHANGELOG.md; sem ela, as notas
+          # geradas pelo GitHub.
+          notes=(--generate-notes)
+          if python3 utils/release_notes.py CHANGELOG.md "$VERSION" > release-notes.md; then
+            notes=(--notes-file release-notes.md)
+          fi
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Vectora $VERSION" \
+            "${notes[@]}"
+      - name: Attach release assets
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mapfile -d '' -t assets < <(find release-assets -maxdepth 1 -type f -print0 | sort -z)
+          if ((${#assets[@]} == 0)); then
+            echo "::error::Nenhum arquivo para anexar à release."
+            exit 1
+          fi
+          # O `gh release upload` expande colchetes, asteriscos e interrogações
+          # como glob; um nome fora deste padrão aborta o job antes do upload.
+          for asset in "${assets[@]}"; do
+            [[ "${asset##*/}" =~ ^[A-Za-z0-9._+-]+$ ]] || {
+              echo "::error::Nome de anexo inesperado: ${asset##*/}"
+              exit 1
+            }
+          done
+          gh release upload "$TAG" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Start release-line rotation
+        # Uma release criada com o GITHUB_TOKEN não dispara o evento `release`
+        # do rotate-release-lines.yml; por isso a rotação é pedida aqui. Com o
+        # RELEASE_TAG_TOKEN o evento também dispara; a rotação é idempotente.
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          gh workflow run rotate-release-lines.yml \
+            --repo "$GITHUB_REPOSITORY" --ref "$DEFAULT_BRANCH" \
+            --field "release_tag=$TAG" --field "target_branch=$DEFAULT_BRANCH"
+
+  # ── 8. Publish the update manifest (R2 + KV) ─────────────────────────────
+  # Os binários ficam na GitHub Release (pública e gratuita). O Cloudflare
+  # guarda só o manifesto `latest.yml` de cada SO e arquitetura, com a URL de
+  # cada arquivo na release, e o canal no KV. Roda depois do tag-release porque
+  # o manifesto só pode apontar para arquivos que já existem. É um único job
+  # para toda a matriz: publicar de dentro de cada job faria read-modify-write
+  # concorrentes na mesma chave `config` do KV (publishVersionAndPrune),
+  # corrompendo rollout_percent, previous_stable e history.
+  publish-update-channel:
+    name: Publish update manifest (R2 + KV)
+    needs: [release-channel, release-trigger, tag-release]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/master' &&
+      needs.release-trigger.outputs.is_release == 'true'
     runs-on: ubuntu-24.04
     concurrency:
       group: vectora-production-update-channel
@@ -1210,21 +1368,17 @@ jobs:
         with:
           version: 11.5.0
       - name: Download all installers
+        # O publicador calcula o hash e o tamanho de cada instalador para montar
+        # o manifesto; os arquivos em si não são enviados ao R2.
         uses: actions/download-artifact@v8
         with:
           pattern: vectora-*
           path: dist-electron-all
           merge-multiple: true
-      - name: Create release checksums and optional GPG signatures
-        working-directory: .
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-        run: bash utils/signing/sign-release-artifacts.sh dist-electron-all
       - name: Install release publisher dependencies
         working-directory: release-worker
         run: pnpm install --frozen-lockfile
-      - name: Publish (R2 + KV)
+      - name: Publish manifest (R2 + KV)
         # Sem CLOUDFLARE_API_TOKEN (wrangler/KV) ou sem as credenciais R2
         # (upload S3) o script falha na autenticação — o job fica vermelho
         # de propósito, nunca um no-op silencioso.
@@ -1234,108 +1388,11 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CHANNEL: ${{ needs.release-channel.outputs.channel }}
+          VERSION: ${{ needs.release-channel.outputs.version }}
         run: |
-          pnpm run release -- --channel=${{ needs.release-channel.outputs.channel }} --version=${{ needs.release-channel.outputs.version }} --dist="$GITHUB_WORKSPACE/dist-electron-all"
-
-  # ── 8. Create the tag and GitHub Release after distribution ─────────────
-  # O commit da PR de release só vira uma versão publicada depois que os
-  # testes, instaladores e canais de atualização terminarem com sucesso.
-  # Este job é o único responsável por criar a tag; a tag então aciona o
-  # workflow do Release Please para preparar a próxima PR.
-  tag-release:
-    name: Tag and publish release
-    needs: [release-native, release-trigger, publish-update-channel]
-    if: >-
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/master' &&
-      needs.release-trigger.outputs.is_release == 'true'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-      actions: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
-          # O job cria e envia a tag no passo seguinte. As credenciais
-          # precisam permanecer no remote para que `git push origin "$TAG"`
-          # consiga autenticar com contents: write.
-          token: ${{ github.token }}
-          persist-credentials: true
-      - name: Read released version
-        id: version
-        working-directory: .
-        shell: bash
-        run: |
-          set -euo pipefail
-          version=$(grep -m1 '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
-          test -n "$version"
-          echo "value=$version" >> "$GITHUB_OUTPUT"
-          echo "tag=v$version" >> "$GITHUB_OUTPUT"
-      - name: Download desktop installers
-        uses: actions/download-artifact@v8
-        with:
-          pattern: vectora-*
-          path: dist-release
-          merge-multiple: true
-      - name: Select release assets
-        # Só os instaladores, escolhidos pelo nome (utils/release_assets.py),
-        # vão para release-assets/. Manifestos de atualização, .blockmap e
-        # qualquer outro arquivo dos artefatos ficam de fora do checksum e do
-        # upload, e nenhum nome com caractere de glob chega ao `gh release upload`.
-        working-directory: .
-        run: python3 utils/release_assets.py stage dist-release release-assets
-      - name: Create release checksums and optional GPG signatures
-        working-directory: .
-        env:
-          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-        run: bash utils/signing/sign-release-artifacts.sh release-assets
-      - name: Create tag after successful distribution
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git rev-parse "$TAG" >/dev/null 2>&1; then
-            test "$(git rev-list -n1 "$TAG")" = "$GITHUB_SHA"
-          else
-            git tag -a "$TAG" "$GITHUB_SHA" -m "Vectora ${{ steps.version.outputs.value }}"
-            git push origin "$TAG"
-          fi
-      - name: Create GitHub Release and attach installers
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.version.outputs.tag }}
-          VERSION: ${{ steps.version.outputs.value }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release create "$TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "Vectora $VERSION" \
-              --generate-notes
-          fi
-          mapfile -d '' -t assets < <(find release-assets -maxdepth 1 -type f -print0 | sort -z)
-          if ((${#assets[@]} == 0)); then
-            echo "::error::Nenhum arquivo para anexar à release."
-            exit 1
-          fi
-          # O `gh release upload` expande colchetes, asteriscos e interrogações
-          # como glob; um nome fora deste padrão aborta o job antes do upload.
-          for asset in "${assets[@]}"; do
-            [[ "${asset##*/}" =~ ^[A-Za-z0-9._+-]+$ ]] || {
-              echo "::error::Nome de anexo inesperado: ${asset##*/}"
-              exit 1
-            }
-          done
-          gh release upload "$TAG" "${assets[@]}" \
-            --repo "$GITHUB_REPOSITORY" --clobber
-          gh workflow run rotate-release-lines.yml \
-            --repo "$GITHUB_REPOSITORY" --ref master \
-            --field "release_tag=$TAG" --field "target_branch=master"
+          pnpm run release -- \
+            --channel="$CHANNEL" \
+            --version="$VERSION" \
+            --dist="$GITHUB_WORKSPACE/dist-electron-all" \
+            --release-url="https://github.com/$GITHUB_REPOSITORY/releases/download/v$VERSION"

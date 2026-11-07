@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Seleciona os arquivos que a GitHub Release anexa: só os instaladores.
+"""Seleciona os arquivos que a GitHub Release anexa: instaladores e seus blockmaps.
 
 Uso: `python utils/release_assets.py stage ORIGEM DESTINO`
 
-Move para a pasta plana DESTINO apenas os instaladores encontrados em ORIGEM, e
-deixa tudo o mais onde estava. O nome do instalador é a única regra de seleção;
-ela só admite letras, números e `._+-`, então um arquivo de runtime (como os
-`[Content_Types].xml` de uma pasta do PyInstaller), um `.blockmap`, um manifesto
-de atualização ou uma assinatura nunca chegam ao `gh release upload`, que trata
+Move para a pasta plana DESTINO apenas os instaladores (e os `.blockmap` deles,
+que o `electron-updater` usa nas atualizações diferenciais) encontrados em
+ORIGEM, e deixa tudo o mais onde estava. O nome do arquivo é a única regra de
+seleção; ela só admite letras, números e `._+-`, então um arquivo de runtime
+(como os `[Content_Types].xml` de uma pasta do PyInstaller), um manifesto de
+atualização ou uma assinatura nunca chegam ao `gh release upload`, que trata
 colchetes e asteriscos como glob.
 
 Só depende da stdlib, para rodar no runner sem instalar nada.
@@ -27,12 +28,13 @@ GITHUB_ASSET_LIMIT_BYTES = 2 * 1024**3
 
 _INSTALLER_NAME = re.compile(
     r"^Vectora-\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.]+)*-(?:win|mac|linux)-[A-Za-z0-9_]+"
-    r"\.(?:exe|msi|dmg|zip|AppImage|deb|rpm|pacman|snap|flatpak|tar\.gz|pkg\.tar\.zst)$"
+    r"\.(?:exe|msi|dmg|zip|AppImage|deb|rpm|pacman|snap|flatpak|tar\.gz|pkg\.tar\.zst)"
+    r"(?:\.blockmap)?$"
 )
 
 
 def is_installer_name(name: str) -> bool:
-    """Diz se `name` é o nome de um instalador que a release deve anexar."""
+    """Diz se `name` é o nome de um instalador (ou blockmap) que a release anexa."""
     return _INSTALLER_NAME.fullmatch(name) is not None
 
 

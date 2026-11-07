@@ -642,14 +642,24 @@ def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline(
     assert "contains(github.event.head_commit.message" not in content
     assert content.count("needs.release-trigger.outputs.is_release == 'true'") == 4
     assert "tag-release:" in content
-    tag_job = content.split("  tag-release:", 1)[1]
+    tag_job = content.split("  tag-release:", 1)[1].split(
+        "\n  publish-update-channel:", 1
+    )[0]
     needs = tag_job.split("if:", 1)[0]
-    for dependency in ("release-native", "release-trigger", "publish-update-channel"):
+    for dependency in ("release-native", "release-trigger", "desktop-install-smoke"):
         assert re.search(rf"\b{dependency}\b", needs), dependency
+    # O manifesto do Cloudflare só pode apontar para arquivos que já existem na
+    # release: o job que o publica depende do que cria a tag, e não o contrário.
+    assert "publish-update-channel" not in needs
+    publish_job = content.split("\n  publish-update-channel:\n", 1)[1]
+    assert "tag-release" in publish_job.split("if:", 1)[0]
     assert "github.event_name == 'push'" in tag_job.split("runs-on:", 1)[0]
     assert "github.ref == 'refs/heads/master'" in tag_job.split("runs-on:", 1)[0]
-    assert 'git push origin "$TAG"' in content
-    assert "gh release create" in content
+    # Tag e release só passam pelo `gh`, para o job poder ser simulado.
+    assert 'git push origin "$TAG"' not in content
+    assert "git/refs" in tag_job
+    assert "gh release create" in tag_job
+    assert "--verify-tag" in tag_job
     assert "--publish never" in content
 
 

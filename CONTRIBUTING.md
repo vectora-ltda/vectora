@@ -36,7 +36,7 @@ pnpm --dir frontend run typecheck
 pnpm --dir frontend exec oxlint
 ```
 
-`scons lint` e `scons tests` rodam o conjunto completo a partir da raiz. Rode os checks da área que você mexeu e diga no PR o que rodou e o que não rodou.
+`scons lint` e `scons tests` rodam o conjunto completo a partir da raiz. Rode os checks da área que você mexeu e diga no PR o que rodou e o que não rodou. Mexeu em `.github/`? Veja [Mudanças em `.github/`](#mudanças-em-github): a mudança precisa passar pela simulação com o `gh` falso.
 
 ## Regras do código
 
@@ -87,6 +87,65 @@ A configuração das linhas está em `.github/release-lines.json`.
 | Desenvolvimento da próxima | `release/0.4` | `0.4`     |
 
 Todo PR usa a base da linha que ele atinge e a milestone correspondente; o workflow `PR Release Milestone` atribui a milestone e bloqueia combinações incompatíveis. As versões são calculadas dos commits pelo workflow de release, que abre o PR `chore(master): release X.Y.Z`. Uma correção aplicada na linha de manutenção também precisa chegar à linha de desenvolvimento; o workflow de propagação abre esse PR.
+
+## Mudanças em `.github/`
+
+**Toda mudança em `.github/` (workflows, actions, configuração) precisa ser verificada com o `gh` simulado antes do PR**, e o PR diz quais cenários rodaram. Um workflow só pode ser testado de verdade no GitHub depois de mesclado; a simulação pega antes o erro que, de outro modo, só apareceria numa release.
+
+O simulador (`utils/workflow_sim.py`) roda os passos `run:` reais de um job, em bash, com as expressões `${{ }}` resolvidas, e coloca no `PATH` um `gh` falso que:
+
+- responde só ao que o cenário prevê; qualquer chamada sem regra falha com código 97, para um passo novo nunca passar em silêncio;
+- registra cada chamada, com os argumentos e o token (`GH_TOKEN`) usado;
+- imita a expansão de glob do `gh release upload` (colchetes, asteriscos e interrogações), que já derrubou uma release.
+
+Passos `uses:` (actions) não são executados; prepare no diretório de trabalho os arquivos que eles produziriam.
+
+### Como rodar a simulação
+
+Precisa de `bash`. No Linux e no macOS ele já existe; no Windows use o Git Bash (o simulador o procura em `C:\Program Files\Git\bin\bash.exe`; se estiver em outro lugar, defina `WORKFLOW_SIM_BASH`). O `bash` do WSL não serve.
+
+```bash
+uv run pytest tests/unit/test_workflow_sim.py tests/unit/test_release_workflow_simulation.py -q
+```
+
+Para experimentar um job com um cenário seu, sem escrever teste:
+
+```bash
+uv run python utils/workflow_sim.py .github/workflows/vectora.yml tag-release cenario.json
+```
+
+O cenário é um JSON com `context` (`github`, `secrets`, `needs`), `rules` (por ferramenta; `args` é um prefixo da chamada e `*` casa qualquer argumento) e `files` (nome e conteúdo dos arquivos a criar no diretório de trabalho):
+
+```json
+{
+  "context": {
+    "github": { "sha": "abc", "repository": "o/r", "token": "t" },
+    "secrets": { "RELEASE_TAG_TOKEN": "" }
+  },
+  "rules": {
+    "gh": [
+      { "args": ["release", "view", "v1.0.0"], "exit": 1 },
+      { "args": ["release", "create", "v1.0.0"] }
+    ]
+  },
+  "files": { "dist-release/Vectora-1.0.0-win-x64.exe": "x" }
+}
+```
+
+### Como cobrir uma mudança
+
+1. Para cada passo novo ou alterado, escreva em `tests/unit/test_release_workflow_simulation.py` (ou num arquivo ao lado, no mesmo padrão) o cenário feliz e os de erro: crie os arquivos que o passo lê, declare com `Rule` cada chamada do `gh` que ele faz, rode o job com `run_job` e confira as chamadas, os tokens e os arquivos enviados.
+2. Numa correção, o primeiro teste reproduz o erro que a motivou.
+3. Rode a suíte acima e o `pre-commit` (ele inclui o `actionlint`).
+
+A simulação confere a lógica do job: a ordem e os argumentos das chamadas, o token de cada uma e o que chega ao upload. Ela **não reproduz as regras do servidor do GitHub** (permissões do token, rulesets, limites de anexo). Isso só aparece numa execução real, então confira no PR o que depende dessas regras.
+
+### Release: tag, release e anexos
+
+- Os binários ficam **só na GitHub Release**. O Cloudflare recebe apenas o manifesto de atualização, que aponta para os arquivos da release. O job `tag-release` cria a tag, a release e os anexos; o `publish-update-channel` roda depois e publica o manifesto.
+- O job anexa só os instaladores e os `.blockmap` deles, escolhidos pelo nome (`utils/release_assets.py`), mais o `SHA256SUMS`. Qualquer outro arquivo dos artefatos fica de fora.
+- O corpo da release é a seção da versão no `CHANGELOG.md` (`utils/release_notes.py`); sem a seção, o GitHub gera as notas.
+- Tag e release usam o secret `RELEASE_TAG_TOKEN`, se ele existir; sem ele, o `GITHUB_TOKEN`. O GitHub costuma recusar que o `GITHUB_TOKEN` crie uma tag cujo commit tenha workflows diferentes dos da branch padrão (erro `refusing to allow a GitHub App to create or update workflow`). Isso acontece quando a `master` muda um workflow depois do commit da release e o job é executado de novo. O job avisa quando detecta a divergência. O secret é um token fine-grained deste repositório, no ambiente `production`, com **Contents: Read and write** e **Workflows: Read and write**. Executar o job logo depois do merge funciona sem ele.
 
 ## O que o CI executa em PRs
 

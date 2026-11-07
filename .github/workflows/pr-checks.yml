@@ -45,7 +45,7 @@ jobs:
           working-directory: .
       - name: Executa testes das utilidades de release
         run: >-
-          uv run pytest -q utils/test_release.py utils/test_checks.py utils/test_snyk_baseline.py utils/test_release_assets.py
+          uv run pytest -q utils/test_release.py utils/test_checks.py utils/test_snyk_baseline.py utils/test_release_assets.py utils/test_release_notes.py
 
   commitlint:
     name: Verify PR title (Conventional Commits)
