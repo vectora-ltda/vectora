@@ -11,7 +11,7 @@ Vectora **doesn't run as a container** — the backend runs on the host (native 
 vectora config docker up
 ```
 
-Or, from source (monorepo root):
+Or, from source (repository root):
 
 ```bash
 scons docker

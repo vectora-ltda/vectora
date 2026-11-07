@@ -39,7 +39,7 @@ O bloco de "pensando" mostra a decisão do orchestrator antes de agir: responder
 
 ## Memória entre sessões
 
-Um badge "🧠 N memórias carregadas" aparece quando o agente usa memórias persistentes de conversas anteriores nessa resposta. Gerencie memórias manualmente em **Configurações → Preferências → Memória**.
+Um badge "🧠 N memórias carregadas" aparece quando o agente usa memórias persistentes de conversas anteriores nessa resposta. Gerencie fatos persistentes em **Configurações → Preferências → Memória**; a aba Memory da workbench mostra atividade de recuperação e contexto usado.
 
 ## Citações RAG
 

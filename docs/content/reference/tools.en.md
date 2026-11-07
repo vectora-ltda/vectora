@@ -3,12 +3,12 @@ title: Tools Reference
 weight: 3
 ---
 
-Vectora ships with **160+ native tools**, organized by category. The philosophy is "batteries included": whatever is high-frequency and broadly useful comes built in, instead of requiring a separate MCP server install for everything.
+Vectora provides native tools organized by category, as well as connections to user-configured MCP servers. The available tool list can vary by version, permissions, and enabled integrations.
 
 | Category          | Tools                                                                                                         |
 | ----------------- | ------------------------------------------------------------------------------------------------------------- |
 | **Files**         | `file_read`, `file_edit`, `file_write`, `grep`, `list_dir`, `terminal`, `create_artifact`                     |
-| **Git**           | 14 operations — status, log, diff, branch, checkout, commit, push, pull, stage/unstage, stash, merge, compare |
+| **Git**           | Operations for status, log, diff, branch, checkout, commit, push, pull, stage/unstage, stash, merge, compare |
 | **GitHub**        | `gh_issue_create/list/view/comment`, `gh_pr_create/list/view/merge` (via the `gh` CLI)                        |
 | **Web**           | `web_search`, `web_fetch` + extraction/crawl                                                                  |
 | **RAG**           | `vector_search`, `embedding`, `ingest_docs`, `manage_retriever`                                               |

@@ -5,7 +5,7 @@ weight: 8
 
 A `webhook`-triggered background task turns an external event into an agent run: a provider (GitHub, GitLab, Slack, Linear, email, or your own alerting tool via the [observability endpoint](../observability-webhooks)) posts to Vectora, and — if a matching task exists — the agent wakes up with that event's payload embedded in its instruction. This page is the reference for the three concrete models Vectora ships today, in increasing order of what the agent actually does with the event.
 
-This capability requires the **Pro** plan (chat automation triggered from outside the product) — see [pricing](https://vectora.chat/pricing).
+This capability requires a **Pro** entitlement (chat automation triggered from outside the product) — see [entitlements and pricing](https://vectora.company/#pricing).
 
 ## How the bridge works
 

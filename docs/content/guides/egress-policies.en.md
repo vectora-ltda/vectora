@@ -5,7 +5,7 @@ weight: 10
 
 This guide explains how Vectora controls the agent's outbound traffic: the egress policy, which applies to network tools, and sandbox network isolation, which applies to commands run in the worker.
 
-> **Status:** these capabilities are part of the 0.3 line. This page does not claim that live tests still marked as `skipped` are complete.
+> **Status:** these capabilities are included in version 0.1.24. Live tests marked `skipped` do not prove behavior in a real environment.
 
 ## Prerequisites
 

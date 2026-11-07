@@ -39,7 +39,7 @@ El bloque de "pensamiento" muestra la decisión del orquestador antes de actuar:
 
 ## Memoria entre sesiones
 
-Aparece una insignia "🧠 N memorias cargadas" cuando el agente usa memorias persistentes de conversaciones anteriores en esa respuesta. Gestiona las memorias manualmente en **Configuración → Preferencias → Memoria**.
+Aparece una insignia "🧠 N memorias cargadas" cuando el agente usa memorias persistentes de conversaciones anteriores en esa respuesta. Gestiona los hechos persistentes en **Configuración → Preferencias → Memoria**; la pestaña Memory del workbench muestra la actividad de recuperación y el contexto usado.
 
 ## Citas de RAG
 

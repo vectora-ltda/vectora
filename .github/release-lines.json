@@ -1,11 +1,11 @@
 {
   "version_files": ["pyproject.toml", "frontend/package.json", "uv.lock"],
   "development": {
-    "branch": "release/0.4",
-    "milestone": "0.4"
+    "branch": "release/0.2",
+    "milestone": "0.2"
   },
   "maintenance": {
     "branch": "master",
-    "milestone": "0.3.x"
+    "milestone": "0.1.x"
   }
 }

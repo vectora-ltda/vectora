@@ -23,7 +23,7 @@ Cada item precisa de decisão antes de distribuir um build que o contenha.
 | --- | --- | --- |
 | pyinstaller | 6.22.3 | GPL-2.0-only |
 | pyinstaller-hooks-contrib | 2026.8 | Apache-2.0 AND GPL-2.0-only |
-| vectora | 0.3.0 | UNKNOWN |
+| vectora | 0.1.24 | AGPL-3.0-only |
 | sentry | 0.45.0 | FSL-1.1-Apache-2.0 |
 
 ## Copyleft forte
@@ -582,7 +582,7 @@ SOFTWARE.
 | ansi-regex | 5.0.1 | MIT |
 | ansi-styles | 4.3.0, 5.2.0 | MIT |
 | ansis | 4.4.0 | ISC |
-| app-builder-lib | 26.15.3 | MIT |
+| app-builder-lib | 26.15.7 | MIT |
 | argparse | 2.0.1 | Python-2.0 |
 | aria-hidden | 1.2.6 | MIT |
 | aria-query | 5.3.0, 5.3.2 | Apache-2.0 |
@@ -699,7 +699,7 @@ SOFTWARE.
 | devlop | 1.1.0 | MIT |
 | diff | 8.0.4 | BSD-3-Clause |
 | dir-compare | 4.2.0 | MIT |
-| dmg-builder | 26.15.3 | MIT |
+| dmg-builder | 26.15.7 | MIT |
 | dom-accessibility-api | 0.5.16, 0.6.3 | MIT |
 | dompurify | 3.4.16 | (MPL-2.0 OR Apache-2.0) |
 | dotenv | 16.6.1, 17.4.2 | BSD-2-Clause |
@@ -709,8 +709,8 @@ SOFTWARE.
 | duplexer2 | 0.1.4 | BSD-3-Clause |
 | ejs | 3.1.10 | Apache-2.0 |
 | electron | 44.7.0 | MIT |
-| electron-builder | 26.15.3 | MIT |
-| electron-builder-squirrel-windows | 26.15.3 | MIT |
+| electron-builder | 26.15.7 | MIT |
+| electron-builder-squirrel-windows | 26.15.7 | MIT |
 | electron-publish | 26.15.3 | MIT |
 | electron-to-chromium | 1.5.452 | ISC |
 | electron-updater | 6.8.9 | MIT |

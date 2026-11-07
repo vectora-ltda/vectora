@@ -1,9 +1,9 @@
 ---
-title: Novedades de la línea 0.3
+title: Novedades de la versión 0.1.24
 weight: 1
 ---
 
-La línea `release/0.3` amplía Vectora: de un workspace con herramientas pasa a un runtime de agentes con ejecuciones identificables, evidencias, planificación, policies y evaluación. Esta página describe la composición de la línea, incluido el PR #404 apilado sobre ella. La etiqueta `0.3.0` aún debe publicarse para que este contenido represente una release distribuida.
+La versión 0.1.24 reúne la evolución de Vectora: de un workspace con herramientas pasa a un runtime de agentes con ejecuciones identificables, evidencias, planificación, policies y evaluación. Esta página describe las capacidades incluidas en esa versión.
 
 ## Novedades
 
@@ -23,7 +23,6 @@ Consulta [subagentes](../../concepts/sub-agents), [automatización de agentes](.
 
 ### HITL y Decision Models configurables
 
-En el PR #404, **Configuración → Modelos de IA** reúne proveedores de IA y las superficies autorizadas para consultar Decision Models. El chat incluye un menú de Decision Model y un panel HITL. Clef, Laya, JEV u otro proveedor compatible pueden devolver una decisión estructurada `allow`, `deny` o `requires_human`.
 
 Para configurarlo:
 
@@ -60,5 +59,3 @@ Los snapshots de policy y las comprobaciones de egress se aplican a las rutas de
 - Para proveedores locales, verifica que el servicio y los modelos necesarios estén disponibles.
 - Distingue los resultados `passed`, `failed` y `skipped`. Una prueba `skipped` no valida la ruta live.
 - No uses replay como sustituto de una llamada real cuando el objetivo sea validar la integración live.
-
-Los PR [#382](https://github.com/vectora-ltda/vectora/pull/382), [#400](https://github.com/vectora-ltda/vectora/pull/400), [#404](https://github.com/vectora-ltda/vectora/pull/404), [#408](https://github.com/vectora-ltda/vectora/pull/408) y [#414](https://github.com/vectora-ltda/vectora/pull/414) describen la composición y los complementos de la línea. Las etiquetas y artefactos publicados son la referencia final para saber qué está disponible.

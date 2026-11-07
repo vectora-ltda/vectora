@@ -30,7 +30,7 @@ Além de agendamentos, uma tarefa em segundo plano também pode ser disparada po
 
 ## Vectora Connect — recebendo mensagens de fora da UI do chat
 
-O Vectora Connect entrega chat através de plataformas além da UI embutida — Telegram (long polling), Discord (WebSocket Gateway), Slack (Socket Mode) e email (IMAP/SMTP) estão implementados e rodando hoje, cada um traduzindo o formato nativo de mensagem daquela plataforma pro mesmo turno que a UI de chat embutida produz, depois respondendo de volta por aquela plataforma. Connect é uma feature **Pro** — veja os [preços](https://vectora.chat/pricing).
+O Vectora Connect entrega chat através de plataformas além da UI embutida — Telegram (long polling), Discord (WebSocket Gateway), Slack (Socket Mode) e email (IMAP/SMTP) estão implementados e rodando hoje, cada um traduzindo o formato nativo de mensagem daquela plataforma pro mesmo turno que a UI de chat embutida produz, depois respondendo de volta por aquela plataforma. Connect é uma feature **Pro** — veja os [preços](https://vectora.company/#pricing).
 
 ## Veja também
 

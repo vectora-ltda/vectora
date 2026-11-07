@@ -5,7 +5,7 @@ weight: 5
 
 Esta guía explica cómo planificar una tarea antes de ejecutarla, cómo seguir cada ejecución del agente con AgentRun y cómo quedan registradas las decisiones de aprobación.
 
-> **Estado:** estas capacidades forman parte de la línea 0.3. La configuración de Decision Models depende de que el PR #404 se integre en `release/0.3`. Esta página no declara concluidas las pruebas live que todavía aparecen como `skipped`.
+> **Estado:** estas capacidades están incluidas en la versión 0.1.24. Las pruebas live marcadas como `skipped` no demuestran el funcionamiento en un entorno real.
 
 ## Requisitos previos
 
