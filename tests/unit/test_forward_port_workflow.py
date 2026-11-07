@@ -603,6 +603,7 @@ def test_linux_release_installs_native_package_build_tools() -> None:
 
 
 def test_linux_release_validates_and_uploads_electron_builder_artifact_names() -> None:
+    """Confere que o fluxo Linux seleciona somente nomes de artefatos permitidos."""
     content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
 
     for extension in ("AppImage", "deb", "rpm", "snap", "pacman", "flatpak"):

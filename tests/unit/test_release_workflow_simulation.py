@@ -54,6 +54,7 @@ def _prepare(
     files: list[str] | None = None,
     changelog: str = CHANGELOG,
 ) -> Path:
+    """Monta uma cópia temporária mínima dos artefatos usados pela release."""
     work = tmp_path / "work"
     (work / "utils").mkdir(parents=True)
     for name in ("release_assets.py", "release_notes.py"):
@@ -100,12 +101,22 @@ def _gh_rules(
     *,
     tag_at: str | None = None,
     release_exists: bool = False,
+    release_draft: bool = True,
     diverged: bool = False,
+    upload_exit: int = 0,
+    tag_lookup_error: str | None = None,
 ) -> list[Rule]:
+    """Declara as respostas de GitHub esperadas para um cenário de release."""
     api = f"repos/{REPO}"
     tag_lookup = (
         Rule(["api", f"{api}/commits/v0.3.0", "--jq", ".sha"], stdout=f"{tag_at}\n")
         if tag_at
+        else Rule(
+            ["api", f"{api}/commits/v0.3.0", "--jq", ".sha"],
+            stderr=tag_lookup_error,
+            exit=1,
+        )
+        if tag_lookup_error
         else Rule(
             ["api", f"{api}/commits/v0.3.0", "--jq", ".sha"],
             stderr="gh: Not Found (HTTP 404)\n",
@@ -128,9 +139,24 @@ def _gh_rules(
         tag_lookup,
         Rule(["api", f"{api}/git/tags"], stdout=f"{TAG_OBJECT}\n"),
         Rule(["api", f"{api}/git/refs"], stdout="{}\n"),
+        Rule(
+            [
+                "release",
+                "view",
+                "v0.3.0",
+                "--repo",
+                REPO,
+                "--json",
+                "isDraft",
+                "--jq",
+                ".isDraft",
+            ],
+            stdout=f"{str(release_draft).lower()}\n",
+        ),
         Rule(["release", "view", "v0.3.0"], exit=0 if release_exists else 1),
         Rule(["release", "create", "v0.3.0"]),
-        Rule(["release", "upload"]),
+        Rule(["release", "upload"], exit=upload_exit),
+        Rule(["release", "edit", "v0.3.0"]),
         Rule(["workflow", "run", "rotate-release-lines.yml"]),
     ]
 
@@ -143,6 +169,7 @@ def _run_tag_release(
     files: list[str] | None = None,
     changelog: str = CHANGELOG,
 ) -> tuple[list[StepResult], Sandbox]:
+    """Executa a publicação com arquivos e respostas falsas controladas."""
     box = Sandbox(tmp_path / "sandbox", tools=("gh",))
     box.set_rules("gh", _gh_rules() if rules is None else rules)
     work = _prepare(tmp_path, files=files, changelog=changelog)
@@ -157,6 +184,7 @@ def _run_tag_release(
 
 
 def _executed(results: list[StepResult]) -> list[StepResult]:
+    """Remove passos ignorados e mantém apenas os que o job executou."""
     return [result for result in results if result.skipped is None]
 
 
@@ -166,6 +194,7 @@ def _verbs(calls: list[Call]) -> list[str]:
 
 
 def _step(results: list[StepResult], name: str) -> StepResult:
+    """Localiza o resultado do passo pelo nome exibido no workflow."""
     return next(result for result in results if result.name == name)
 
 
@@ -175,6 +204,7 @@ def _step(results: list[StepResult], name: str) -> StepResult:
 def test_first_release_creates_the_tag_and_the_release_and_attaches_only_installers(
     tmp_path: Path,
 ) -> None:
+    """Verifica a criação inicial e a seleção segura dos anexos da release."""
     results, box = _run_tag_release(tmp_path)
 
     assert [r.exit_code for r in _executed(results)] == [0] * len(_executed(results))
@@ -201,6 +231,7 @@ def test_first_release_creates_the_tag_and_the_release_and_attaches_only_install
 
 
 def test_the_tag_is_created_through_the_api_as_an_annotated_tag(tmp_path: Path) -> None:
+    """Verifica os campos enviados à API para criar uma tag anotada."""
     _, box = _run_tag_release(tmp_path)
 
     tag_call = next(c for c in box.calls("gh") if c.args[1].endswith("/git/tags"))
@@ -213,6 +244,7 @@ def test_the_tag_is_created_through_the_api_as_an_annotated_tag(tmp_path: Path) 
 
 
 def test_release_body_comes_from_the_changelog_section(tmp_path: Path) -> None:
+    """Verifica que a release usa as notas existentes no changelog."""
     _, box = _run_tag_release(tmp_path)
 
     create = next(c for c in box.calls("gh") if c.args[:2] == ["release", "create"])
@@ -225,6 +257,7 @@ def test_release_body_comes_from_the_changelog_section(tmp_path: Path) -> None:
 def test_release_falls_back_to_generated_notes_without_a_changelog_section(
     tmp_path: Path,
 ) -> None:
+    """Verifica o fallback às notas do GitHub quando a versão não está no changelog."""
     _, box = _run_tag_release(tmp_path, changelog="# Changelog\n\n## [0.2.0]\n\n- x\n")
 
     create = next(c for c in box.calls("gh") if c.args[:2] == ["release", "create"])
@@ -256,11 +289,43 @@ def test_an_existing_tag_on_another_commit_stops_before_any_release(
 def test_an_existing_release_is_not_created_again_but_gets_its_assets(
     tmp_path: Path,
 ) -> None:
-    results, box = _run_tag_release(tmp_path, rules=_gh_rules(release_exists=True))
+    results, box = _run_tag_release(
+        tmp_path, rules=_gh_rules(release_exists=True, release_draft=False)
+    )
 
     assert all(r.exit_code == 0 for r in _executed(results))
     assert "release create" not in _verbs(box.calls("gh"))
     assert box.uploaded_files()
+    assert "release edit" not in _verbs(box.calls("gh"))
+
+
+def test_upload_failure_keeps_release_as_draft_and_a_retry_publishes_it(
+    tmp_path: Path,
+) -> None:
+    """Garante que falha de anexo mantém o rascunho e uma nova tentativa o publica."""
+    failed_results, failed_box = _run_tag_release(
+        tmp_path / "failed", rules=_gh_rules(upload_exit=1)
+    )
+
+    assert _step(failed_results, "Attach release assets").exit_code == 1
+    assert "--draft" in next(
+        call.args
+        for call in failed_box.calls("gh")
+        if call.args[:2] == ["release", "create"]
+    )
+    assert "release edit" not in _verbs(failed_box.calls("gh"))
+    assert not any(result.name == "Publish GitHub Release" for result in failed_results)
+
+    retry_results, retry_box = _run_tag_release(
+        tmp_path / "retry",
+        rules=_gh_rules(release_exists=True, release_draft=True),
+    )
+
+    assert all(result.exit_code == 0 for result in _executed(retry_results))
+    publish_call = next(
+        call for call in retry_box.calls("gh") if call.args[:2] == ["release", "edit"]
+    )
+    assert "--draft=false" in publish_call.args
 
 
 def test_without_installers_the_job_fails_before_touching_github(
@@ -328,6 +393,7 @@ def test_matching_workflows_do_not_warn(tmp_path: Path) -> None:
 
 
 def test_a_gh_call_without_a_rule_fails_the_simulation(tmp_path: Path) -> None:
+    """Confirma que chamada GitHub sem regra interrompe o job de release."""
     rules = [rule for rule in _gh_rules() if rule.args[:2] != ["release", "create"]]
 
     results, _ = _run_tag_release(tmp_path, rules=rules)
@@ -335,6 +401,21 @@ def test_a_gh_call_without_a_rule_fails_the_simulation(tmp_path: Path) -> None:
     created = _step(results, "Create GitHub Release")
     assert created.exit_code == 97
     assert "sem regra" in created.output
+
+
+def test_tag_lookup_server_error_aborts_without_creating_a_tag(
+    tmp_path: Path,
+) -> None:
+    results, box = _run_tag_release(
+        tmp_path,
+        rules=_gh_rules(tag_lookup_error="gh: Service Unavailable (HTTP 503)\n"),
+    )
+
+    failed = _step(results, "Create tag")
+    assert failed.exit_code != 0
+    assert "HTTP 503" in failed.output
+    assert not any(call.args[1].endswith("/git/tags") for call in box.calls("gh"))
+    assert not any(call.args[1].endswith("/git/refs") for call in box.calls("gh"))
 
 
 # ── publish-update-channel ─────────────────────────────────────────────────
@@ -358,6 +439,7 @@ def _run_publish(tmp_path: Path) -> tuple[list[StepResult], Sandbox]:
 def test_the_update_channel_publishes_only_a_manifest_that_points_to_the_release(
     tmp_path: Path,
 ) -> None:
+    """Verifica que o canal publica manifesto apontando para os anexos da release."""
     results, box = _run_publish(tmp_path)
 
     assert all(r.exit_code == 0 for r in _executed(results))
@@ -389,3 +471,41 @@ def test_release_jobs_run_only_for_a_promotion_on_master(job: str) -> None:
     assert "github.ref == 'refs/heads/master'" in condition
     assert "needs.release-trigger.outputs.is_release == 'true'" in condition
     assert "workflow_dispatch" not in condition
+
+
+def test_master_release_pushes_are_not_cancelled_or_coalesced() -> None:
+    import yaml
+
+    concurrency = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["concurrency"]
+    first_context = {
+        "github": {
+            "event_name": "push",
+            "ref": "refs/heads/master",
+            "run_id": "101",
+        }
+    }
+    second_context = {
+        "github": {
+            "event_name": "push",
+            "ref": "refs/heads/master",
+            "run_id": "102",
+        }
+    }
+
+    first_group = sim.render(concurrency["group"], first_context)
+    second_group = sim.render(concurrency["group"], second_context)
+    cancel = concurrency["cancel-in-progress"]
+
+    assert first_group != second_group
+    assert (
+        sim.evaluate_condition(
+            cancel.removeprefix("${{").removesuffix("}}"), first_context
+        )
+        is False
+    )
+    assert (
+        sim.evaluate_condition(
+            cancel.removeprefix("${{").removesuffix("}}"), second_context
+        )
+        is False
+    )

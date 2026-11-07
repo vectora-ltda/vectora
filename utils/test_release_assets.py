@@ -49,6 +49,7 @@ def _touch(root: Path, relative: str, size: int = 1) -> Path:
 def test_selects_every_installer_format_including_nested_artifact_folders(
     tmp_path: Path,
 ) -> None:
+    """Verifica formatos de instalador e busca em diretórios aninhados."""
     for index, name in enumerate(INSTALLERS):
         _touch(tmp_path, name if index % 2 else f"vectora-linux-x64/{name}")
 
@@ -125,6 +126,7 @@ def test_accepts_every_known_installer_name(name: str) -> None:
 
 
 def test_files_with_rejected_names_are_not_selected_from_disk(tmp_path: Path) -> None:
+    """Confirma que arquivos fora do padrão de nome não entram na seleção."""
     for name in REJECTED_NAMES:
         if not any(char in name for char in "*?"):  # o Windows não cria esses nomes
             _touch(tmp_path, name)
@@ -133,6 +135,7 @@ def test_files_with_rejected_names_are_not_selected_from_disk(tmp_path: Path) ->
 
 
 def test_selected_names_never_contain_glob_characters(tmp_path: Path) -> None:
+    """Garante que nomes selecionados não acionam glob no upload da release."""
     for name in INSTALLERS:
         _touch(tmp_path, name)
 

@@ -52,6 +52,7 @@ _EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
 
 
 def _tokenize(source: str) -> list[str]:
+    """Converte a expressão do Actions em tokens e rejeita sintaxe desconhecida."""
     tokens: list[str] = []
     position = 0
     while position < len(source):
@@ -66,6 +67,7 @@ def _tokenize(source: str) -> list[str]:
 
 
 def _lookup(path: str, context: Mapping[str, Any]) -> Any:
+    """Resolve um caminho pontuado no contexto, usando string vazia se faltar."""
     value: Any = context
     for part in path.split("."):
         if isinstance(value, Mapping) and part in value:
@@ -87,6 +89,7 @@ class _Parser:
         self.index = 0
 
     def _peek(self) -> str | None:
+        """Retorna o próximo token sem avançar o cursor."""
         return self.tokens[self.index] if self.index < len(self.tokens) else None
 
     def _take(self) -> str:
@@ -95,12 +98,14 @@ class _Parser:
         return token
 
     def parse(self) -> Any:
+        """Avalia a expressão completa e rejeita tokens que sobrarem."""
         value = self._or()
         if self._peek() is not None:
             raise UnsupportedExpression(f"Expressão não suportada: {self.source!r}")
         return value
 
     def _or(self) -> Any:
+        """Avalia `||` com a semântica de fallback do Actions."""
         value = self._and()
         while self._peek() == "||":
             self._take()
@@ -109,6 +114,7 @@ class _Parser:
         return value
 
     def _and(self) -> Any:
+        """Avalia `&&` mantendo a semântica lógica do Actions."""
         value = self._equality()
         while self._peek() == "&&":
             self._take()
@@ -117,6 +123,7 @@ class _Parser:
         return value
 
     def _equality(self) -> Any:
+        """Compara operandos com `==` e `!=` sem distinção de maiúsculas."""
         value = self._unary()
         while self._peek() in ("==", "!="):
             operator = self._take()
@@ -126,12 +133,14 @@ class _Parser:
         return value
 
     def _unary(self) -> Any:
+        """Aplica a negação lógica ou delega para a expressão primária."""
         if self._peek() == "!":
             self._take()
             return not _truthy(self._unary())
         return self._primary()
 
     def _primary(self) -> Any:
+        """Lê literais, referências, chamadas e expressões entre parênteses."""
         lexeme = self._peek()
         if lexeme is None:
             raise UnsupportedExpression(f"Expressão incompleta: {self.source!r}")
@@ -153,6 +162,7 @@ class _Parser:
         return _lookup(lexeme, self.context)
 
     def _call(self, name: str) -> Any:
+        """Executa uma das funções de expressão explicitamente suportadas."""
         self._take()  # "("
         args: list[Any] = []
         while self._peek() != ")":
@@ -187,6 +197,7 @@ def evaluate_condition(expression: str, context: Mapping[str, Any]) -> bool:
 
 
 def _stringify(value: Any) -> str:
+    """Converte valores ao formato textual interpolado pelo Actions."""
     if value is None:
         return ""
     if isinstance(value, bool):
@@ -263,6 +274,7 @@ class Rule:
     exit: int = 0
 
     def to_json(self) -> dict[str, Any]:
+        """Serializa a regra para o processo da ferramenta falsa."""
         return {
             "args": self.args,
             "stdout": self.stdout,
@@ -285,6 +297,7 @@ class Sandbox:
     """Diretório com as ferramentas falsas e o registro das chamadas."""
 
     def __init__(self, root: Path, tools: Sequence[str] = ("gh",)) -> None:
+        """Cria os shims e o diretório isolado que registra chamadas simuladas."""
         self.root = Path(root)
         self.bin = self.root / "bin"
         self.state = self.root / "state"
@@ -314,11 +327,13 @@ class Sandbox:
         alias.chmod(0o755)
 
     def set_rules(self, tool: str, rules: Sequence[Rule]) -> None:
+        """Substitui as respostas permitidas para uma ferramenta no cenário."""
         (self.state / f"rules-{tool}.json").write_text(
             json.dumps([rule.to_json() for rule in rules]), encoding="utf-8"
         )
 
     def calls(self, tool: str | None = None) -> list[Call]:
+        """Lê chamadas registradas em ordem e opcionalmente filtra por ferramenta."""
         entries = sorted(
             (
                 json.loads(path.read_text(encoding="utf-8"))
@@ -377,11 +392,13 @@ def find_bash() -> str:
 
 
 def load_job(workflow: Path, job_id: str) -> Mapping[str, Any]:
+    """Carrega do YAML a definição do job solicitado."""
     data = yaml.safe_load(Path(workflow).read_text(encoding="utf-8"))
     return data["jobs"][job_id]
 
 
 def _parse_outputs(path: Path) -> dict[str, str]:
+    """Lê saídas simples e blocos multilinha escritos no arquivo GITHUB_OUTPUT."""
     outputs: dict[str, str] = {}
     lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     index = 0
@@ -411,11 +428,21 @@ def run_job(
     workdir: Path,
 ) -> list[StepResult]:
     """Roda os passos `run:` do job, em ordem, parando no primeiro que falhar."""
-    job = load_job(workflow, job_id)
+    workflow_data = yaml.safe_load(Path(workflow).read_text(encoding="utf-8"))
+    job = workflow_data["jobs"][job_id]
     ctx: dict[str, Any] = copy.deepcopy(dict(context))
     for key in ("github", "secrets", "needs", "env", "steps"):
         ctx.setdefault(key, {})
     github = ctx["github"]
+    scenario_env = {
+        key: render(_stringify(value), ctx) for key, value in ctx["env"].items()
+    }
+    workflow_env = {
+        key: render(_stringify(value), ctx)
+        for key, value in (workflow_data.get("env") or {}).items()
+    }
+    context_env = {**scenario_env, **workflow_env}
+    ctx["env"] = context_env
     job_env = {
         key: render(_stringify(value), ctx)
         for key, value in (job.get("env") or {}).items()
@@ -437,6 +464,7 @@ def run_job(
                 )
                 continue
             ctx["env"] = {
+                **context_env,
                 **job_env,
                 **{
                     key: render(_stringify(value), ctx)
@@ -449,9 +477,19 @@ def run_job(
             output_file.write_text("", encoding="utf-8")
             summary_file = scratch / "summary"
             summary_file.write_text("", encoding="utf-8")
-            env = {
-                **os.environ,
-                "PATH": str(sandbox.bin) + os.pathsep + os.environ.get("PATH", ""),
+            # Inherit only PATH for standard runner utilities. Credentials,
+            # HOME/configuration and other host state must not enter a scenario.
+            host_path = os.environ.get("PATH", os.defpath)
+            runtime_env = {
+                "PATH": f"{sandbox.bin}{os.pathsep}{host_path}",
+                "HOME": str(scratch / "home"),
+                "USERPROFILE": str(scratch / "home"),
+                "TMP": str(scratch),
+                "TEMP": str(scratch),
+                "TMPDIR": str(scratch),
+                "GH_CONFIG_DIR": str(scratch / "gh-config"),
+                "GIT_CONFIG_NOSYSTEM": "1",
+                "GIT_TERMINAL_PROMPT": "0",
                 "CI": "true",
                 "GITHUB_SHA": _stringify(github.get("sha")),
                 "GITHUB_REPOSITORY": _stringify(github.get("repository")),
@@ -463,6 +501,11 @@ def run_job(
                 "RUNNER_TEMP": str(scratch),
                 **ctx["env"],
             }
+            # A workflow may set PATH; keep the fake tool shims ahead of it.
+            runtime_env["PATH"] = (
+                f"{sandbox.bin}{os.pathsep}{runtime_env.get('PATH', host_path)}"
+            )
+            env = runtime_env
             flags = (
                 ["--noprofile", "--norc", "-eo", "pipefail"]
                 if step.get("shell") == "bash"
@@ -494,13 +537,14 @@ def run_job(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Executa um cenário JSON pela CLI e exibe passos e chamadas simuladas."""
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) != 3:
         print("uso: workflow_sim.py WORKFLOW JOB CENARIO.json", file=sys.stderr)
         return 2
     workflow, job_id, scenario_path = Path(args[0]), args[1], Path(args[2])
     scenario = json.loads(scenario_path.read_text(encoding="utf-8"))
-    tools = list(scenario.get("rules", {})) or ["gh"]
+    tools = list(dict.fromkeys([*scenario.get("rules", {}), "gh"]))
     root = Path(tempfile.mkdtemp(prefix="workflow_sim_run_"))
     try:
         sandbox = Sandbox(root / "sandbox", tools=tools)

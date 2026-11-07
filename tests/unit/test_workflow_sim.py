@@ -98,6 +98,43 @@ def test_fake_gh_answers_from_rules_and_records_calls_and_token(
     assert call.token == "padrao"
 
 
+def test_host_gh_credentials_are_not_inherited_by_the_simulated_step(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GH_TOKEN", "host-secret-marker")
+    monkeypatch.setenv("GITHUB_TOKEN", "host-github-secret-marker")
+    box = Sandbox(tmp_path / "box", tools=("gh",))
+    box.set_rules("gh", [Rule(["api", "repos/x/r"], stdout="{}")])
+    wf = _workflow(tmp_path, "      - run: gh api repos/x/r\n")
+
+    results = sim.run_job(wf, "job", sandbox=box, context={}, workdir=tmp_path)
+
+    assert results[0].exit_code == 0
+    [call] = box.calls("gh")
+    assert call.token == ""
+
+
+def test_scenario_with_only_pnpm_rules_still_routes_gh_to_the_fake_shim(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    wf = _workflow(tmp_path, "      - run: gh api repos/o/r\n")
+    scenario = tmp_path / "cenario.json"
+    scenario.write_text(
+        json.dumps({"context": {}, "rules": {"pnpm": [{"args": ["install"]}]}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("GH_TOKEN", "host-secret-marker")
+
+    code = sim.main([str(wf), "job", str(scenario)])
+
+    output = capsys.readouterr().out
+    assert code == 1
+    assert "gh-sim: chamada sem regra" in output
+    assert "host-secret-marker" not in output
+
+
 def test_release_upload_expands_glob_characters_like_the_real_gh(
     tmp_path: Path,
 ) -> None:

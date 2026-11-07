@@ -45,6 +45,7 @@ def test_returns_the_section_of_the_version_without_its_heading() -> None:
 
 
 def test_stops_at_the_next_second_level_heading() -> None:
+    """Verifica que a extração não inclui notas da versão seguinte."""
     older = section_for_version(CHANGELOG, "0.2.0")
 
     assert older == "### Features\n\n- feat: antigo (#3)"

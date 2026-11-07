@@ -91,6 +91,7 @@ def stage_release_assets(
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Valida argumentos, prepara anexos elegíveis e informa falhas ao runner."""
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) != 3 or args[0] != "stage":
         print("uso: release_assets.py stage ORIGEM DESTINO", file=sys.stderr)

@@ -100,6 +100,8 @@ O simulador (`utils/workflow_sim.py`) roda os passos `run:` reais de um job, em 
 
 Passos `uses:` (actions) não são executados; prepare no diretório de trabalho os arquivos que eles produziriam.
 
+O simulador executa comandos `run:` reais no host. Apenas as ferramentas que ele substitui são simuladas; isso **não é isolamento de segurança** para workflows não confiáveis. Não simule workflows recebidos de terceiros nem disponibilize segredos reais nos cenários. O subprocesso recebe um ambiente mínimo, com credenciais apenas quando elas estão declaradas no workflow ou no cenário; o `PATH` do host continua disponível para utilitários do sistema.
+
 ### Como rodar a simulação
 
 Precisa de `bash`. No Linux e no macOS ele já existe; no Windows use o Git Bash (o simulador o procura em `C:\Program Files\Git\bin\bash.exe`; se estiver em outro lugar, defina `WORKFLOW_SIM_BASH`). O `bash` do WSL não serve.

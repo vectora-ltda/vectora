@@ -31,6 +31,7 @@ def section_for_version(changelog: str, version: str) -> str | None:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Imprime as notas da versão pedida ou retorna erro para o workflow."""
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) != 2:
         print("uso: release_notes.py CHANGELOG.md VERSAO", file=sys.stderr)

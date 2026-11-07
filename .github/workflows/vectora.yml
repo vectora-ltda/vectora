@@ -40,8 +40,10 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Builds repetidos da mesma ref podem se cancelar. Cada push de release em
+  # master recebe grupo próprio para preservar a publicação em andamento.
+  group: ci-${{ github.ref }}-${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && github.run_id || 'shared' }}
+  cancel-in-progress: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/master') }}
 
 permissions:
   contents: read
@@ -1183,6 +1185,10 @@ jobs:
       github.ref == 'refs/heads/master' &&
       needs.release-trigger.outputs.is_release == 'true'
     runs-on: ubuntu-24.04
+    # Uma publicação iniciada nunca deve ser cancelada por outro push.
+    concurrency:
+      group: vectora-tag-release-${{ github.run_id }}
+      cancel-in-progress: false
     environment:
       name: production
     permissions:
@@ -1253,7 +1259,19 @@ jobs:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           set -euo pipefail
-          existing="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha 2>/dev/null || true)"
+          lookup_error="$RUNNER_TEMP/tag-lookup-error.txt"
+          : > "$lookup_error"
+          if existing="$(gh api "repos/$GITHUB_REPOSITORY/commits/$TAG" --jq .sha 2>"$lookup_error")"; then
+            :
+          else
+            lookup_status=$?
+            if grep -Fq '(HTTP 404)' "$lookup_error"; then
+              existing=""
+            else
+              cat "$lookup_error" >&2
+              exit "$lookup_status"
+            fi
+          fi
           if [[ -n "$existing" ]]; then
             if [[ "$existing" != "$GITHUB_SHA" ]]; then
               echo "::error::A tag $TAG já existe em $existing, e não em $GITHUB_SHA."
@@ -1289,7 +1307,8 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --title "Vectora $VERSION" \
-            "${notes[@]}"
+            "${notes[@]}" \
+            --draft
       - name: Attach release assets
         shell: bash
         env:
@@ -1311,6 +1330,26 @@ jobs:
           done
           gh release upload "$TAG" "${assets[@]}" \
             --repo "$GITHUB_REPOSITORY" --clobber
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
+          draft="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          case "$draft" in
+            true)
+              gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+              echo "A release $TAG foi publicada depois do upload de todos os anexos."
+              ;;
+            false)
+              echo "A release $TAG já estava publicada; os anexos foram atualizados."
+              ;;
+            *)
+              echo "::error::Resposta inesperada ao consultar o estado da release: $draft"
+              exit 1
+              ;;
+          esac
       - name: Start release-line rotation
         # Uma release criada com o GITHUB_TOKEN não dispara o evento `release`
         # do rotate-release-lines.yml; por isso a rotação é pedida aqui. Com o
