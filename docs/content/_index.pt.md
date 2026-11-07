@@ -9,7 +9,7 @@ sidebar:
 
 O **Vectora** é um workspace de desenvolvimento assistido por agentes de IA. O aplicativo reúne chat, arquivos, terminal, Git, navegador, busca no projeto e ferramentas de automação; o usuário mantém controle sobre o workspace, as permissões e os provedores conectados.
 
-O projeto é **open source sob AGPL-3.0**. Consulte a [licença](https://github.com/vectora-ltda/vectora/blob/master/LICENSE), o [repositório](https://github.com/vectora-ltda/vectora), as [diretrizes para contribuir](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md) e as [issues públicas](https://github.com/vectora-ltda/vectora/issues). A licença comercial opcional e os serviços da Vectora são assuntos separados do código aberto.
+O aplicativo Vectora é **open source sob AGPL-3.0**. Consulte a [licença](https://github.com/vectora-ltda/vectora/blob/master/LICENSE), o [repositório](https://github.com/vectora-ltda/vectora), as [diretrizes para contribuir](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md) e as [issues públicas](https://github.com/vectora-ltda/vectora/issues). O uso local individual é gratuito; uma assinatura Pro habilita recursos e serviços pagos. Provedores externos podem cobrar pelo próprio uso. A assinatura não altera a licença do código.
 
 ## Comece por aqui
 

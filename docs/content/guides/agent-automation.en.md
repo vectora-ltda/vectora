@@ -30,7 +30,7 @@ Beyond schedules, a background task can also be triggered by an inbound webhook 
 
 ## Vectora Connect — receiving messages from outside the chat UI
 
-Vectora Connect delivers chat through platforms other than the built-in UI — Telegram (long polling), Discord (WebSocket Gateway), Slack (Socket Mode), and email (IMAP/SMTP) are implemented and running today, each translating that platform's native message format into the same turn the built-in chat UI produces, then replying back through that platform. Connect is a **Pro** feature — see [pricing](https://vectora.chat/pricing).
+Vectora Connect delivers chat through platforms other than the built-in UI — Telegram (long polling), Discord (WebSocket Gateway), Slack (Socket Mode), and email (IMAP/SMTP) are implemented and running today, each translating that platform's native message format into the same turn the built-in chat UI produces, then replying back through that platform. Connect is a **Pro** feature — see [pricing](https://vectora.company/#pricing).
 
 ## See also
 

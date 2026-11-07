@@ -5,7 +5,7 @@ weight: 8
 
 Una tarea en segundo plano con disparador `webhook` convierte un evento externo en una ejecución del agente: un proveedor (GitHub, GitLab, Slack, Linear, email, o tu propia herramienta de alertas vía el [endpoint de observabilidad](../observability-webhooks)) envía una petición a Vectora y, si existe una tarea que coincide con el evento, el agente despierta con el payload de ese evento incrustado en la instrucción. Esta página es la referencia de los tres modelos concretos que Vectora ofrece hoy, en orden creciente de lo que el agente realmente hace con el evento.
 
-Esta capacidad requiere el plan **Pro** (automatización de chat disparada desde fuera del producto) — consulta los [precios](https://vectora.chat/pricing).
+Esta capacidad requiere el plan **Pro** (automatización de chat disparada desde fuera del producto) — consulta los [precios](https://vectora.company/#pricing).
 
 ## Cómo funciona el puente
 
