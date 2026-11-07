@@ -645,29 +645,6 @@ jobs:
         working-directory: .
         run: uv run scons smoke
         shell: bash
-      - name: Build headless CLI binary (vectora-cli, linux/x64 only)
-        # Base pro binário que a Vectora Bot Action roda em runners de CI —
-        # reusa o MESMO backend.pyd já compilado pelo Nuitka acima (build
-        # hybrid), só um passo extra de PyInstaller sem Electron/chat_static.
-        # Só linux/x64 porque é o único alvo que um runner comum do GHA usa.
-        if: matrix.target == 'linux' && matrix.arch == 'x64'
-        working-directory: .
-        env:
-          VECTORA_BUILD_CLI: "1"
-        run: python build-hybrid.py --jobs 4
-        shell: bash
-      - name: Upload vectora-cli artifact
-        if: matrix.target == 'linux' && matrix.arch == 'x64'
-        uses: actions/upload-artifact@v7
-        with:
-          # Nome fora do padrão "vectora-*" DE PROPÓSITO -- publish-update-channel
-          # (abaixo) baixa artifacts com `pattern: vectora-*` esperando só
-          # instaladores desktop; "vectora-cli-..." cairia nesse glob e
-          # contaminaria os arquivos do canal de atualização do desktop.
-          name: gha-bot-cli-linux-x64
-          path: dist/vectora-cli/
-          if-no-files-found: error
-          retention-days: 30
       - name: Export Windows signing cert
         if: matrix.target == 'win'
         working-directory: .
@@ -1260,74 +1237,14 @@ jobs:
         run: |
           pnpm run release -- --channel=${{ needs.release-channel.outputs.channel }} --version=${{ needs.release-channel.outputs.version }} --dist="$GITHUB_WORKSPACE/dist-electron-all"
 
-  # ── 8. Publish gha-bot CLI binary (R2) ────────────────────────────────────
-  # Prefixo R2 separado (gha-bot/) do canal de update do desktop — não passa
-  # pelo publicador do canal desktop nem pelo KV de rollout; é só um tarball
-  # versionado servido via GET /gha-bot/download/:version.
-  publish-gha-bot-cli:
-    name: Publish gha-bot CLI binary (R2)
-    needs: [release-native, release-trigger]
-    if: >-
-      (github.event_name == 'workflow_dispatch' &&
-      github.ref == 'refs/heads/master') ||
-      (github.event_name == 'push' &&
-      github.ref == 'refs/heads/master' &&
-      needs.release-trigger.outputs.is_release == 'true')
-    runs-on: ubuntu-24.04
-    environment:
-      name: production
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - name: Read version from pyproject.toml
-        id: version
-        working-directory: .
-        run: |
-          VERSION=$(grep -m1 '^version' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
-          echo "value=$VERSION" >> "$GITHUB_OUTPUT"
-      - name: Download vectora-cli artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: gha-bot-cli-linux-x64
-          path: dist/vectora-cli
-      - name: Tar + publish to R2 (multipart via S3-compatible API)
-        working-directory: .
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-        run: |
-          # `wrangler r2 object put` (comando simples, sem multipart) rejeita
-          # qualquer arquivo acima de 300 MiB — o vectora-cli chegou a 473 MiB
-          # antes do enxugamento em build-hybrid.py (achado real: CI travado
-          # com "Wrangler only supports uploading files up to 300 MiB"). `aws
-          # s3 cp` contra o endpoint S3-compatível do R2 faz multipart
-          # automático pra arquivos grandes, sem esse teto — usado aqui como
-          # rede de segurança, independente de quão enxuto o binário fique.
-          # Credenciais são as R2 API Tokens (Access Key ID/Secret), geradas
-          # no dashboard Cloudflare em R2 > Manage API Tokens — DIFERENTES do
-          # CLOUDFLARE_API_TOKEN usado pelo wrangler no resto do workflow.
-          tar -czf vectora-cli-linux-x64.tar.gz -C dist/vectora-cli .
-          aws s3 cp vectora-cli-linux-x64.tar.gz \
-            "s3://vectora-r2/gha-bot/${{ steps.version.outputs.value }}/vectora-cli-linux-x64.tar.gz" \
-            --endpoint-url "https://${{ secrets.CLOUDFLARE_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-
-  # ── 9. Create the tag and GitHub Release after distribution ─────────────
+  # ── 8. Create the tag and GitHub Release after distribution ─────────────
   # O commit da PR de release só vira uma versão publicada depois que os
   # testes, instaladores e canais de atualização terminarem com sucesso.
   # Este job é o único responsável por criar a tag; a tag então aciona o
   # workflow do Release Please para preparar a próxima PR.
   tag-release:
     name: Tag and publish release
-    needs:
-      [
-        release-native,
-        release-trigger,
-        publish-update-channel,
-        publish-gha-bot-cli,
-      ]
+    needs: [release-native, release-trigger, publish-update-channel]
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/master' &&
@@ -1362,17 +1279,19 @@ jobs:
           pattern: vectora-*
           path: dist-release
           merge-multiple: true
-      - name: Download CLI artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: gha-bot-cli-linux-x64
-          path: dist-release/gha-bot-cli
+      - name: Select release assets
+        # Só os instaladores, escolhidos pelo nome (utils/release_assets.py),
+        # vão para release-assets/. Manifestos de atualização, .blockmap e
+        # qualquer outro arquivo dos artefatos ficam de fora do checksum e do
+        # upload, e nenhum nome com caractere de glob chega ao `gh release upload`.
+        working-directory: .
+        run: python3 utils/release_assets.py stage dist-release release-assets
       - name: Create release checksums and optional GPG signatures
         working-directory: .
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-        run: bash utils/signing/sign-release-artifacts.sh dist-release
+        run: bash utils/signing/sign-release-artifacts.sh release-assets
       - name: Create tag after successful distribution
         env:
           TAG: ${{ steps.version.outputs.tag }}
@@ -1387,7 +1306,7 @@ jobs:
             git tag -a "$TAG" "$GITHUB_SHA" -m "Vectora ${{ steps.version.outputs.value }}"
             git push origin "$TAG"
           fi
-      - name: Create GitHub Release and attach binaries
+      - name: Create GitHub Release and attach installers
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.version.outputs.tag }}
@@ -1402,11 +1321,21 @@ jobs:
               --title "Vectora $VERSION" \
               --generate-notes
           fi
-          mapfile -t assets < <(find dist-release -type f -print)
-          if ((${#assets[@]})); then
-            gh release upload "$TAG" "${assets[@]}" \
-              --repo "$GITHUB_REPOSITORY" --clobber
+          mapfile -d '' -t assets < <(find release-assets -maxdepth 1 -type f -print0 | sort -z)
+          if ((${#assets[@]} == 0)); then
+            echo "::error::Nenhum arquivo para anexar à release."
+            exit 1
           fi
+          # O `gh release upload` expande colchetes, asteriscos e interrogações
+          # como glob; um nome fora deste padrão aborta o job antes do upload.
+          for asset in "${assets[@]}"; do
+            [[ "${asset##*/}" =~ ^[A-Za-z0-9._+-]+$ ]] || {
+              echo "::error::Nome de anexo inesperado: ${asset##*/}"
+              exit 1
+            }
+          done
+          gh release upload "$TAG" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" --clobber
           gh workflow run rotate-release-lines.yml \
             --repo "$GITHUB_REPOSITORY" --ref master \
             --field "release_tag=$TAG" --field "target_branch=master"

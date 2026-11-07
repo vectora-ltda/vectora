@@ -525,7 +525,6 @@ def test_app_and_docs_workflows_validam_todo_pr_e_publicam_so_de_master() -> Non
 
     for job in (
         "publish-update-channel:",
-        "publish-gha-bot-cli:",
         "tag-release:",
     ):
         guard = app.split(f"\n  {job}\n", 1)[1].split("\n    steps:", 1)[0]
@@ -641,18 +640,62 @@ def test_app_release_is_built_before_tag_and_tags_do_not_start_the_app_pipeline(
     # ou merge de PR da branch release/X.Y da série), nunca da mensagem solta.
     assert "release-trigger:" in content
     assert "contains(github.event.head_commit.message" not in content
-    assert content.count("needs.release-trigger.outputs.is_release == 'true'") == 5
+    assert content.count("needs.release-trigger.outputs.is_release == 'true'") == 4
     assert "tag-release:" in content
     tag_job = content.split("  tag-release:", 1)[1]
-    assert "release-native," in tag_job.split("if:", 1)[0]
-    assert "release-trigger," in tag_job.split("if:", 1)[0]
-    assert "publish-update-channel," in tag_job.split("if:", 1)[0]
-    assert "publish-gha-bot-cli," in tag_job.split("if:", 1)[0]
+    needs = tag_job.split("if:", 1)[0]
+    for dependency in ("release-native", "release-trigger", "publish-update-channel"):
+        assert re.search(rf"\b{dependency}\b", needs), dependency
     assert "github.event_name == 'push'" in tag_job.split("runs-on:", 1)[0]
     assert "github.ref == 'refs/heads/master'" in tag_job.split("runs-on:", 1)[0]
     assert 'git push origin "$TAG"' in content
     assert "gh release create" in content
     assert "--publish never" in content
+
+
+def test_release_attaches_only_the_selected_installers() -> None:
+    """O passo de anexos anexava `find dist-release -type f`: a pasta inteira de
+    runtime de um binário auxiliar entrava na lista e o `gh release upload`,
+    que trata colchetes como glob, abortava o job. Só os instaladores escolhidos
+    por nome, numa pasta própria, podem chegar ao checksum e ao upload."""
+    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+    tag_job = content.split("\n  tag-release:\n", 1)[1]
+
+    assert "find dist-release" not in tag_job
+    stage = tag_job.index(
+        "python3 utils/release_assets.py stage dist-release release-assets"
+    )
+    checksums = tag_job.index("sign-release-artifacts.sh release-assets")
+    upload = tag_job.index('gh release upload "$TAG"')
+    assert stage < checksums < upload
+    assert "sign-release-artifacts.sh dist-release" not in tag_job
+    assert "find release-assets -maxdepth 1 -type f -print0" in tag_job
+    # Trava final: nome com caractere de glob nunca chega ao `gh release upload`.
+    assert "[A-Za-z0-9._+-]+" in tag_job
+
+
+def test_release_does_not_build_or_publish_the_vectora_bot_binary() -> None:
+    """Decisão de produto: o Vectora não roda mais na Cloudflare, então nenhum
+    binário do bot é construído, publicado no R2 nem anexado à release."""
+    root = WORKFLOW.parents[2]
+    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+    build_hybrid = (root / "build-hybrid.py").read_text(encoding="utf-8")
+
+    for marker in (
+        "gha-bot-cli",
+        "publish-gha-bot-cli",
+        "vectora-cli",
+        "VECTORA_BUILD_CLI",
+        "s3://vectora-r2/gha-bot/",
+    ):
+        assert marker not in content, marker
+    for marker in (
+        "VECTORA_BUILD_CLI",
+        "vectora-cli",
+        "COLLECT_ALL_CLI",
+        "collect_cli",
+    ):
+        assert marker not in build_hybrid, marker
 
 
 def test_commitlint_packages_are_installed_with_exact_versions() -> None:
