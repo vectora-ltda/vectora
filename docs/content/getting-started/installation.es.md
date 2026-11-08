@@ -23,15 +23,16 @@ En Windows, ejecuta el instalador y sigue los pasos. En macOS, abre el DMG y arr
 
 Usa esta opción para desarrollo o para inspeccionar y modificar el proyecto. Consulta también la [guía de contribución](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md).
 
-**Requisitos:** Python 3.13, [uv](https://docs.astral.sh/uv/), Node.js 26 y [pnpm](https://pnpm.io/).
+**Requisitos:** [uv](https://docs.astral.sh/uv/), Python 3.13, Node.js 26 y pnpm 11.5. En Linux, `dotfiles.sh` detecta la distribución y prepara la toolchain y las dependencias nativas; se detiene en Windows/macOS.
 
 ```bash
 git clone https://github.com/vectora-ltda/vectora.git
 cd vectora
 
-uv sync
-pnpm --dir frontend install
+./dotfiles.sh
 ```
+
+En Windows/macOS, instala los requisitos y ejecuta `uv run --locked scons install`. Este objetivo sincroniza todos los grupos de dependencias de Python, ejecuta `pnpm ci`, garantiza el binario nativo de Electron y descarga NATS y FFmpeg. `pnpm ci` recrea `frontend/node_modules` desde el lockfile. Chromium para la aplicación viene con Electron; Playwright se usa como cliente CDP y no necesita descargar navegadores.
 
 Copia `.env.example` a `.env` si necesitas variables de entorno para desarrollo. La configuración personal de las instalaciones de escritorio se guarda en `~/.vectora/` (en Windows, `%USERPROFILE%\.vectora\`). Consulta [Configuración](./configuration) y la [referencia de variables de entorno](../../reference/config).
 

@@ -82,6 +82,23 @@ def _find_bin(name: str) -> str:
     return shutil.which(name) or name
 
 
+def _activate_linux_toolchain_paths() -> None:
+    """Re-resolve tools installed by dotfiles.sh in this SCons process."""
+    if sys.platform != "linux":
+        return
+    node_bins = sorted(glob.glob(os.path.expanduser("~/.nvm/versions/node/v26*/bin")))
+    paths = [
+        os.path.expanduser("~/.local/bin"),
+        os.path.expanduser("~/.bun/bin"),
+        os.path.expanduser("~/.local/share/pnpm"),
+        "/home/linuxbrew/.linuxbrew/bin",
+        "/home/linuxbrew/.linuxbrew/sbin",
+        *reversed(node_bins),
+        os.environ.get("PATH", ""),
+    ]
+    os.environ["PATH"] = os.pathsep.join(path for path in paths if path)
+
+
 PNPM = _find_pnpm()
 
 
@@ -122,6 +139,7 @@ def _run(
     cwd: str | None = None,
     log=None,
     discard_stderr: bool = False,
+    inherit_stdin: bool = False,
 ) -> None:
     """Executa um comando, falha se o código de retorno for ≠ 0.
 
@@ -132,14 +150,15 @@ def _run(
     que emitem avisos ruidosos em stderr mas reportam erros reais via código de
     retorno (ex: bandit com comentários em língua não-inglesa).
 
-    stdin sempre vai para DEVNULL: sem isso, o subprocesso herda o stdin do
+    stdin vai para DEVNULL por padrão: sem isso, o subprocesso herda o stdin do
     scons e qualquer prompt interativo não coberto pelas flags de automação
     (--yes/--frozen-lockfile/etc — ex.: já observado no `wrangler d1
     migrations apply` e no `vercel --prod` do deploy de produção) trava pra
     sempre esperando uma resposta que nunca chega, em silêncio (a própria
     saída do prompt fica bufferizada e nunca aparece no log). Com stdin
     fechado, qualquer prompt recebe EOF na hora e o comando falha rápido e
-    visível em vez de travar por horas.
+    visível em vez de travar por horas. O bootstrap Linux pode herdar stdin
+    para permitir que sudo/doas solicite autenticação.
     """
     merged = {**os.environ, **(env or {})}
     run_cwd = cwd or ROOT
@@ -149,7 +168,8 @@ def _run(
     stderr_dest = subprocess.DEVNULL if discard_stderr else None
     if log is None:
         result = subprocess.run(
-            cmd, cwd=run_cwd, env=merged, stderr=stderr_dest, stdin=subprocess.DEVNULL
+            cmd, cwd=run_cwd, env=merged, stderr=stderr_dest,
+            stdin=None if inherit_stdin else subprocess.DEVNULL,
         )
         rc = result.returncode
     else:
@@ -160,7 +180,7 @@ def _run(
             cmd,
             cwd=run_cwd,
             env=merged,
-            stdin=subprocess.DEVNULL,
+            stdin=None if inherit_stdin else subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL if discard_stderr else subprocess.STDOUT,
             text=True,
@@ -182,6 +202,7 @@ def _run(
 #: `confirmModulesPurge=false` ele aborta com
 #: ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY em vez de reinstalar.
 PNPM_INSTALL = ["install", "--frozen-lockfile", "--config.confirmModulesPurge=false"]
+PNPM_CI = ["ci", "--config.confirmModulesPurge=false"]
 
 
 def _open_log(name: str):
@@ -377,12 +398,15 @@ def _sign_binary(binary: str) -> None:
 
 
 def _action_install_desktop(target, source, env):
-    # Electron não tem package.json próprio — fundido em frontend/
-    # (ver electron_launcher.py). Instalar aqui é o mesmo install do frontend;
-    # existe como node separado só pra manter a árvore de dependências do
-    # SConstruct explícita (_build_desktop depende deste node, não do
-    # build-chat, que pode não ter rodado no pipeline de release).
-    _run([PNPM, "--dir", "frontend", *PNPM_INSTALL])
+    """Prepara o ambiente Python/Node e os sidecars usados no desenvolvimento."""
+    if sys.platform == "linux" and os.environ.get("VECTORA_DOTFILES_TOOLCHAIN_DONE") != "1":
+        _run(["bash", os.path.join(ROOT, "dotfiles.sh"), "--toolchain-only"], inherit_stdin=True)
+        _activate_linux_toolchain_paths()
+        global PNPM
+        PNPM = _find_pnpm()
+    _run([_find_bin("uv"), "sync", "--locked", "--all-groups"])
+    # `pnpm ci` limpa node_modules e instala exatamente o lockfile do workspace.
+    _run([PNPM, "--dir", "frontend", *PNPM_CI])
     _ensure_electron_binary()
 
 
@@ -846,7 +870,8 @@ def _action_help(target, source, env):
 
   Build
     scons frontend         só o build do frontend (frontend/dist/)
-    scons install          instala dependências do frontend e o binário do Electron
+    scons install          prepara Python/dev tools, pnpm ci, Electron, NATS e FFmpeg
+                           no Linux, dotfiles.sh detecta a distro e instala a toolchain
     scons docker           sobe infraestrutura (PostgreSQL, Redis, Qdrant)
 
   Qualidade
@@ -1069,15 +1094,13 @@ def _action_build_chat_and_electron(target, source, env):
     (`backend/services/electron_launcher.py`) depende dos dois existirem pro
     backend conseguir se autoeleger e spawnar o Electron sozinho quando
     `uv run vectora start` roda direto, fora do Electron."""
-    _action_build_chat(target, source, env)
     _action_install_desktop(target, source, env)
+    _action_build_chat(target, source, env)
     _action_build_desktop(target, source, env)
 
 
 _cmd("frontend", _action_build_chat_and_electron)
-_cmd("install", _action_install_desktop)
 
-_build_chat    = _node("build-chat",      _action_build_chat)
 # O binário nats-server precisa estar em resources/ ANTES tanto do
 # PyInstaller (build-hybrid.py agora embute via --add-binary numa pasta
 # nats/, pro standalone/VPS) quanto do electron-builder (extraResources, pro
@@ -1091,9 +1114,15 @@ _fetch_nats    = _node("fetch-nats",      _action_fetch_nats)
 # empacotarem — sem isso, media_native.py cai pro fallback de PATH do
 # sistema em qualquer build empacotado sem ffmpeg instalado separadamente.
 _fetch_ffmpeg  = _node("fetch-ffmpeg",    _action_fetch_ffmpeg)
-_build_nuitka  = _node("build-nuitka",    _action_build_nuitka,   deps=[_build_chat, _fetch_nats, _fetch_ffmpeg])
+_cmd("install", _action_install_desktop, deps=[_fetch_nats, _fetch_ffmpeg])
 _inst_desktop  = _node("install-desktop", _action_install_desktop)
-_build_desktop = _node("build-desktop",   _action_build_desktop,  deps=[_inst_desktop, _fetch_nats, _fetch_ffmpeg])
+_build_chat    = _node("build-chat",      _action_build_chat,    deps=[_inst_desktop])
+_build_nuitka  = _node("build-nuitka",    _action_build_nuitka,   deps=[_build_chat, _fetch_nats, _fetch_ffmpeg])
+_build_desktop = _node(
+    "build-desktop",
+    _action_build_desktop,
+    deps=[_build_chat, _inst_desktop, _fetch_nats, _fetch_ffmpeg],
+)
 
 _FULL_DEPS = [_build_chat, _fetch_nats, _fetch_ffmpeg, _build_nuitka, _build_desktop]
 

@@ -10,15 +10,18 @@ Obrigado pelo interesse. Este arquivo explica como preparar o ambiente, escolher
 
 ## Ambiente
 
-Requisitos: [uv](https://docs.astral.sh/uv/) (instala o Python 3.13), Node.js 26 e [pnpm](https://pnpm.io/).
+O caminho recomendado é `scons install`: ele sincroniza todos os grupos Python de desenvolvimento, executa `pnpm ci`, garante o Electron nativo e baixa os sidecars NATS e FFmpeg. No Linux, `dotfiles.sh` também detecta a distribuição, instala dependências nativas e prepara a toolchain do desenvolvedor com base no repositório [DotFiles](https://github.com/brunosrz/DotFiles). O script é específico para Linux e encerra em Windows/macOS; nessas plataformas, instale os pré-requisitos indicados abaixo e rode o alvo SCons.
 
 ```bash
 git clone https://github.com/vectora-ltda/vectora.git
 cd vectora
-uv sync
-pnpm --dir frontend install
+./dotfiles.sh                 # Linux; opção recomendada, inclui scons install
+# Windows/macOS: com uv, Python 3.13, Node.js 26 e pnpm 11.5 no PATH:
+uv run --locked scons install
 cp .env.example .env
 ```
+
+`pnpm ci` remove e recria `frontend/node_modules` usando o lockfile congelado. O Chromium de execução vem do pacote Electron; Playwright é usado como cliente CDP e o bootstrap não baixa browsers Playwright. Para reinstalar manualmente só o workspace frontend: `pnpm --dir frontend ci`.
 
 Para subir o backend em desenvolvimento: `uv run vectora start`.
 
