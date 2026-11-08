@@ -467,7 +467,16 @@ def test_frontend_lint_runs_oxlint_only_on_frontend_files(monkeypatch) -> None:
 
     assert code == 0
     assert calls == [
-        ["pnpm", "--dir", "frontend", "exec", "oxlint", "lib/a.ts", "components/b.tsx"]
+        [
+            "pnpm",
+            "--dir",
+            "frontend",
+            "exec",
+            "oxlint",
+            "--no-ignore",
+            "lib/a.ts",
+            "components/b.tsx",
+        ]
     ]
 
 
