@@ -979,6 +979,14 @@ async function fetchPackagedChangelog(
  */
 /** Register updater events and expose their merged status to the renderer. */
 function setupAutoUpdater(): void {
+  // O binário npm do Electron usado em desenvolvimento informa a versão
+  // `0.0`; electron-updater exige semver válida e aborta o boot ao inicializar.
+  // Atualizações automáticas só fazem sentido no pacote instalado.
+  if (!app.isPackaged) {
+    console.info("[updater] desativado fora do pacote instalado");
+    return;
+  }
+
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
 
