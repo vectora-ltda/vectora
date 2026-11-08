@@ -130,6 +130,14 @@ if (!installedTestsMode) {
   app.commandLine.appendSwitch("remote-debugging-address", "127.0.0.1");
   app.commandLine.appendSwitch("remote-debugging-port", electronCdpPort);
 }
+if (
+  process.platform === "linux" &&
+  (process.env.WAYLAND_DISPLAY || process.env.XDG_SESSION_TYPE === "wayland")
+) {
+  // Chromium's Wayland surface factory cannot use Vulkan on some Linux
+  // desktops; disable it before app readiness to avoid GPU initialization errors.
+  app.commandLine.appendSwitch("disable-features", "Vulkan");
+}
 
 let electronCdpProxy: import("node:http").Server | null = null;
 if (!installedTestsMode) {
@@ -1052,6 +1060,9 @@ function setupAutoUpdater(): void {
 }
 
 async function safeCheckForUpdates(): Promise<void> {
+  // The npm Electron binary reports version 0.0 in development; the updater
+  // is meaningful only for a packaged build with a release semver.
+  if (!app.isPackaged) return;
   try {
     await autoUpdater.checkForUpdates();
   } catch (err) {
@@ -1504,7 +1515,7 @@ app.whenReady().then(async () => {
     createWindow({ visible: !webMode });
     if (!webMode) createTray();
     setupAutoUpdater();
-    if (await isAutoUpdateEnabled()) {
+    if (app.isPackaged && (await isAutoUpdateEnabled())) {
       scheduleAutoUpdateChecks();
     }
   } catch (err) {

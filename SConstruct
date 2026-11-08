@@ -203,7 +203,7 @@ def _action_build_chat(target, source, env):
     if not os.path.isdir(dist) or not os.path.isfile(os.path.join(dist, "index.html")):
         raise SystemExit(
             "ERRO: frontend/dist/index.html não foi gerado. "
-            "Verifique a configuração do Vite em frontend/vite.config.ts."
+            "Verifique a configuração do Vite em frontend/vite.config.mts."
         )
     print(f">> chat dist pronto em {dist}")
 

@@ -194,10 +194,16 @@ export default defineConfig({
           if (!id.includes("node_modules")) return undefined;
           if (id.includes("monaco-editor") || id.includes("@monaco-editor"))
             return "monaco";
+          if (id.includes("@xterm/")) return "terminal";
+          if (id.includes("pdfjs-dist")) return "pdf-viewer";
+          if (id.includes("reagraph")) return "context-graph";
+          if (id.includes("/three/")) return "graph-engine";
+          if (id.includes("react-syntax-highlighter"))
+            return "syntax-highlighter";
+          if (id.includes("react-markdown")) return "markdown-renderer";
           if (id.includes("/motion/") || id.includes("/framer-motion/"))
             return "motion";
-          if (id.includes("react") || id.includes("react-dom"))
-            return "react-vendor";
+          if (/\/(react|react-dom|scheduler)\//.test(id)) return "react-vendor";
           if (id.includes("@tanstack")) return "tanstack";
           if (id.includes("@radix-ui")) return "radix";
           if (id.includes("lucide-react")) return "lucide";

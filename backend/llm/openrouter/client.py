@@ -17,6 +17,7 @@ import json
 import logging
 from collections.abc import AsyncIterator
 from typing import Any, Self
+from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
 
@@ -87,11 +88,26 @@ class OpenRouterClient:
             raise OpenRouterAuthError(msg)
         self._api_key = api_key
         self._base_url = base_url.rstrip("/")
+        self._endpoint = self._safe_endpoint(self._base_url)
         self._timeout_s = timeout_s
         self._require_api_key = require_api_key
         self._include_attribution = include_attribution
         self._client = http_client
         self._owns_client = http_client is None
+
+    @staticmethod
+    def _safe_endpoint(base_url: str) -> str:
+        """Return only scheme/host/port, never credentials, path, or query."""
+        try:
+            parsed = urlsplit(base_url)
+            hostname = parsed.hostname
+            if not hostname:
+                return "configured endpoint"
+            host = f"[{hostname}]" if ":" in hostname else hostname
+            port = f":{parsed.port}" if parsed.port is not None else ""
+            return f"{parsed.scheme}://{host}{port}"
+        except ValueError:
+            return "configured endpoint"
 
     def _headers(self, extra: dict[str, str] | None = None) -> dict[str, str]:
         headers: dict[str, str] = {}
@@ -312,9 +328,11 @@ class OpenRouterClient:
                 if entregou_algo or tentativa >= retry_attempts:
                     raise
                 logger.warning(
-                    "openrouter: falha ao conectar (tentativa %d/%d) — retentando",
+                    "OpenAI-compatible endpoint %s indisponível "
+                    "(tentativa %d/%d) — retentando",
+                    self._endpoint,
                     tentativa,
                     retry_attempts,
-                    extra={"path": path},
+                    extra={"path": path, "endpoint": self._endpoint},
                 )
                 await asyncio.sleep(retry_backoff_s * (2 ** (tentativa - 1)))
