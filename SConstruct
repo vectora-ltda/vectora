@@ -44,6 +44,8 @@ import urllib.error
 import urllib.request
 from typing import TextIO
 
+from utils.subprocess_compat import command_for_execution
+
 AddOption(
     "--latest",
     dest="latest",
@@ -141,6 +143,7 @@ def _run(
     """
     merged = {**os.environ, **(env or {})}
     run_cwd = cwd or ROOT
+    cmd = command_for_execution(cmd)
     header = f"\n>> [{os.path.relpath(run_cwd, ROOT)}] {' '.join(str(c) for c in cmd)}"
     print(header)
     stderr_dest = subprocess.DEVNULL if discard_stderr else None
