@@ -828,17 +828,20 @@ function getTrayIcon(): Electron.NativeImage {
   return nativeImage.createEmpty();
 }
 
-/**
- * Ícone da janela/taskbar. Em produção o electron-builder já embute o
- * ícone no `.exe` compilado (via `icon:` do electron-builder.yml) — mas o
- * binário genérico do pacote npm `electron` usado em dev não tem esse
- * embed, então sem setar `icon:` no BrowserWindow explicitamente a
- * taskbar mostra o ícone padrão do Electron, não o da Vectora.
- */
+/** Resolve o ícone nativo da janela a partir dos recursos empacotados ou do source. */
 function resolveAppIcon(): string | undefined {
+  const isDev = !app.isPackaged;
+  if (process.platform === "linux") {
+    const candidates = [
+      ...(isDev
+        ? [path.join(__dirname, "..", "..", "public", "favicon-600x600.png")]
+        : [path.join(process.resourcesPath, "vectora-icon.png")]),
+      path.join(__dirname, "..", "..", "public", "favicon-600x600.png"),
+    ];
+    return candidates.find((candidate) => fs.existsSync(candidate));
+  }
+
   const candidates = [
-    // Linux window managers expect a raster image here; the ICO remains for
-    // Windows installer resources and is not a portable Electron window icon.
     path.join(process.resourcesPath || "", "vectora-icon.png"),
     path.join(process.resourcesPath || "", "vectora.ico"),
     path.join(__dirname, "..", "..", "public", "favicon-600x600.png"),
