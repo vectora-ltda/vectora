@@ -70,7 +70,7 @@ Os artefatos do Context Graph e o cache ficam em `.vectora/context-graph/` dentr
 | Requisito        | Notas                                                                                             |
 | ---------------- | ------------------------------------------------------------------------------------------------- |
 | **Python 3.13**  | Gerenciado pelo [uv](https://docs.astral.sh/uv/) — fixado em 3.13 (Nuitka ainda não suporta 3.14) |
-| **Node.js 26**   | Para o frontend web; versão e pnpm 11.5 são fixados pelo workspace                              |
+| **Node.js 26**   | Para o frontend web; versão e pnpm 11.5 são fixados pelo workspace                                |
 | **Chave Cohere** | Embeddings + reranking — [plano gratuito](https://dashboard.cohere.com/api-keys)                  |
 | **Chave Tavily** | Busca web — [plano gratuito](https://app.tavily.com/)                                             |
 | **Provedor LLM** | Google Gemini, OpenAI, Anthropic, Cohere, ou Ollama                                               |
