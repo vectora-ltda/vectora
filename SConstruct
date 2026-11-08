@@ -216,8 +216,12 @@ def _open_log(name: str):
 
 def _action_build_chat(target, source, env):
     frontend_dir = os.path.join(VECTORA, "frontend")
+    if not os.path.isdir(os.path.join(frontend_dir, "node_modules")):
+        raise SystemExit(
+            "Dependências do frontend ausentes. Rode `scons install` uma vez "
+            "para preparar o ambiente; `scons frontend` apenas compila."
+        )
     node_env = {"NODE_NO_WARNINGS": "1"}
-    _run([PNPM, *PNPM_INSTALL], env=node_env, cwd=frontend_dir)
     _run([PNPM, "build"], env=node_env, cwd=frontend_dir)
 
     dist = os.path.join(VECTORA, "frontend", "dist")
@@ -418,7 +422,7 @@ def _ensure_electron_binary() -> None:
     Sem esse binário, `electron_launcher.py` não encontra o executável e
     o backend cai pro modo web como fallback silencioso — inaceitável em
     dev/release, onde o objetivo explícito é o app desktop. `scons
-    frontend` precisa garantir isso, não só confiar que o postinstall
+    install` precisa garantir isso, não só confiar que o postinstall
     rodou.
 
     `pnpm rebuild electron` NÃO conserta isso de forma confiável — testado
@@ -1087,14 +1091,7 @@ def _cmd(name: str, action, deps: list | None = None):
 
 
 def _action_build_chat_and_electron(target, source, env):
-    """`scons frontend` builda a SPA e também o dev build do Electron
-    (`pnpm --dir frontend install` + `run electron:build`, gerando
-    `frontend/electron/dist/main.js` e baixando o binário real do pacote npm
-    `electron` pro node_modules do frontend). Electron-first em dev
-    (`backend/services/electron_launcher.py`) depende dos dois existirem pro
-    backend conseguir se autoeleger e spawnar o Electron sozinho quando
-    `uv run vectora start` roda direto, fora do Electron."""
-    _action_install_desktop(target, source, env)
+    """Compila a SPA e o código TypeScript do Electron sem instalar deps."""
     _action_build_chat(target, source, env)
     _action_build_desktop(target, source, env)
 
