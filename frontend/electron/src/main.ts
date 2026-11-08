@@ -837,7 +837,11 @@ function getTrayIcon(): Electron.NativeImage {
  */
 function resolveAppIcon(): string | undefined {
   const candidates = [
-    path.join(process.resourcesPath || "", "vectora.ico"), // produção (extraResources)
+    // Linux window managers expect a raster image here; the ICO remains for
+    // Windows installer resources and is not a portable Electron window icon.
+    path.join(process.resourcesPath || "", "vectora-icon.png"),
+    path.join(process.resourcesPath || "", "vectora.ico"),
+    path.join(__dirname, "..", "..", "public", "favicon-600x600.png"),
     path.join(__dirname, "..", "..", "public", "vectora.ico"), // dev
   ];
   return candidates.find((c) => fs.existsSync(c));

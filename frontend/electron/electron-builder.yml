@@ -75,6 +75,8 @@ extraResources:
       - nats-server*
   - from: public/favicon-32x32.png
     to: tray-icon.png
+  - from: public/favicon-600x600.png
+    to: vectora-icon.png
   - from: public/vectora.ico
     to: vectora.ico
 
@@ -130,6 +132,7 @@ dmg:
     height: 380
 
 linux:
+  executableName: vectora
   target:
     - AppImage
     - deb
@@ -138,14 +141,18 @@ linux:
     - pacman
     - flatpak
     - tar.gz
-  icon: public/favicon-600x600.png
+  icon: public/vectora.svg
   category: Development
-  # electron-builder 26: as chaves do .desktop ficam sob `desktop.entry`.
+  # electron-builder usa o executableName como Icon e fallback de WM_CLASS.
+  # Fixar os dois mantém os launchers e as janelas associados entre formatos.
   desktop:
     entry:
+      Name: Vectora
       StartupWMClass: vectora
+      Icon: vectora
       Categories: Development;IDE;
-  synopsis: Vectora — AI-first development assistant
+      Comment: Self-hosted AI-first development assistant
+  synopsis: Vectora - AI-first development assistant
   description: Self-hosted AI assistant with RAG, terminals, code editing and workflows.
   vendor: Vectora Company
   maintainer: Vectora Ltda <contato@vectora.company>
