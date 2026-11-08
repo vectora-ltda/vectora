@@ -10,7 +10,7 @@ import { dirname } from "node:path";
  * `/auth/signup`; caso contrário, faz `/auth/signin`. As credenciais vêm de
  * E2E_EMAIL / E2E_PASSWORD (com defaults locais).
  */
-const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+const API_URL = process.env.PLAYWRIGHT_API_URL ?? "http://127.0.0.1:8080";
 const EMAIL = process.env.E2E_EMAIL ?? "e2e@vectora.local";
 const PASSWORD = process.env.E2E_PASSWORD ?? "Vectora-e2e-2026!";
 const STATE_PATH = "./e2e/.auth/state.json";
@@ -33,7 +33,7 @@ function warnIfHomeNotIsolated(): void {
   console.warn(
     "\n⚠️  VECTORA_HOME não está setado neste shell.\n" +
       "   Se o backend em " +
-      BASE_URL +
+      API_URL +
       " também não tiver VECTORA_HOME isolado,\n" +
       "   esta suíte e2e vai criar threads/usuários reais no seu ~/.vectora " +
       "de verdade.\n" +
@@ -45,7 +45,7 @@ function warnIfHomeNotIsolated(): void {
 
 async function globalSetup(_config: FullConfig): Promise<void> {
   warnIfHomeNotIsolated();
-  const ctx = await request.newContext({ baseURL: BASE_URL });
+  const ctx = await request.newContext({ baseURL: API_URL });
 
   const hasUsersRes = await ctx.get("/auth/has-users");
   if (!hasUsersRes.ok()) {

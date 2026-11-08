@@ -18,9 +18,9 @@ Uso (PowerShell / cmd, a partir da raiz do repositório):
     scons clean         → remove outputs de build
 
 Pré-requisitos: uv, pnpm, nuitka (incluído no uv.lock), Hugo (extended) no PATH
-O runtime de produção usa exclusivamente o Chromium distribuído pelo pacote
-Electron. Playwright é somente o cliente CDP do backend; os browsers baixados
-por `playwright install` pertencem aos testes E2E e não são empacotados.
+O runtime de produção e os testes E2E usam o Chromium distribuído pelo pacote
+Electron. Playwright é somente o cliente CDP; nenhum browser Playwright
+separado é instalado ou empacotado.
 Instalar SCons: pip install scons (ou uv add --dev scons)
 
 Cobertura de lint e tests:

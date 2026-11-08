@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page } from "./electron-test";
 
 const VIEWPORTS = [360, 480, 640, 768] as const;
 
