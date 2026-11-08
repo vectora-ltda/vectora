@@ -13,6 +13,7 @@ import pytest
 import release
 from release import (
     Commit,
+    ReleaseLine,
     ReleaseLines,
     ReleasePullRequest,
     apply_plan,
@@ -290,7 +291,7 @@ def _write_inputs(tmp_path: Path, version: str = "0.1.24") -> tuple[Path, Path]:
 
 def test_minor_release_updates_next_lines(tmp_path: Path) -> None:
     """A minor prepara a próxima linha e a manutenção da versão publicada."""
-    changelog, lines = _write_inputs(tmp_path)
+    changelog, lines = _write_inputs(tmp_path, "0.2.0")
 
     assert update_release_line_files(changelog, lines, "release/0.2") is True
     assert json.loads(lines.read_text(encoding="utf-8")) == {
@@ -402,7 +403,13 @@ def test_commit_target_can_rotate() -> None:
 @pytest.mark.parametrize("tag", ["", "v0.1.0", "v0.2.1", "invalid", "v00.9.0"])
 def test_unrelated_tags_do_not_rotate(tag: str) -> None:
     """Tags antigas, patches e valores inválidos não avançam a configuração."""
-    assert rotation_for_release(tag, CONFIG, "master") is None
+    later_config = CONFIG.model_copy(
+        update={
+            "development": ReleaseLine(branch="release/0.3", milestone="0.3"),
+            "maintenance": ReleaseLine(branch="master", milestone="0.2.x"),
+        }
+    )
+    assert rotation_for_release(tag, later_config, "master") is None
 
 
 def test_newer_release_requires_configuration() -> None:
