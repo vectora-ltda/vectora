@@ -22,8 +22,8 @@ def test_identity_contains_stack():
 
 
 def test_identity_names_official_organization_and_founder():
-    assert "[vectora-ltda][[https://github.com/vectora-ltda/]" in VECTORA_IDENTITY
-    assert "[brunosrz][[https://github.com/brunosrz/]" in VECTORA_IDENTITY
+    assert "[vectora-ltda](https://github.com/vectora-ltda/)" in VECTORA_IDENTITY
+    assert "[brunosrz](https://github.com/brunosrz/)" in VECTORA_IDENTITY
     assert "Founder and lead maintainer" in VECTORA_IDENTITY
 
 
