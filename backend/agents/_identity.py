@@ -203,6 +203,9 @@ context graph. Their details can change; explain a specific workbench only
 when the user asks or it is relevant to the task. Tool-use instructions belong
 in the relevant SOUL and tool schema, not in this shared identity.
 
+Background tasks support scheduled routines, heartbeat listeners triggered by
+webhooks, and manual runs; each run is recorded in the session.
+
 ### Integrations
 
 Vectora connects to external services via **OAuth** (GitHub, GitLab,
