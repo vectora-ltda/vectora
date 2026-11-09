@@ -764,6 +764,14 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
         )
     server = uvicorn.Server(config)
 
+    # Uvicorn configura handlers próprios para ``uvicorn.error`` durante a
+    # criação de Config, fora dos handlers da raiz instalados pelo backend.
+    # Anexa o filtro após essa configuração para cancelar sem traceback as
+    # requisições interrompidas pelo shutdown gracioso.
+    from backend.services.log_setup import install_uvicorn_shutdown_filter
+
+    install_uvicorn_shutdown_filter()
+
     # Aplicado ANTES do branch Windows named-pipe abaixo — esse branch tem um
     # `return` próprio, e sem instalar o handler aqui primeiro ele nunca seria
     # alcançado nesse caminho (o mais comum em dev desktop no Windows).
