@@ -3,34 +3,30 @@ title: Troubleshooting
 weight: 6
 ---
 
-## The model selector is empty
+## The model selector is empty or chat fails to start
 
-No LLM provider has an API key configured. Go to **Settings → Preferences → General** (or edit `.env`/`~/.vectora/.env`) and add at least one: `GOOGLE_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `COHERE_API_KEY`, or configure a local Ollama endpoint.
+Configure an available chat provider and model in **Settings → Environment → AI Models**. Open **Provider Routing** to configure provider credentials and endpoints. Tab names may vary by version; see [Model configuration](../../guides/using-settings) as well. Embeddings, reranking, and web search are not required to start a regular chat.
 
-## RAG returns no results / embedding errors
+## Project search or indexing returns no results
 
-RAG depends on `COHERE_API_KEY` (or a VoyageAI key configured as an alternative) to generate embeddings and rerank. Without it, indexing fails silently or vector search returns nothing. Check the key in **Settings → Environment → Envs**.
+Confirm that the workspace and its files are included in indexing and that the configured embedding provider is available. Check the workbench's **Memory** tab and backend logs for indexing, embedding, or reranking failures. These capabilities may use different providers from chat. See [RAG](../../concepts/rag) and [Storage](../../concepts/storage).
 
-## The agent can't write files / run commands
+## The agent cannot write files or run commands
 
-The workspace is probably still **untrusted**. See [First workspace](../first-workspace) — click "Trust this folder" to unlock writes and the terminal.
+Check whether the workspace is trusted and whether the permission mode, tool policy, and sandbox allow the operation. Tool access may require HITL approval. Do not trust a folder whose origin you do not know. See [First workspace](../first-workspace) and [Security](../../security/).
 
-## A connected MCP server's tools don't show up
+## Tools from an MCP server are missing
 
-Check the connector's status in **Settings → Environment → Plugins** — a failed `stdio`/`sse`/`http` connection shows an error there. See [MCP client](../../reference/mcp-client).
+Check the connection status in **Settings → Environment → Plugins**. Verify the command, arguments, transport, and connector logs. See the [MCP client reference](../../reference/mcp-client).
 
-## `vectora storage complete` won't connect to Postgres/Qdrant/Redis
+## Complete storage mode cannot connect
 
-Complete mode requires all three services to be reachable at the configured DSNs (`POSTGRES_DSN`, `QDRANT_URL`, `REDIS_URL`). If you don't have your own infrastructure, run `scons docker` (from the monorepo root, if running from source) or use the `vectora storage wizard` to set up a managed provider (Supabase, Neon, Qdrant Cloud). See [Storage: lite vs. complete](../../concepts/storage).
+`complete` mode requires PostgreSQL, Qdrant, and Redis to be available at the configured URLs (`POSTGRES_DSN`, `QDRANT_URL`, `REDIS_URL`). For source development, see the `scons docker` command in the [Docker guide](../../deployment/docker). Local `lite` mode does not require these services.
 
-## Pro features (multi-user chat, complete storage) don't unlock despite an active subscription
+## Getting more details
 
-Confirm your `VECTORA_TOKEN` from the [dashboard](https://vectora.company/dashboard) is configured and valid — license status is cached locally with a short TTL; force a revalidation by restarting the app or checking **Settings → Administration → System**.
+Local logs are stored in `~/.vectora/logs/`. Remove or mask tokens, private paths, and conversation content before sharing a log excerpt.
 
-## `command not found: vectora` error (source install)
+## Report a problem
 
-Run with `uv run vectora ...` instead of `vectora ...` directly — `uv` manages the virtual environment and entrypoint without a global install.
-
-## Where to report a bug
-
-[GitHub Issues](https://github.com/vectora-company/vectora/issues) (public) or the form at [vectora.company/issues](https://vectora.company/issues).
+First search [existing issues](https://github.com/vectora-ltda/vectora/issues). For a vulnerability, follow the [security policy](https://github.com/vectora-ltda/vectora/blob/master/SECURITY.md) instead of publishing details in an issue.

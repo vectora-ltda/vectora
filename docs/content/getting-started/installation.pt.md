@@ -3,65 +3,62 @@ title: Instalação
 weight: 2
 ---
 
-Vectora é distribuído como um **app desktop nativo** (Electron + backend Python compilado) para Windows, macOS e Linux, com auto-update embutido. Não existe uma "imagem Docker única" do produto — o Docker, quando usado, sobe só a infraestrutura opcional (Postgres/Redis/Qdrant do modo complete), nunca o Vectora em si.
+Há duas formas de usar o Vectora: instalar um pacote desktop publicado ou executar o projeto a partir do código-fonte. Os pacotes incluem o backend e o frontend; não é necessário instalar Python ou Node para usar o aplicativo desktop.
 
-## Opção 1 — Instalador nativo (recomendado)
+## Instalar a versão publicada
 
-Baixe o instalador do seu sistema operacional:
+Abra a página de [releases do Vectora no GitHub](https://github.com/vectora-ltda/vectora/releases) e escolha um artefato compatível com o seu sistema e arquitetura. A matriz publicada atualmente cobre:
 
-| SO      | Formato                                  | Assinatura                             |
-| ------- | ---------------------------------------- | -------------------------------------- |
-| Windows | `.msi` ou `.exe` (NSIS)                  | Certificado EV (Azure Trusted Signing) |
-| macOS   | `.dmg` (só Apple Silicon)                | Apple Developer ID + notarizado        |
-| Linux   | `.AppImage`, `.deb` ou `.rpm`            | sem assinatura                         |
+| Sistema | Arquitetura publicada | Formatos disponíveis |
+| --- | --- | --- |
+| Windows | x64 e ARM64 | `.exe`, `.msi` |
+| macOS | Apple Silicon (ARM64) | `.dmg` |
+| Linux | x64 e ARM64 | `.AppImage`, `.deb`, `.rpm` |
 
-Instale normalmente (duplo clique / `dpkg -i` / `rpm -i`). O app abre com o backend já embutido — não precisa instalar Python, Node, nem nenhuma dependência separada.
+Os artefatos são gerados por CI; consulte a página da release para saber quais arquivos foram efetivamente publicados. A disponibilidade de cada formato não garante que todas as distribuições Linux tenham as mesmas dependências de sistema. No Linux, leia as dependências declaradas pelo pacote e os requisitos da sua distribuição antes de instalar.
 
-Atualizações futuras chegam automaticamente via auto-update (servido por `updates.vectora.company`).
+No Windows, execute o instalador e siga as etapas na tela. No macOS, abra o DMG e arraste o aplicativo para Applications. No Linux, use o gerenciador de pacotes para `.deb`/`.rpm`; para AppImage, conceda permissão de execução antes de abrir. A assinatura e a notarização variam por artefato e devem ser verificadas nas informações da release.
 
-## Opção 2 — A partir do código-fonte (dev)
+## Executar a partir do código-fonte
 
-Para contribuir ou rodar em modo desenvolvimento:
+Use este caminho para desenvolvimento ou para inspecionar/modificar o projeto. Consulte também o [guia de contribuição](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md).
 
-**Pré-requisitos**: Python 3.13, [uv](https://docs.astral.sh/uv/), Node.js 24+, `pnpm`.
+**Pré-requisitos:** Python 3.13, [uv](https://docs.astral.sh/uv/), Node.js 26 e [pnpm](https://pnpm.io/).
 
 ```bash
-git clone https://github.com/vectora-company/vectora.git
-cd vectora/vectora
+git clone https://github.com/vectora-ltda/vectora.git
+cd vectora
 
-uv sync                          # dependências Python
-pnpm --dir frontend install       # dependências do frontend
-
-cp .env.example .env
-# edite o .env: GOOGLE_API_KEY (ou outro provider), COHERE_API_KEY, TAVILY_API_KEY
+uv sync
+pnpm --dir frontend install
 ```
 
-Duas janelas de terminal:
+Copie `.env.example` para `.env` se quiser configurar variáveis para o ambiente de desenvolvimento. Para uma instalação desktop, as configurações pessoais ficam em `~/.vectora/` (no Windows, em `%USERPROFILE%\.vectora\`). Veja [Configuração](./configuration) e a [referência de variáveis](../../reference/config).
+
+Para iniciar o backend e servir a aplicação:
 
 ```bash
-# Terminal 1 — backend completo + SPA (porta 8080)
-uv run vectora start --port 8080
+uv run vectora start
+```
 
-# Terminal 2 — frontend dev (Vite, porta 3000, faz proxy pra API)
+Para desenvolver o frontend com Vite em outro terminal:
+
+```bash
 pnpm --dir frontend dev
 ```
 
-Abra `http://localhost:3000`. O primeiro usuário a se cadastrar vira administrador root.
+A primeira conta criada em uma instância habilita a administração inicial. Em um servidor exposto, configure o acesso e o signup de acordo com [Autenticação](../../security/authentication); não publique a porta diretamente na internet sem TLS e controles de acesso.
 
-## Chaves de API necessárias
+## Providers e credenciais
 
-| Chave                                                                | Obrigatória? | Para quê                                      |
-| -------------------------------------------------------------------- | ------------ | --------------------------------------------- |
-| Um provedor LLM (Gemini, OpenAI, Anthropic, Cohere, ou Ollama local) | Sim          | Chat, geração de código, síntese de respostas |
-| `COHERE_API_KEY` (ou VoyageAI)                                       | Sim, pro RAG | Embeddings + reranking                        |
-| `TAVILY_API_KEY`                                                     | Opcional     | Busca web                                     |
+É necessário configurar ao menos um provider de chat compatível. Embeddings, reranking, busca web, transcrição e modelos de decisão são capacidades separadas: configure somente o provider necessário para o recurso que deseja usar. O Vectora não exige uma chave Cohere para iniciar o chat nem uma chave de busca para usar o workspace.
 
-O seletor de modelo no chat só mostra os providers com chave configurada — sem chave, sem provider na lista.
+As chaves podem ser configuradas pela interface em **Configurações → Modelos de IA** ou **Provider Routing**, conforme o tipo de provider, ou por variáveis de ambiente. Leia [Configuração de modelos](../../guides/using-settings) e [BYOK e privacidade](../../security/byok-privacy) antes de enviar dados a um serviço externo.
 
-## Licença
+## Licença e serviços
 
-O app funciona **sem licença** no modo Free (100% local). Para desbloquear os recursos Pro (chat web multi-usuário, storage complete, automações disparadas por webhook), você precisa de um `VECTORA_TOKEN`, obtido no [dashboard](https://vectora.company/dashboard) após assinar um plano pago.
+O código está sob [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). O uso local individual é gratuito; recursos que dependem dos serviços pagos podem exigir uma conta ou uma assinatura Pro ativa. Isso não altera os termos da licença do código.
 
 ## Próximo passo
 
-→ [Início rápido](../quick-start)
+→ [Início rápido](./quick-start)

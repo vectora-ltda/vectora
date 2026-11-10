@@ -4,19 +4,19 @@ weight: 1
 ---
 
 **Vectora é open source?**
-Sim. O código-fonte é público sob a licença GNU AGPL-3.0. Você pode usar, estudar, modificar e redistribuir; se distribuir uma versão modificada ou oferecê-la como serviço pela rede, precisa publicar o código dela sob a mesma licença. A Vectora Ltda é titular dos direitos autorais e também oferece licença comercial para quem não puder cumprir a AGPL — escreva para contato@vectora.company.
+Sim. O código-fonte está sob a licença GNU AGPL-3.0. Consulte o arquivo [LICENSE](https://github.com/vectora-ltda/vectora/blob/master/LICENSE) para os termos completos.
 
-**Preciso de conta pra usar o Free?**
-Não. O Free roda 100% local, sem cadastro, sem nenhuma dependência de `services.vectora.company`.
+**Preciso de conta para usar o Vectora localmente?**
+Uma instância local pode ser configurada pelo operador sem usar os serviços opcionais do Vectora. Recursos que dependem de providers externos, autenticação ou serviços auxiliares têm requisitos próprios.
 
 **Quais LLMs são suportados?**
-Google Gemini, OpenAI, Anthropic, Cohere, e Ollama (totalmente local). O seletor de modelo só mostra os que têm chave configurada.
+O Vectora integra providers de chat configuráveis, incluindo Google, OpenAI, Anthropic, Cohere, Ollama e endpoints compatíveis. A lista disponível depende da configuração e da compatibilidade do provider.
 
 **Dá pra usar sem internet?**
-Parcialmente. Com Ollama local, o LLM roda offline — mas RAG (Cohere/VoyageAI) e busca web (Tavily) ainda dependem de rede, a menos que você configure alternativas locais.
+Parcialmente. Um modelo local pode responder sem enviar a conversa a um provider de chat remoto. Busca web, integrações remotas e qualquer provider externo ainda precisam de rede; configure embeddings e reranking separadamente para o RAG.
 
 **Qual a diferença entre o Vectora e um coding assistant tipo Copilot?**
-Copilot é autocomplete. Vectora é um agente completo com RAG dedicado, terminal, git, chat web multi-usuário e um workspace compartilhado com o agente — pensado pra conhecer o seu projeto de verdade, não só sugerir a próxima linha.
+Vectora é um ambiente self-hosted para trabalhar com agentes e projetos: combina conversa com ferramentas de arquivos, terminal, Git, busca de contexto e workbenches. As ações disponíveis dependem das permissões, da configuração e dos providers conectados.
 
 **Existe versão mobile?**
-Não. Vectora é desktop (Windows/macOS/Linux) + chat web acessível de qualquer navegador (incluindo mobile, via o servidor rodando numa VPS/servidor da empresa).
+Não há um aplicativo móvel independente publicado. A interface web pode ser aberta num navegador móvel quando a instância estiver acessível pela rede, mas isso não significa que o backend desktop e todos os sidecars rodem no telefone.

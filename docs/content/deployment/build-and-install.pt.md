@@ -3,7 +3,7 @@ title: Build a partir do Código-Fonte
 weight: 3
 ---
 
-O pipeline de build oficial usa [SCons](https://scons.org/) como orquestrador, rodado da raiz do monorepo.
+O pipeline de build oficial usa [SCons](https://scons.org/) como orquestrador, rodado da raiz do repositório.
 
 ## Pipeline
 
@@ -28,7 +28,7 @@ SOs saem da matriz `release-native` no GitHub Actions (um runner por SO).
 
 - Python 3.13 (fixado — o Nuitka usado ainda não suporta 3.14)
 - [uv](https://docs.astral.sh/uv/)
-- Node.js 24+ e `pnpm`
+- Node.js 26 e `pnpm`
 - No Windows: Visual Studio Build Tools (MSVC) + Windows SDK, pro toolchain C do Nuitka
 
 ## Qualidade

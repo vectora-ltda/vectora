@@ -7,7 +7,7 @@ weight: 1
 
 | Ítem     | Mínimo                                                                  |
 | -------- | -------------------------------------------------------------------------- |
-| SO       | Windows 10+, macOS 12+, o Linux (Ubuntu 20.04+/Debian 11+/Fedora 35+)     |
+| SO       | Windows x64/ARM64; macOS Apple Silicon; Linux x64/ARM64 (Ubuntu 20.04+/Debian 11+/Fedora 35+) |
 | RAM      | 4 GB (8 GB recomendado)                                                   |
 | Disco    | 2 GB libres para la app + espacio para tu LanceDB local                   |
 | Internet | Necesario para las llamadas a las APIs de LLM/embeddings/búsqueda web    |

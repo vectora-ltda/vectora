@@ -5,7 +5,7 @@ weight: 10
 
 This guide explains how Vectora controls the agent's outbound traffic: the egress policy, which applies to network tools, and sandbox network isolation, which applies to commands run in the worker.
 
-> **Status:** these capabilities are part of the 0.3 line. This page does not claim that live tests still marked as `skipped` are complete.
+> **Status:** these capabilities are included in version 0.1.23. Live tests marked `skipped` do not prove behavior in a real environment.
 
 ## Prerequisites
 
@@ -20,10 +20,10 @@ Outbound traffic is controlled by two independent layers, each configured in a d
 
 ### Two layers
 
-| Layer | Where it applies | How it is configured |
-| --- | --- | --- |
-| Egress policy | Initial URLs for fetch, crawl and map, and Browser Workbench navigation; see Chromium redirect and search exclusions below | Runtime settings (`egress_policy`) |
-| Sandbox network | Commands and files run in the jailed worker | The `[sandbox]` section of `vectora.toml` |
+| Layer           | Where it applies                                                                                                           | How it is configured                      |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
+| Egress policy   | Initial URLs for fetch, crawl and map, and Browser Workbench navigation; see Chromium redirect and search exclusions below | Runtime settings (`egress_policy`)        |
+| Sandbox network | Commands and files run in the jailed worker                                                                                | The `[sandbox]` section of `vectora.toml` |
 
 The MCP server allowlist and tool pre-approvals are not egress policies. They control which servers and actions can be used, not where traffic goes.
 
@@ -31,13 +31,13 @@ The MCP server allowlist and tool pre-approvals are not egress policies. They co
 
 The policy is read from runtime settings: `egress_policy:<workspace_id>` holds the workspace policy directly; alternatively, `egress_policy` maps workspace IDs to policy objects, for example `{"my-workspace": {"allowed_hosts": ["example.com"]}}`. For a workspace, a single unkeyed policy object under `egress_policy` is ignored and the default policy applies. There is no dedicated screen or endpoint to edit it.
 
-| Field | Default | Effect |
-| --- | --- | --- |
-| `block_private_ips` | `true` | Blocks destinations that resolve to private, loopback, or non-public IPs |
-| `allowed_hosts` | empty | When set, only these hosts are allowed |
-| `denied_hosts` | empty | Hosts that are always blocked |
-| `allowed_ports` | `[80, 443]` | Allowed ports; an empty list does not restrict ports |
-| `allow_localhost_dev_ports` | empty | Loopback ports allowed by the egress layer; `fetch_url` still rejects loopback through its independent SSRF guard |
+| Field                       | Default     | Effect                                                                                                            |
+| --------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------- |
+| `block_private_ips`         | `true`      | Blocks destinations that resolve to private, loopback, or non-public IPs                                          |
+| `allowed_hosts`             | empty       | When set, only these hosts are allowed                                                                            |
+| `denied_hosts`              | empty       | Hosts that are always blocked                                                                                     |
+| `allowed_ports`             | `[80, 443]` | Allowed ports; an empty list does not restrict ports                                                              |
+| `allow_localhost_dev_ports` | empty       | Loopback ports allowed by the egress layer; `fetch_url` still rejects loopback through its independent SSRF guard |
 
 How the policy is evaluated:
 

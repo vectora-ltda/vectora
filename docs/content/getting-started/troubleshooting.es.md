@@ -1,36 +1,32 @@
 ---
-title: Troubleshooting
+title: Solución de problemas
 weight: 6
 ---
 
-## El selector de modelos está vacío
+## El selector de modelos está vacío o el chat no inicia
 
-Ningún proveedor de LLM tiene una API key configurada. Ve a **Configuración → Preferencias → General** (o edita `.env`/`~/.vectora/.env`) y agrega al menos una: `GOOGLE_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `COHERE_API_KEY`, o configura un endpoint local de Ollama.
+Configura un proveedor de chat y un modelo disponibles en **Configuración → Entorno → Modelos de IA**. Abre **Provider Routing** para configurar credenciales y endpoints. Los nombres de las pestañas pueden variar según la versión; consulta también [Configuración de modelos](../../guides/using-settings). No necesitas configurar embeddings, reranking ni búsqueda web para iniciar una conversación normal.
 
-## El RAG no devuelve resultados / errores de embedding
+## La búsqueda del proyecto o la indexación no devuelve resultados
 
-El RAG depende de `COHERE_API_KEY` (o una key de VoyageAI configurada como alternativa) para generar embeddings y hacer reranking. Sin ella, la indexación falla silenciosamente o la búsqueda vectorial no devuelve nada. Verifica la key en **Configuración → Entorno → Envs**.
+Confirma que el workspace y sus archivos estén incluidos en la indexación y que el proveedor de embeddings configurado esté disponible. Revisa la pestaña **Memory** del workbench y los logs del backend para encontrar fallos de indexación, embeddings o reranking. Estas funciones pueden usar proveedores distintos al del chat. Consulta [RAG](../../concepts/rag) y [Almacenamiento](../../concepts/storage).
 
-## El agente no puede escribir archivos / ejecutar comandos
+## El agente no puede escribir archivos ni ejecutar comandos
 
-El workspace probablemente sigue **sin confianza**. Ver [Primer workspace](../first-workspace) — haz clic en "Confiar en esta carpeta" para desbloquear la escritura y la terminal.
+Comprueba si el workspace es de confianza y si el modo de permisos, la política de herramientas y el sandbox permiten la operación. El acceso a herramientas puede requerir aprobación HITL. No marques como confiable una carpeta cuyo origen desconoces. Consulta [Primer workspace](../first-workspace) y [Seguridad](../../security/).
 
-## Las herramientas de un servidor MCP conectado no aparecen
+## No aparecen herramientas de un servidor MCP
 
-Revisa el estado del conector en **Configuración → Entorno → Plugins** — una conexión `stdio`/`sse`/`http` fallida muestra un error ahí. Ver [Cliente MCP](../../reference/mcp-client).
+Revisa el estado de la conexión en **Configuración → Entorno → Plugins**. Comprueba el comando, los argumentos, el transporte y los logs del conector. Consulta la [referencia del cliente MCP](../../reference/mcp-client).
 
-## `vectora storage complete` no se conecta a Postgres/Qdrant/Redis
+## El modo de almacenamiento completo no conecta
 
-El modo completo requiere que los tres servicios estén accesibles en los DSN configurados (`POSTGRES_DSN`, `QDRANT_URL`, `REDIS_URL`). Si no tienes tu propia infraestructura, ejecuta `scons docker` (desde la raíz del monorepo, si ejecutas desde el código fuente) o usa `vectora storage wizard` para configurar un proveedor gestionado (Supabase, Neon, Qdrant Cloud). Ver [Almacenamiento: lite vs. completo](../../concepts/storage).
+El modo `complete` necesita que PostgreSQL, Qdrant y Redis estén disponibles en las URLs configuradas (`POSTGRES_DSN`, `QDRANT_URL`, `REDIS_URL`). Para desarrollar desde el código fuente, consulta el comando `scons docker` en la [guía de Docker](../../deployment/docker). El modo local `lite` no necesita estos servicios.
 
-## Las funciones Pro (chat multiusuario, almacenamiento completo) no se desbloquean pese a tener una suscripción activa
+## Obtener más detalles
 
-Confirma que tu `VECTORA_TOKEN` del [dashboard](https://vectora.company/dashboard) esté configurado y sea válido — el estado de la licencia se cachea localmente con un TTL corto; fuerza una revalidación reiniciando la app o revisando **Configuración → Administración → Sistema**.
+Los logs locales se guardan en `~/.vectora/logs/`. Elimina o enmascara tokens, rutas privadas y contenido de conversaciones antes de compartir un fragmento.
 
-## Error `command not found: vectora` (instalación desde código fuente)
+## Informar de un problema
 
-Ejecuta con `uv run vectora ...` en lugar de `vectora ...` directamente — `uv` gestiona el entorno virtual y el entrypoint sin una instalación global.
-
-## Dónde reportar un error
-
-[GitHub Issues](https://github.com/vectora-company/vectora/issues) (público) o el formulario en [vectora.company/issues](https://vectora.company/issues).
+Busca primero en las [issues existentes](https://github.com/vectora-ltda/vectora/issues). Para una vulnerabilidad, sigue la [política de seguridad](https://github.com/vectora-ltda/vectora/blob/master/SECURITY.md) en lugar de publicar detalles en una issue.

@@ -2,7 +2,7 @@
 
 Este arquivo registra as alterações do Vectora, organizadas por versão.
 
-## [0.3.0] (2026-11-04)
+## [0.1.23] (2026-11-10)
 
 Esta seção reúne as alterações publicadas nesta versão.
 
@@ -10,7 +10,7 @@ Esta seção reúne as alterações publicadas nesta versão.
 
 Os recursos incluídos nesta versão são listados abaixo.
 
-- feat: document Vectora App capabilities before 0.2.0 (#291)
+- feat: document Vectora App capabilities before 0.1.23 (#291)
 - feat: consolidar o shell e modernizar a UI/UX do App (#272)
 - feat: support parallel release lines with milestones (#247)
 - feat: archive safe roots and enforce workspace access (#222)
@@ -135,13 +135,13 @@ O trabalho de abertura do código e de infraestrutura incluído nesta versão é
 - ci: add Snyk dependency and code scanning (#422)
 - ci: corrigir automação de releases e assinatura de artefatos (#421)
 
-## Capacidades anteriores à 0.2.0
+## Capacidades da versão 0.1.23
 
 As entradas abaixo descrevem funcionalidades do produto sem reconstruir a origem histórica por commits.
 
 ### Features
 
-Registra as capacidades disponíveis antes da 0.2.0.
+Registra as capacidades incluídas na versão 0.1.23.
 
 #### Vectora App
 

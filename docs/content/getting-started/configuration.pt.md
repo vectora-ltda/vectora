@@ -39,16 +39,9 @@ Overrides por usuário individual (ex: uma chave de API diferente pra um membro 
 
 Controlado por `STORAGE_MODE` (`lite` por padrão). Veja o guia dedicado em [Storage: lite vs. complete](../../concepts/storage) pra saber quando cada um faz sentido — resumo rápido: **lite** (SQLite + LanceDB) é zero-infra e aguenta escala real; **complete** (Postgres + Qdrant + Redis) é sobre durabilidade/infra gerenciada, não é um gate de performance. Independente do modo, usuários/auth/config sempre ficam em SQLite.
 
-## As três telas de configurações
+## Categorias de configuração
 
-Tudo que você configura pela UI vive em três dialogs — detalhados em [Usando as configurações](../../guides/using-settings):
-
-| Dialog            | O que configura                                                       |
-| ----------------- | --------------------------------------------------------------------- |
-| **Preferências**  | Tema, idioma, memórias, conta                                         |
-| **Ambiente**      | Variáveis de ambiente, skills, plugins MCP, integrações OAuth         |
-| **Administração** | Usuários, convites, tools globais, pastas seguras, config do servidor |
-
+As configurações são organizadas por escopo e capacidade. **Preferências** reúne opções pessoais; **Ambiente** contém providers de IA, roteamento, variáveis, skills, plugins MCP e integrações; **Administração** contém controles da instância. A disponibilidade varia conforme o papel do usuário. Consulte [Usando as configurações](../../guides/using-settings) para os detalhes.
 ## Próximo passo
 
 → [Primeiro workspace](../first-workspace)

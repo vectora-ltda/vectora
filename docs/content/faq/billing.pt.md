@@ -1,19 +1,24 @@
 ---
-title: Billing
+title: Serviços comerciais
 weight: 2
 ---
 
-**Como funciona o billing?**
-Trial/assinatura/licenciamento são geridos por `services.vectora.company`, um Worker Cloudflare pequeno — não um "Vectora Cloud" que hospeda sua instância. Pagamento internacional via Stripe; no Brasil, via Asaas (PIX, boleto, cartão).
+## O Vectora open source exige assinatura?
 
-**O que muda entre Free e Pro?**
-Free é 100% local, sem conta. Pro desbloqueia chat web multi-usuário, storage complete (Postgres+Qdrant+Redis) e automações disparadas por webhook — veja [preços atualizados](https://vectora.company/#pricing).
+Não para uso local individual do aplicativo e da CLI. O código é distribuído sob a [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE); a assinatura Pro e os serviços comerciais são uma camada separada. Providers externos podem cobrar pelo uso conforme seus próprios termos.
 
-**Cancelar a assinatura apaga meus dados?**
-Não. Seus dados ficam no **seu** servidor — cancelar a assinatura só rebaixa o tier de volta pra Free (recursos Pro deixam de funcionar), não deleta nada localmente.
+## O que exige uma assinatura Pro?
 
-**Onde vejo meu `VECTORA_TOKEN`?**
-No [dashboard](https://vectora.company/dashboard), seção Token — pode ser revelado de novo sempre que precisar. Use "Rotacionar" só se suspeitar que ele vazou (invalida o token atual e gera um novo).
+Uma assinatura Pro ativa habilita convites e operação com vários membros, o fluxo de hospedagem do Vectora em VPS, storage avançado com Postgres/Qdrant/Redis, tarefas disparadas por webhook, Vectora Connect e o bot de revisão do GitHub Actions. A assinatura também oferece suporte prioritário nos termos comerciais vigentes. Consulte as [assinaturas e os preços](https://vectora.company/#pricing).
 
-**Tem trial gratuito?**
-Sim — verifique a duração e condições atuais na [página de preços](https://vectora.company/#pricing).
+## Os recursos principais do aplicativo são pagos?
+
+Não. RAG, Library, Browser, Sandbox, Context Graph, HITL e Decision Models não são bloqueados pela assinatura Pro no uso local individual. A licença aberta permite estudar, modificar e redistribuir o código conforme seus termos; ela não inclui uma assinatura dos serviços Pro.
+
+## Cancelar o Pro apaga meus dados locais?
+
+Os dados permanecem na infraestrutura que você administra. A assinatura controla o acesso aos recursos Pro; mantenha seus próprios backups e consulte os termos atuais para detalhes de cobrança e cancelamento.
+
+## Onde encontro os termos atuais?
+
+Consulte as [assinaturas e os preços da Vectora Company](https://vectora.company/#pricing). Disponibilidade, preço e condições comerciais podem mudar; não dependem da licença do código aberto.

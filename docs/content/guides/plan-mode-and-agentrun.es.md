@@ -5,7 +5,7 @@ weight: 5
 
 Esta guía explica cómo planificar una tarea antes de ejecutarla, cómo seguir cada ejecución del agente con AgentRun y cómo quedan registradas las decisiones de aprobación.
 
-> **Estado:** estas capacidades forman parte de la línea 0.3. La configuración de Decision Models depende de que el PR #404 se integre en `release/0.3`. Esta página no declara concluidas las pruebas live que todavía aparecen como `skipped`.
+> **Estado:** estas capacidades están incluidas en la versión 0.1.23. Las pruebas live marcadas como `skipped` no demuestran el funcionamiento en un entorno real.
 
 ## Requisitos previos
 
@@ -36,15 +36,15 @@ Cada ejecución del agente tiene un `run_id`, un estado, evidencias y las relaci
 
 Los estados posibles son:
 
-| Estado | Significado |
-| --- | --- |
-| `planned`, `admitted` | La ejecución se creó y se aceptó, pero aún no empezó |
-| `running`, `tool_running` | El agente está generando o ejecutando una herramienta |
-| `waiting_approval` | Esperando una decisión humana |
-| `waiting_provider` | Esperando al proveedor del modelo |
-| `verifying` | Ejecutando los quality gates del workspace |
-| `passed`, `degraded`, `failed`, `cancelled` | Estados finales |
-| `recovery_required` | La ejecución se interrumpió y necesita reconciliación antes de continuar |
+| Estado                                      | Significado                                                              |
+| ------------------------------------------- | ------------------------------------------------------------------------ |
+| `planned`, `admitted`                       | La ejecución se creó y se aceptó, pero aún no empezó                     |
+| `running`, `tool_running`                   | El agente está generando o ejecutando una herramienta                    |
+| `waiting_approval`                          | Esperando una decisión humana                                            |
+| `waiting_provider`                          | Esperando al proveedor del modelo                                        |
+| `verifying`                                 | Ejecutando los quality gates del workspace                               |
+| `passed`, `degraded`, `failed`, `cancelled` | Estados finales                                                          |
+| `recovery_required`                         | La ejecución se interrumpió y necesita reconciliación antes de continuar |
 
 Cuando la autenticación está activada, las siguientes rutas exigen autenticación; cuando está desactivada, el modo local usa un usuario local virtual:
 
@@ -62,12 +62,12 @@ Cada ejecución registra tres tipos de decisión: aprobaciones humanas, acceso a
 
 Cuando el agente se detiene, respondes con una de estas decisiones:
 
-| Decisión | Efecto |
-| --- | --- |
-| `approve` | Ejecuta la acción propuesta |
-| `reject` | No la ejecuta; el agente recibe el rechazo como resultado |
-| `option:<valor>` | Elige una de las opciones presentadas |
-| `edit:<json>` | La ejecuta con los argumentos editados |
+| Decisión         | Efecto                                                    |
+| ---------------- | --------------------------------------------------------- |
+| `approve`        | Ejecuta la acción propuesta                               |
+| `reject`         | No la ejecuta; el agente recibe el rechazo como resultado |
+| `option:<valor>` | Elige una de las opciones presentadas                     |
+| `edit:<json>`    | La ejecuta con los argumentos editados                    |
 
 La decisión queda asociada al `run_id` de la ejecución.
 
@@ -75,10 +75,10 @@ La decisión queda asociada al `run_id` de la ejecución.
 
 Antes de usar un servidor MCP, Vectora evalúa la política de MCP y registra el resultado:
 
-| Código | Significado |
-| --- | --- |
-| `allowed` | El servidor está permitido (o no hay regla) |
-| `blocked` | El servidor no está en la allowlist aplicable |
+| Código               | Significado                                       |
+| -------------------- | ------------------------------------------------- |
+| `allowed`            | El servidor está permitido (o no hay regla)       |
+| `blocked`            | El servidor no está en la allowlist aplicable     |
 | `policy_unavailable` | No se pudo cargar la política; el acceso se niega |
 
 La regla del workspace tiene prioridad sobre la regla de la instancia. La allowlist de MCP controla qué servidores se pueden usar; no es una política de egress (consulta [Políticas de egress](../egress-policies)).

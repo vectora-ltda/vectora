@@ -10,7 +10,7 @@ from release_notes import section_for_version
 
 CHANGELOG = """# Changelog
 
-## [0.3.0] (2026-11-04)
+## [0.3.0] (2026-11-10)
 
 Esta seção reúne as alterações publicadas nesta versão.
 

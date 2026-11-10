@@ -1,50 +1,44 @@
 ---
-title: RAG Híbrido
+title: RAG e contexto do projeto
 weight: 1
 ---
 
-RAG (Retrieval-Augmented Generation) é o mecanismo pelo qual o Vectora responde com base no que foi **indexado**, não no que o modelo "acha" que é verdade. É um pilar central da arquitetura, não uma feature secundária — existe um subagente (`search`) e um conjunto de tools (`vector_search`, `embedding`, `ingest_docs`, `manage_retriever`) dedicados a isso.
+RAG (Retrieval-Augmented Generation) permite que o agente recupere trechos de documentos indexados para responder com contexto do workspace. A recuperação depende dos arquivos incluídos, do estado da fila de indexação, do armazenamento selecionado e dos providers de embedding/reranking configurados.
 
-## Pipeline
+## Fluxo geral
 
 ```text
-query do usuário
-      │
-      ▼
- expansão de query (multi-query via LLM)
-      │
-      ▼
- busca híbrida:  BM25 (esparsa/lexical)  +  busca vetorial densa (LanceDB/Qdrant)
-      │
-      ▼
- score gate
-      │
-   ┌──┴──────────────┬─────────────────────┐
-   │ score ≥ 0.7      │ 0.4 ≤ score < 0.7   │ score < 0.4
-   ▼                  ▼                     ▼
- injeta direto    rerank (Cohere/         cai pra busca web (Tavily),
- no contexto       VoyageAI) → injeta      resultado curado antes de indexar
+arquivos e documentos selecionados
+             │
+             ▼
+       extração e divisão
+             │
+             ▼
+       embeddings e índice
+             │
+             ▼
+  recuperação de trechos relevantes
+             │
+             ▼
+ contexto enviado ao modelo escolhido
 ```
 
-- **Retrieval híbrido** combina BM25 (bom pra termos exatos, nomes de função, identificadores) com busca vetorial densa (boa pra similaridade semântica) — nenhum dos dois sozinho cobre os dois casos bem.
-- **Reranking** (Cohere `rerank-multilingual-v3.0` ou VoyageAI) reordena os candidatos por relevância real antes de entrar no contexto, evitando que ruído semântico solte resultados errados na frente.
-- **Fallback pra busca web**: quando o score de recuperação local é baixo, o Vectora não força uma resposta ruim — ele busca na web (Tavily) e **cura** o resultado (reranker + LLM judge) antes de considerar indexar, pra nunca contaminar sua base de conhecimento com lixo.
+O Vectora combina recuperação lexical e vetorial quando esses recursos estão disponíveis na configuração. O reranking é configurável e pode usar um provider compatível. A busca web é uma ferramenta separada e não deve ser confundida com recuperação local. Provider remoto pode receber a consulta e os trechos necessários; confira a política de dados antes de usá-lo com conteúdo confidencial.
 
-## Embeddings
+## Embeddings e reranking
 
-Cohere `embed-multilingual-v3.0` (1024 dimensões) é o embedder padrão — cobre múltiplos idiomas na mesma base vetorial. VoyageAI é a alternativa configurável.
+Os providers e modelos são escolhidos em **Configurações → Ambiente → Modelos de IA**; endpoints e credenciais ficam em **Provider Routing**. As opções incluem providers remotos e configurações locais compatíveis. O Vectora não exige uma chave Cohere para iniciar o chat. A indexação precisa de um provider de embedding funcional, e o reranking pode ser desligado ou configurado separadamente.
 
-## Citações
+## Consultar a base
 
-Toda resposta baseada em RAG cita as fontes (`[1] [2]`), rastreáveis até o chunk original e o arquivo/URL de origem — isso é o que separa "o agente respondeu" de "o agente respondeu com base em algo verificável".
+Use a aba **Memory** da workbench para acompanhar a atividade de recuperação e ajustar as opções de RAG disponíveis. Inclua os arquivos necessários no workspace, aguarde a indexação terminar e verifique as fontes recuperadas antes de confiar que todo o projeto foi indexado.
 
-## Indexação
+## Limites
 
-- Arraste uma pasta pro chat, ou use `/rag add`.
-- A aba **Memory (RAG)** na workbench mostra o que já foi indexado, deixa configurar reranker on/off, top_k, provider de embedding/rerank, e gerenciar coleções.
-- A indexação roda em fila assíncrona (`embedding_queue.db`) — não bloqueia o chat enquanto processa.
+RAG recupera trechos a partir do índice; ele não garante completude, atualidade ou correção. Arquivos ignorados, erros de extração, limites de contexto e configurações do provider afetam os resultados. Confirme afirmações importantes na fonte original.
 
 ## Veja também
 
-- [Context Graph](../context-graph) — contexto estrutural que complementa o RAG
-- [Usando a workbench](../../guides/using-the-workbench) — painel Memory (RAG) na prática
+- [Context Graph](../context-graph) — relações estruturais extraídas do código
+- [Usando a workbench](../../guides/using-the-workbench) — painel Memory na prática
+- [BYOK e privacidade](../../security/byok-privacy) — fluxo de dados para providers externos
