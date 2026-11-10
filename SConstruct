@@ -82,23 +82,6 @@ def _find_bin(name: str) -> str:
     return shutil.which(name) or name
 
 
-def _activate_linux_toolchain_paths() -> None:
-    """Re-resolve tools installed by dotfiles.sh in this SCons process."""
-    if sys.platform != "linux":
-        return
-    node_bins = sorted(glob.glob(os.path.expanduser("~/.nvm/versions/node/v26*/bin")))
-    paths = [
-        os.path.expanduser("~/.local/bin"),
-        os.path.expanduser("~/.bun/bin"),
-        os.path.expanduser("~/.local/share/pnpm"),
-        "/home/linuxbrew/.linuxbrew/bin",
-        "/home/linuxbrew/.linuxbrew/sbin",
-        *reversed(node_bins),
-        os.environ.get("PATH", ""),
-    ]
-    os.environ["PATH"] = os.pathsep.join(path for path in paths if path)
-
-
 PNPM = _find_pnpm()
 
 
@@ -139,7 +122,6 @@ def _run(
     cwd: str | None = None,
     log=None,
     discard_stderr: bool = False,
-    inherit_stdin: bool = False,
 ) -> None:
     """Executa um comando, falha se o código de retorno for ≠ 0.
 
@@ -150,15 +132,14 @@ def _run(
     que emitem avisos ruidosos em stderr mas reportam erros reais via código de
     retorno (ex: bandit com comentários em língua não-inglesa).
 
-    stdin vai para DEVNULL por padrão: sem isso, o subprocesso herda o stdin do
+    stdin sempre vai para DEVNULL: sem isso, o subprocesso herda o stdin do
     scons e qualquer prompt interativo não coberto pelas flags de automação
     (--yes/--frozen-lockfile/etc — ex.: já observado no `wrangler d1
     migrations apply` e no `vercel --prod` do deploy de produção) trava pra
     sempre esperando uma resposta que nunca chega, em silêncio (a própria
     saída do prompt fica bufferizada e nunca aparece no log). Com stdin
     fechado, qualquer prompt recebe EOF na hora e o comando falha rápido e
-    visível em vez de travar por horas. O bootstrap Linux pode herdar stdin
-    para permitir que sudo/doas solicite autenticação.
+    visível em vez de travar por horas.
     """
     merged = {**os.environ, **(env or {})}
     run_cwd = cwd or ROOT
@@ -169,7 +150,7 @@ def _run(
     if log is None:
         result = subprocess.run(
             cmd, cwd=run_cwd, env=merged, stderr=stderr_dest,
-            stdin=None if inherit_stdin else subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
         )
         rc = result.returncode
     else:
@@ -180,7 +161,7 @@ def _run(
             cmd,
             cwd=run_cwd,
             env=merged,
-            stdin=None if inherit_stdin else subprocess.DEVNULL,
+            stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL if discard_stderr else subprocess.STDOUT,
             text=True,
@@ -403,11 +384,6 @@ def _sign_binary(binary: str) -> None:
 
 def _action_install_desktop(target, source, env):
     """Prepara o ambiente Python/Node e os sidecars usados no desenvolvimento."""
-    if sys.platform == "linux" and os.environ.get("VECTORA_DOTFILES_TOOLCHAIN_DONE") != "1":
-        _run(["bash", os.path.join(ROOT, "dotfiles.sh"), "--toolchain-only"], inherit_stdin=True)
-        _activate_linux_toolchain_paths()
-        global PNPM
-        PNPM = _find_pnpm()
     _run([_find_bin("uv"), "sync", "--locked", "--all-groups"])
     # `pnpm ci` limpa node_modules e instala exatamente o lockfile do workspace.
     _run([PNPM, "--dir", "frontend", *PNPM_CI])
@@ -875,7 +851,6 @@ def _action_help(target, source, env):
   Build
     scons frontend         só o build do frontend (frontend/dist/)
     scons install          prepara Python/dev tools, pnpm ci, Electron, NATS e FFmpeg
-                           no Linux, dotfiles.sh detecta a distro e instala a toolchain
     scons docker           sobe infraestrutura (PostgreSQL, Redis, Qdrant)
 
   Qualidade
