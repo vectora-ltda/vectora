@@ -31,8 +31,8 @@ sentido com a stack inteira de pé:
    scons frontend
    VECTORA_ELECTRON_CDP_PORT=9222 uv run vectora start
    ```
-   Se o backend não estiver em `http://127.0.0.1:8080`, configure
-   `PLAYWRIGHT_API_URL`. Os testes conectam ao Chromium já incluído no Electron;
+   O setup autentica pela ponte `vectora-app://` da própria janela, usando o
+   backend conectado ao Electron. Os testes conectam ao Chromium incluído;
    Playwright é somente o cliente CDP e nenhum browser adicional é instalado.
 2. **Chave de provider** configurada (ex.: `GOOGLE_API_KEY`) — alguns testes
    exercitam o LLM real.

@@ -1,12 +1,9 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { chromium, expect, test as base } from "@playwright/test";
 import type { BrowserContext, Page } from "@playwright/test";
 
 const endpoint =
   process.env.PLAYWRIGHT_CDP_URL ??
   `http://127.0.0.1:${process.env.VECTORA_ELECTRON_CDP_PORT ?? "9222"}`;
-const statePath = resolve(process.cwd(), "e2e/.auth/state.json");
 
 /** Playwright controla a janela do Electron pelo CDP; não lança Chromium próprio. */
 export const test = base.extend<{
@@ -23,10 +20,6 @@ export const test = base.extend<{
     if (!context) {
       throw new Error(`Nenhum contexto Electron disponível em ${endpoint}`);
     }
-    const state = JSON.parse(readFileSync(statePath, "utf8")) as {
-      cookies?: Parameters<BrowserContext["addCookies"]>[0];
-    };
-    if (state.cookies?.length) await context.addCookies(state.cookies);
     await use(context);
   },
   page: async ({ context }, use) => {
