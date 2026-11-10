@@ -1339,24 +1339,24 @@ def test_preserves_newline_style_and_unchanged_content(tmp_path: Path) -> None:
 
 def test_stacked_pr_uses_the_milestone_of_the_release_line_at_the_stack_root() -> None:
     """Uma PR cuja base é a branch de outra PR aberta herda a linha da raiz."""
-    event = _event(base="fix/migrate-open-source", milestone="0.3.x")
+    event = _event(base="fix/migrate-open-source", milestone="0.1.x")
 
     assert release.validate_pull_request(event, stack_root_base="master") == []
 
 
 def test_stacked_pr_on_the_development_line_needs_the_development_milestone() -> None:
-    event = _event(base="docs/feature", milestone="0.4")
+    event = _event(base="docs/feature", milestone="0.2")
 
-    assert release.validate_pull_request(event, stack_root_base="release/0.4") == []
+    assert release.validate_pull_request(event, stack_root_base="release/0.2") == []
 
 
 def test_stacked_pr_rejects_the_milestone_of_another_line() -> None:
-    event = _event(base="docs/feature", milestone="0.4")
+    event = _event(base="docs/feature", milestone="0.2")
 
     errors = release.validate_pull_request(event, stack_root_base="master")
 
     assert len(errors) == 1
-    assert "0.3.x" in errors[0]
+    assert "0.1.x" in errors[0]
 
 
 def test_stacked_pr_without_milestone_asks_for_the_root_line_milestone() -> None:
@@ -1365,11 +1365,11 @@ def test_stacked_pr_without_milestone_asks_for_the_root_line_milestone() -> None
     errors = release.validate_pull_request(event, stack_root_base="master")
 
     assert len(errors) == 1
-    assert "`0.3.x`" in errors[0]
+    assert "`0.1.x`" in errors[0]
 
 
 def test_stack_root_that_is_not_a_release_line_is_rejected() -> None:
-    event = _event(base="docs/feature", milestone="0.3.x")
+    event = _event(base="docs/feature", milestone="0.1.x")
 
     errors = release.validate_pull_request(event, stack_root_base="other/branch")
 
@@ -1378,14 +1378,14 @@ def test_stack_root_that_is_not_a_release_line_is_rejected() -> None:
 
 
 def test_unresolved_stack_root_keeps_rejecting_unknown_bases() -> None:
-    event = _event(base="docs/feature", milestone="0.3.x")
+    event = _event(base="docs/feature", milestone="0.1.x")
 
     assert release.validate_pull_request(event, stack_root_base="")
     assert release.validate_pull_request(event)
 
 
 def test_fork_head_never_inherits_the_stack_root_line() -> None:
-    event = _event(base="docs/feature", milestone="0.3.x", head_repo="someone/vectora")
+    event = _event(base="docs/feature", milestone="0.1.x", head_repo="someone/vectora")
 
     errors = release.validate_pull_request(event, stack_root_base="master")
 
@@ -1398,7 +1398,7 @@ def test_stack_root_is_read_from_the_environment(
 ) -> None:
     event_file = tmp_path / "event.json"
     event_file.write_text(
-        json.dumps(_event(base="docs/feature", milestone="0.3.x")), encoding="utf-8"
+        json.dumps(_event(base="docs/feature", milestone="0.1.x")), encoding="utf-8"
     )
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_file))
     monkeypatch.setenv("CURRENT_STACK_ROOT_BASE", "master")

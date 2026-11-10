@@ -23,9 +23,9 @@ port = 8080
 
 | Variable                                                    | ¿Requerida?          | Descripción                                                    |
 | -------------------------------------------------------------- | ---------------------- | ------------------------------------------------------------------ |
-| `LLM_PROVIDER`                                                  | Sí                     | `google-genai`, `openai`, `anthropic`, `cohere`, u `ollama`        |
+| `LLM_PROVIDER`                                                  | No (por defecto `google-genai`) | Selecciona el proveedor de chat; configura sus credenciales correspondientes |
 | `GOOGLE_API_KEY` / `OPENAI_API_KEY` / `ANTHROPIC_API_KEY`      | Depende del proveedor  | la key del proveedor de LLM elegido                                 |
-| `COHERE_API_KEY`                                                | Sí (para RAG)          | embeddings + reranking                                              |
+| `COHERE_API_KEY`                                                | Opcional               | Credencial Cohere para las funciones configuradas para usarla |
 | `TAVILY_API_KEY`                                                | Opcional               | búsqueda web                                                        |
 | `STORAGE_MODE`                                                  | No (por defecto `lite`) | `lite` o `complete` — ver [Almacenamiento](../../concepts/storage)  |
 | `POSTGRES_DSN`                                                  | Solo en `complete`     | ej. `postgresql+asyncpg://user:pass@host:5432/vectora`             |

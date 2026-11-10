@@ -1,9 +1,9 @@
 ---
-title: Novidades da linha 0.3
+title: Novidades da versão 0.1.23
 weight: 1
 ---
 
-A linha `release/0.3` amplia o Vectora de um workspace com ferramentas para um runtime de agente com execuções identificáveis, evidências, planejamento, políticas e avaliação. Esta página descreve a composição da linha, incluindo o PR #404 empilhado sobre ela. A tag `0.3.0` ainda precisa ser publicada para que o conteúdo seja considerado uma release distribuída.
+A versão 0.1.23 reúne a evolução do Vectora de um workspace com ferramentas para um runtime de agente com execuções identificáveis, evidências, planejamento, políticas e avaliação. Esta página descreve as capacidades que compõem essa versão.
 
 ## O que há de novo
 
@@ -22,8 +22,6 @@ O Plan Mode pode decompor uma solicitação em etapas executáveis e dependênci
 Consulte [subagentes](../../concepts/sub-agents), [automação de agentes](../agent-automation) e [uso do chat](../using-the-chat). O guia [Plan Mode, AgentRun e decisões](../plan-mode-and-agentrun) detalha o Plan Mode, os estados do AgentRun e as decisões registradas.
 
 ### HITL e Decision Models configuráveis
-
-No PR #404, a aba **Configurações → Modelos de IA** reúne providers de IA e as superfícies que podem consultar Decision Models. O menu de Decision Model e o painel de HITL ficam acessíveis no chat. Clef, Laya, JEV ou outro provider compatível pode produzir uma decisão estruturada `allow`, `deny` ou `requires_human`.
 
 Para configurar:
 
@@ -60,5 +58,3 @@ Policy snapshots e verificações de egress aplicam regras aos caminhos de ferra
 - Para providers locais, confirme que o serviço e os pesos/modelos necessários estão disponíveis.
 - Identifique resultados `passed`, `failed` e `skipped` separadamente. Um teste `skipped` não valida o caminho live.
 - Não use replay como substituto de uma chamada real quando a integração live for o objetivo do teste.
-
-Os PRs [#382](https://github.com/vectora-ltda/vectora/pull/382), [#400](https://github.com/vectora-ltda/vectora/pull/400), [#404](https://github.com/vectora-ltda/vectora/pull/404), [#408](https://github.com/vectora-ltda/vectora/pull/408) e [#414](https://github.com/vectora-ltda/vectora/pull/414) documentam a composição e os complementos da linha. A tag e os artefatos publicados são a referência final para disponibilidade.

@@ -5,7 +5,7 @@ weight: 10
 
 Esta guía explica cómo Vectora controla el tráfico de salida del agente: la política de egress, que se aplica a las herramientas de red, y el aislamiento de red del sandbox, que se aplica a los comandos ejecutados en el worker.
 
-> **Estado:** estas capacidades forman parte de la línea 0.3. Esta página no declara concluidas las pruebas live que todavía aparecen como `skipped`.
+> **Estado:** estas capacidades están incluidas en la versión 0.1.23. Las pruebas live marcadas como `skipped` no demuestran el funcionamiento en un entorno real.
 
 ## Requisitos previos
 
@@ -20,10 +20,10 @@ El tráfico de salida se controla con dos capas independientes, cada una configu
 
 ### Dos capas
 
-| Capa | Dónde se aplica | Cómo se configura |
-| --- | --- | --- |
+| Capa               | Dónde se aplica                                                                                                                              | Cómo se configura                          |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
 | Política de egress | URLs iniciales de fetch, crawl y map y navegación del Browser Workbench; consulta abajo las exclusiones de redirecciones Chromium y búsqueda | Configuración de runtime (`egress_policy`) |
-| Red del sandbox | Comandos y archivos ejecutados en el worker aislado | Sección `[sandbox]` de `vectora.toml` |
+| Red del sandbox    | Comandos y archivos ejecutados en el worker aislado                                                                                          | Sección `[sandbox]` de `vectora.toml`      |
 
 La allowlist de servidores MCP y las preaprobaciones de herramientas no son políticas de egress. Controlan qué servidores y acciones se pueden usar, no hacia dónde va el tráfico.
 
@@ -31,13 +31,13 @@ La allowlist de servidores MCP y las preaprobaciones de herramientas no son pol�
 
 La política se lee de la configuración de runtime: `egress_policy:<workspace_id>` contiene directamente la política del workspace; como alternativa, `egress_policy` asocia IDs de workspace con objetos de política, por ejemplo `{"mi-workspace": {"allowed_hosts": ["example.com"]}}`. Para un workspace, un objeto único sin esa clave en `egress_policy` se ignora y se aplica la política predeterminada. No hay pantalla ni endpoint dedicado para editarla.
 
-| Campo | Por defecto | Efecto |
-| --- | --- | --- |
-| `block_private_ips` | `true` | Bloquea destinos que resuelven a IP privada, loopback o no pública |
-| `allowed_hosts` | vacío | Si se define, solo se permiten esos hosts |
-| `denied_hosts` | vacío | Hosts siempre bloqueados |
-| `allowed_ports` | `[80, 443]` | Puertos permitidos; una lista vacía no restringe puertos |
-| `allow_localhost_dev_ports` | vacío | Puertos de loopback permitidos por la capa de egress; `fetch_url` todavía rechaza loopback mediante su guard SSRF independiente |
+| Campo                       | Por defecto | Efecto                                                                                                                          |
+| --------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `block_private_ips`         | `true`      | Bloquea destinos que resuelven a IP privada, loopback o no pública                                                              |
+| `allowed_hosts`             | vacío       | Si se define, solo se permiten esos hosts                                                                                       |
+| `denied_hosts`              | vacío       | Hosts siempre bloqueados                                                                                                        |
+| `allowed_ports`             | `[80, 443]` | Puertos permitidos; una lista vacía no restringe puertos                                                                        |
+| `allow_localhost_dev_ports` | vacío       | Puertos de loopback permitidos por la capa de egress; `fetch_url` todavía rechaza loopback mediante su guard SSRF independiente |
 
 Cómo se evalúa la política:
 

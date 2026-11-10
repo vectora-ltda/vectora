@@ -443,7 +443,7 @@
             "type": "integer"
           },
           "cost_cents": {
-            "default": 0.0,
+            "default": 0,
             "title": "Cost Cents",
             "type": "number"
           },
@@ -609,7 +609,7 @@
           "byte_size": {
             "default": 0,
             "description": "Tamanho do payload em bytes.",
-            "minimum": 0.0,
+            "minimum": 0,
             "title": "Byte Size",
             "type": "integer"
           },
@@ -1138,7 +1138,7 @@
           "context_max_tokens": {
             "anyOf": [
               {
-                "minimum": 1.0,
+                "minimum": 1,
                 "type": "integer"
               },
               {
@@ -2768,8 +2768,8 @@
           "context_size": {
             "anyOf": [
               {
-                "maximum": 1000000.0,
-                "minimum": 1.0,
+                "maximum": 1000000,
+                "minimum": 1,
                 "type": "integer"
               },
               {
@@ -2804,8 +2804,8 @@
           "context_size": {
             "anyOf": [
               {
-                "maximum": 1000000.0,
-                "minimum": 1.0,
+                "maximum": 1000000,
+                "minimum": 1,
                 "type": "integer"
               },
               {
@@ -3579,8 +3579,8 @@
             "type": "string"
           },
           "progress": {
-            "maximum": 100.0,
-            "minimum": 0.0,
+            "maximum": 100,
+            "minimum": 0,
             "title": "Progress",
             "type": "integer"
           },
@@ -7019,7 +7019,7 @@
           "context_max_tokens": {
             "anyOf": [
               {
-                "minimum": 1.0,
+                "minimum": 1,
                 "type": "integer"
               },
               {
@@ -7726,7 +7726,7 @@
             "type": "array"
           },
           "total": {
-            "minimum": 0.0,
+            "minimum": 0,
             "title": "Total",
             "type": "integer"
           }
@@ -9545,8 +9545,8 @@
           "confidence_threshold_hitl": {
             "anyOf": [
               {
-                "maximum": 1.0,
-                "minimum": 0.0,
+                "maximum": 1,
+                "minimum": 0,
                 "type": "number"
               },
               {
@@ -9674,8 +9674,8 @@
           "risk_assessment_timeout_s": {
             "anyOf": [
               {
-                "exclusiveMinimum": 0.0,
-                "maximum": 120.0,
+                "exclusiveMinimum": 0,
+                "maximum": 120,
                 "type": "number"
               },
               {
@@ -10545,7 +10545,7 @@
   "info": {
     "description": "API de chat do Vectora — streaming via SSE, gerenciamento de threads, autodescoberta de ferramentas.",
     "title": "Vectora API",
-    "version": "0.3.0"
+    "version": "0.1.23"
   },
   "openapi": "3.1.0",
   "paths": {

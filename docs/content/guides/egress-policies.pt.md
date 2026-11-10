@@ -5,7 +5,7 @@ weight: 10
 
 Este guia explica como o Vectora controla o tráfego de saída do agente: a política de egress, que vale para as ferramentas de rede, e o isolamento de rede do sandbox, que vale para os comandos executados no worker.
 
-> **Status:** estas capacidades fazem parte da linha 0.3. Esta página não declara concluídos os testes live que ainda aparecem como `skipped`.
+> **Status:** estas capacidades estão incluídas na versão 0.1.23. Testes live marcados como `skipped` não comprovam funcionamento em ambiente real.
 
 ## Pré-requisitos
 
@@ -20,10 +20,10 @@ O tráfego de saída é controlado por duas camadas independentes, cada uma conf
 
 ### Duas camadas
 
-| Camada | Onde vale | Como se configura |
-| --- | --- | --- |
+| Camada             | Onde vale                                                                                                                    | Como se configura                          |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
 | Política de egress | URLs iniciais de fetch, crawl e map e navegação do Browser Workbench; veja abaixo as exclusões de redirects Chromium e busca | Configurações de runtime (`egress_policy`) |
-| Rede do sandbox | Comandos e arquivos executados no worker jailado | Seção `[sandbox]` do `vectora.toml` |
+| Rede do sandbox    | Comandos e arquivos executados no worker jailado                                                                             | Seção `[sandbox]` do `vectora.toml`        |
 
 A allowlist de servidores MCP e as pré-aprovações de ferramentas não são políticas de egress. Elas controlam quais servidores e ações podem ser usados, não para onde o tráfego vai.
 
@@ -31,13 +31,13 @@ A allowlist de servidores MCP e as pré-aprovações de ferramentas não são po
 
 A política é lida das configurações de runtime: `egress_policy:<workspace_id>` contém diretamente a política do workspace; alternativamente, `egress_policy` mapeia IDs de workspace para objetos de política, por exemplo `{"meu-workspace": {"allowed_hosts": ["example.com"]}}`. Para um workspace, um objeto único sem essa chave em `egress_policy` é ignorado e vale a política padrão. Não há tela nem endpoint dedicado para editá-la.
 
-| Campo | Padrão | Efeito |
-| --- | --- | --- |
-| `block_private_ips` | `true` | Bloqueia destinos que resolvem para IP privado, loopback ou não público |
-| `allowed_hosts` | vazio | Se preenchido, só esses hosts são permitidos |
-| `denied_hosts` | vazio | Hosts sempre bloqueados |
-| `allowed_ports` | `[80, 443]` | Portas permitidas; lista vazia não restringe porta |
-| `allow_localhost_dev_ports` | vazio | Portas de loopback permitidas pela camada de egress; `fetch_url` ainda recusa loopback pelo seu guard SSRF independente |
+| Campo                       | Padrão      | Efeito                                                                                                                  |
+| --------------------------- | ----------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `block_private_ips`         | `true`      | Bloqueia destinos que resolvem para IP privado, loopback ou não público                                                 |
+| `allowed_hosts`             | vazio       | Se preenchido, só esses hosts são permitidos                                                                            |
+| `denied_hosts`              | vazio       | Hosts sempre bloqueados                                                                                                 |
+| `allowed_ports`             | `[80, 443]` | Portas permitidas; lista vazia não restringe porta                                                                      |
+| `allow_localhost_dev_ports` | vazio       | Portas de loopback permitidas pela camada de egress; `fetch_url` ainda recusa loopback pelo seu guard SSRF independente |
 
 Como a política é avaliada:
 

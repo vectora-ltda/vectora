@@ -39,16 +39,9 @@ Las sobreescrituras por usuario (ej.: una API key distinta para un miembro del e
 
 Controlado por `STORAGE_MODE` (`lite` por defecto). Consulta la guía dedicada en [Almacenamiento: lite vs. completo](../../concepts/storage) para saber cuándo tiene sentido cada uno — resumen rápido: **lite** (SQLite + LanceDB) no requiere infra y maneja escala real; **completo** (Postgres + Qdrant + Redis) es cuestión de durabilidad/infra gestionada, no una barrera de rendimiento. Sin importar el modo, usuarios/auth/config siempre quedan en SQLite.
 
-## Las tres pantallas de configuración
+## Categorías de configuración
 
-Todo lo que configuras a través de la UI vive en tres diálogos — detallados en [Usando la configuración](../../guides/using-settings):
-
-| Diálogo             | Qué configura                                                    |
-| -------------------- | ------------------------------------------------------------------ |
-| **Preferencias**     | Tema, idioma, memorias, cuenta                                    |
-| **Entorno**          | Variables de entorno, skills, plugins MCP, integraciones OAuth    |
-| **Administración**   | Usuarios, invitaciones, herramientas globales, carpetas seguras, configuración del servidor |
-
+La configuración se organiza por alcance y capacidad. **Preferencias** contiene opciones personales; **Entorno** contiene proveedores de IA, enrutamiento, variables, skills, plugins MCP e integraciones; **Administración** contiene controles de la instancia. La disponibilidad depende del rol del usuario. Consulta [Usando la configuración](../../guides/using-settings) para más detalles.
 ## Siguiente paso
 
 → [Primer workspace](../first-workspace)

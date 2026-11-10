@@ -39,15 +39,15 @@ The "thinking" block shows the orchestrator's decision before acting: answer dir
 
 ## Memory across sessions
 
-A "🧠 N memories loaded" badge appears when the agent uses persistent memories from previous conversations in that response. Manage memories manually in **Settings → Preferences → Memory**.
+A "🧠 N memories loaded" badge appears when the agent uses persistent memories from previous conversations in that response. Manage persistent facts in **Settings → Preferences → Memory**; the workbench Memory tab shows retrieval activity and context used.
 
 ## RAG citations
 
 Answers based on indexed content bring clickable `[1] [2]` citations — click to see the original excerpt and source.
 
-## Multi-user (Pro)
+## Multi-user access
 
-In Pro mode with multi-user web chat, threads can be shared between members of the same workspace, with RBAC controlling who sees what.
+Multi-user access depends on server configuration and connected services. See the [authentication](../../security/authentication) guide.
 
 ## See also
 

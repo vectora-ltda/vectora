@@ -3,12 +3,17 @@ title: Changelog
 weight: 9
 ---
 
-Public changelog of Vectora releases. Each entry follows the [Keep a Changelog](https://keepachangelog.com/) format.
+This changelog summarizes changes available in Vectora. The latest published version is **0.1.23**, released on November 10, 2026. See the [complete changelog](https://github.com/vectora-ltda/vectora/blob/master/CHANGELOG.md) and [releases](https://github.com/vectora-ltda/vectora/releases) for the full history and published downloads.
 
-## Unreleased
+## 0.1.23 — November 10, 2026
 
-This product is in active pre-launch development — the first public release hasn't shipped yet. Follow the [public roadmap](https://vectora.company/roadmap) to see what's in progress.
+### Highlights
 
----
+- Adaptive interface with sessions, chat, and workbenches reorganized for different window sizes.
+- Agent runs with persistent history, conversation branches, multimodal attachments, and Git operations in the workspace.
+- Structured HITL approvals, planning mode, and configurable decision models.
+- Browser profiles with isolation, Context Graph, and improvements to project search and memory.
+- Audio transcription, spoken responses, local backups, and application updates.
+- AGPL-3.0 licensing, contribution guidance, and release automation and security checks for the public repository.
 
-Once v1.0 is published, this file will list each release with its date, new features, fixes, and breaking changes.
+See [installation](../getting-started/installation), the [quick start](../getting-started/quick-start), and the [complete technical changelog](https://github.com/vectora-ltda/vectora/blob/master/CHANGELOG.md). Check the release notes to confirm which artifacts are available for each platform.

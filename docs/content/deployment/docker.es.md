@@ -11,7 +11,7 @@ Vectora **no se ejecuta como contenedor** — el backend corre en el host (binar
 vectora config docker up
 ```
 
-O, desde el código fuente (raíz del monorepo):
+O, desde el código fuente (raíz del repositório):
 
 ```bash
 scons docker

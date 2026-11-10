@@ -1,24 +1,14 @@
 ---
-title: Updates
+title: Actualizaciones
 weight: 5
 ---
 
-## Cómo funciona hoy
+## Aplicación de escritorio
 
-La app de escritorio usa `electron-updater`, verificando nuevas versiones contra el worker `services.vectora.company` (`GET /updates/:channel/:os/:arch/latest.yml`). Descargar e instalar la actualización ocurre automáticamente en segundo plano.
+Vectora Desktop busca actualizaciones en el canal configurado para la instalación. Cuando hay una versión disponible, la aplicación muestra su estado y las notas de release, crea una copia rotativa de los datos locales y descarga el paquete sin instalarlo de inmediato. La instalación se aplica al salir de la aplicación. El usuario puede controlar las comprobaciones automáticas en preferencias e iniciar una comprobación manual.
 
-## Cuarentena de versiones
+El comportamiento puede depender del sistema operativo, el formato instalado y el canal publicado. Consulta las [releases de GitHub](https://github.com/vectora-ltda/vectora/releases) para ver las versiones y artefactos disponibles.
 
-Si una versión nueva muestra una tasa de crashes por encima de un umbral en una ventana corta (vía telemetría de actualización), el worker mueve esa versión a una lista de cuarentena y empieza a servir `previous_stable` de nuevo para las nuevas verificaciones — esto no deshace instalaciones ya hechas, pero contiene el radio de impacto para quien todavía no actualizó.
+## Ejecuciones desde el código fuente
 
-## Canal de actualización
-
-Los binarios y el manifiesto (`latest.yml`, el estándar de `electron-updater`) viven en R2, servidos por las rutas `/updates/*` y `/download/*` del worker — el mismo worker que cubre auth/facturación/licencia de la empresa.
-
-## Roadmap: changelog + aprobación manual + rollback
-
-Un flujo más explícito (ver el changelog antes de descargar, aprobar manualmente la instalación, backup automático antes de aplicar, rollback real a una versión anterior) está diseñado pero **aún no implementado** — el comportamiento actual es auto-actualización sin changelog visible y sin aprobación manual. Esto es roadmap, no una función disponible hoy.
-
-## Cuando desarrollas desde el código fuente
-
-Ejecutando vía `uv run vectora start`, no hay auto-actualización — actualizas con `git pull` + `uv sync` como de costumbre.
+Una instancia iniciada con `uv run vectora start` no usa el actualizador de Electron. Actualiza el checkout y las dependencias mediante el flujo de desarrollo de [Instalación](../../getting-started/installation).

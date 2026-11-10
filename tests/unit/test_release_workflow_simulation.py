@@ -44,7 +44,7 @@ NOISE = [
     "gha-bot-cli/_internal/docx/templates/default-docx-template/[Content_Types].xml",
 ]
 CHANGELOG = (
-    "# Changelog\n\n## [0.3.0] (2026-11-04)\n\n### Features\n\n- feat: algo (#1)\n"
+    "# Changelog\n\n## [0.3.0] (2026-11-10)\n\n### Features\n\n- feat: algo (#1)\n"
 )
 
 

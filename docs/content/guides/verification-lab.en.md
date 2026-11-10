@@ -5,7 +5,7 @@ weight: 9
 
 This guide shows how to configure the quality gates that check a run's result and how to use the Evaluation Lab to record, replay, and compare runs.
 
-> **Status:** these capabilities are part of the 0.3 line. This page does not claim that live tests still marked as `skipped` are complete.
+> **Status:** these capabilities are included in version 0.1.23. Live tests marked `skipped` do not prove behavior in a real environment.
 
 ## Prerequisites
 
@@ -27,22 +27,22 @@ Without a saved profile, the workspace uses an active default profile with no ga
 
 #### Profile fields
 
-| Field | Description |
-| --- | --- |
-| `enabled` | Turns automatic verification on or off |
-| `gates` | List of gates (see below) |
-| `require_clean_git` | Requires a clean working tree after the run |
+| Field                           | Description                                                            |
+| ------------------------------- | ---------------------------------------------------------------------- |
+| `enabled`                       | Turns automatic verification on or off                                 |
+| `gates`                         | List of gates (see below)                                              |
+| `require_clean_git`             | Requires a clean working tree after the run                            |
 | `inject_stack_trace_on_failure` | Feeds the error output back into the next turn so the agent can fix it |
 
 Each gate has:
 
-| Field | Description |
-| --- | --- |
-| `id`, `name` | Identifier and display name |
-| `command` | Command and arguments, as a list (cannot be empty) |
-| `policy` | `block` (fails the run), `degrade` (marks it degraded), or `inform` (warns only); default `block` |
-| `file_patterns` | Glob patterns of the files that trigger the gate |
-| `timeout_seconds` | Maximum time, from 5 to 3600 seconds; default 300 |
+| Field             | Description                                                                                       |
+| ----------------- | ------------------------------------------------------------------------------------------------- |
+| `id`, `name`      | Identifier and display name                                                                       |
+| `command`         | Command and arguments, as a list (cannot be empty)                                                |
+| `policy`          | `block` (fails the run), `degrade` (marks it degraded), or `inform` (warns only); default `block` |
+| `file_patterns`   | Glob patterns of the files that trigger the gate                                                  |
+| `timeout_seconds` | Maximum time, from 5 to 3600 seconds; default 300                                                 |
 
 Example:
 

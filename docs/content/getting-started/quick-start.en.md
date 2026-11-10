@@ -1,52 +1,39 @@
 ---
-title: Quick Start
+title: Quick start
 weight: 3
 ---
 
-This guide gets you from zero to the agent's first response in a few minutes.
+This guide covers first use after installation. To build the project, see [Installation](../installation).
 
-## 1. Start Vectora
+## 1. Start Vectora and configure a model
 
-After [installing](../installation), open the app (or `uv run vectora start --port 8080` + `pnpm --dir frontend dev` in dev mode). The first visit asks you to sign up — the first user to sign up becomes the instance's **root administrator**.
+Open the app. On a new local instance, create the initial account and follow the setup flow. Then open **Settings → AI Models** to choose default models and configure the providers you need. Use **Provider Routing** for endpoints and routing.
 
-## 2. Configure an LLM provider
+Configure only the capabilities you intend to use. A remote provider may receive the requests and data required for a task; local models must be installed and running in the backend environment. See [Settings](../../guides/using-settings) and [BYOK and privacy](../../security/byok-privacy).
 
-Open **Settings → Preferences → General** and pick a provider (Google Gemini, OpenAI, Anthropic, Cohere, or local Ollama). Without an API key configured for any provider, the chat's model selector stays empty.
+## 2. Open a workspace
 
-If you'd rather configure via environment variable instead of the UI, edit `.env` (dev) or `~/.vectora/.env` (native install):
+Use the workspace selector to add your project folder. A workspace is the context boundary for files, terminal, Git, search, and agent tools.
 
-```env
-LLM_PROVIDER=google-genai
-GOOGLE_API_KEY=your_key_here
-COHERE_API_KEY=your_key_here   # required for RAG
-```
+A new workspace starts untrusted. Read the warning and trust it only if you know its origin and accept that the agent may perform operations allowed by your configuration. See [First workspace](../first-workspace).
 
-## 3. Create your first workspace
+## 3. Try a small request
 
-A workspace is a folder on your filesystem that Vectora can read (and, if you trust it, edit and run commands in). In chat, use the workspace selector at the top to point to a project directory.
-
-The first time you open an untrusted folder, Vectora asks for explicit confirmation ("Trust this folder") before unlocking write access and the terminal — see [First workspace](../first-workspace).
-
-## 4. Send your first message
-
-Try something concrete, not generic:
+Start with a question whose answer you can verify:
 
 ```text
-Explain this project's architecture by reading package.json / pyproject.toml
+Summarize this project's structure and point to the files you used as evidence.
 ```
 
-```text
-Run the tests and tell me what's failing
-```
+Then try a small change on a working branch. The agent may use tools or delegate tasks; permissions, policies, and HITL gates determine whether an action needs confirmation.
 
-The orchestrator decides on its own whether to answer directly or delegate to the `coder` subagent (files/git/terminal) or `search` (web search/RAG). Potentially destructive actions (writing a file, running a command, `git push`) pause for your approval — the HITL (human-in-the-loop) mode.
+## 4. Explore project retrieval
 
-## 5. Index knowledge for RAG (optional, but recommended)
-
-Drag a documentation folder into the chat, or use the **Memory (RAG)** panel in the workbench to index files manually. After that, questions about that content come back with `[1] [2]` citations traceable to the source.
+Open the workbench's **Memory** tab to inspect the knowledge base and retrieved results. Indexing depends on accepted files and configured providers; verify the result before assuming an entire folder was indexed. [RAG and Context Graph](../../concepts/rag) explains context sources and limits.
 
 ## Next steps
 
-- [Using the chat](../../guides/using-the-chat) — modes, model selector, permission modes
-- [Using the workbench](../../guides/using-the-workbench) — the workbench's 9 tabs
-- [Concepts: RAG & Context Graph](../../concepts/rag) — how context retrieval works under the hood
+- [Using the chat](../../guides/using-the-chat)
+- [Using settings](../../guides/using-settings)
+- [Decision Models](../../guides/decision-models)
+- [Troubleshooting](../troubleshooting)

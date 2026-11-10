@@ -3,22 +3,24 @@ title: BYOK & Privacy
 weight: 4
 ---
 
-## What "self-hosted" actually guarantees
+## What self-hosted means
 
-Your data never passes through a Vectora Company intermediary server. The agent connects **directly** to the APIs you configured (Gemini, OpenAI, Anthropic, Cohere, Tavily) and to the MCP servers you installed. Vectora Company never sees the content of your conversations, your code, or your files.
+Vectora's backend and local data live on the machine or infrastructure you operate. This does not mean all processing happens offline or that no data leaves that infrastructure. When you use an external model or integration, Vectora sends that service the data needed for the requested operation — for example, your message and selected context for an LLM call.
 
-## What this does not mean
-
-Self-hosted **is not** end-to-end encryption in the classic SaaS sense. The server running Vectora (your server) needs to see the content in the clear to call the LLM and index it for RAG — there's no way to process homomorphically encrypted content with LLMs today. If you access your own Vectora on a VPS from home, data is protected by TLS in transit, strong password hashing, signed JWTs, an AES-256 vault for secrets — but there's **no** encryption such that you yourself (the VPS operator) can't read your own conversations. That's not the threat model.
+Vectora may also communicate with auxiliary services for features such as authentication, licensing, updates, and integrations you enable. Check your instance settings, active endpoints, and the policies of the services you choose. Do not send confidential data to an external provider unless you are authorized to do so.
 
 ## BYOK (Bring Your Own Key)
 
-Free and Pro work with your own API keys — LLM, Cohere/VoyageAI (embeddings), Tavily (web search). Vectora never sees or stores those keys in plain text (they live in the [vault](../secrets-vault)); the API call happens directly from your server to the chosen provider.
+You configure the providers and credentials you want to use. The local backend stores keys according to the installation's secrets mechanism; this does not prevent a provider from receiving a request when you select it. Provider terms govern costs, retention, training, and data use. Local models can reduce third-party transmission, but network-dependent features such as web search and remote MCP integrations still send the data they need.
 
-## LGPD/GDPR
+## Protecting stored data
 
-Responsibility for handling data sent to LLM/embedding providers is between **you** (the operator) and **each connected provider** — Vectora isn't part of that data relationship. Vectora Company's Terms of Use describe exactly what travels through each integration.
+Vectora stores sessions, settings, and indexes on infrastructure you administer. The operator of that machine can access local data. Protect the operating system, backups, volumes, and credentials; self-hosting is not end-to-end encryption and does not protect data from the server administrator.
 
-## Auditing
+## GDPR and data protection
 
-Pro+ customers receive the compiled binary and complete architecture documentation. Source code auditing under NDA is available for Enterprise customers.
+Instance operators should assess their legal basis and each provider's or integration's policies before sending personal data. Vectora does not replace that assessment or the operator's obligations.
+
+## Report a vulnerability
+
+Use the channel in the [security policy](https://github.com/vectora-ltda/vectora/blob/master/SECURITY.md); do not publish exploitable details in a public issue.

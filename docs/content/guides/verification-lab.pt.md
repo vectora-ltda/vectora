@@ -5,7 +5,7 @@ weight: 9
 
 Este guia mostra como configurar os quality gates que verificam o resultado de uma execução e como usar o Evaluation Lab para gravar, reproduzir e comparar execuções.
 
-> **Status:** estas capacidades fazem parte da linha 0.3. Esta página não declara concluídos os testes live que ainda aparecem como `skipped`.
+> **Status:** estas capacidades estão incluídas na versão 0.1.23. Testes live marcados como `skipped` não comprovam funcionamento em ambiente real.
 
 ## Pré-requisitos
 
@@ -27,22 +27,22 @@ Sem perfil salvo, o workspace usa um perfil padrão ativo e sem gates: nenhuma v
 
 #### Campos do perfil
 
-| Campo | Descrição |
-| --- | --- |
-| `enabled` | Liga ou desliga a verificação automática |
-| `gates` | Lista de gates (veja abaixo) |
-| `require_clean_git` | Exige árvore de trabalho limpa depois da execução |
+| Campo                           | Descrição                                                        |
+| ------------------------------- | ---------------------------------------------------------------- |
+| `enabled`                       | Liga ou desliga a verificação automática                         |
+| `gates`                         | Lista de gates (veja abaixo)                                     |
+| `require_clean_git`             | Exige árvore de trabalho limpa depois da execução                |
 | `inject_stack_trace_on_failure` | Reinjeta a saída de erro no próximo turno para o agente corrigir |
 
 Cada gate tem:
 
-| Campo | Descrição |
-| --- | --- |
-| `id`, `name` | Identificador e nome exibido |
-| `command` | Comando e argumentos, como lista (não pode ser vazio) |
-| `policy` | `block` (falha o run), `degrade` (marca como degradado) ou `inform` (só avisa); padrão `block` |
-| `file_patterns` | Padrões glob dos arquivos que ativam o gate |
-| `timeout_seconds` | Tempo máximo, de 5 a 3600 segundos; padrão 300 |
+| Campo             | Descrição                                                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------- |
+| `id`, `name`      | Identificador e nome exibido                                                                   |
+| `command`         | Comando e argumentos, como lista (não pode ser vazio)                                          |
+| `policy`          | `block` (falha o run), `degrade` (marca como degradado) ou `inform` (só avisa); padrão `block` |
+| `file_patterns`   | Padrões glob dos arquivos que ativam o gate                                                    |
+| `timeout_seconds` | Tempo máximo, de 5 a 3600 segundos; padrão 300                                                 |
 
 Exemplo:
 

@@ -5,7 +5,7 @@ weight: 8
 
 Uma tarefa em segundo plano com gatilho `webhook` transforma um evento externo numa execução do agente: um provider (GitHub, GitLab, Slack, Linear, email, ou sua própria ferramenta de alerta via o [endpoint de observabilidade](../observability-webhooks)) posta pra Vectora e, se existir uma tarefa casando com o evento, o agente acorda com o payload desse evento embutido na instrução. Esta página é a referência dos três modelos concretos que o Vectora já entrega hoje, em ordem crescente do que o agente de fato faz com o evento.
 
-Essa capacidade exige o plano **Pro** (automação de chat disparada de fora do produto) — veja os [preços](https://vectora.chat/pricing).
+Essa capacidade exige uma assinatura **Pro** (automação de chat disparada de fora do produto) — veja as [assinaturas e os preços](https://vectora.company/#pricing).
 
 ## Como a ponte funciona
 

@@ -11,7 +11,7 @@ A workbench é o painel lateral do chat — uma faixa estreita de ícones sempre
 - Clique num ícone da faixa lateral pra abrir aquela aba; clicar na aba já ativa colapsa o painel.
 - Botão **X** no cabeçalho do painel fecha a aba atual.
 
-## As 9 abas
+## Abas da workbench
 
 ### Terminal
 
@@ -48,6 +48,10 @@ Rotinas em segundo plano da sessão: tarefas agendadas (cron) ou disparadas por 
 ### Search
 
 Busca em todos os arquivos do workspace. Prefixo `r:` ativa modo regex (ex: `r:function\s+\w+`). Resultados agrupados por arquivo, com preview de linha — clique abre o arquivo na posição exata.
+
+### Library
+
+Gerencia skills, plugins MCP e Memory Buckets instalados para o usuário. A disponibilidade de cada integração depende da configuração.
 
 ### Context Graph
 

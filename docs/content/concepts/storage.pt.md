@@ -14,7 +14,7 @@ Vectora tem dois modos de storage, controlados pela variável `STORAGE_MODE`. A 
 | BaseStore (memória longo prazo) | SQLite                             | Qdrant/Postgres                     |
 | Cache / KV                      | —                                  | Redis                               |
 | Infraestrutura externa          | nenhuma                            | Postgres + Qdrant + Redis           |
-| Licença                         | Free ou Pro                        | Requer Pro                          |
+| Assinatura                      | Free ou Pro                        | Requer assinatura Pro               |
 
 ## Regra que nunca muda: identidade fica em SQLite
 
@@ -24,7 +24,7 @@ Independente do `STORAGE_MODE`, **usuários, sessões, auditoria e configuraçõ
 
 Não existe um limite técnico documentado que force a migração pra complete. LanceDB é local (memory-mapped, sem servidor) e SQLite roda em modo WAL (leitores concorrentes não bloqueiam o escritor). Use lite quando:
 
-- Você é um usuário único ou um time pequeno.
+- Você usa o Vectora localmente como usuário individual.
 - Você quer **zero infraestrutura** — sem Docker, sem serviços externos, sem outra coisa pra manter no ar além do próprio Vectora.
 - Você não precisa de replicação/backup gerenciado por um serviço de banco de dados terceirizado.
 
@@ -35,7 +35,7 @@ Não é sobre "aguentar mais usuários" — é sobre **durabilidade e infraestru
 - Você já opera Postgres/Redis/Qdrant na sua empresa e quer consolidar backup, monitoramento e alta disponibilidade num único lugar.
 - Você quer busca vetorial híbrida (denso + esparso) nativa do Qdrant, em vez do LanceDB local.
 - Você quer cache distribuído (Redis) compartilhado entre múltiplas instâncias do Vectora atrás de um load balancer.
-- É requisito do seu plano Pro/Enterprise ou de uma política de compliance interna.
+- Você tem uma assinatura Pro ativa e precisa dessa topologia por exigência de infraestrutura ou de uma política de compliance interna. Hospedar os bancos por conta própria não substitui a assinatura.
 
 ## Como ativar
 
@@ -55,7 +55,7 @@ QDRANT_API_KEY=...
 REDIS_URL=redis://user:pass@host:6379/0
 ```
 
-Localmente, `scons docker` (a partir da raiz do monorepo, se você roda a partir do código-fonte) sobe os três serviços via Docker Compose pra testar o modo complete sem precisar de um provedor gerenciado.
+Localmente, `scons docker` (a partir da raiz do repositório, se você roda a partir do código-fonte) sobe os três serviços via Docker Compose pra testar o modo complete sem precisar de um provedor gerenciado.
 
 ## Migrando dados entre os modos
 

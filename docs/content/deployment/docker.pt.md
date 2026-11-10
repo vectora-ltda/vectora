@@ -11,7 +11,7 @@ O Vectora **não roda como container** — o backend roda no host (binário nati
 vectora config docker up
 ```
 
-Ou, a partir do código-fonte (raiz do monorepo):
+Ou, a partir do código-fonte (raiz do repositório):
 
 ```bash
 scons docker

@@ -11,7 +11,7 @@ The workbench is the chat's side panel — a thin, always-visible strip of icons
 - Click an icon in the side strip to open that tab; clicking the already-active tab collapses the panel.
 - The **X** button in the panel header closes the current tab.
 
-## The 10 tabs
+## Workbench tabs
 
 ### Terminal
 
@@ -48,6 +48,10 @@ Background routines for the session: scheduled tasks (cron) or webhook-triggered
 ### Search
 
 Search across all workspace files. The `r:` prefix enables regex mode (e.g., `r:function\s+\w+`). Results grouped by file, with a line preview — click opens the file at the exact position.
+
+### Library
+
+Manage user-installed skills, MCP plugins, and Memory Buckets. Each integration depends on its configuration.
 
 ### Context Graph
 
