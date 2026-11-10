@@ -170,7 +170,6 @@ if [[ "$MODE" != check ]]; then
   . "$NVM_DIR/nvm.sh"
   NODE_MAJOR=$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || printf 0)
   if [[ "$NODE_MAJOR" != 26 ]]; then nvm install 26; fi
-  nvm alias default 26 >/dev/null
   nvm use 26 >/dev/null
   set -u
 
@@ -188,7 +187,7 @@ if [[ "$MODE" != check ]]; then
   eval "$(pyenv init - bash)"
   PYTHON_VERSION=$(cat "$ROOT_DIR/.python-version")
   if ! pyenv versions --bare | grep -Fxq "$PYTHON_VERSION"; then pyenv install "$PYTHON_VERSION"; fi
-  pyenv global "$PYTHON_VERSION"
+  export PYENV_VERSION="$PYTHON_VERSION"
 
   if ! command_exists uv; then curl -LsSf https://astral.sh/uv/install.sh | sh; fi
   export PATH="$HOME/.local/bin:$PATH"
@@ -226,7 +225,6 @@ if [[ "$MODE" != check ]]; then
   fi
   export PATH="$HOME/.cargo/bin:$PATH"
   rustup toolchain install stable --profile default
-  rustup default stable
   rustup component add rustfmt clippy rust-analyzer rust-src --toolchain stable
   mkdir -p "$HOME/.local/bin"
   if ! command_exists gitleaks; then GOBIN="$HOME/.local/bin" go install github.com/zricethezav/gitleaks/v8@latest; fi
