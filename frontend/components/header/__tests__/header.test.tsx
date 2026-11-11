@@ -84,6 +84,21 @@ describe("Header — navegação compacta", () => {
     expect(onToggleWorkbench).toHaveBeenCalledOnce();
   });
 
+  it("mantém o acesso às sessões quando o modo não oferece workbench no Header", () => {
+    const onOpenSessions = vi.fn();
+    render(<Header compactNavigation={{ onOpenSessions }} />);
+
+    screen.getByRole("button", { name: m.mobile_open_sessions() }).click();
+
+    expect(onOpenSessions).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole("button", { name: m.mobile_show_workbench() }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: m.mobile_show_chat() }),
+    ).not.toBeInTheDocument();
+  });
+
   it("não mostra os controles compactos no layout largo", () => {
     render(<Header />);
     expect(

@@ -97,14 +97,29 @@ vi.mock("@/components/layout/ide-mode-layout", () => ({
     workbenchContent,
     editor,
     chat,
+    layoutState,
+    workbenchOpen,
+    onOpenWorkbench,
   }: {
     header: ReactNode;
     navBar: ReactNode;
     workbenchContent: ReactNode;
     editor: ReactNode;
     chat: ReactNode;
+    layoutState?: "wide" | "mobile";
+    workbenchOpen?: boolean;
+    onOpenWorkbench?: () => void;
   }) => (
     <div data-testid="ide-layout">
+      {layoutState === "mobile" && (
+        <button
+          type="button"
+          data-testid="ide-mobile-tab-workbench"
+          onClick={onOpenWorkbench}
+        >
+          {workbenchOpen ? "Workbench aberta" : "Abrir Workbench"}
+        </button>
+      )}
       <div data-testid="slot-center">
         {header}
         <div data-testid="slot-navbar">{navBar}</div>
@@ -321,6 +336,35 @@ describe("SessionPage — chat compacto no IDE", () => {
     render(<SessionPage />);
     expect(screen.getByTestId("chat")).toHaveAttribute("data-compact", "false");
     expect(screen.queryByTestId("session-switcher")).not.toBeInTheDocument();
+  });
+});
+
+describe("SessionPage — workbench do IDE compacto", () => {
+  it("reabre a workbench fechada ao selecionar a aba em uma janela de 818px", async () => {
+    setMode("ide");
+    useWorkbenchStore.setState({ panelOpen: { t1: false } });
+    Object.defineProperty(window, "outerWidth", {
+      configurable: true,
+      value: 818,
+    });
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 818,
+    });
+
+    render(<SessionPage />);
+
+    const workbenchTab = await screen.findByTestId("ide-mobile-tab-workbench");
+    expect(workbenchTab).toHaveTextContent("Abrir Workbench");
+
+    act(() => workbenchTab.click());
+
+    await waitFor(() =>
+      expect(useWorkbenchStore.getState().isOpen("t1")).toBe(true),
+    );
+    expect(screen.getByTestId("ide-mobile-tab-workbench")).toHaveTextContent(
+      "Workbench aberta",
+    );
   });
 });
 
