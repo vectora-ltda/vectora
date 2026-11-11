@@ -590,16 +590,20 @@ def test_native_release_uses_supported_python_architectures_for_backend_deps() -
 
 def test_linux_release_installs_native_package_build_tools() -> None:
     content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
+    snapcraft_setup = (
+        WORKFLOW.parent.parent / "scripts" / "setup-snapcraft-container.sh"
+    ).read_text(encoding="utf-8")
 
     assert "libarchive-tools" in content
-    assert '"$RUNNER_TEMP/snapcraft-compat"' in content
-    assert '"${1:-}" == "snap"' in content
+    assert "bash .github/scripts/setup-snapcraft-container.sh" in content
+    assert "ghcr.io/canonical/snapcraft:8_core22" in snapcraft_setup
+    assert '"${args[0]:-}" == "snap"' in snapcraft_setup
     assert "os: ubuntu-22.04" in content
     assert "os: ubuntu-22.04-arm" in content
     assert "sudo snap install lxd" not in content
     assert "sudo lxd init --auto" not in content
-    assert 'exec sudo /snap/bin/snapcraft pack --destructive-mode "$@"' in content
-    assert "/snap/bin/snapcraft pack" in content
+    assert "sudo snap install snapcraft" not in content
+    assert "snapd" not in content
 
 
 def test_linux_release_validates_and_uploads_electron_builder_artifact_names() -> None:
