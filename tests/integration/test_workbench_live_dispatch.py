@@ -35,7 +35,7 @@ async def test_agent_dispatches_public_github_without_token(
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("GH_TOKEN", raising=False)
     result = await _spec("github_fetch_pr_diff").ainvoke(
-        {"owner": "vectora-ltda", "repo": "vectora", "pr_number": 319},
+        {"owner": "vectora-company", "repo": "vectora", "pr_number": 319},
         ToolContext(user_id="live-anonymous"),
     )
     payload = json.loads(result)
@@ -56,7 +56,7 @@ async def test_agent_dispatches_authenticated_github_with_token() -> None:
     if not token:
         pytest.fail("teste autenticado exige VECTORA_LIVE_GITHUB_TOKEN ou GITHUB_TOKEN")
     result = await _spec("github_fetch_pr_diff").ainvoke(
-        {"owner": "vectora-ltda", "repo": "vectora", "pr_number": 319},
+        {"owner": "vectora-company", "repo": "vectora", "pr_number": 319},
         ToolContext(
             user_id="live-authenticated",
             _extra={"allow_global_credentials": True},
@@ -87,7 +87,7 @@ async def test_agent_dispatches_public_web_fetch_without_token(
     """A rota web também é invocada pelo schema nativo, sem mock HTTP."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     result = await _spec("fetch_url").ainvoke(
-        {"url": "https://github.com/vectora-ltda/review-action"},
+        {"url": "https://github.com/vectora-company/review-action"},
         ToolContext(user_id="live-anonymous"),
     )
     assert not result.startswith("Error:")

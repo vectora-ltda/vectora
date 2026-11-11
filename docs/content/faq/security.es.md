@@ -16,4 +16,4 @@ El contenido de archivos, páginas y resultados de herramientas se trata como en
 Sí. Configura el modo HITL, las políticas de herramientas, la confianza del workspace y los controles del sandbox. La disponibilidad de cada protección depende de la plataforma y la configuración. Consulta las guías de [seguridad](../../security/) y [workspaces](../../getting-started/first-workspace).
 
 **¿Dónde informo de una vulnerabilidad?**
-Sigue la [política de seguridad del repositorio](https://github.com/vectora-ltda/vectora/blob/master/SECURITY.md) en lugar de publicar detalles en una issue.
+Sigue la [política de seguridad del repositorio](https://github.com/vectora-company/vectora/blob/master/SECURITY.md) en lugar de publicar detalles en una issue.
