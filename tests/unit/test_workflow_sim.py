@@ -10,8 +10,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "utils"))
 
-import workflow_sim as sim  # noqa: E402
-from workflow_sim import Rule, Sandbox, UnsupportedExpression  # noqa: E402
+import workflow_sim as sim
+from workflow_sim import Rule, Sandbox, UnsupportedExpression
 
 
 def _workflow(tmp_path: Path, steps: str, job_env: str = "") -> Path:
