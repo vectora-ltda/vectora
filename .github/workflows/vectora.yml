@@ -559,7 +559,7 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ccache flatpak flatpak-builder fuse3 libarchive-tools snapd
-          sudo snap install snapcraft --classic
+          bash .github/scripts/install-snapcraft.sh
           # electron-builder still invokes `snapcraft snap`; current Snapcraft
           # releases renamed that subcommand to `pack`. Keep the .snap target
           # while adapting only this legacy invocation.

@@ -87,6 +87,7 @@ async def test_agent_dispatches_public_web_fetch_without_token(
     """A rota web também é invocada pelo schema nativo, sem mock HTTP."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     result = await _spec("fetch_url").ainvoke(
+        {"url": "https://example.com"},
         ToolContext(user_id="live-anonymous"),
     )
     assert not result.startswith("Error:")
