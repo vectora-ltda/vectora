@@ -13,9 +13,13 @@ import {
 describe("getSessionLayoutState", () => {
   it.each([
     [320, "compact"],
+    [390, "compact"],
     [639, "compact"],
-    [640, "wide"],
-    [767, "wide"],
+    [640, "compact"],
+    [767, "compact"],
+    [768, "compact"],
+    [899, "compact"],
+    [900, "wide"],
     [1023, "wide"],
     [1024, "wide"],
     [1440, "wide"],
@@ -109,10 +113,10 @@ describe("useSessionLayoutState", () => {
     const visualListener = vi.fn();
     let onWindowResize: (() => void) | undefined;
     let onVisualResize: (() => void) | undefined;
-    const viewport = { width: 800 };
+    const viewport = { width: 1024 };
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
-      value: 800,
+      value: 1024,
     });
     Object.defineProperty(window, "visualViewport", {
       configurable: true,
@@ -152,9 +156,9 @@ describe("useSessionLayoutState", () => {
 
       Object.defineProperty(window, "innerWidth", {
         configurable: true,
-        value: 500,
+        value: 768,
       });
-      viewport.width = 500;
+      viewport.width = 768;
       act(() => onVisualResize?.());
       expect(result.current).toBe("compact");
 

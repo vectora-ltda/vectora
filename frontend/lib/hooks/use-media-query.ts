@@ -50,11 +50,12 @@ export function getUnscaledViewportWidth(): number {
 /** Tailwind `sm` breakpoint: below 640px is the smartphone layout. */
 export const IDE_COMPACT_BREAKPOINT = 640;
 
-/** Session shell uses the compact layout only on smartphone-sized screens. */
+/** Tablet-sized session windows switch to one panel plus explicit controls. */
+export const SESSION_COMPACT_BREAKPOINT = 900;
 export type SessionLayoutState = "compact" | "wide";
 
 export function getSessionLayoutState(width: number): SessionLayoutState {
-  if (width < IDE_COMPACT_BREAKPOINT) return "compact";
+  if (width < SESSION_COMPACT_BREAKPOINT) return "compact";
   return "wide";
 }
 
