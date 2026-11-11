@@ -3,11 +3,21 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 INSTALLER = REPO_ROOT / ".github" / "scripts" / "install-snapcraft.sh"
+
+
+def _bash() -> str:
+    executable = shutil.which("bash") or os.getenv("WORKFLOW_SIM_BASH")
+    if not executable:
+        pytest.skip("bash é necessário para simular o script do workflow")
+    return executable
 
 
 def _fake_commands(tmp_path: Path, *, failures: int) -> tuple[Path, Path]:
@@ -32,8 +42,8 @@ def _fake_commands(tmp_path: Path, *, failures: int) -> tuple[Path, Path]:
 
 def test_retries_transient_snap_store_failure(tmp_path: Path) -> None:
     bin_dir, counter = _fake_commands(tmp_path, failures=2)
-    result = subprocess.run(
-        ["bash", str(INSTALLER)],
+    result = subprocess.run(  # noqa: S603 - executa script fixo do próprio repositório
+        [_bash(), str(INSTALLER)],
         cwd=REPO_ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
         capture_output=True,
@@ -48,8 +58,8 @@ def test_retries_transient_snap_store_failure(tmp_path: Path) -> None:
 
 def test_fails_after_three_snap_store_failures(tmp_path: Path) -> None:
     bin_dir, counter = _fake_commands(tmp_path, failures=3)
-    result = subprocess.run(
-        ["bash", str(INSTALLER)],
+    result = subprocess.run(  # noqa: S603 - executa script fixo do próprio repositório
+        [_bash(), str(INSTALLER)],
         cwd=REPO_ROOT,
         env={**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}"},
         capture_output=True,
