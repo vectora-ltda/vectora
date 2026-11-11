@@ -1038,6 +1038,28 @@ function SessionPage() {
     ],
   );
 
+  const assistantWorkbenchPanel = (
+    <div className="flex h-full min-w-0">
+      {assistantWorkbenchSide === "left" && (
+        <WorkbenchNavBar threadId={threadId} side={assistantWorkbenchSide} />
+      )}
+      <div className="min-w-0 flex-1">
+        <WorkbenchContent
+          threadId={threadId}
+          side={assistantWorkbenchSide}
+          visible
+          onOpenCommitDetails={openGitCommitDetails}
+          onOpenPlanDocument={openPlanDocument}
+          onAddToContext={pushMention}
+          onSendPrompt={pushDraft}
+        />
+      </div>
+      {assistantWorkbenchSide === "right" && (
+        <WorkbenchNavBar threadId={threadId} side={assistantWorkbenchSide} />
+      )}
+    </div>
+  );
+
   return (
     <div
       className="flex flex-col h-full overflow-hidden bg-background"
@@ -1280,32 +1302,18 @@ function SessionPage() {
                 left={showSidebarPanel ? sidebarPanel : null}
                 center={
                   <div className="flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden">
-                    {isCompactSession && assistantWorkbenchVisible ? (
-                      <div className="flex h-full min-w-0">
-                        {assistantWorkbenchSide === "left" && (
-                          <WorkbenchNavBar
-                            threadId={threadId}
-                            side={assistantWorkbenchSide}
-                          />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <WorkbenchContent
-                            threadId={threadId}
-                            side={assistantWorkbenchSide}
-                            visible
-                            onOpenCommitDetails={openGitCommitDetails}
-                            onOpenPlanDocument={openPlanDocument}
-                            onAddToContext={pushMention}
-                            onSendPrompt={pushDraft}
-                          />
+                    {isCompactSession ? (
+                      <>
+                        <div
+                          hidden={assistantWorkbenchVisible}
+                          className="flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden"
+                        >
+                          {renderChatPanel(false)}
                         </div>
-                        {assistantWorkbenchSide === "right" && (
-                          <WorkbenchNavBar
-                            threadId={threadId}
-                            side={assistantWorkbenchSide}
-                          />
-                        )}
-                      </div>
+                        {assistantWorkbenchVisible && assistantWorkbenchPanel}
+                      </>
+                    ) : assistantWorkbenchVisible ? (
+                      assistantWorkbenchPanel
                     ) : (
                       renderChatPanel(false)
                     )}
