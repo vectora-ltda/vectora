@@ -41,7 +41,7 @@ describe("MarkdownPreviewDialog", () => {
       <MarkdownPreviewDialog
         open={true}
         onOpenChange={vi.fn()}
-        filePath="docs/readme.md"
+        filePath="guides/readme.md"
         content="# Olá mundo"
       />,
     );
@@ -60,7 +60,7 @@ describe("MarkdownPreviewDialog", () => {
       <MarkdownPreviewDialog
         open={true}
         onOpenChange={vi.fn()}
-        filePath="docs/readme.md"
+        filePath="guides/readme.md"
       />,
     );
     await waitFor(() =>
@@ -68,7 +68,7 @@ describe("MarkdownPreviewDialog", () => {
         screen.getByRole("heading", { name: "Carregado do backend" }),
       ).toBeTruthy(),
     );
-    expect(fetchMock).toHaveBeenCalledWith("docs/readme.md");
+    expect(fetchMock).toHaveBeenCalledWith("guides/readme.md");
   });
 
   it("erro de fetch (rede indisponível) mostra o estado vazio em vez de travar ou lançar", async () => {
@@ -80,7 +80,7 @@ describe("MarkdownPreviewDialog", () => {
       <MarkdownPreviewDialog
         open={true}
         onOpenChange={vi.fn()}
-        filePath="docs/inexistente.md"
+        filePath="guides/inexistente.md"
       />,
     );
     await waitFor(() =>
@@ -94,11 +94,11 @@ describe("MarkdownPreviewDialog", () => {
       <MarkdownPreviewDialog
         open={true}
         onOpenChange={vi.fn()}
-        filePath="docs/readme.md"
+        filePath="guides/readme.md"
         content="conteúdo"
       />,
     );
-    expect(await screen.findByText("docs/readme.md")).toBeTruthy();
+    expect(await screen.findByText("guides/readme.md")).toBeTruthy();
   });
 
   it("clicar no botão de fechar do dialog propaga onOpenChange(false)", async () => {

@@ -18,7 +18,6 @@ exclude: |
     \.venv/.*|
     graphify.*|
     backend/services/context_graph/.*|
-    docs/_vendor/.*|
     # `\.mjs.*` (sem `.*` no início) só batia com caminho começando
     # literalmente em ".mjs" — nunca excluía nada de verdade. O prettier
     # vinha reformatando frontend/public/pdf.worker.min.mjs (vendor

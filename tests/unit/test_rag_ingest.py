@@ -54,7 +54,7 @@ def _make_tree(root: Path) -> None:
 
 class TestMatchesFileTypeCustomExtensions:
     def test_custom_extension_list_filters_to_only_that_extension(self) -> None:
-        assert rag_ingest._matches_file_type(Path("docs/class.xml"), ["xml"])
+        assert rag_ingest._matches_file_type(Path("guides/class.xml"), ["xml"])
         assert not rag_ingest._matches_file_type(Path("readme.md"), ["xml"])
 
     def test_custom_extension_ignores_leading_dot(self) -> None:

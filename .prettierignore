@@ -11,13 +11,5 @@
 graphify-out/
 backend/contracts/
 
-# Conteúdo Hugo (docs/) usa shortcodes `{{< ... >}}` que o parser markdown
-# do Prettier não entende — ele corrompe o fechamento multi-linha (vira
-# "> }}" com espaço, quebra `hugo build`). O módulo vendorizado (docs/_vendor/)
-# já é excluído globalmente no .pre-commit-config.yaml, mas o prettier roda
-# fora do pre-commit também (editor, scons lint futuro) — ignore aqui também.
-docs/content/
-docs/_vendor/
-
 # Gerado por utils/third_party_notices.py
 THIRD_PARTY_NOTICES.md

@@ -1988,8 +1988,7 @@ async def sync_github_issue_to_kanban(
 # Contrato genérico pra qualquer ferramenta de alerta (Sentry, Grafana,
 # PagerDuty, etc.) — sem parsing nativo de vendor nenhum. O provider aponta
 # seu webhook de saída pra POST /webhook/observability com o payload já no
-# formato {title, description, severity, url, external_id} (ver docs/content/
-# guides/observability-webhooks.en.md).
+# formato {title, description, severity, url, external_id}.
 # ---------------------------------------------------------------------------
 
 #: Chave de agrupamento das tasks 'webhook' que ligam alertas de

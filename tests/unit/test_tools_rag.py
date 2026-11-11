@@ -1134,7 +1134,7 @@ class TestManageRetriever:
                     "title": "Ability System",
                     "origin": "web_search",
                 },
-                {"source": "docs/manual.md", "title": "Manual"},
+                {"source": "guides/manual.md", "title": "Manual"},
             ]
         )
         with patch(
@@ -1147,7 +1147,7 @@ class TestManageRetriever:
         assert data["count"] == 2
         assert {d["source"] for d in data["documents"]} == {
             "https://github.com/brunosrz/AbilitySystem",
-            "docs/manual.md",
+            "guides/manual.md",
         }
 
     @pytest.mark.asyncio
@@ -1182,7 +1182,7 @@ class TestManageRetriever:
         """Delete sem match retorna no_match, sem chamar backend.delete."""
         from backend.tools.rag import manage_retriever
 
-        mock_backend = self._mock_backend_with_rows([{"source": "docs/manual.md"}])
+        mock_backend = self._mock_backend_with_rows([{"source": "guides/manual.md"}])
         with patch(
             "backend.storage.factory.get_vector_store_backend",
             AsyncMock(return_value=mock_backend),

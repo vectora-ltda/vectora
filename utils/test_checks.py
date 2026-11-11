@@ -359,10 +359,10 @@ class TestStripBotBlocks:
 
 
 def test_parses_deletion_and_rename_records() -> None:
-    raw = b"D\0documents/old.md\0R100\0docs/old.md\0docs/new.md\0"
+    raw = b"D\0documents/old.md\0R100\0guides/old.md\0guides/new.md\0"
     assert _staged_removed_paths(raw) == [
         RemovedPath("documents/old.md"),
-        RemovedPath("docs/old.md", "docs/new.md"),
+        RemovedPath("guides/old.md", "guides/new.md"),
     ]
 
 
@@ -382,9 +382,9 @@ def test_ignores_deleted_file_and_clean_snapshot() -> None:
 
 
 def test_reports_backslash_reference_to_renamed_path() -> None:
-    files = {"config.json": '{"source": "docs\\old.md"}\n'}
-    assert _find_references(files, [RemovedPath("docs/old.md", "docs/new.md")]) == [
-        ("config.json", 1, "docs/old.md", '{"source": "docs\\old.md"}')
+    files = {"config.json": '{"source": "guides\\old.md"}\n'}
+    assert _find_references(files, [RemovedPath("guides/old.md", "guides/new.md")]) == [
+        ("config.json", 1, "guides/old.md", '{"source": "guides\\old.md"}')
     ]
 
 

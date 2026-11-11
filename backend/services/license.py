@@ -1,7 +1,7 @@
 """Validação de licença Vectora.
 
 Cada instalação comercial precisa de um ``VECTORA_TOKEN`` (gerado pelo dashboard
-Vectora Company — ver ``docs/company.md``). O Launcher (``src/launcher.py``)
+Vectora Company). O Launcher (``src/launcher.py``)
 chama ``validate_license_async`` antes de subir qualquer subprocesso; o backend
 expõe ``GET /license/status`` para o chat web mostrar trial banner / bloqueio.
 

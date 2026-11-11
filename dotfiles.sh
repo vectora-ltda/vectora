@@ -70,7 +70,7 @@ has_uv_tool() { uv tool list 2>/dev/null | awk '{print $1}' | grep -Fxq "$1"; }
 printf 'Vectora Linux bootstrap — distro=%s (%s), modo=%s\n' "$DISTRO" "$PACKAGE_MANAGER" "$MODE"
 printf '\nFerramentas detectadas:\n'
 PENDING=0
-for tool in git curl gcc make node pnpm bun pyenv python uv scons go rustup gitleaks hugo prettier claude omniroute wrangler vercel; do
+for tool in git curl gcc make node pnpm bun pyenv python uv scons go rustup gitleaks prettier claude omniroute wrangler vercel; do
   if command_exists "$tool"; then printf '  [ok]      %s: %s\n' "$tool" "$(command -v "$tool")"
   else printf '  [pendente] %s\n' "$tool"; ((PENDING+=1))
   fi
@@ -217,9 +217,6 @@ if [[ "$MODE" != check ]]; then
     export PATH="$HOME/.local/share/go/bin:$GOPATH/bin:$PATH"
   fi
   export PATH="$HOME/.local/share/go/bin:$GOPATH/bin:$PATH"
-  if ! command_exists hugo || ! hugo env 2>/dev/null | grep -qi 'extended'; then
-    GOBIN="$HOME/.local/bin" go install -tags extended github.com/gohugoio/hugo@v0.163.3
-  fi
   if ! command_exists rustup; then
     curl --proto '=https' --tlsv1.2 -fsSL https://sh.rustup.rs | sh -s -- -y --profile default --default-toolchain stable --no-modify-path
   fi

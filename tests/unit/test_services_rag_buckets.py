@@ -18,12 +18,12 @@ def rs(tmp_path: Path) -> RuntimeSettings:
 class TestCreateAndList:
     def test_create_bucket_returns_registered_record(self, rs: RuntimeSettings) -> None:
         bucket = rag_buckets.create_bucket(
-            rs, workspace_id="ws1", name="Godot Docs", source_path="/docs/godot"
+            rs, workspace_id="ws1", name="Godot Docs", source_path="/guides/godot"
         )
 
         assert bucket.workspace_id == "ws1"
         assert bucket.name == "Godot Docs"
-        assert bucket.source_path == "/docs/godot"
+        assert bucket.source_path == "/guides/godot"
         assert bucket.created_at
 
     def test_list_buckets_scoped_to_workspace(self, rs: RuntimeSettings) -> None:
