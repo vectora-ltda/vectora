@@ -109,16 +109,19 @@ def _gh_rules(
     """Declara as respostas de GitHub esperadas para um cenário de release."""
     api = f"repos/{REPO}"
     tag_lookup = (
-        Rule(["api", f"{api}/commits/v0.1.24", "--jq", ".sha"], stdout=f"{tag_at}\n")
+        Rule(
+            ["api", f"{api}/git/ref/tags/v0.1.24", "--jq", ".object.sha"],
+            stdout=f"{tag_at}\n",
+        )
         if tag_at
         else Rule(
-            ["api", f"{api}/commits/v0.1.24", "--jq", ".sha"],
+            ["api", f"{api}/git/ref/tags/v0.1.24", "--jq", ".object.sha"],
             stderr=tag_lookup_error,
             exit=1,
         )
         if tag_lookup_error
         else Rule(
-            ["api", f"{api}/commits/v0.1.24", "--jq", ".sha"],
+            ["api", f"{api}/git/ref/tags/v0.1.24", "--jq", ".object.sha"],
             stderr="gh: Not Found (HTTP 404)\n",
             exit=1,
         )
@@ -137,6 +140,7 @@ def _gh_rules(
             ),
         ),
         tag_lookup,
+        Rule(["api", f"{api}/commits/v0.1.24", "--jq", ".sha"], stdout=f"{tag_at}\n"),
         Rule(["api", f"{api}/git/tags"], stdout=f"{TAG_OBJECT}\n"),
         Rule(["api", f"{api}/git/refs"], stdout="{}\n"),
         Rule(

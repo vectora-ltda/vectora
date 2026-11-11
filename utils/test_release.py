@@ -271,7 +271,7 @@ def test_cli_prints_current_version_without_commits(tmp_path: Path) -> None:
 # ── prepare-line ─────────────────────────────────────────────────────────────
 
 
-def _write_inputs(tmp_path: Path, version: str = "0.1.24") -> tuple[Path, Path]:
+def _write_inputs(tmp_path: Path, version: str = "0.2.0") -> tuple[Path, Path]:
     """Prepara arquivos temporários para testar a migração da configuração."""
     changelog = tmp_path / "CHANGELOG.md"
     lines = tmp_path / "release-lines.json"
@@ -400,7 +400,7 @@ def test_commit_target_can_rotate() -> None:
     assert rotation_for_release("v0.2.0", CONFIG, "a" * 40) is not None
 
 
-@pytest.mark.parametrize("tag", ["", "v0.1.0", "v0.2.1", "invalid", "v00.9.0"])
+@pytest.mark.parametrize("tag", ["", "v0.0.0", "v0.2.1", "invalid", "v00.9.0"])
 def test_unrelated_tags_do_not_rotate(tag: str) -> None:
     """Tags antigas, patches e valores inválidos não avançam a configuração."""
     later_config = CONFIG.model_copy(
@@ -410,6 +410,14 @@ def test_unrelated_tags_do_not_rotate(tag: str) -> None:
         }
     )
     assert rotation_for_release(tag, later_config, "master") is None
+
+
+def test_previous_minor_tag_can_retry_completed_rotation() -> None:
+    """A minor anterior pode repetir a rotação já aplicada sem avançá-la de novo."""
+    rotation = rotation_for_release("v0.1.0", CONFIG, "master")
+    assert rotation is not None
+    assert rotation["development_branch"] == "release/0.2"
+    assert rotation["maintenance_milestone"] == "0.1.x"
 
 
 def test_newer_release_requires_configuration() -> None:
