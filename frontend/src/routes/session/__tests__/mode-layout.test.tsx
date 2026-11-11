@@ -14,7 +14,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  cleanup,
+  waitFor,
+  act,
+  fireEvent,
+} from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 
 const { navigateSpy, chatProps, routeParam } = vi.hoisted(() => ({
@@ -55,7 +62,11 @@ vi.mock("@/components/header/mode-switcher", () => ({
   ModeSwitch: () => <div data-testid="mode-switch" />,
 }));
 vi.mock("@/components/sidebar/sidebar", () => ({
-  Sidebar: () => <div data-testid="sidebar" />,
+  Sidebar: ({ onNewChat }: { onNewChat: () => void }) => (
+    <div data-testid="sidebar">
+      <button data-testid="sidebar-new-session" onClick={onNewChat} />
+    </div>
+  ),
 }));
 vi.mock("@/components/header/session-switcher", () => ({
   SessionSwitcher: () => <div data-testid="session-switcher" />,
@@ -83,7 +94,8 @@ vi.mock("@/components/layout/command-palette", () => ({
   CommandPalette: () => null,
 }));
 vi.mock("@/components/sidebar/new-chat-dialog", () => ({
-  NewChatDialog: () => null,
+  NewChatDialog: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog" data-testid="new-chat-dialog" /> : null,
 }));
 
 // O IdeModeLayout real traz drag/resize junto; o marcador preserva os SLOTS,
@@ -321,6 +333,15 @@ describe("SessionPage — sidebar de sessões", () => {
     render(<SessionPage />);
     expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
     expect(screen.getByTestId("workbench-navbar")).toBeInTheDocument();
+  });
+
+  it("abre o diálogo de nova sessão pelo sidebar do modo Kanban", () => {
+    setMode("kanban");
+    render(<SessionPage />);
+
+    fireEvent.click(screen.getAllByTestId("sidebar-new-session")[0]!);
+
+    expect(screen.getByTestId("new-chat-dialog")).toBeInTheDocument();
   });
 });
 

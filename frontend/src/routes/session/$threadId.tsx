@@ -1265,13 +1265,6 @@ function SessionPage() {
                 onOpenChange={setShowCommandPalette}
                 commands={paletteCommands}
               />
-              <NewChatDialog
-                open={showNewChatDialog}
-                onOpenChange={setShowNewChatDialog}
-                onConfirm={(workspaceId) =>
-                  void handleConfirmNewChat(workspaceId)
-                }
-              />
             </motion.div>
           ) : (
             // ── Layout Assistente/Chat (atual) ─────────────────────────────────
@@ -1433,20 +1426,17 @@ function SessionPage() {
                 onOpenChange={setShowCommandPalette}
                 commands={paletteCommands}
               />
-              <NewChatDialog
-                open={showNewChatDialog}
-                onOpenChange={setShowNewChatDialog}
-                onConfirm={(workspaceId) =>
-                  void handleConfirmNewChat(workspaceId)
-                }
-              />
-
               {/* Workstation: janelas flutuantes de arquivos + dock de minimizadas */}
               <WindowLayer />
               <WindowDock />
             </motion.div>
           )}
         </div>
+        <NewChatDialog
+          open={showNewChatDialog}
+          onOpenChange={setShowNewChatDialog}
+          onConfirm={(workspaceId) => void handleConfirmNewChat(workspaceId)}
+        />
         <CanvasDocumentDialog
           open={modalCanvasDocument !== null}
           onOpenChange={(open) => {
