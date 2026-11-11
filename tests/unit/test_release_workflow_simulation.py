@@ -55,9 +55,12 @@ def _prepare(
     """Monta uma cópia temporária mínima dos artefatos usados pela release."""
     work = tmp_path / "work"
     (work / "utils").mkdir(parents=True)
-    for name in ("release_assets.py", "release_notes.py"):
+    for name in (
+        "release_assets.py",
+        "release_notes.py",
+        "sign_release_artifacts.py",
+    ):
         shutil.copy(REPO_ROOT / "utils" / name, work / "utils" / name)
-    shutil.copytree(REPO_ROOT / "utils" / "signing", work / "utils" / "signing")
     (work / "pyproject.toml").write_text(
         '[project]\nname = "vectora"\nversion = "0.1.24"\n', encoding="utf-8"
     )
