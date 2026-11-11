@@ -16,8 +16,8 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "utils"))
 
-import workflow_sim as sim  # noqa: E402
-from workflow_sim import Call, Rule, Sandbox, StepResult  # noqa: E402
+import workflow_sim as sim
+from workflow_sim import Call, Rule, Sandbox, StepResult
 
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "vectora.yml"
 REPO = "vectora-ltda/vectora"

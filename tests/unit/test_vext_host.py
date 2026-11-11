@@ -14,6 +14,19 @@ from backend.services.vext_host import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _without_system_bwrap(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Os testes do protocolo sem sandbox não dependem de namespaces do host."""
+    from backend.services import vext_host
+
+    which = vext_host.shutil_module.which
+    monkeypatch.setattr(
+        vext_host.shutil_module,
+        "which",
+        lambda command: None if command == "bwrap" else which(command),
+    )
+
+
 def _source(root: Path, permissions: list[str]) -> None:
     (root / "main.py").write_text(
         "def handle(method, params):\n"
@@ -191,7 +204,7 @@ def test_host_timeout_terminates_runtime(tmp_path: Path) -> None:
 def test_host_timeout_kills_descendant_processes(tmp_path: Path) -> None:
     source = tmp_path / "source"
     source.mkdir()
-    _source(source, ["workspace.read"])
+    _source(source, ["workspace.read", "process.spawn"])
     pid_path = tmp_path / "child.pid"
     (source / "main.py").write_text(
         "import subprocess, sys, time\n"

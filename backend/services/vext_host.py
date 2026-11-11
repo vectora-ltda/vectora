@@ -417,7 +417,7 @@ class VextHost:
             if os.name == "nt":
                 taskkill = shutil.which("taskkill")
                 if taskkill is not None:
-                    killer = subprocess.Popen(  # nosec B603 - taskkill is resolved from Windows, args are fixed except PID
+                    killer = subprocess.Popen(  # noqa: S603  # nosec B603 - resolved executable, fixed flags and integer PID
                         [taskkill, "/PID", str(process.pid), "/T", "/F"],
                         stdout=subprocess.DEVNULL,
                         stderr=subprocess.DEVNULL,
