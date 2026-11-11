@@ -7,7 +7,7 @@ Hay dos formas de usar Vectora: instalar un paquete de escritorio publicado o ej
 
 ## Instalar una versión publicada
 
-Abre las [releases de Vectora en GitHub](https://github.com/vectora-ltda/vectora/releases) y elige un artefacto compatible con tu sistema y arquitectura. La matriz de compilación publicada actualmente cubre:
+Abre las [releases de Vectora en GitHub](https://github.com/vectora-company/vectora/releases) y elige un artefacto compatible con tu sistema y arquitectura. La matriz de compilación publicada actualmente cubre:
 
 | Sistema | Arquitectura publicada | Formatos disponibles |
 | --- | --- | --- |
@@ -21,12 +21,12 @@ En Windows, ejecuta el instalador y sigue los pasos. En macOS, abre el DMG y arr
 
 ## Ejecutar desde el código fuente
 
-Usa esta opción para desarrollo o para inspeccionar y modificar el proyecto. Consulta también la [guía de contribución](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md).
+Usa esta opción para desarrollo o para inspeccionar y modificar el proyecto. Consulta también la [guía de contribución](https://github.com/vectora-company/vectora/blob/master/CONTRIBUTING.md).
 
 **Requisitos:** Python 3.13, [uv](https://docs.astral.sh/uv/), Node.js 26 y [pnpm](https://pnpm.io/).
 
 ```bash
-git clone https://github.com/vectora-ltda/vectora.git
+git clone https://github.com/vectora-company/vectora.git
 cd vectora
 
 uv sync
@@ -57,7 +57,7 @@ Las credenciales se pueden configurar en **Configuración → Modelos de IA** o 
 
 ## Licencia y servicios
 
-El código está bajo [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). El uso local individual es gratuito; las funciones que dependen de servicios de pago pueden requerir una cuenta o una suscripción Pro activa. Esto no cambia los términos de licencia del código.
+El código está bajo [AGPL-3.0](https://github.com/vectora-company/vectora/blob/master/LICENSE). El uso local individual es gratuito; las funciones que dependen de servicios de pago pueden requerir una cuenta o una suscripción Pro activa. Esto no cambia los términos de licencia del código.
 
 ## Siguiente paso
 
