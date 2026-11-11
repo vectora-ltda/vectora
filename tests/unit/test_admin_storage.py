@@ -360,13 +360,8 @@ class TestImageFallbackModelEndpoint:
         assert resp.status_code == 422
 
 
-class TestPatchStorageRequiresPro:
-    """Storage Completo (Postgres/Redis/Qdrant) é recurso do Vectora Pro.
-
-    O frontend já desabilita a opção pra não-Pro, mas o gate visual é
-    decoração enquanto o handler não checa tier: uma chamada direta à API
-    ligava o modo completo sem licença.
-    """
+class TestPatchStorageFree:
+    """Storage configurado pelo operador permanece disponível no Free."""
 
     @staticmethod
     def _write_license(tmp_path, monkeypatch, tier: str) -> None:
@@ -400,9 +395,7 @@ class TestPatchStorageRequiresPro:
         return request
 
     @pytest.mark.asyncio
-    async def test_free_nao_liga_modo_completo(self, tmp_path, monkeypatch):
-        """402 **e** o modo persistido não muda — o par de erro é o que prova
-        o gate: recusar a resposta sem recusar a escrita não gatearia nada."""
+    async def test_free_pode_ligar_modo_completo(self, tmp_path, monkeypatch):
         from backend.api.handlers.admin import update_storage_config
         from backend.settings import settings as _s
         from backend.workspace.runtime_settings import runtime_settings
@@ -411,27 +404,48 @@ class TestPatchStorageRequiresPro:
         monkeypatch.setattr(_s, "storage_mode", "lite", raising=False)
         monkeypatch.setattr(runtime_settings, "storage_mode", "lite", raising=False)
 
-        with pytest.raises(Exception) as exc:
-            await update_storage_config(self._request({"storage_mode": "complete"}))
-        assert exc.value.status_code == 402  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
-        assert _s.storage_mode == "lite"
-        assert runtime_settings.storage_mode == "lite"
+        result = await update_storage_config(
+            self._request({"storage_mode": "complete"})
+        )
+        assert result["storage_mode"] == "complete"
+        assert _s.storage_mode == "complete"
+        assert runtime_settings.storage_mode == "complete"
 
     @pytest.mark.asyncio
-    async def test_free_nao_configura_conexao_do_modo_completo(
+    async def test_free_pode_configurar_conexoes_do_modo_completo(
         self, tmp_path, monkeypatch
     ):
-        """Sem Pro, também não dá pra preencher DSN/URL dos serviços do modo
-        completo — senão o não-Pro deixa tudo pronto e só falta o flip."""
+        """As URLs e credenciais são do operador, sem gate de assinatura."""
+        import backend.api.handlers.admin as admin_handlers
         from backend.api.handlers.admin import update_storage_config
+        from backend.settings import settings
 
         self._write_license(tmp_path, monkeypatch, "free")
+        env_file = tmp_path / "settings.env"
+        monkeypatch.setattr(admin_handlers, "_env_file", lambda: env_file)
 
-        with pytest.raises(Exception) as exc:
-            await update_storage_config(
-                self._request({"postgres_dsn": "postgresql://x/y"})
+        result = await update_storage_config(
+            self._request(
+                {
+                    "postgres_dsn": "postgresql://operator/db",
+                    "redis_url": "redis://operator:6379",
+                    "qdrant_url": "http://operator:6333",
+                    "qdrant_api_key": "operator-key",
+                }
             )
-        assert exc.value.status_code == 402  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        )
+
+        assert result["postgres_dsn"] == "***"
+        assert result["redis_url"] == "***"
+        assert result["qdrant_url"] == "http://operator:6333"
+        assert result["qdrant_api_key"] == "***"
+        assert settings.postgres_dsn == "postgresql://operator/db"
+        assert settings.redis_url == "redis://operator:6379"
+        assert settings.qdrant_url == "http://operator:6333"
+        assert settings.qdrant_api_key == "operator-key"
+        assert "POSTGRES_DSN=postgresql://operator/db" in env_file.read_text()
+        assert "REDIS_URL=redis://operator:6379" in env_file.read_text()
+        assert "QDRANT_API_KEY=operator-key" in env_file.read_text()
 
     @pytest.mark.asyncio
     async def test_free_pode_voltar_pra_lite(self, tmp_path, monkeypatch):

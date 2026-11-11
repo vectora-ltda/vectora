@@ -5,7 +5,12 @@ from pathlib import Path
 
 import pytest
 
-from backend.services.media_quota import MediaQuota, QuotaReservation
+from backend.services.media_quota import MONTHLY_LIMITS, MediaQuota, QuotaReservation
+
+
+class _FreeMediaQuota(MediaQuota):
+    def _current_tier(self, user_id: str) -> str | None:
+        return "free"
 
 
 def _quota(path: Path) -> MediaQuota:
@@ -19,7 +24,9 @@ def _quota(path: Path) -> MediaQuota:
     )
     with sqlite3.connect(path) as connection:
         connection.executescript(schema.read_text(encoding="utf-8"))
-    return MediaQuota(path)
+    # Esses testes cobrem as operações de quota do Free em um store isolado;
+    # não dependem de uma conta remota de usuário criada no banco local.
+    return _FreeMediaQuota(path)
 
 
 @pytest.mark.asyncio
@@ -40,7 +47,8 @@ async def test_reserve_is_idempotent_and_summary_is_durable(tmp_path: Path) -> N
 @pytest.mark.asyncio
 async def test_reserve_rejects_when_monthly_limit_is_exceeded(tmp_path: Path) -> None:
     quota = _quota(tmp_path / "quota.sqlite3")
-    for index in range(10):
+    limit = MONTHLY_LIMITS["free"]
+    for index in range(limit):
         assert await quota.reserve(
             user_id="u1",
             operation="generate_image",
@@ -60,6 +68,7 @@ async def test_reserve_rejects_when_monthly_limit_is_exceeded(tmp_path: Path) ->
 @pytest.mark.asyncio
 async def test_reservas_concorrentes_nao_ultrapassam_o_limite(tmp_path: Path) -> None:
     quota = _quota(tmp_path / "quota.sqlite3")
+    limit = MONTHLY_LIMITS["free"]
 
     results = await asyncio.gather(
         *(
@@ -68,12 +77,12 @@ async def test_reservas_concorrentes_nao_ultrapassam_o_limite(tmp_path: Path) ->
                 operation="generate_image",
                 idempotency_key=f"parallel-{index}",
             )
-            for index in range(12)
+            for index in range(limit + 12)
         )
     )
 
-    assert sum(result is not None for result in results) == 10
-    assert (await quota.summary("u1"))["used"] == 10
+    assert sum(result is not None for result in results) == limit
+    assert (await quota.summary("u1"))["used"] == limit
 
 
 @pytest.mark.asyncio
@@ -163,10 +172,7 @@ async def test_tier_indisponivel_bloqueia_reserva_de_usuario_autenticado(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     quota = _quota(tmp_path / "quota.sqlite3")
-    monkeypatch.setattr(
-        "backend.rbac.subscription.get_current_tier",
-        lambda _user_id: None,
-    )
+    monkeypatch.setattr(quota, "_current_tier", lambda _user_id: None)
     assert (
         await quota.reserve(
             user_id="u1", operation="generate_image", idempotency_key="fail-closed"
