@@ -13,7 +13,7 @@ Obrigado pelo interesse. Este arquivo explica como preparar o ambiente, escolher
 Requisitos: [uv](https://docs.astral.sh/uv/) (instala o Python 3.13), Node.js 26 e [pnpm](https://pnpm.io/).
 
 ```bash
-git clone https://github.com/vectora-ltda/vectora.git
+git clone https://github.com/vectora-company/vectora.git
 cd vectora
 uv sync
 pnpm --dir frontend install
