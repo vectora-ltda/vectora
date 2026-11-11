@@ -122,21 +122,14 @@ async def test_process_record_rate_limit_trips_breaker_without_retry(
 async def test_get_queue_uses_effective_storage_mode_not_raw_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """storage_mode='complete' configurado + licença Free deve cair pro
-    backend local (SQLite/LanceDB) — nunca chamar get_pg_pool()/require_pro().
-
-    Regressão: o worker lia self.config.storage_mode (valor cru) em vez de
-    get_effective_storage_mode() (valor pós-licença), então uma instalação
-    com storage_mode='complete' configurado mas sem licença Pro entrava num
-    loop de erro 402 a cada ciclo do worker.
-    """
+    """Storage externo segue o modo complete configurado em uma conta Free."""
     worker = BackgroundEmbeddingWorker()
     worker.config.storage_mode = "complete"
     worker.config.postgres_dsn = "postgresql://fake/db"
 
     monkeypatch.setattr(
         "backend.services.license.get_effective_storage_mode",
-        lambda: "lite",
+        lambda: "complete",
     )
 
     postgres_queue_called = False
@@ -162,8 +155,8 @@ async def test_get_queue_uses_effective_storage_mode_not_raw_config(
 
     await worker._get_queue()
 
-    assert sqlite_queue_called is True
-    assert postgres_queue_called is False
+    assert sqlite_queue_called is False
+    assert postgres_queue_called is True
 
 
 class _FakeVectorStoreBackend:

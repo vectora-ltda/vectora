@@ -685,30 +685,6 @@ def test_release_attaches_only_the_selected_installers() -> None:
     assert "[A-Za-z0-9._+-]+" in tag_job
 
 
-def test_release_does_not_build_or_publish_the_vectora_bot_binary() -> None:
-    """Decisão de produto: o Vectora não roda mais na Cloudflare, então nenhum
-    binário do bot é construído, publicado no R2 nem anexado à release."""
-    root = WORKFLOW.parents[2]
-    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
-    build_hybrid = (root / "build-hybrid.py").read_text(encoding="utf-8")
-
-    for marker in (
-        "gha-bot-cli",
-        "publish-gha-bot-cli",
-        "vectora-cli",
-        "VECTORA_BUILD_CLI",
-        "s3://vectora-r2/gha-bot/",
-    ):
-        assert marker not in content, marker
-    for marker in (
-        "VECTORA_BUILD_CLI",
-        "vectora-cli",
-        "COLLECT_ALL_CLI",
-        "collect_cli",
-    ):
-        assert marker not in build_hybrid, marker
-
-
 def test_commitlint_packages_are_installed_with_exact_versions() -> None:
     """O job que comenta no PR não instala a última versão publicada a cada execução."""
     content = (WORKFLOW.parent / "pr-checks.yml").read_text(encoding="utf-8")

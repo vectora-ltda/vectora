@@ -52,7 +52,7 @@ Local storage uses SQLite and LanceDB. AI providers and external integrations ar
 
 The open-source license and commercial entitlements are separate. Individual local use of the app and CLI is free and requires no account. Core product features — including RAG, Library, Browser, Sandbox, Context Graph, HITL, and Decision Models — are not gated by the Pro entitlement. External AI providers may charge for their own usage.
 
-A **Pro** entitlement is required to invite additional members and operate as a team, use the Pro VPS hosting flow, use advanced storage (Postgres, Qdrant, and Redis), trigger tasks by webhook, and use Vectora Connect or the GitHub Actions review bot. Priority support follows the current commercial terms. Self-hosting the app or databases does not replace the entitlement. See [entitlements and pricing](https://vectora.company/#pricing).
+**Free** includes local execution, self-hosting, and operator-managed storage such as Postgres, Qdrant, and Redis. **Pro** enables hosted capabilities that depend on Services, including organizations and invitations, remote webhooks, and Vectora Connect. See [entitlements and pricing](https://vectora.company/#pricing).
 
 ## Next step
 

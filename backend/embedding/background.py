@@ -180,10 +180,7 @@ class BackgroundEmbeddingWorker:
         """Obtém (e inicializa uma vez) a queue de acordo com storage_mode.
 
         Usa ``get_effective_storage_mode()`` (não ``self.config.storage_mode``
-        cru) porque o modo configurado pode ser "complete" enquanto a licença
-        efetiva rebaixa para "lite" — sem isso o worker tenta abrir pool
-        Postgres, `require_pro()` levanta 402, e como o loop nunca cacheia
-        esse resultado negativo, o erro se repete a cada ciclo.
+        cru) para respeitar a configuração efetiva escolhida pelo operador.
         """
         if self._queue is not None:
             return self._queue

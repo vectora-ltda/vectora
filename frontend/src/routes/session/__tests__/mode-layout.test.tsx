@@ -45,16 +45,22 @@ vi.mock("@/components/chat/chat-interface", () => ({
   ChatInterface: ({
     compact,
     isNewThread,
+    threadId,
   }: {
     compact?: boolean;
     isNewThread?: boolean;
+    threadId: string;
   }) => {
     chatProps({ compact, isNewThread });
     const [response, setResponse] = useState("");
     const [isStreaming, setIsStreaming] = useState(false);
     const [requestCount, setRequestCount] = useState(0);
     return (
-      <div data-testid="chat" data-compact={String(!!compact)}>
+      <div
+        data-testid="chat"
+        data-compact={String(!!compact)}
+        data-thread-id={threadId}
+      >
         <output data-testid="stream-response">{response}</output>
         <output data-testid="stream-request-count">{requestCount}</output>
         <button
@@ -108,7 +114,10 @@ vi.mock("@/components/header/header", () => ({
       onToggleWorkbench?: () => void;
     };
   }) => (
-    <div data-testid="header">
+    <div
+      data-testid="header"
+      data-compact-navigation={String(!!compactNavigation)}
+    >
       {compactNavigation?.onToggleWorkbench && (
         <button
           type="button"
@@ -446,7 +455,12 @@ describe("SessionPage — chat compacto no IDE", () => {
 
     fireEvent.click(toggleWorkbench);
     expect(await screen.findByTestId("workbench-content")).toBeInTheDocument();
-    expect(screen.getByTestId("chat").closest("[hidden]")).not.toBeNull();
+    expect(
+      screen.getByTestId("chat").parentElement?.parentElement?.parentElement,
+    ).toHaveStyle({ opacity: "0", pointerEvents: "none" });
+    expect(
+      screen.getByTestId("chat").parentElement?.parentElement?.parentElement,
+    ).toHaveAttribute("inert");
     expect(screen.getByTestId("stream-response")).toHaveTextContent(
       "Resposta parcial",
     );
@@ -457,7 +471,9 @@ describe("SessionPage — chat compacto no IDE", () => {
 
     fireEvent.click(toggleWorkbench);
     await waitFor(() =>
-      expect(screen.getByTestId("chat").closest("[hidden]")).toBeNull(),
+      expect(
+        screen.getByTestId("chat").parentElement?.parentElement?.parentElement,
+      ).toHaveStyle({ opacity: "1", pointerEvents: "auto" }),
     );
     expect(screen.getByTestId("stream-response")).toHaveTextContent(
       "Resposta parcial atualizada",
@@ -471,6 +487,106 @@ describe("SessionPage — chat compacto no IDE", () => {
     );
     expect(screen.queryByTestId("stream-stop")).not.toBeInTheDocument();
     expect(screen.getByTestId("stream-request-count")).toHaveTextContent("1");
+  });
+
+  it("preserva a instância do chat ao cruzar o breakpoint durante o stream", async () => {
+    setMode("assistant");
+    useWorkbenchStore.setState({ panelOpen: { t1: false } });
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 818,
+    });
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+
+    render(<SessionPage />);
+    const chat = await screen.findByTestId("chat");
+    const chatLayout = chat.parentElement?.parentElement?.parentElement;
+    expect(chatLayout).toHaveClass("absolute");
+    fireEvent.click(screen.getByTestId("stream-send"));
+
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1024,
+    });
+    fireEvent(window, new Event("resize"));
+    await waitFor(() =>
+      expect(screen.getByTestId("header")).toHaveAttribute(
+        "data-compact-navigation",
+        "false",
+      ),
+    );
+    expect(chatLayout).toHaveClass("absolute");
+    expect(screen.getByTestId("chat")).toBe(chat);
+    expect(screen.getByTestId("chat")).toHaveAttribute("data-compact", "false");
+    expect(screen.getByTestId("stream-response")).toHaveTextContent(
+      "Resposta parcial",
+    );
+    expect(screen.getByTestId("stream-stop")).toBeInTheDocument();
+
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 818,
+    });
+    fireEvent(window, new Event("resize"));
+    await waitFor(() =>
+      expect(screen.getByTestId("header")).toHaveAttribute(
+        "data-compact-navigation",
+        "true",
+      ),
+    );
+    expect(chatLayout).toHaveClass("absolute");
+    expect(screen.getByTestId("chat")).toBe(chat);
+    expect(screen.getByTestId("stream-request-count")).toHaveTextContent("1");
+  });
+
+  it("isola o stream ao trocar de sessão com a Workbench aberta", async () => {
+    setMode("assistant");
+    useWorkbenchStore.setState({ panelOpen: { t1: false, t2: true } });
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 818,
+    });
+
+    const { rerender } = render(<SessionPage />);
+    fireEvent.click(await screen.findByTestId("stream-send"));
+    fireEvent.click(screen.getByTestId("compact-toggle-workbench"));
+    expect(await screen.findByTestId("workbench-content")).toBeInTheDocument();
+    expect(screen.getByTestId("stream-stop")).toBeInTheDocument();
+
+    routeParam.value = "t2";
+    rerender(<SessionPage />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("chat")).toHaveAttribute(
+        "data-thread-id",
+        "t2",
+      ),
+    );
+    expect(screen.queryByTestId("stream-stop")).not.toBeInTheDocument();
+    expect(screen.getByTestId("stream-response")).toBeEmptyDOMElement();
+    expect(
+      screen.getByTestId("chat").parentElement?.parentElement?.parentElement,
+    ).toHaveStyle({ opacity: "0", pointerEvents: "none" });
+  });
+
+  it("mantém o chat central ao abrir a Workbench no layout largo", async () => {
+    setMode("assistant");
+    useWorkbenchStore.setState({ panelOpen: { t1: true } });
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1024,
+    });
+
+    render(<SessionPage />);
+
+    expect(await screen.findByTestId("workbench-content")).toBeInTheDocument();
+    expect(await screen.findByTestId("chat")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("chat").parentElement?.parentElement?.parentElement,
+    ).toHaveStyle({ opacity: "1", pointerEvents: "auto" });
   });
 });
 
@@ -531,8 +647,9 @@ describe("SessionPage — workbench do Assistente estreito", () => {
     expect(await screen.findByTestId("workbench-navbar")).toBeInTheDocument();
     expect(await screen.findByTestId("workbench-content")).toBeInTheDocument();
     expect(
-      (await screen.findByTestId("chat")).closest("[hidden]"),
-    ).not.toBeNull();
+      (await screen.findByTestId("chat")).parentElement?.parentElement
+        ?.parentElement,
+    ).toHaveStyle({ opacity: "0", pointerEvents: "none" });
     Object.defineProperty(window, "outerWidth", {
       configurable: true,
       value: 1024,

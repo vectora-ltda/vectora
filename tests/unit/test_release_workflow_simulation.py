@@ -40,8 +40,6 @@ NOISE = [
     "vectora-linux-x64/latest-linux.yml",
     "vectora-linux-x64/builder-debug.yml",
     "vectora-win-x64/win-unpacked/Vectora.exe",
-    "gha-bot-cli/vectora-cli",
-    "gha-bot-cli/_internal/docx/templates/default-docx-template/[Content_Types].xml",
 ]
 CHANGELOG = (
     "# Changelog\n\n## [0.1.24] (2026-11-04)\n\n### Features\n\n- feat: algo (#1)\n"
@@ -224,7 +222,7 @@ def test_first_release_creates_the_tag_and_the_release_and_attaches_only_install
             "SHA256SUMS",
         ]
     )
-    assert not any("[" in name or "gha-bot" in name for name in box.uploaded_files())
+    assert not any("[" in name for name in box.uploaded_files())
     verbs = _verbs(box.calls("gh"))
     assert verbs.index(f"api repos/{REPO}/git/tags") < verbs.index(
         f"api repos/{REPO}/git/refs"

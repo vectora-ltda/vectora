@@ -167,6 +167,11 @@ def _get_token() -> str | None:
     return None
 
 
+def get_license_token() -> str | None:
+    """Retorna o token de conta configurado, se houver."""
+    return _get_token()
+
+
 def _get_license_url() -> str:
     return os.getenv("VECTORA_LICENSE_URL", DEFAULT_LICENSE_URL).strip()
 
@@ -417,20 +422,7 @@ def read_cached_status() -> LicenseStatusInfo | None:
 
 
 def get_effective_storage_mode() -> str:
-    """Retorna 'complete' apenas se o usuário tiver licença Pro configurada e storage_mode == 'complete'.
-    Caso contrário, faz fallback seguro para 'lite'."""
+    """Retorna o modo de storage escolhido pelo operador, sem gate de assinatura."""
     from backend.settings import settings
 
-    if settings.storage_mode != "complete":
-        return "lite"
-
-    cache = _read_cache()
-    tier = cache.get("tier", "free") if cache else "free"
-
-    if tier == "pro":
-        return "complete"
-
-    logger.warning(
-        "license: fallback para 'lite' (storage_mode='complete' requer licença Pro)"
-    )
-    return "lite"
+    return settings.storage_mode

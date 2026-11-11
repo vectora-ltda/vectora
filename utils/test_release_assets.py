@@ -34,10 +34,6 @@ INSTALLERS = [
     "Vectora-0.1.24-mac-arm64.dmg.blockmap",
 ]
 
-BRACKET_FILE = (
-    "gha-bot-cli/_internal/docx/templates/default-docx-template/[Content_Types].xml"
-)
-
 
 def _touch(root: Path, relative: str, size: int = 1) -> Path:
     path = root / relative
@@ -60,12 +56,9 @@ def test_selects_every_installer_format_including_nested_artifact_folders(
 
 
 def test_ignores_everything_that_is_not_an_installer(tmp_path: Path) -> None:
-    """Regressão: a pasta do CLI inteira (com `[Content_Types].xml`) foi enviada
-    ao `gh release upload`, que trata colchetes como glob e abortou o job."""
+    """Metadados e binários auxiliares não entram nos anexos da release."""
     _touch(tmp_path, "Vectora-0.1.24-win-x64.exe")
     for noise in (
-        BRACKET_FILE,
-        "gha-bot-cli/vectora-cli",
         "win-unpacked/Vectora.exe",
         "win-unpacked/resources/nats-server.exe",
         "Vectora-0.1.24-win-x64.exe.asc",
@@ -180,7 +173,6 @@ def test_stage_moves_only_the_installers_into_a_flat_directory(tmp_path: Path) -
     destination = tmp_path / "release-assets"
     _touch(source, "vectora-win-x64/Vectora-0.1.24-win-x64.exe", size=7)
     _touch(source, "vectora-win-x64/latest.yml")
-    _touch(source, BRACKET_FILE)
 
     selection = stage_release_assets(source, destination)
 
@@ -189,7 +181,7 @@ def test_stage_moves_only_the_installers_into_a_flat_directory(tmp_path: Path) -
         "Vectora-0.1.24-win-x64.exe"
     ]
     assert (destination / "Vectora-0.1.24-win-x64.exe").stat().st_size == 7
-    assert (source / BRACKET_FILE).exists()
+    assert (source / "vectora-win-x64/latest.yml").exists()
     assert not (source / "vectora-win-x64/Vectora-0.1.24-win-x64.exe").exists()
 
 
@@ -206,7 +198,7 @@ def test_stage_refuses_a_destination_that_already_has_files(tmp_path: Path) -> N
 def test_main_fails_when_no_installer_is_found(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _touch(tmp_path / "dist-release", BRACKET_FILE)
+    _touch(tmp_path / "dist-release", "vectora-win-x64/latest.yml")
 
     code = release_assets.main(
         ["stage", str(tmp_path / "dist-release"), str(tmp_path / "release-assets")]

@@ -61,12 +61,7 @@ describe("StepToken", () => {
 
 function mockStorageFetch(opts: {
   defaultsOk: boolean;
-  /** Modo "Completo" é Pro-only — testes que precisam selecioná-lo mockam
-   * uma licença configurada (Pro); default true preserva o comportamento
-   * anterior dos testes existentes (que já assumiam poder selecionar). */
-  pro?: boolean;
 }): ReturnType<typeof vi.fn> {
-  const pro = opts.pro ?? true;
   const defaults = {
     postgres: {
       url: "postgresql+asyncpg://vectora:vectora@localhost:5432/vectora",
@@ -116,19 +111,6 @@ function mockStorageFetch(opts: {
         }),
       };
     }
-    if (u.includes("/license/status")) {
-      return {
-        ok: true,
-        json: async () => ({
-          configured: pro,
-          tier: pro ? "pro" : null,
-          status: pro ? "active" : "unknown",
-          days_remaining: 0,
-          expires_at: "",
-          cached: false,
-        }),
-      };
-    }
     return { ok: true, json: async () => ({ has_token: false, mode: "lite" }) };
   });
 }
@@ -162,28 +144,32 @@ describe("StepMode — pré-preenchimento com defaults reais", () => {
   });
 });
 
-describe("StepMode — Completo é exclusivo do plano Pro", () => {
-  it("usuário Free vê o card Completo travado (Lock + badge) e não consegue selecioná-lo", async () => {
-    vi.stubGlobal("fetch", mockStorageFetch({ defaultsOk: true, pro: false }));
+describe("StepMode — storage completo permanece disponível no Free", () => {
+  it("usuário Free consegue selecionar Completo e configurar os próprios serviços", async () => {
+    const fetchMock = mockStorageFetch({ defaultsOk: true });
+    vi.stubGlobal("fetch", fetchMock);
     render(<StepMode />);
 
     const completeBtn = (await screen.findByText("Complete")).closest(
       "button",
     )!;
-    await waitFor(() => expect(completeBtn).toBeDisabled());
-    expect(screen.getByText("Available on the Pro plan")).toBeInTheDocument();
+    expect(completeBtn).toBeEnabled();
 
     fireEvent.click(completeBtn);
-    // Clique num botão disabled não abre os cards de conexão manual.
-    expect(screen.queryByPlaceholderText(/redis:\/\//)).toBeNull();
+    expect(
+      await screen.findByDisplayValue("redis://:vectora@localhost:6379/0"),
+    ).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/admin/storage",
+      expect.objectContaining({ method: "PATCH" }),
+    );
   });
 
-  it("usuário Pro consegue selecionar Completo normalmente (sem cadeado)", async () => {
-    vi.stubGlobal("fetch", mockStorageFetch({ defaultsOk: true, pro: true }));
+  it("mantém configuração completa sem rótulos de assinatura", async () => {
+    vi.stubGlobal("fetch", mockStorageFetch({ defaultsOk: true }));
     render(<StepMode />);
     fireEvent.click(await screen.findByText("Complete"));
 
-    expect(screen.queryByText("Available on the Pro plan")).toBeNull();
     await waitFor(() =>
       expect(
         screen.getByDisplayValue("redis://:vectora@localhost:6379/0"),

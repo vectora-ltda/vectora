@@ -1001,6 +1001,7 @@ function SessionPage() {
           )}
           <div className="flex-1 min-h-0">
             <ChatInterface
+              key={threadId}
               threadId={threadId}
               showToolCalls={showToolCalls}
               agentConfig={agentConfig}
@@ -1301,21 +1302,32 @@ function SessionPage() {
                 centerHeader={headerEl}
                 left={showSidebarPanel ? sidebarPanel : null}
                 center={
-                  <div className="flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden">
-                    {isCompactSession ? (
-                      <>
-                        <div
-                          hidden={assistantWorkbenchVisible}
-                          className="flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden"
-                        >
-                          {renderChatPanel(false)}
-                        </div>
-                        {assistantWorkbenchVisible && assistantWorkbenchPanel}
-                      </>
-                    ) : assistantWorkbenchVisible ? (
-                      assistantWorkbenchPanel
-                    ) : (
-                      renderChatPanel(false)
+                  <div className="relative flex flex-1 min-w-0 min-h-0 overflow-hidden">
+                    <div
+                      aria-hidden={
+                        isCompactSession && assistantWorkbenchVisible
+                      }
+                      inert={
+                        isCompactSession && assistantWorkbenchVisible
+                          ? true
+                          : undefined
+                      }
+                      className="absolute inset-0 min-w-0 min-h-0 overflow-hidden"
+                      style={{
+                        opacity:
+                          isCompactSession && assistantWorkbenchVisible ? 0 : 1,
+                        pointerEvents:
+                          isCompactSession && assistantWorkbenchVisible
+                            ? "none"
+                            : "auto",
+                      }}
+                    >
+                      {renderChatPanel(false)}
+                    </div>
+                    {isCompactSession && assistantWorkbenchVisible && (
+                      <div className="absolute inset-0 z-10 flex min-w-0 min-h-0 overflow-hidden">
+                        {assistantWorkbenchPanel}
+                      </div>
                     )}
                   </div>
                 }

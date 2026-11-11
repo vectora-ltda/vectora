@@ -44,6 +44,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
+from backend.services.license import get_license_token
 from backend.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -53,7 +54,7 @@ router = APIRouter(tags=["oauth"])
 _GATEWAY_TOKEN_PATH = settings.vectora_home / "gateway_token"
 _BROKER_STATE_TTL: float = 300.0
 _BROKER_PROVIDER_SUCCESS_CACHE_TTL: float = 60.0
-_broker_provider_cache: tuple[float, set[str]] | None = None
+_broker_provider_cache: tuple[float, str, set[str]] | None = None
 
 
 @dataclass(frozen=True)
@@ -130,21 +131,33 @@ async def _broker_providers() -> set[str]:
         return set()
     broker_url = _broker_url()
     broker_secret = _broker_secret()
+    license_token = get_license_token()
+    if not license_token:
+        return set()
+    token_fingerprint = hashlib.sha256(license_token.encode()).hexdigest()
     now = time.monotonic()
-    if _broker_provider_cache and now < _broker_provider_cache[0]:
-        return set(_broker_provider_cache[1])
+    if (
+        _broker_provider_cache
+        and now < _broker_provider_cache[0]
+        and _broker_provider_cache[1] == token_fingerprint
+    ):
+        return set(_broker_provider_cache[2])
     try:
         import httpx
 
         async with httpx.AsyncClient(timeout=5) as client:
             response = await client.get(
                 f"{broker_url}/oauth/integrations/providers",
-                headers={"Authorization": f"Bearer {broker_secret}"},
+                headers={
+                    "Authorization": f"Bearer {broker_secret}",
+                    "X-Vectora-Token": license_token,
+                },
             )
         if response.is_success:
             providers = {str(item) for item in response.json().get("providers", [])}
             _broker_provider_cache = (
                 now + _BROKER_PROVIDER_SUCCESS_CACHE_TTL,
+                token_fingerprint,
                 providers,
             )
             return set(providers)
@@ -159,6 +172,7 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
     user = _get_user(request)
     broker_url = _broker_url()
     broker_secret = _broker_secret()
+    license_token = get_license_token()
     expires_at = int(time.time()) + int(_BROKER_STATE_TTL)
     proof = secrets.token_urlsafe(32)
     # Keep the signed state below the gateway's compact-state limit while
@@ -197,6 +211,10 @@ async def _broker_start(request: Request, provider: str) -> RedirectResponse:
             response = await client.get(
                 f"{broker_url}/oauth/integrations/{provider}/start",
                 params={"state": state, "return_to": callback_url},
+                headers={
+                    "Authorization": f"Bearer {broker_secret}",
+                    "X-Vectora-Token": license_token or "",
+                },
             )
         if response.status_code != 302:
             if 200 <= response.status_code < 300:

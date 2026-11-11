@@ -38,8 +38,14 @@ vi.mock("@/components/sidebar/sidebar", () => ({
 vi.mock("@/components/layout/license-banner", () => ({
   LicenseBanner: () => null,
 }));
-const { headerMock } = vi.hoisted(() => ({ headerMock: vi.fn(() => null) }));
+const { headerMock, narrowViewport } = vi.hoisted(() => ({
+  headerMock: vi.fn((_props: unknown) => null),
+  narrowViewport: { current: false },
+}));
 vi.mock("@/components/header/header", () => ({ Header: headerMock }));
+vi.mock("@/lib/hooks/use-media-query", () => ({
+  useIsNarrowViewport: () => narrowViewport.current,
+}));
 vi.mock("@/components/chat/features/empty-state-header", () => ({
   EmptyStateHeader: () => <div data-testid="empty-state-header" />,
 }));
@@ -68,6 +74,7 @@ const HomeScreen = (Route as unknown as { component: () => ReactElement })
 beforeEach(() => {
   navigateSpy.mockClear();
   headerMock.mockClear();
+  narrowViewport.current = false;
   sidebarProps.current = null;
   vi.spyOn(browserSessionStore, "disposeBrowserThread").mockImplementation(
     () => {},
@@ -92,5 +99,16 @@ describe("HomeScreen — excluir thread", () => {
     expect(browserSessionStore.disposeBrowserThread).toHaveBeenCalledWith(
       "deleted-thread",
     );
+  });
+
+  it("oferece reabertura da lista de sessões quando a sidebar desktop some", () => {
+    narrowViewport.current = true;
+    render(<HomeScreen />);
+
+    const props = headerMock.mock.calls.at(-1)?.[0] as
+      { compactNavigation?: { onOpenSessions: () => void } } | undefined;
+    expect(props?.compactNavigation?.onOpenSessions).toBeTypeOf("function");
+    props?.compactNavigation?.onOpenSessions();
+    expect(sidebarProps.current).not.toBeNull();
   });
 });

@@ -48,8 +48,6 @@ function roleLabel(role: string): string {
   return labels[role] ?? role;
 }
 
-import { useLicenseStatus } from "@/lib/hooks/use-license-status";
-
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -1299,8 +1297,7 @@ function BackendConfigCard({
   }[];
   testBackend: string;
   onSave: (values: Record<string, string>) => Promise<void>;
-  /** Sem licença Pro os campos ficam só de leitura: o backend recusa o
-   * PATCH com 402, então deixar digitar seria oferecer um caminho morto. */
+  /** Permite bloquear campos apenas quando o contexto da tela exigir. */
   disabled?: boolean;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
@@ -1406,10 +1403,6 @@ export function StoragePanel() {
   const [loading, setLoading] = useState(false);
   const [savingMode, setSavingMode] = useState(false);
 
-  const { status: license, loading: licenseLoading } = useLicenseStatus();
-  const isPro =
-    !licenseLoading && license?.configured && license?.tier === "pro";
-
   const fetchHealth = useCallback(async () => {
     setLoading(true);
     try {
@@ -1494,8 +1487,8 @@ export function StoragePanel() {
               <SelectItem value="lite">
                 {m.admin_storage_mode_lite()}
               </SelectItem>
-              <SelectItem value="complete" disabled={!isPro}>
-                {m.admin_storage_mode_complete()} {!isPro && "(Pro)"}
+              <SelectItem value="complete">
+                {m.admin_storage_mode_complete()}
               </SelectItem>
             </SelectContent>
           </Select>
@@ -1548,7 +1541,6 @@ export function StoragePanel() {
                 },
               ]}
               onSave={(v) => patchStorage(v)}
-              disabled={!isPro}
             />
             <BackendConfigCard
               title={m.admin_storage_redis_title()}
@@ -1562,7 +1554,6 @@ export function StoragePanel() {
                 },
               ]}
               onSave={(v) => patchStorage(v)}
-              disabled={!isPro}
             />
             <BackendConfigCard
               title={m.admin_storage_qdrant_title()}
@@ -1582,7 +1573,6 @@ export function StoragePanel() {
                 },
               ]}
               onSave={(v) => patchStorage(v)}
-              disabled={!isPro}
             />
           </div>
         </div>
@@ -1597,7 +1587,6 @@ export function StoragePanel() {
 // Preferências e Ambiente) — não ficam mais escondidas atrás de um wrapper
 // `AdminTab` com tab bar própria. `UsersPanel`/`ToolsPanel`/
 // `SafeRootsPanel`/`SystemPanel`/`StoragePanel` são exportados diretamente;
-// o gate de "Usuários" por tier (free não vê, ver `useLicenseStatus`
-// abaixo) e o deep-link por sub-aba (`administracao-dialog-store`) vivem em
+// O deep-link por sub-aba (`administracao-dialog-store`) vive em
 // `settings-categories.tsx`, não aqui.
 // ---------------------------------------------------------------------------

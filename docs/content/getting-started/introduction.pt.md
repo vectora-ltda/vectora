@@ -52,7 +52,7 @@ O modo de armazenamento local usa SQLite e LanceDB. Providers de IA e integraç�
 
 A licença de código aberto e a assinatura comercial são coisas diferentes. O uso local individual do aplicativo e da CLI é gratuito e não exige conta. Os recursos centrais do produto — incluindo RAG, Library, Browser, Sandbox, Context Graph, HITL e Decision Models — não são bloqueados pela assinatura Pro. O uso de provedores externos pode gerar custos cobrados por esses provedores.
 
-Uma assinatura **Pro** ativa é exigida para convidar outros membros e operar em equipe, hospedar uma instância Vectora em VPS pelo fluxo Pro, usar o storage avançado (Postgres, Qdrant e Redis), disparar tarefas por webhook e usar Vectora Connect ou o bot de revisão do GitHub Actions. O suporte prioritário segue os termos comerciais vigentes. Hospedar por conta própria os bancos ou o app não substitui a assinatura. Consulte as [assinaturas e os preços](https://vectora.company/#pricing).
+A assinatura **Free** inclui execução local, hospedagem própria e storage configurado pelo operador, como Postgres, Qdrant e Redis. A assinatura **Pro** habilita recursos hospedados que dependem do Services, como organizações e convites, webhooks remotos e Vectora Connect. Consulte as [assinaturas e os preços](https://vectora.company/#pricing).
 
 ## Próximo passo
 
