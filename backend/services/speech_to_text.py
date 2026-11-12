@@ -6,9 +6,11 @@ Ordem dos motores:
    modelo é multilíngue (detecta o idioma sozinho); o tamanho vem de
    ``stt_local_model`` (``tiny``, ``base``, ``small``, ``medium``,
    ``large-v3``) e o idioma opcional de ``stt_language``.
-2. **Sistema:** um whisper instalado na máquina, detectado no PATH ou
-   configurado: ``whisper-cli`` do whisper.cpp (com um modelo ``ggml-*.bin``)
-   ou o ``whisper`` da OpenAI.
+2. **Sistema:** no macOS, o reconhecimento de fala nativo da Apple
+   (framework Speech, no dispositivo quando o idioma suporta), pelo helper
+   ``vectora-speech`` embutido no app; depois, um whisper instalado na
+   máquina, detectado no PATH ou configurado: ``whisper-cli`` do whisper.cpp
+   (com um modelo ``ggml-*.bin``) ou o ``whisper`` da OpenAI.
 3. **Provider remoto:** o mesmo caminho da transcrição de ditado, usado só
    quando nenhum motor local está disponível.
 
@@ -68,6 +70,26 @@ class SystemWhisper:
     kind: Literal["whisper.cpp", "openai-whisper"]
     command: str
     model: str
+
+
+#: Idioma curto → locale do framework Speech da Apple (que exige locale).
+_APPLE_LOCALES = {
+    "pt": "pt-BR",
+    "en": "en-US",
+    "es": "es-ES",
+    "fr": "fr-FR",
+    "de": "de-DE",
+    "it": "it-IT",
+    "ja": "ja-JP",
+    "ko": "ko-KR",
+    "zh": "zh-CN",
+    "ru": "ru-RU",
+    "nl": "nl-NL",
+    "pl": "pl-PL",
+    "tr": "tr-TR",
+    "ar": "ar-SA",
+    "hi": "hi-IN",
+}
 
 
 class SpeechToTextError(RuntimeError):
@@ -138,12 +160,42 @@ def detect_system_whisper() -> SystemWhisper | None:
     return None
 
 
+def resolve_apple_speech() -> str | None:
+    """Helper ``vectora-speech`` (framework Speech) — só no macOS.
+
+    Ordem: bundle do app (pasta ``speech/``) → ``resources/`` da árvore-fonte
+    (compilado por ``scons macos-speech``).
+    """
+    import sys
+
+    from backend.services import ffmpeg_binary
+
+    if sys.platform != "darwin":
+        return None
+    for base in ffmpeg_binary._frozen_bundle_bases():
+        candidate = base / "speech" / "vectora-speech"
+        if candidate.is_file():
+            return str(candidate)
+    candidate = ffmpeg_binary._resources_dir() / "vectora-speech"
+    return str(candidate) if candidate.is_file() else None
+
+
+def apple_locale(language: str) -> str:
+    """Locale para o framework Speech; vazio usa o idioma do sistema."""
+    if not language:
+        return ""
+    if "-" in language or "_" in language:
+        return language.replace("_", "-")
+    return _APPLE_LOCALES.get(language.lower(), language)
+
+
 def available_engines() -> dict[str, object]:
     """Motores locais disponíveis, para diagnóstico e interface."""
     system = detect_system_whisper()
     return {
         "embedded": embedded_available(),
         "embedded_model": local_model_size(),
+        "apple_speech": resolve_apple_speech() is not None,
         "system": system is not None,
         "system_kind": system.kind if system else "",
         "language": preferred_language() or "auto",
@@ -282,6 +334,37 @@ async def _transcribe_system(
     )
 
 
+async def _transcribe_apple(
+    helper: str, path: Path, language: str, workdir: Path
+) -> Transcript:
+    """Transcreve com o reconhecimento de fala nativo do macOS."""
+    import json
+
+    wav = workdir / "audio.wav"
+    if not await to_wav16k(path, wav):
+        raise SpeechToTextError("ffmpeg não conseguiu preparar o áudio")
+    args = [helper, "transcribe", str(wav)]
+    locale = apple_locale(language)
+    if locale:
+        args += ["--locale", locale]
+    _code, out, err = await _run(*args, limit_s=LOCAL_TIMEOUT_S)
+    try:
+        result = json.loads(out.strip().splitlines()[-1])
+    except (IndexError, ValueError) as exc:
+        raise SpeechToTextError(
+            f"reconhecimento de fala do macOS sem resposta: {err.strip()[:200]}"
+        ) from exc
+    if not result.get("ok"):
+        raise SpeechToTextError(
+            f"reconhecimento de fala do macOS: {result.get('error') or 'falhou'}"
+        )
+    return Transcript(
+        text=str(result.get("text") or "").strip(),
+        language=str(result.get("locale") or locale or language),
+        engine="system",
+    )
+
+
 async def transcribe_local(path: Path, language: str = "") -> Transcript:
     """Transcreve com o motor embutido; sem ele, com o whisper do sistema."""
     language = language or preferred_language()
@@ -296,6 +379,19 @@ async def transcribe_local(path: Path, language: str = "") -> Transcript:
             except Exception as exc:
                 logger.exception("speech_to_text: motor embutido falhou")
                 errors.append(f"motor embutido: {exc}")
+        apple = resolve_apple_speech()
+        if apple is not None:
+            with tempfile.TemporaryDirectory(prefix="vectora-stt-") as workdir:
+                try:
+                    transcript = await _transcribe_apple(
+                        apple, path, language, Path(workdir)
+                    )
+                    if transcript.text:
+                        return transcript
+                    errors.append("reconhecimento de fala do macOS não retornou texto")
+                except Exception as exc:
+                    logger.exception("speech_to_text: reconhecimento do macOS falhou")
+                    errors.append(str(exc))
         system = detect_system_whisper()
         if system is not None:
             with tempfile.TemporaryDirectory(prefix="vectora-stt-") as workdir:

@@ -113,6 +113,10 @@ mac:
   category: public.app-category.developer-tools
   hardenedRuntime: true
   gatekeeperAssess: false
+  # O helper de fala nativo (resources/vectora-core/speech/vectora-speech)
+  # usa o framework Speech; o macOS mostra este texto ao pedir permissão.
+  extendInfo:
+    NSSpeechRecognitionUsageDescription: "O Vectora transcreve áudios e vídeos anexados no próprio Mac quando você usa o reconhecimento de fala do sistema."
 
 dmg:
   title: ${productName} ${version}

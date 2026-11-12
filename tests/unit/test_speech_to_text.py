@@ -264,3 +264,85 @@ def test_whisper_embutido_recebe_audio_decodificado_pelo_ffmpeg(
     assert result["text"] == "olá"
     assert isinstance(received[0], np.ndarray)
     assert received[0].dtype == np.float32
+
+
+def _fake_apple_helper(directory: Path, *, ok: bool = True) -> Path:
+    """`vectora-speech` falso com o protocolo JSON do helper Swift."""
+    helper = directory / "vectora-speech"
+    body = (
+        "out = {'ok': True, 'text': 'olá do macOS', 'locale': locale or 'pt-BR', "
+        "'on_device': True}"
+        if ok
+        else "out = {'ok': False, 'error': 'não autorizado'}"
+    )
+    helper.write_text(
+        f"#!{sys.executable}\n"
+        "import json, sys\n"
+        "args = sys.argv[1:]\n"
+        "assert args[0] == 'transcribe'\n"
+        "locale = args[args.index('--locale') + 1] if '--locale' in args else ''\n"
+        f"{body}\n"
+        "print(json.dumps(out))\n"
+        "sys.exit(0 if out['ok'] else 1)\n"
+    )
+    helper.chmod(helper.stat().st_mode | stat.S_IEXEC)
+    return helper
+
+
+def test_locale_da_apple_a_partir_do_idioma() -> None:
+    assert stt.apple_locale("") == ""
+    assert stt.apple_locale("pt") == "pt-BR"
+    assert stt.apple_locale("en") == "en-US"
+    assert stt.apple_locale("pt_PT") == "pt-PT"
+    assert stt.apple_locale("sv") == "sv"
+
+
+def test_helper_da_apple_so_no_macos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from backend.services import ffmpeg_binary
+
+    helper = _fake_apple_helper(tmp_path)
+    monkeypatch.setattr(ffmpeg_binary, "_resources_dir", lambda: tmp_path)
+    monkeypatch.setattr(ffmpeg_binary, "_frozen_bundle_bases", list)
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert stt.resolve_apple_speech() is None
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert stt.resolve_apple_speech() == str(helper)
+
+
+@requires_ffmpeg
+async def test_no_macos_usa_reconhecimento_nativo_antes_do_whisper_do_sistema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_settings: dict[str, str]
+) -> None:
+    helper = _fake_apple_helper(tmp_path)
+    monkeypatch.setattr(stt, "embedded_available", lambda: False)
+    monkeypatch.setattr(stt, "resolve_apple_speech", lambda: str(helper))
+    monkeypatch.setattr(
+        stt, "detect_system_whisper", lambda: pytest.fail("não deveria chegar aqui")
+    )
+    no_settings["stt_language"] = "pt"
+
+    transcript = await stt.transcribe_local(_ASSETS / "sample.wav")
+    assert transcript == stt.Transcript("olá do macOS", "pt-BR", "system")
+
+
+@requires_ffmpeg
+async def test_falha_do_macos_cai_no_whisper_do_sistema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, no_settings: dict[str, str]
+) -> None:
+    apple_dir = tmp_path / "apple"
+    apple_dir.mkdir()
+    helper = _fake_apple_helper(apple_dir, ok=False)
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    _fake_whisper_cpp(bin_dir)
+    model = tmp_path / "ggml-base.bin"
+    model.write_bytes(b"x")
+    monkeypatch.setenv("PATH", f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+    no_settings["stt_system_model"] = str(model)
+    monkeypatch.setattr(stt, "embedded_available", lambda: False)
+    monkeypatch.setattr(stt, "resolve_apple_speech", lambda: str(helper))
+
+    transcript = await stt.transcribe_local(_ASSETS / "sample.wav")
+    assert transcript.text == "transcrito pelo sistema (auto)"

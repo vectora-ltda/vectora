@@ -21,6 +21,7 @@ on:
       - "uv.lock"
       - "SConstruct"
       - "build-hybrid.py"
+      - "native/**"
       - ".github/workflows/vectora.yml"
       - ".github/actions/**"
   pull_request:
@@ -34,6 +35,7 @@ on:
       - "uv.lock"
       - "SConstruct"
       - "build-hybrid.py"
+      - "native/**"
       - ".github/workflows/vectora.yml"
       - ".github/actions/**"
   workflow_dispatch:
@@ -617,6 +619,13 @@ jobs:
         # (transcrição/análise de mídia local precisa deles embutidos).
         working-directory: .
         run: uv run scons ffmpeg
+        shell: bash
+      - name: Build macOS speech helper
+        # Helper de reconhecimento de fala nativo (framework Speech), exigido
+        # pelo build-hybrid.py no macOS.
+        if: runner.os == 'macOS'
+        working-directory: .
+        run: uv run scons macos-speech
         shell: bash
       - name: Build hybrid (Nuitka backend.pyd + PyInstaller onedir)
         # Mesmo pipeline que `scons release` roda localmente
