@@ -9,7 +9,7 @@ sidebar:
 
 O **Vectora** é um workspace de desenvolvimento assistido por agentes de IA. O aplicativo reúne chat, arquivos, terminal, Git, navegador, busca no projeto e ferramentas de automação; o usuário mantém controle sobre o workspace, as permissões e os provedores conectados.
 
-O aplicativo Vectora é **open source sob AGPL-3.0**. Consulte a [licença](https://github.com/vectora-ltda/vectora/blob/master/LICENSE), o [repositório](https://github.com/vectora-ltda/vectora), as [diretrizes para contribuir](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md) e as [issues públicas](https://github.com/vectora-ltda/vectora/issues). O uso local individual é gratuito; uma assinatura Pro habilita recursos e serviços pagos. Provedores externos podem cobrar pelo próprio uso. A assinatura não altera a licença do código.
+O aplicativo Vectora é **open source sob AGPL-3.0**. Consulte a [licença](https://github.com/vectora-company/vectora/blob/master/LICENSE), o [repositório](https://github.com/vectora-company/vectora), as [diretrizes para contribuir](https://github.com/vectora-company/vectora/blob/master/CONTRIBUTING.md) e as [issues públicas](https://github.com/vectora-company/vectora/issues). O uso local individual é gratuito; uma assinatura Pro habilita recursos e serviços pagos. Provedores externos podem cobrar pelo próprio uso. A assinatura não altera a licença do código.
 
 ## Comece por aqui
 
@@ -32,7 +32,7 @@ No modo padrão, SQLite e LanceDB mantêm os dados e índices localmente. A conf
 
 ## Sobre esta documentação
 
-Este site contém guias públicos de instalação, configuração, uso, segurança e referência. A documentação acompanha a linha estável `0.1.x`; consulte o [changelog do repositório](https://github.com/vectora-ltda/vectora/blob/master/CHANGELOG.md) para a lista completa de mudanças da versão. Os recursos podem depender de configuração, sistema operacional, provider ou serviço externo. Um teste automatizado ignorado (`skipped`) não comprova disponibilidade operacional.
+Este site contém guias públicos de instalação, configuração, uso, segurança e referência. A documentação acompanha a linha estável `0.1.x`; consulte o [changelog do repositório](https://github.com/vectora-company/vectora/blob/master/CHANGELOG.md) para a lista completa de mudanças da versão. Os recursos podem depender de configuração, sistema operacional, provider ou serviço externo. Um teste automatizado ignorado (`skipped`) não comprova disponibilidade operacional.
 
 ## Limites conhecidos da versão 0.1.24
 

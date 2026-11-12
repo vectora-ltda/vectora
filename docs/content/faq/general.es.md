@@ -4,7 +4,7 @@ weight: 1
 ---
 
 **¿Vectora es open source?**
-Sí. El código fuente está bajo la licencia GNU AGPL-3.0. Consulta el archivo [LICENSE](https://github.com/vectora-ltda/vectora/blob/master/LICENSE) para conocer todos los términos.
+Sí. El código fuente está bajo la licencia GNU AGPL-3.0. Consulta el archivo [LICENSE](https://github.com/vectora-company/vectora/blob/master/LICENSE) para conocer todos los términos.
 
 **¿Necesito una cuenta para ejecutar Vectora localmente?**
 El operador puede configurar una instancia local sin usar los servicios opcionales de Vectora. Las funciones que dependen de proveedores externos, autenticación o servicios auxiliares tienen requisitos propios.

@@ -28,7 +28,7 @@ async def test_get_skills_catalog_returns_remote_entries(
                 {
                     "id": "s1",
                     "name": "Skill 1",
-                    "source": "https://github.com/vectora-ltda/skill-1",
+                    "source": "https://github.com/vectora-company/skill-1",
                 }
             ]
         ),
@@ -61,7 +61,7 @@ async def test_get_skills_catalog_skips_entries_without_usable_source(
     valid_entry = {
         "id": f"valid-{provider}",
         "name": f"Valid {provider}",
-        "source": f"https://github.com/vectora-ltda/valid-{provider}",
+        "source": f"https://github.com/vectora-company/valid-{provider}",
     }
     invalid_entry = {"id": f"invalid-{provider}", "name": "Invalid"}
     if invalid_source is not None:
@@ -163,7 +163,7 @@ class TestSkillsCatalogQueryFilters:
             "id": "s1",
             "name": "Docker Deploy",
             "description": "publica containers",
-            "source": "https://github.com/vectora-ltda/docker-deploy",
+            "source": "https://github.com/vectora-company/docker-deploy",
             "category": "devtools",
             "tags": ["docker", "ci"],
         },
@@ -171,7 +171,7 @@ class TestSkillsCatalogQueryFilters:
             "id": "s2",
             "name": "Writer",
             "description": "gera documentação",
-            "source": "https://github.com/vectora-ltda/writer",
+            "source": "https://github.com/vectora-company/writer",
             "category": "docs",
             "tags": ["markdown"],
         },

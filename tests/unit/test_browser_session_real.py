@@ -104,7 +104,7 @@ async def test_browser_navega_github_publico_real_sem_login() -> None:
     """Chromium deve acessar a issue pública sem cookies do GitHub."""
     page = await browser_session.get_browser_page("ws-github-public")
     response = await page.goto(
-        "https://github.com/vectora-ltda/vectora/issues/317",
+        "https://github.com/vectora-company/vectora/issues/317",
         wait_until="domcontentloaded",
         timeout=30_000,
     )
