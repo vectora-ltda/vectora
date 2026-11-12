@@ -29,4 +29,4 @@ Os logs locais ficam em `~/.vectora/logs/`. Remova ou mascare tokens, caminhos p
 
 ## Relatar um problema
 
-Procure primeiro nas [issues existentes](https://github.com/vectora-ltda/vectora/issues). Para uma vulnerabilidade, siga a [política de segurança](https://github.com/vectora-ltda/vectora/blob/master/SECURITY.md) em vez de publicar detalhes em uma issue.
+Procure primeiro nas [issues existentes](https://github.com/vectora-company/vectora/issues). Para uma vulnerabilidade, siga a [política de segurança](https://github.com/vectora-company/vectora/blob/master/SECURITY.md) em vez de publicar detalhes em uma issue.

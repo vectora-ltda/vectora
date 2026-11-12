@@ -6,7 +6,7 @@ O Vectora executa ações em nome do usuário (ler e escrever arquivos, rodar co
 
 **Não abra uma issue pública.** Isso expõe o problema antes da correção.
 
-1. Abra um [Security Advisory privado](https://github.com/vectora-ltda/vectora/security/advisories/new) neste repositório.
+1. Abra um [Security Advisory privado](https://github.com/vectora-company/vectora/security/advisories/new) neste repositório.
 2. Informe o componente afetado, o tipo de falha, os passos para reproduzir e o impacto estimado.
 3. Inclua a versão (`vectora --version`), o sistema operacional e o modo de uso (desktop ou servidor).
 4. Não envie segredos, tokens nem dados pessoais reais, e não publique um exploit completo antes de combinarmos a divulgação.

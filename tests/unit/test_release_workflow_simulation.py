@@ -20,7 +20,7 @@ import workflow_sim as sim
 from workflow_sim import Call, Rule, Sandbox, StepResult
 
 WORKFLOW = REPO_ROOT / ".github" / "workflows" / "vectora.yml"
-REPO = "vectora-ltda/vectora"
+REPO = "vectora-company/vectora"
 SHA = "d0873cb2eb81bee64a0c98849649af9b8154baab"
 OTHER_SHA = "726426e3ff9af4627158a52893fc29d8e426459f"
 TAG_OBJECT = "a" * 40
