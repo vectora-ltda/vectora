@@ -293,7 +293,11 @@ def _transcribe_audio_local_sync(data: bytes, filename: str, language: str) -> s
         descriptor, temp_path = tempfile.mkstemp(prefix="vectora-stt-", suffix=suffix)
         with os.fdopen(descriptor, "wb") as audio_file:
             audio_file.write(data)
-        result = _transcribe_local_sync(temp_path, language or None)
+        from backend.services.speech_to_text import preferred_language
+
+        result = _transcribe_local_sync(
+            temp_path, language or preferred_language() or None
+        )
         text = str(result.get("text", "")).strip()
         if not text:
             raise TranscriptionError("o modelo local não retornou texto")
