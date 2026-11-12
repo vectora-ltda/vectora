@@ -9,7 +9,7 @@ sidebar:
 
 **Vectora** is an AI-assisted development workspace. It brings chat, files, terminal, Git, browser, project search, and automation tools together while keeping the user in control of the workspace, permissions, and connected providers.
 
-The Vectora application is **open source under AGPL-3.0**. See the [license](https://github.com/vectora-ltda/vectora/blob/master/LICENSE), [repository](https://github.com/vectora-ltda/vectora), [contribution guide](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md), and [public issues](https://github.com/vectora-ltda/vectora/issues). Individual local use is free; a Pro entitlement enables paid features and services. Third-party providers may charge for their own usage. The entitlement does not change the code license.
+The Vectora application is **open source under AGPL-3.0**. See the [license](https://github.com/vectora-company/vectora/blob/master/LICENSE), [repository](https://github.com/vectora-company/vectora), [contribution guide](https://github.com/vectora-company/vectora/blob/master/CONTRIBUTING.md), and [public issues](https://github.com/vectora-company/vectora/issues). Individual local use is free; a Pro entitlement enables paid features and services. Third-party providers may charge for their own usage. The entitlement does not change the code license.
 
 ## Start here
 
@@ -32,7 +32,7 @@ The default mode uses SQLite and LanceDB for local data and indexes. The `comple
 
 ## About this documentation
 
-This site contains public installation, configuration, usage, security, and reference guides. It follows the stable `0.1.x` line; see the [repository changelog](https://github.com/vectora-ltda/vectora/blob/master/CHANGELOG.md) for the complete version history. Features may depend on configuration, operating system, provider, or external service. A skipped automated test does not establish operational availability.
+This site contains public installation, configuration, usage, security, and reference guides. It follows the stable `0.1.x` line; see the [repository changelog](https://github.com/vectora-company/vectora/blob/master/CHANGELOG.md) for the complete version history. Features may depend on configuration, operating system, provider, or external service. A skipped automated test does not establish operational availability.
 
 ## Known limits in version 0.1.24
 
