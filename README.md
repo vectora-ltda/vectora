@@ -83,8 +83,11 @@ Os artefatos do Context Graph e o cache ficam em `.vectora/context-graph/` dentr
 git clone https://github.com/vectora-company/vectora.git
 cd vectora
 
-# Linux (recomendado): prepara toolchains e dependências do sistema e instala o projeto
-./dotfiles.sh
+# Linux: prepara toolchains e dependências do sistema (opcional)
+# ./dotfiles.sh
+
+# Instalar dependências do projeto em qualquer plataforma
+uv run --locked scons install
 
 # Copiar e preencher suas chaves de API
 cp .env.example .env
@@ -98,7 +101,7 @@ pnpm --dir frontend dev
 
 No Windows/macOS, instale `uv`, Python 3.13, Node.js 26 e pnpm 11.5 e execute `uv run --locked scons install` antes de iniciar o projeto.
 
-`scons install` sincroniza todos os grupos Python, executa `pnpm ci`, garante o binário nativo do Electron e baixa NATS/FFmpeg para `resources/`. No Linux, `dotfiles.sh` detecta a distro e prepara a toolchain antes de delegar ao SCons. `pnpm ci` recria `frontend/node_modules` conforme o lockfile. O app usa o Chromium distribuído com Electron; Playwright é apenas cliente CDP e não precisa baixar browsers.
+`scons install` sincroniza todos os grupos Python, executa `pnpm ci`, garante o binário nativo do Electron e baixa NATS/FFmpeg para `resources/`. No Linux, `dotfiles.sh` é opcional e prepara a toolchain separadamente. `pnpm ci` recria `frontend/node_modules` conforme o lockfile. O app usa o Chromium distribuído com Electron; Playwright é apenas cliente CDP e não precisa baixar browsers.
 
 Abra `http://localhost:3000`. O primeiro usuário a se cadastrar vira administrador root.
 

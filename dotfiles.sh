@@ -11,9 +11,9 @@ case "${1:-}" in
   --toolchain-only) MODE=toolchain ;;
   -h|--help)
     printf '%s\n' 'Uso: ./dotfiles.sh [--check|--toolchain-only]' \
-      '  padrão             prepara a toolchain Linux e executa scons install' \
+      '  padrão             prepara a toolchain Linux (opcional)' \
       '  --check            apenas lista o estado das dependências' \
-      '  --toolchain-only   prepara a toolchain; usado pelo alvo scons install'
+      '  --toolchain-only   prepara apenas a toolchain (equivalente ao padrão)'
     exit 0
     ;;
   *) printf 'Opção desconhecida: %s\n' "$1" >&2; exit 2 ;;
@@ -243,7 +243,4 @@ if [[ "$MODE" != check ]]; then
   done
 fi
 
-if [[ "$MODE" == toolchain ]]; then exit 0; fi
-export VECTORA_DOTFILES_TOOLCHAIN_DONE=1
-uv sync --locked --all-groups
-uv run --locked --project "$ROOT_DIR" scons install
+printf '\nToolchain preparada. Para instalar as dependências do projeto, rode scons install.\n'

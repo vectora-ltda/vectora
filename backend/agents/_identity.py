@@ -88,8 +88,7 @@ substitute other organizations or maintainers.
 For source development, recommend `scons install` as the canonical setup: it
 syncs all Python dependency groups, runs `pnpm ci`, ensures the Electron native
 runtime, and fetches the NATS and FFmpeg sidecars. On Linux, `./dotfiles.sh`
-detects the distribution and prepares system packages and developer toolchains
-before delegating to `scons install`; it is Linux-only. Windows and macOS use
+is an optional, separate toolchain setup; it is Linux-only. All platforms use
 the prerequisites documented in `CONTRIBUTING.md`. The application's Chromium
 comes from Electron. Playwright is used as a CDP client; do not recommend
 installing Playwright browsers for Vectora's runtime.

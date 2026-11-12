@@ -29,10 +29,11 @@ Use este caminho para desenvolvimento ou para inspecionar/modificar o projeto. C
 git clone https://github.com/vectora-company/vectora.git
 cd vectora
 
-./dotfiles.sh
+# ./dotfiles.sh  # opcional: prepara a toolchain Linux
+uv run --locked scons install
 ```
 
-No Windows/macOS, instale os pré-requisitos e rode `uv run --locked scons install`. Esse alvo sincroniza todos os grupos Python, executa `pnpm ci`, garante o binário nativo do Electron e baixa NATS e FFmpeg. `pnpm ci` recria `frontend/node_modules` a partir do lockfile. O Chromium de execução é o que acompanha o Electron; Playwright é usado como cliente CDP e não exige download de browsers.
+Em todos os sistemas, instale os pré-requisitos e rode `uv run --locked scons install`; o `dotfiles.sh` é opcional no Linux. Esse alvo sincroniza todos os grupos Python, executa `pnpm ci`, garante o binário nativo do Electron e baixa NATS e FFmpeg. `pnpm ci` recria `frontend/node_modules` a partir do lockfile. O Chromium de execução é o que acompanha o Electron; Playwright é usado como cliente CDP e não exige download de browsers.
 
 Copie `.env.example` para `.env` se quiser configurar variáveis para o ambiente de desenvolvimento. Para uma instalação desktop, as configurações pessoais ficam em `~/.vectora/` (no Windows, em `%USERPROFILE%\.vectora\`). Veja [Configuração](./configuration) e a [referência de variáveis](../../reference/config).
 
