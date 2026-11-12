@@ -1222,3 +1222,65 @@ class TestMachineFingerprint:
 
         assert isinstance(fp, str)
         assert len(fp) == 32
+
+
+class TestGatewayClientSemPro:
+    @pytest.mark.asyncio
+    async def test_conta_sem_pro_desliga_o_gateway_sem_retry(
+        self, gateway_token_file: Path, gateway_secret_file: Path
+    ) -> None:
+        """403 do registro (conta Free) encerra o loop sem reconectar; os
+        webhooks locais continuam funcionando."""
+        from backend.services.gateway import GatewayClient, GatewayRequiresProError
+
+        mock_response = AsyncMock()
+        mock_response.status = 403
+        client = GatewayClient(
+            gateway_url="wss://gateway.vectora.chat",
+            app_secret="fixed-product-secret",
+            token_path=gateway_token_file,
+            secret_path=gateway_secret_file,
+            fingerprint="fp-machine-a",
+        )
+        with patch(
+            "backend.services.gateway.aiohttp.ClientSession"
+        ) as mock_session_cls:
+            with patch(
+                "backend.services.gateway.get_license_token",
+                return_value="vectora-account-token",
+            ):
+                mock_session = AsyncMock()
+                mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+                mock_session.__aexit__ = AsyncMock(return_value=None)
+                mock_session.post = MagicMock(
+                    return_value=AsyncMock(
+                        __aenter__=AsyncMock(return_value=mock_response),
+                        __aexit__=AsyncMock(return_value=None),
+                    )
+                )
+                mock_session_cls.return_value = mock_session
+
+                with pytest.raises(GatewayRequiresProError):
+                    await client._register()
+
+                with patch.object(client, "_connect_once") as connect_once:
+                    await client._connect_loop()
+                connect_once.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sem_vectora_token_desliga_o_gateway(
+        self, gateway_token_file: Path, gateway_secret_file: Path
+    ) -> None:
+        from backend.services.gateway import GatewayClient
+
+        client = GatewayClient(
+            gateway_url="wss://gateway.vectora.chat",
+            app_secret="fixed-product-secret",
+            token_path=gateway_token_file,
+            secret_path=gateway_secret_file,
+            fingerprint="fp-machine-a",
+        )
+        with patch("backend.services.gateway.get_license_token", return_value=None):
+            with patch.object(client, "_connect_once") as connect_once:
+                await client._connect_loop()
+        connect_once.assert_not_called()

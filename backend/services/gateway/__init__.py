@@ -98,6 +98,10 @@ _ForwardJob = tuple[
 ]
 
 
+class GatewayRequiresProError(RuntimeError):
+    """O gateway remoto (webhooks e callbacks pela internet) exige conta Pro."""
+
+
 class GatewayClient:
     """WebSocket client que mantém conexão com o gateway e repassa requests ao backend local."""
 
@@ -161,8 +165,9 @@ class GatewayClient:
         existing_secret = load_token(self._secret_path)
         account_token = get_license_token()
         if not account_token:
-            raise RuntimeError(
-                "Vectora Connect exige uma conta Pro conectada pelo Vectora Token."
+            raise GatewayRequiresProError(
+                "O gateway de webhooks remotos exige uma conta Pro conectada pelo"
+                " Vectora Token."
             )
         if existing_token and existing_secret:
             async with aiohttp.ClientSession() as session:
@@ -177,6 +182,10 @@ class GatewayClient:
                 ) as resp:
                     if resp.status == 200:
                         return existing_token, existing_secret
+                    if resp.status == 403:
+                        raise GatewayRequiresProError(
+                            "O gateway de webhooks remotos exige uma conta Pro."
+                        )
                     if resp.status != 409:
                         resp.raise_for_status()
 
@@ -189,6 +198,10 @@ class GatewayClient:
                     "vectora_token": account_token,
                 },
             ) as resp:
+                if resp.status == 403:
+                    raise GatewayRequiresProError(
+                        "O gateway de webhooks remotos exige uma conta Pro."
+                    )
                 resp.raise_for_status()
                 data: dict[str, str] = await resp.json()
 
@@ -202,7 +215,13 @@ class GatewayClient:
     async def _connect_loop(self) -> None:
         """Loop infinito com backoff exponencial até cancelamento."""
         backoff = _BACKOFF_INITIAL
-        token, secret = await self._register()
+        try:
+            token, secret = await self._register()
+        except GatewayRequiresProError as exc:
+            # Webhooks locais continuam funcionando; só o caminho remoto pelo
+            # gateway fica desligado até a conta ter Pro.
+            logger.info("gateway: desativado (%s)", exc)
+            return
 
         while True:
             try:
@@ -445,4 +464,4 @@ def _machine_fingerprint() -> str:
     return hashlib.sha256(socket.getfqdn().encode()).hexdigest()[:32]
 
 
-__all__ = ["GatewayClient"]
+__all__ = ["GatewayClient", "GatewayRequiresProError"]

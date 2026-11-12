@@ -6,7 +6,7 @@ implementação correta de acordo com ``settings.storage_mode``.
 
 Modos:
     lite     — SQLite + LanceDB (default, sem deps externas)
-    complete — Postgres + Qdrant + Redis (Pro gate)
+    complete — Postgres + Qdrant + Redis (configurados pelo operador)
 
 Cada Protocol tem um método ``health() -> HealthResult`` que retorna
 ``{"ok": True}`` ou ``{"ok": False, "error": "..."}`` para o endpoint
