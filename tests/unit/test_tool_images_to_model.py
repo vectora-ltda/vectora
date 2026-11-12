@@ -90,8 +90,11 @@ def test_openrouter_imagem_vai_em_mensagem_de_usuario_depois_das_tools() -> None
     assert len(images) == 2
 
 
-def test_so_as_tres_imagens_de_ferramenta_mais_recentes_sao_carregadas() -> None:
-    messages = [_tool(f"c{i}", image_url=None, asset=f"a{i}") for i in range(5)]
+def test_so_as_imagens_de_ferramenta_mais_recentes_sao_carregadas() -> None:
+    from backend.services.media_hydration import MAX_RECENT_TOOL_IMAGES
+
+    total = MAX_RECENT_TOOL_IMAGES + 2
+    messages = [_tool(f"c{i}", image_url=None, asset=f"a{i}") for i in range(total)]
     reads: list[str] = []
 
     def reader(asset_id: str, **_kwargs: object) -> tuple[object, bytes]:
@@ -101,10 +104,10 @@ def test_so_as_tres_imagens_de_ferramenta_mais_recentes_sao_carregadas() -> None
     sent = hydrate_media_blocks(
         messages, user_id="u", workspace_id="", thread_id="t", reader=reader
     )
-    assert reads == ["a2", "a3", "a4"]
+    assert reads == [f"a{i}" for i in range(2, total)]
     assert sent[0].content[1].kind == "text"
     assert "omitida" in (sent[0].content[1].text or "")
-    assert sent[4].content[1].image_url == PNG_URL
+    assert sent[-1].content[1].image_url == PNG_URL
 
 
 def test_downgrade_troca_imagem_de_ferramenta_por_nota() -> None:
