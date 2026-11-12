@@ -760,3 +760,41 @@ def test_labeler_keeps_labels_owned_by_path_rules() -> None:
     assert "!pathOwned.has(label.name)" in labeler
     assert "concurrency:" in labeler
     assert "pr-labels-${{ github.event.pull_request.number }}" in labeler
+
+
+def test_release_please_le_epoch_de_tag_anotada(tmp_path: Path) -> None:
+    """Regressão da 0.1.24: com tag anotada, `git show --format=%ct` imprime o
+    cabeçalho da tag e o `jq --argjson` do passo de candidatos falhava."""
+    import re
+    import subprocess
+
+    workflow = WORKFLOW.parent / "release-please.yml"
+    content = workflow.read_text(encoding="utf-8")
+    match = re.search(r'latest_tag_epoch="(\$\(git [^\n]*latest_tag[^\n]*\))"', content)
+    assert match is not None
+    command = match.group(1)
+
+    env = {
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@example.com",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@example.com",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "PATH": "/usr/bin:/bin",
+    }
+    run = lambda *args: subprocess.run(  # noqa: E731
+        args, cwd=tmp_path, env=env, check=True, capture_output=True, text=True
+    )
+    run("git", "init", "-q")
+    run("git", "commit", "-q", "--allow-empty", "-m", "release")
+    run("git", "tag", "-a", "v0.1.24", "-m", "Vectora 0.1.24")
+
+    result = subprocess.run(
+        ["bash", "-c", f'latest_tag=v0.1.24; echo "{command}"'],
+        cwd=tmp_path,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert result.stdout.strip().isdigit()

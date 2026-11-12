@@ -138,7 +138,9 @@ jobs:
           release_major_minor="${current_version%.*}"
           latest_tag="$(git tag --merged "origin/$TARGET_BRANCH" --list "v${release_major_minor}.*" --sort=-version:refname | head -n 1)"
           if [[ -n "$latest_tag" ]]; then
-            latest_tag_epoch="$(git show -s --format=%ct "$latest_tag")"
+            # Tags anotadas: `git show` imprimiria o cabeçalho da tag antes do
+            # timestamp; o epoch vem do commit apontado pela tag.
+            latest_tag_epoch="$(git log -1 --format=%ct "${latest_tag}^{commit}")"
           else
             release_commit="$(git log -1 --format=%H "origin/$TARGET_BRANCH" --fixed-strings --grep="chore(master): release $current_version")"
             if [[ -n "$release_commit" ]]; then
