@@ -23,4 +23,4 @@ Quien opera la instancia debe evaluar la base legal y las políticas de cada pro
 
 ## Informar de una vulnerabilidad
 
-Usa el canal indicado en la [política de seguridad](https://github.com/vectora-ltda/vectora/blob/master/SECURITY.md); no publiques detalles explotables en una issue pública.
+Usa el canal indicado en la [política de seguridad](https://github.com/vectora-company/vectora/blob/master/SECURITY.md); no publiques detalles explotables en una issue pública.
