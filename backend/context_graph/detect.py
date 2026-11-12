@@ -994,8 +994,8 @@ def _load_ignore_patterns(root: Path) -> list[tuple[Path, str]]:
         # committed. .gitignore is read first and .vectoraignore last, so
         # .vectoraignore patterns (including `!` negations) win on conflict via
         # last-match-wins; adding a .vectoraignore can only ever exclude MORE,
-        # never re-include a .gitignore-excluded file (#945 kept: a project with
-        # only a .gitignore still gets sensible defaults).
+        # never re-include a .gitignore-excluded file; projects with only a
+        # .gitignore still receive the standard ignore defaults.
         for fname in (".gitignore", ".vectoraignore"):
             ignore_file = d / fname
             if ignore_file.exists():
@@ -1305,7 +1305,7 @@ def detect(
                 # a file beneath an excluded dir), so descending an ignored directory to
                 # look for a re-included file is never necessary. The previous blanket
                 # `has_negation` disabled directory pruning for EVERY ignored dir whenever
-                # any `!` rule existed — e.g. a single `!docs/**` made the walk descend
+                # any `!` rule existed — e.g. a single `!guides/**` made the walk descend
                 # bin/, obj/, wwwroot/, generated/, … : a pathological slowdown on large
                 # repos for no correctness gain.
                 dirnames[:] = [
@@ -1635,8 +1635,8 @@ def detect_incremental(
         google_workspace=google_workspace,
         extra_excludes=extra_excludes,
     )
-    # Pass ``root`` so a manifest written with relative keys (post-#777) is
-    # re-anchored to the absolute form the rest of this function compares
+    # Pass ``root`` so a manifest written with relative keys is re-anchored
+    # to the absolute form the rest of this function compares
     # against. Legacy absolute-keyed manifests pass through unchanged.
     manifest = load_manifest(manifest_path, root=root)
 

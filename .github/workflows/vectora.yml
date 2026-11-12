@@ -8,8 +8,7 @@ name: Vectora (app)
 # gate manual. A matriz nativa também roda em PR para validar o empacotamento
 # por SO/arquitetura; R2/KV e tags continuam exclusivos do release em master.
 # `paths` restringe esse pipeline (caro: lint+security+frontend+build+testes)
-# a mudanças que realmente afetam o app; as docs têm ciclo próprio
-# (.github/workflows/docs.yml).
+# a mudanças que realmente afetam o app.
 on:
   push:
     branches: [master, "release/**"]

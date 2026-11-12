@@ -500,39 +500,27 @@ def _trigger_block(content: str, event: str) -> str:
     return after.split("\n  workflow_dispatch:", 1)[0].split("\n  pull_request:", 1)[0]
 
 
-def test_app_and_docs_workflows_validam_todo_pr_e_publicam_so_de_master() -> None:
-    """Todo PR, qualquer que seja a base (inclusive PRs empilhados em feat/*),
-    passa pelo pipeline completo; push e jobs de publicação seguem restritos às
-    linhas de release."""
-    for name in ("docs.yml", "vectora.yml"):
-        content = (WORKFLOW.parent / name).read_text(encoding="utf-8")
-        pull_request = _trigger_block(content, "pull_request")
-        push = _trigger_block(content, "push")
-
-        assert 'branches: ["**"]' in pull_request, name
-        assert "master" not in pull_request, name
-        assert 'branches: [master, "release/**"]' in push, name
-        assert '"**"' not in push, name
-
+def test_app_workflow_valida_prs_e_publica_so_de_master() -> None:
+    """O pipeline do app valida PRs e restringe publicação às linhas estáveis."""
     app = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
-    docs = (WORKFLOW.parent / "docs.yml").read_text(encoding="utf-8")
-    # These jobs only resolve metadata or build artifacts and must run on PRs
-    # so the package matrix is validated before merge. Only publication and
-    # tagging jobs are restricted to master.
+    pull_request = _trigger_block(app, "pull_request")
+    push = _trigger_block(app, "push")
+
+    assert 'branches: ["**"]' in pull_request
+    assert "master" not in pull_request
+    assert 'branches: [master, "release/**"]' in push
+    assert '"**"' not in push
+
+    # Jobs que resolvem metadados ou constroem artefatos validam PRs; apenas
+    # publicação e criação de tags ficam restritas à branch master.
     for job in ("release-channel:", "release-native:"):
         guard = app.split(f"\n  {job}\n", 1)[1].split("\n    steps:", 1)[0]
         assert "github.event_name == 'pull_request'" in guard, job
 
-    for job in (
-        "publish-update-channel:",
-        "tag-release:",
-    ):
+    for job in ("publish-update-channel:", "tag-release:"):
         guard = app.split(f"\n  {job}\n", 1)[1].split("\n    steps:", 1)[0]
         assert "github.ref == 'refs/heads/master'" in guard, job
         assert "pull_request" not in guard, job
-    deploy = docs.split("\n  deploy:\n", 1)[1].split("\n    steps:", 1)[0]
-    assert "github.ref == 'refs/heads/master'" in deploy
-    assert "pull_request" not in deploy
 
 
 def test_native_release_uses_supported_python_architectures_for_backend_deps() -> None:

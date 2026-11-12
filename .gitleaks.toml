@@ -12,7 +12,6 @@ paths = [
   '''^tests/''',
   '''^frontend/(src|tests|e2e)/.*(\.test\.|__tests__|fixtures)''',
   '''^frontend/messages/''',
-  '''^docs/content/''',
   # Caminhos anteriores à mudança do app para a raiz, que ainda aparecem no
   # histórico dos commits varridos.
   '''^vectora/tests/''',

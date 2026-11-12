@@ -1,18 +1,9 @@
 # CI and deployment
 
-This repository contains the Vectora desktop application and the public Hugo
-documentation site. Their workflows are independent: `vectora.yml` validates
-and packages the app, while `docs.yml` builds and deploys the documentation.
-
-## Documentation site
-
-The `docs.yml` workflow builds `docs/` for pull requests and deploys it to
-Vercel after pushes to `master`. A manual run can retry a production deploy, but
-the job is restricted to `master`. The deploy is skipped when Vercel
-credentials are not configured.
-
-Required repository or `Production` environment secrets are `VERCEL_ORG_ID`,
-`VERCEL_PROJECT_ID_DOCS`, and `VERCEL_TOKEN`.
+This repository contains the Vectora desktop application. The public product
+documentation is maintained separately in
+[vectora-ltda/documentation](https://github.com/vectora-ltda/documentation)
+and published at [docs.vectora.company](https://docs.vectora.company/).
 
 ## Desktop application
 

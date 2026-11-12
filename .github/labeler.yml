@@ -11,7 +11,3 @@ frontend:
   - changed-files:
       - any-glob-to-any-file:
           - "frontend/**"
-docs:
-  - changed-files:
-      - any-glob-to-any-file:
-          - "docs/**"

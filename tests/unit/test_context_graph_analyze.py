@@ -41,7 +41,7 @@ def _make_cross_file_graph() -> nx.Graph:
     G.add_node("auth", label="AuthService", source_file="auth.py", file_type="code")
     G.add_node("ui_login", label="Login", source_file="ui/login.ts", file_type="code")
     G.add_node(
-        "docs_api", label="API Docs", source_file="docs/api.md", file_type="document"
+        "docs_api", label="API Docs", source_file="guides/api.md", file_type="document"
     )
     G.add_edge(
         "auth",

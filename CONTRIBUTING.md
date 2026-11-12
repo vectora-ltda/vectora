@@ -1,6 +1,6 @@
 # Contribuindo com o Vectora
 
-Obrigado pelo interesse. Este arquivo explica como preparar o ambiente, escolher uma tarefa e abrir um PR. A documentação para quem usa o produto fica em `docs/` (site público); a documentação de desenvolvimento fica aqui e nas issues do repositório.
+Obrigado pelo interesse. Este arquivo explica como preparar o ambiente, escolher uma tarefa e abrir um PR. A documentação para quem usa o produto fica em [docs.vectora.company](https://docs.vectora.company/) e é mantida no repositório [vectora-ltda/documentation](https://github.com/vectora-ltda/documentation); a documentação de desenvolvimento fica aqui e nas issues do repositório.
 
 ## Antes de começar
 

@@ -5,19 +5,17 @@ Uso (PowerShell / cmd, a partir da raiz do repositório):
     scons               → exibe ajuda
     scons release       → build completo + instalador para o SO atual
     scons smoke         → builda o binário híbrido e confirma que /health sobe de verdade
-    scons prod          → deploy de produção das docs (Vercel)
     scons tests         → frontend + backend (sem cobertura)
     scons coverage      → scons tests com relatório de cobertura
-    scons lint          → ruff+ty+bandit (backend) + tsc+oxlint (frontend) + build das docs
-    scons update        → atualiza deps: uv (backend) + pnpm (frontend) + hugo mod
-                          (docs), respeitando ranges/lockfiles
+    scons lint          → ruff+ty+bandit (backend) + tsc+oxlint (frontend)
+    scons update        → atualiza deps: uv (backend) + pnpm (frontend), respeitando ranges/lockfiles
     scons update --latest → mesma coisa, mas ignora ranges/lockfiles (pnpm
                           --latest cruza majors) — usar só antes de uma migração
                           grande, seguido de revisão manual de cada breaking change
     scons docker        → sobe PostgreSQL + Redis + Qdrant via docker compose
     scons clean         → remove outputs de build
 
-Pré-requisitos: uv, pnpm, nuitka (incluído no uv.lock), Hugo (extended) no PATH
+Pré-requisitos: uv, pnpm, nuitka (incluído no uv.lock)
 O runtime de produção e os testes E2E usam o Chromium distribuído pelo pacote
 Electron. Playwright é somente o cliente CDP; nenhum browser Playwright
 separado é instalado ou empacotado.
@@ -28,7 +26,6 @@ Cobertura de lint e tests:
     frontend/       TypeScript (tsc, oxlint, vitest) — inclui frontend/electron/,
                     fundido no package.json do frontend (só o tsconfig de
                     compilação do Electron é separado)
-    docs/           Hugo + Hextra (build check via `hugo --gc --minify`)
 """
 
 import base64
@@ -59,7 +56,6 @@ AddOption(
 ROOT = Dir(".").abspath
 
 VECTORA  = ROOT
-DOCS     = os.path.join(ROOT, "docs")
 
 _ANSI_RE = re.compile(r"\x1b(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
@@ -73,6 +69,9 @@ def _find_pnpm() -> str:
     return shutil.which("pnpm") or "pnpm"
 
 
+PNPM = _find_pnpm()
+
+
 def _find_bin(name: str) -> str:
     if sys.platform == "win32":
         for candidate in (f"{name}.cmd", f"{name}.exe", name):
@@ -80,32 +79,6 @@ def _find_bin(name: str) -> str:
             if found:
                 return found
     return shutil.which(name) or name
-
-
-PNPM = _find_pnpm()
-
-
-def _find_hugo() -> str:
-    found = shutil.which("hugo") or shutil.which("hugo.exe")
-    if found:
-        return found
-    # winget instala fora do PATH da sessão atual até reiniciar o shell —
-    # cai no caminho padrão do pacote Hugo.Hugo.Extended no Windows.
-    if sys.platform == "win32":
-        packages = os.path.join(
-            os.environ.get("LOCALAPPDATA", ""), "Microsoft", "WinGet", "Packages"
-        )
-        if os.path.isdir(packages):
-            for name in os.listdir(packages):
-                if name.startswith("Hugo.Hugo.Extended_"):
-                    candidate = os.path.join(packages, name, "hugo.exe")
-                    if os.path.isfile(candidate):
-                        return candidate
-    return "hugo"
-
-
-HUGO     = _find_hugo()
-VERCEL   = _find_bin("vercel")
 
 
 def _echo(line: str) -> None:
@@ -551,11 +524,6 @@ def _action_lint(target, source, env):
             [PNPM, "--dir", "frontend", "exec", "tsc", "-p", "electron/tsconfig.json", "--noEmit"],
             log=log,
         )
-        # ── docs (Hugo + Hextra) ─────────────────────────────────────────────
-        # Sem typecheck TS aqui — o gate é o próprio build do site. `hugo build`
-        # já resolve o módulo Hextra pinado em go.mod sozinho — não rodar
-        # `hugo mod get` aqui, que faz upgrade do pin como side-effect.
-        _run([HUGO, "--gc", "--minify", "--destination", "public"], log=log, cwd=DOCS)
     print("\n>> log completo (limpo) em .scons-logs/lint.txt")
 
 
@@ -674,16 +642,13 @@ def _action_update(target, source, env):
 
     Default: uv respeita os constraints do pyproject.toml (pin do Python 3.13
     intocado); `pnpm update` fica dentro dos ranges de cada package.json;
-    `hugo mod get -u` atualiza o módulo Hextra pinado em docs/go.mod (o lint
-    de propósito nunca faz esse upgrade — este é o único lugar que faz).
 
     `scons update --latest`: `pnpm update --latest` ignora os ranges do
     package.json e cruza majors (reescreve o package.json com a versão mais
     nova de cada pacote) — uso preparatório de migração grande, nunca rotina;
-    depois é revisão manual por pacote major-bumped contra changelog/docs. Do
-    lado Python, `uv lock --upgrade` já resolve pro mais novo permitido pelos
-    `>=` sem teto do pyproject.toml (não há range a "ignorar" lá); Hugo idem
-    (`-u` já busca o tag mais recente do módulo).
+    depois é revisão manual por pacote major-bumped contra changelogs. Do lado
+    Python, `uv lock --upgrade` resolve pro mais novo permitido pelos `>=` sem
+    teto do pyproject.toml (não há range a "ignorar" lá).
 
     Não roda lint/tests ao final: o gate continua sendo
     `scons lint && scons tests`, manual, depois de revisar os lockfiles.
@@ -694,16 +659,14 @@ def _action_update(target, source, env):
         _run(["uv", "lock", "--upgrade"], log=log, cwd=VECTORA)
         _run(["uv", "sync"], log=log, cwd=VECTORA)
         _run([PNPM, "--dir", "frontend", *pnpm_update_args], log=log)
-        _run([HUGO, "mod", "get", "-u"], log=log, cwd=DOCS)
-        _run([HUGO, "mod", "tidy"], log=log, cwd=DOCS)
     print("\n>> log completo em .scons-logs/update.txt")
     if latest:
         print(
             ">> --latest: ranges/lockfiles ignorados — revise cada dep com "
-            "major bump contra changelog/docs antes de commitar"
+            "major bump contra os changelogs antes de commitar"
         )
     else:
-        print(">> revise uv.lock / frontend/pnpm-lock.yaml / docs/go.mod+go.sum antes de commitar")
+        print(">> revise uv.lock / frontend/pnpm-lock.yaml antes de commitar")
 
 
 # ── Docker ────────────────────────────────────────────────────────────────────
@@ -768,8 +731,6 @@ def _action_clean(target, source, env):
         "frontend/out",
         "frontend/electron/dist",
         "frontend/dist-electron",
-        "docs/public",
-        "docs/resources",
     ]
     for path in paths:
         full = os.path.join(ROOT, path.replace("/", os.sep))
@@ -781,60 +742,6 @@ def _action_clean(target, source, env):
             print(f">> removido: {path}")
 
 
-# ── Prod (deploy) ─────────────────────────────────────────────────────────────
-# `scons prod` — publica as docs na Vercel. Bump de versão, build do
-# instalador e publicação no canal de update rodam só via GitHub Actions
-# (.github/workflows/vectora.yml). Requer `vercel` autenticado e docs/
-# linkado via `vercel link` (`.vercel/project.json`, gitignored).
-
-
-def _check_vercel_link(folder: str, expected_project: str) -> None:
-    """Falha cedo se a pasta não estiver linkada ao projeto Vercel CORRETO.
-
-    `vercel --prod` publica no projeto gravado em `.vercel/project.json`
-    (gitignored, um link por máquina de dev). Se a pasta foi linkada ao projeto
-    errado — ex.: `docs` em vez de `vectora-docs`, o que acontece se você
-    aceitar o autolink pelo nome da pasta em `vercel link` — o deploy vai pro
-    lugar errado E o `scons prod` termina "sem erros", enquanto o domínio de
-    produção (vectora.company / docs.vectora.company) segue servindo o deploy
-    antigo/quebrado do projeto certo. Este preflight garante o alvo certo.
-    """
-    import json
-
-    rel = os.path.relpath(folder, ROOT)
-    link_path = os.path.join(folder, ".vercel", "project.json")
-    if not os.path.isfile(link_path):
-        print(
-            f"\n[scons prod] {rel}/ não está linkado a nenhum projeto Vercel.\n"
-            f"  Rode DENTRO de {rel}/:  vercel link\n"
-            f"  e selecione o projeto '{expected_project}' (não o autolink pelo\n"
-            f"  nome da pasta).\n"
-        )
-        raise SystemExit(1)
-    with open(link_path, encoding="utf-8") as f:  # noqa: PTH123
-        linked = json.load(f).get("projectName", "")
-    if linked != expected_project:
-        print(
-            f"\n[scons prod] {rel}/ linkado ao projeto Vercel ERRADO.\n"
-            f"  Linkado:   '{linked}'\n"
-            f"  Esperado:  '{expected_project}'\n"
-            f"  O deploy iria pro projeto errado e o domínio de produção\n"
-            f"  continuaria servindo o deploy antigo. Corrija DENTRO de {rel}/:\n"
-            f"    vercel link    (selecione '{expected_project}')\n"
-        )
-        raise SystemExit(1)
-
-
-def _action_prod(target, source, env):
-    # Preflight antes de publicar: a pasta precisa estar linkada ao projeto
-    # Vercel certo, senão o deploy vai para o lugar errado sem erro visível.
-    _check_vercel_link(DOCS, "vectora-docs")
-    with _open_log("prod") as log:
-        _run([VERCEL, "--prod", "--yes"], log=log, cwd=DOCS)
-    print("\n>> deploy de produção das docs concluído")
-    print(">> log completo em .scons-logs/prod.txt")
-
-
 # ── Help ──────────────────────────────────────────────────────────────────────
 
 
@@ -844,7 +751,6 @@ def _action_help(target, source, env):
 
   Produto final
     scons release          build completo + instalador para o SO atual
-    scons prod             deploy de produção das docs (Vercel)
     scons smoke            builda o binário híbrido (Nuitka+PyInstaller) e confirma
                            que `/health` responde de dentro dele — não só `--version`
 
@@ -858,11 +764,11 @@ def _action_help(target, source, env):
     scons coverage          scons tests COM relatório de cobertura
     scons tests-storage     só testes de storage (Postgres, Redis, Qdrant, SQLite, LanceDB)
     scons tests-live        só testes sem mock (LLM + Tavily reais) — custa API real
-    scons lint             backend (ruff+ty+bandit) + frontend (tsc+oxlint) + docs (build)
+    scons lint             backend (ruff+ty+bandit) + frontend (tsc+oxlint)
     scons clean            remove todos os outputs de build
 
   Manutenção
-    scons update           atualiza deps: uv (backend) + pnpm (frontend) + hugo mod (docs)
+    scons update           atualiza deps: uv (backend) + pnpm (frontend)
     scons update --latest  idem, mas ignora ranges/lockfiles (major bumps) —
                            só antes de migração grande, com revisão manual depois
     scons nats             baixa o binário nats-server pra resources/
@@ -1106,8 +1012,6 @@ _cmd("release", lambda target, source, env: _action_package(target, source, env)
 # existe e falha com uma mensagem clara ("rode scons build-nuitka/release
 # primeiro") se não existir.
 _cmd("smoke", _action_smoke)
-
-_cmd("prod",           _action_prod)
 
 _cmd("tests",         _action_tests)
 _cmd("coverage",      _action_coverage)

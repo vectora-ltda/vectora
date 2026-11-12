@@ -3873,7 +3873,7 @@
           "type": "string"
         },
         "directory_path": {
-          "description": "Caminho da pasta (ex: \".\", \"src/agents\", \"docs/\")",
+          "description": "Caminho da pasta (ex: \".\", \"src/agents\", \"guides/\")",
           "title": "Directory Path",
           "type": "string"
         },
