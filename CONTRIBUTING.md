@@ -13,7 +13,7 @@ Obrigado pelo interesse. Este arquivo explica como preparar o ambiente, escolher
 O caminho recomendado é `scons install`: ele sincroniza todos os grupos Python de desenvolvimento, executa `pnpm ci`, garante o Electron nativo e baixa os sidecars NATS e FFmpeg. No Linux, `dotfiles.sh` também detecta a distribuição, instala dependências nativas e prepara a toolchain do desenvolvedor com base no repositório [DotFiles](https://github.com/brunosrz/DotFiles). O script é específico para Linux e encerra em Windows/macOS; nessas plataformas, instale os pré-requisitos indicados abaixo e rode o alvo SCons.
 
 ```bash
-git clone https://github.com/vectora-ltda/vectora.git
+git clone https://github.com/vectora-company/vectora.git
 cd vectora
 ./dotfiles.sh                 # Linux; opção recomendada, inclui scons install
 # Windows/macOS: com uv, Python 3.13, Node.js 26 e pnpm 11.5 no PATH:
