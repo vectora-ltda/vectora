@@ -190,7 +190,7 @@ def _action_build_chat(target, source, env):
 
 def _action_build_backend(target, source, env):
     # Empacota o backend: o PyInstaller coleta o pacote `backend` (código e
-    # dados, inclusive o defaults.env com o app secret do release), as libs
+    # dados, inclusive o defaults.env), as libs
     # Python e os sidecars numa pasta dist/vectora/ (--onedir). O backend não
     # é mais compilado em C: não há toolchain C (MSVC, clang, gcc) no build.
     _run([sys.executable, "build-hybrid.py"], cwd=ROOT)

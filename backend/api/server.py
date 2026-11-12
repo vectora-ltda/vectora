@@ -513,20 +513,19 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
         logger.warning("api/server: falha ao iniciar manutenção de storage: %s", exc)
 
     # Gateway client (ex-relay) — WebSocket persistente para receber webhooks
-    # e callbacks OAuth. Só inicia quando GATEWAY_ENABLED=true (padrão);
-    # VECTORA_APP_SECRET vem do build oficial ou do ambiente (settings.py);
-    # sem ele o handshake de /register não autentica e o cliente não sobe.
+    # e callbacks OAuth. Só inicia quando GATEWAY_ENABLED=true (padrão); o
+    # registro autentica com o token de licença Pro (sem ele o cliente fica
+    # em espera até haver conta conectada).
     _gateway_client = None
     try:
         from backend.settings import get_settings as _gs_gateway
 
         _cfg = _gs_gateway()
-        if _cfg.gateway_enabled and _cfg.vectora_app_secret:
+        if _cfg.gateway_enabled:
             from backend.services.gateway import GatewayClient
 
             _gateway_client = GatewayClient(
                 gateway_url=_cfg.gateway_url,
-                app_secret=_cfg.vectora_app_secret,
                 local_url=_gateway_local_url(),
             )
             _gateway_client.start()
