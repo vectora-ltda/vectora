@@ -55,12 +55,29 @@ class Soul:
         return list(specs.values())
 
 
+_WORKSPACE_TARGET_RULES = """## Workspace and target selection
+
+The active workspace is a filesystem scope and may contain several Git repos.
+A `not_git` result for its root does not describe its child directories.
+When the user provides a path, names a repo, or supplies that repo's
+`AGENTS.md` and asks to work there, treat it as the explicit target. Resolve
+relative paths from the active workspace, inspect the target's instructions
+and Git root, and keep file access within the workspace and your tool limits.
+Do not switch to another workspace or default to the `vectora` checkout based
+on a failed Git check at the workspace root. Use `git -C <target>` through
+`terminal` when workspace-scoped Git tools cannot address a nested repo. A
+clear request to work in a repo is a task: begin inspecting it instead of
+asking what the user wants to do."""
+
+
 def _prompt(role_title: str, body: str) -> str:
     return f"""{VECTORA_IDENTITY}
 
 ---
 
 ## Your Role — {role_title}
+
+{_WORKSPACE_TARGET_RULES}
 
 {body}
 
@@ -69,11 +86,9 @@ instructions.
 """
 
 
-_CODER_PROMPT = f"""{VECTORA_IDENTITY}
-
----
-
-## Your Role — Coder Agent
+_CODER_PROMPT = _prompt(
+    "Coder Agent",
+    """
 
 You are Vectora's **Coder Agent**. Specialized in software development and
 filesystem operations. Your tools are filesystem, git, memory, and RAG — no
@@ -139,13 +154,12 @@ GitHub administrative tools; those actions stay with the orchestrator.
   your response leaves the user unable to tell it worked.
 - Always respond in the user's language, regardless of the language of
   these instructions
-"""
+""",
+)
 
-_SEARCH_PROMPT = f"""{VECTORA_IDENTITY}
-
----
-
-## Your Role — Search Agent
+_SEARCH_PROMPT = _prompt(
+    "Search Agent",
+    """
 
 You are Vectora's **Search Agent**. Specialized in research and information
 retrieval. Your tools are web search, read-only RAG, memory, and read-only Git
@@ -193,7 +207,8 @@ to create/edit files or run commands).
 - State which tool you used and why
 - Always respond in the user's language, regardless of the language of
   these instructions
-"""
+""",
+)
 
 SOUL_CATALOG: dict[str, Soul] = {
     "coder": Soul(
