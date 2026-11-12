@@ -7,7 +7,7 @@ There are two ways to use Vectora: install a published desktop package or run th
 
 ## Install a published release
 
-Open the [Vectora GitHub releases](https://github.com/vectora-ltda/vectora/releases) and choose an artifact for your operating system and architecture. The current published build matrix covers:
+Open the [Vectora GitHub releases](https://github.com/vectora-company/vectora/releases) and choose an artifact for your operating system and architecture. The current published build matrix covers:
 
 | System | Published architecture | Available formats |
 | --- | --- | --- |
@@ -21,12 +21,12 @@ On Windows, run the installer and follow its prompts. On macOS, open the DMG and
 
 ## Run from source
 
-Use this option for development or to inspect and modify the project. Also see the [contribution guide](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md).
+Use this option for development or to inspect and modify the project. Also see the [contribution guide](https://github.com/vectora-company/vectora/blob/master/CONTRIBUTING.md).
 
 **Requirements:** [uv](https://docs.astral.sh/uv/), Python 3.13, Node.js 26, and pnpm 11.5. On Linux, `dotfiles.sh` detects the distribution and prepares the toolchain and native dependencies; it exits on Windows/macOS.
 
 ```bash
-git clone https://github.com/vectora-ltda/vectora.git
+git clone https://github.com/vectora-company/vectora.git
 cd vectora
 
 ./dotfiles.sh
@@ -58,7 +58,7 @@ Credentials can be configured in **Settings → AI Models** or **Provider Routin
 
 ## License and services
 
-The code is licensed under [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). Individual local use is free; features that depend on paid services may require an account or an active Pro entitlement. This does not change the code license terms.
+The code is licensed under [AGPL-3.0](https://github.com/vectora-company/vectora/blob/master/LICENSE). Individual local use is free; features that depend on paid services may require an account or an active Pro entitlement. This does not change the code license terms.
 
 ## Next step
 
