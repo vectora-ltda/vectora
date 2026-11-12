@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import replace
 
 from backend.services.text import text_service
@@ -9,6 +12,38 @@ from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 _IMAGE_TOKEN_ESTIMATE = 1_600
 _TOOL_RESULT_CONTEXT_LIMIT = 12_000
+
+#: ``asset_id`` dos anexos cujas prévias (páginas de PDF, quadros de vídeo)
+#: seguem ao modelo como imagens neste turno. Só os anexos da mensagem mais
+#: recente do usuário recebem prévias (``media_hydration``); os anteriores
+#: chegam só como texto e não pesam como imagem.
+_PENDING_PREVIEW_ASSETS: ContextVar[frozenset[str]] = ContextVar(
+    "vectora_pending_preview_assets", default=frozenset()
+)
+
+
+def pending_preview_assets(messages: list[VMessage]) -> frozenset[str]:
+    """Anexos da mensagem mais recente do usuário que levam prévias."""
+    for message in reversed(messages):
+        if message.role is MessageRole.USER:
+            return frozenset(
+                block.asset_id
+                for block in message.content
+                if block.kind == "media"
+                and block.asset_id
+                and block.media_preview_asset_ids
+            )
+    return frozenset()
+
+
+@contextmanager
+def count_previews_for(messages: list[VMessage]) -> Generator[None]:
+    """Faz a estimativa de tokens contar as prévias que serão enviadas."""
+    token = _PENDING_PREVIEW_ASSETS.set(pending_preview_assets(messages))
+    try:
+        yield
+    finally:
+        _PENDING_PREVIEW_ASSETS.reset(token)
 
 
 def _bound_tool_results(messages: list[VMessage]) -> list[VMessage]:
@@ -52,6 +87,13 @@ def _message_tokens(message: VMessage) -> int:
     if message.tool_calls:
         text += "\n".join(str(call.args) for call in message.tool_calls)
     image_count = sum(block.kind == "image_url" for block in message.content)
+    pending = _PENDING_PREVIEW_ASSETS.get()
+    if pending:
+        image_count += sum(
+            len(block.media_preview_asset_ids or ())
+            for block in message.content
+            if block.kind == "media" and block.asset_id in pending
+        )
     return max(
         1, text_service.count_tokens(text) + 4 + image_count * _IMAGE_TOKEN_ESTIMATE
     )

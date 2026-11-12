@@ -18,6 +18,7 @@ from backend.services.context_compaction import (
     _conversation_units,
     _marker,
     _message_tokens,
+    count_previews_for,
 )
 from backend.services.context_manifest import (
     ContextBlock,
@@ -661,13 +662,18 @@ def plan_context(
     policy_snapshot: PolicySnapshot | None = None,
     persistent_memory_records: Sequence[MemoryRecord] | None = None,
 ) -> PlannedContext:
-    """Função conveniente para planejar o contexto de um turno."""
-    return _DEFAULT_PLANNER.plan_context(
-        messages,
-        max_tokens=max_tokens,
-        enabled=enabled,
-        preserve_latest_tool_result=preserve_latest_tool_result,
-        workspace_id=workspace_id,
-        policy_snapshot=policy_snapshot,
-        persistent_memory_records=persistent_memory_records,
-    )
+    """Função conveniente para planejar o contexto de um turno.
+
+    A estimativa de tokens conta as imagens geradas de PDF e vídeo que seguem
+    ao modelo neste turno, para o orçamento não estourar depois da hidratação.
+    """
+    with count_previews_for(messages):
+        return _DEFAULT_PLANNER.plan_context(
+            messages,
+            max_tokens=max_tokens,
+            enabled=enabled,
+            preserve_latest_tool_result=preserve_latest_tool_result,
+            workspace_id=workspace_id,
+            policy_snapshot=policy_snapshot,
+            persistent_memory_records=persistent_memory_records,
+        )
