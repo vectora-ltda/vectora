@@ -252,6 +252,23 @@ async def build_media_block(
     else:
         text = _reference_text(info.kind, name, info.mime_type, size, path)
 
+    preview_ids: list[str] = []
+    caption = ""
+    if info.mime_type == "application/pdf" or info.kind == "video":
+        from backend.services.media_previews import build_previews
+
+        try:
+            preview_ids, caption = await build_previews(
+                payload,
+                mime_type=info.mime_type,
+                path=path,
+                thread_id=thread_id,
+                user_id=user_id,
+                workspace_id=workspace_id,
+            )
+        except Exception:
+            logger.exception("chat: falha ao gerar prévias de %s", name)
+
     return ContentBlock(
         kind="media",
         media_kind=info.kind,
@@ -261,4 +278,6 @@ async def build_media_block(
         attachment_name=name,
         attachment_mime_type=info.mime_type,
         attachment_size_bytes=size,
+        media_preview_asset_ids=preview_ids or None,
+        media_preview_caption=caption or None,
     )

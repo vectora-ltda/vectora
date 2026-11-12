@@ -65,8 +65,11 @@ export interface MediaRoute {
   media_kind: string;
   mime_type: string;
   size_bytes: number;
-  /** `native`: o modelo recebeu o arquivo; `text`: recebeu a forma textual. */
-  mode: "native" | "text";
+  /**
+   * `native`: o modelo recebeu o arquivo; `image`: recebeu páginas ou quadros
+   * como imagem; `text`: recebeu a forma textual.
+   */
+  mode: "native" | "image" | "text";
   reason: string;
   model: string;
 }

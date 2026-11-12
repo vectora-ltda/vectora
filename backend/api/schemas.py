@@ -456,13 +456,14 @@ class ModelSwitchedEvent(BaseModel):
 
 
 class MediaRouteItem(BaseModel):
-    """Envio de um anexo ao modelo: ``native`` (arquivo) ou ``text``."""
+    """Envio de um anexo ao modelo: ``native`` (arquivo), ``image`` (páginas
+    ou quadros como imagem) ou ``text``."""
 
     name: str
     media_kind: str
     mime_type: str
     size_bytes: int
-    mode: Literal["native", "text"]
+    mode: Literal["native", "image", "text"]
     reason: str
     model: str
 

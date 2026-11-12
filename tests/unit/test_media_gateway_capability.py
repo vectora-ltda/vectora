@@ -50,8 +50,9 @@ def _user(*blocks: ContentBlock) -> VMessage:
 
 def test_modalidades_do_catalogo_liberam_tipos() -> None:
     accepted = media_for_modalities({"text", "image", "file", "audio"})
-    assert set(accepted) == {"application/pdf", "audio/mpeg", "audio/wav"}
-    assert media_for_modalities({"text", "image"}) == {}
+    assert set(accepted) == {"application/pdf", "audio/mpeg", "audio/wav", "image/*"}
+    assert set(media_for_modalities({"text", "image"})) == {"image/*"}
+    assert media_for_modalities({"text"}) == {}
 
 
 async def test_resolve_usa_tabela_fixa_e_catalogo(

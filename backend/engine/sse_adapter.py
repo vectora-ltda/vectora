@@ -148,7 +148,7 @@ def _to_payload(event: EngineEvent) -> schemas.StreamChatEventPayload:  # noqa: 
                     media_kind=route.media_kind,
                     mime_type=route.mime_type,
                     size_bytes=route.size_bytes,
-                    mode="native" if route.mode == "native" else "text",
+                    mode=route.mode if route.mode in {"native", "image"} else "text",
                     reason=route.reason,
                     model=route.model,
                 )

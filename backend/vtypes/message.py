@@ -90,6 +90,11 @@ class ContentBlock:
     media_kind: MediaKind | None = None
     media_sha256: str | None = None
     media_data_url: str | None = None
+    media_preview_asset_ids: list[str] | None = None
+    """Prévias visuais salvas (páginas de PDF, quadros de vídeo)."""
+    media_preview_caption: str | None = None
+    media_preview_urls: list[str] | None = None
+    """``data:`` URLs das prévias; só na cópia do provider, nunca persistido."""
 
     @property
     def is_textual(self) -> bool:
@@ -143,6 +148,9 @@ class VMessage:
                     "media_kind": b.media_kind,
                     "media_sha256": b.media_sha256,
                     "media_data_url": b.media_data_url,
+                    "media_preview_asset_ids": b.media_preview_asset_ids,
+                    "media_preview_caption": b.media_preview_caption,
+                    "media_preview_urls": b.media_preview_urls,
                 }
                 for b in self.content
             ],
@@ -178,6 +186,9 @@ class VMessage:
                         media_kind=b.get("media_kind"),
                         media_sha256=b.get("media_sha256"),
                         media_data_url=b.get("media_data_url"),
+                        media_preview_asset_ids=b.get("media_preview_asset_ids"),
+                        media_preview_caption=b.get("media_preview_caption"),
+                        media_preview_urls=b.get("media_preview_urls"),
                     )
                     for b in data.get("content", [])
                 ],
