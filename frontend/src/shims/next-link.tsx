@@ -1,6 +1,6 @@
 /**
  * Implementação do módulo virtual `next/link` (resolvido pelo
- * `resolve.alias` do `vite.config.ts`).
+ * `resolve.alias` do `vite.config.mts`).
  *
  * Aceita `href`, `prefetch`, `replace`, children. Os atributos
  * `scroll`, `as`, `passHref`, `legacyBehavior`, `locale` são

@@ -282,7 +282,7 @@ export const MessageList = memo(function MessageList({
 
   // M1 — Virtualizer (@tanstack/react-virtual). O aviso abaixo é do
   // React Compiler, que este projeto não usa (sem babel-plugin-react-compiler
-  // no build, ver vite.config.ts) — não há memoização automática pra
+  // no build, ver vite.config.mts) — não há memoização automática pra
   // "desistir" de aplicar. As funções que @tanstack/react-virtual retorna
   // (getVirtualItems/getTotalSize/measureElement/scrollToIndex) só são
   // lidas aqui dentro, nunca passadas como prop pra outro componente/hook

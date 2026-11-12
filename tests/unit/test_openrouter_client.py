@@ -29,6 +29,15 @@ def _client(handler) -> OpenRouterClient:
     )
 
 
+def test_safe_endpoint_redacts_credentials_path_and_query() -> None:
+    assert (
+        OpenRouterClient._safe_endpoint(
+            "https://user:secret@omnirouter.example:8443/v1/api?token=hidden"
+        )
+        == "https://omnirouter.example:8443"
+    )
+
+
 class TestAuthEHeaders:
     @pytest.mark.asyncio
     async def test_manda_bearer_e_headers_de_atribuicao(self) -> None:

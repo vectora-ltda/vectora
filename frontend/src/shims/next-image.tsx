@@ -1,6 +1,6 @@
 /**
  * Implementação do módulo virtual `next/image` (resolvido pelo
- * `resolve.alias` do `vite.config.ts`). Renderiza `<img>` nativo.
+ * `resolve.alias` do `vite.config.mts`). Renderiza `<img>` nativo.
  *
  * Aceita `src` (string ou `{src, width?, height?}`), `alt`, `width`,
  * `height`, `priority`, `fill`, `sizes`. Os atributos `quality`,

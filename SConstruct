@@ -44,6 +44,8 @@ import urllib.error
 import urllib.request
 from typing import TextIO
 
+from utils.subprocess_compat import command_for_execution
+
 AddOption(
     "--latest",
     dest="latest",
@@ -141,6 +143,7 @@ def _run(
     """
     merged = {**os.environ, **(env or {})}
     run_cwd = cwd or ROOT
+    cmd = command_for_execution(cmd)
     header = f"\n>> [{os.path.relpath(run_cwd, ROOT)}] {' '.join(str(c) for c in cmd)}"
     print(header)
     stderr_dest = subprocess.DEVNULL if discard_stderr else None
@@ -200,7 +203,7 @@ def _action_build_chat(target, source, env):
     if not os.path.isdir(dist) or not os.path.isfile(os.path.join(dist, "index.html")):
         raise SystemExit(
             "ERRO: frontend/dist/index.html não foi gerado. "
-            "Verifique a configuração do Vite em frontend/vite.config.ts."
+            "Verifique a configuração do Vite em frontend/vite.config.mts."
         )
     print(f">> chat dist pronto em {dist}")
 

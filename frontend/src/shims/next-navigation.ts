@@ -1,6 +1,6 @@
 /**
  * Implementação do módulo virtual `next/navigation` (resolvido pelo
- * `resolve.alias` do `vite.config.ts`).
+ * `resolve.alias` do `vite.config.mts`).
  *
  * Exporta `useRouter`, `usePathname`, `useSearchParams`, `useParams`,
  * `redirect` e `notFound`. Navegação delega ao TanStack Router;
