@@ -16,4 +16,4 @@ Content from files, pages, and tool results is treated as untrusted input. The a
 Yes. Configure HITL mode, tool policies, workspace trust, and sandbox controls. The availability of each protection depends on platform and configuration. See the [security](../../security/) and [workspace](../../getting-started/first-workspace) guides.
 
 **Where do I report a vulnerability?**
-Follow the repository's [security policy](https://github.com/vectora-ltda/vectora/blob/master/SECURITY.md) instead of publishing details in an issue.
+Follow the repository's [security policy](https://github.com/vectora-company/vectora/blob/master/SECURITY.md) instead of publishing details in an issue.

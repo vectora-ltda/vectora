@@ -9,7 +9,7 @@ sidebar:
 
 **Vectora** es un workspace de desarrollo asistido por IA. Reúne chat, archivos, terminal, Git, navegador, búsqueda en el proyecto y herramientas de automatización, manteniendo al usuario en control del workspace, los permisos y los proveedores conectados.
 
-La aplicación Vectora es **open source bajo AGPL-3.0**. Consulta la [licencia](https://github.com/vectora-ltda/vectora/blob/master/LICENSE), el [repositorio](https://github.com/vectora-ltda/vectora), la [guía para contribuir](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md) y las [issues públicas](https://github.com/vectora-ltda/vectora/issues). El uso local individual es gratuito; una suscripción Pro habilita funciones y servicios de pago. Los proveedores externos pueden cobrar por su propio uso. La suscripción no modifica la licencia del código.
+La aplicación Vectora es **open source bajo AGPL-3.0**. Consulta la [licencia](https://github.com/vectora-company/vectora/blob/master/LICENSE), el [repositorio](https://github.com/vectora-company/vectora), la [guía para contribuir](https://github.com/vectora-company/vectora/blob/master/CONTRIBUTING.md) y las [issues públicas](https://github.com/vectora-company/vectora/issues). El uso local individual es gratuito; una suscripción Pro habilita funciones y servicios de pago. Los proveedores externos pueden cobrar por su propio uso. La suscripción no modifica la licencia del código.
 
 ## Empieza aquí
 
@@ -32,7 +32,7 @@ El modo predeterminado usa SQLite y LanceDB para datos e índices locales. La co
 
 ## Sobre esta documentación
 
-Este sitio contiene guías públicas de instalación, configuración, uso, seguridad y referencia. Sigue la línea estable `0.1.x`; consulta el [changelog del repositorio](https://github.com/vectora-ltda/vectora/blob/master/CHANGELOG.md) para el historial completo. Las funciones pueden depender de la configuración, el sistema operativo, el proveedor o un servicio externo. Una prueba automatizada omitida (`skipped`) no demuestra disponibilidad operativa.
+Este sitio contiene guías públicas de instalación, configuración, uso, seguridad y referencia. Sigue la línea estable `0.1.x`; consulta el [changelog del repositorio](https://github.com/vectora-company/vectora/blob/master/CHANGELOG.md) para el historial completo. Las funciones pueden depender de la configuración, el sistema operativo, el proveedor o un servicio externo. Una prueba automatizada omitida (`skipped`) no demuestra disponibilidad operativa.
 
 ## Límites conocidos de la versión 0.1.24
 
