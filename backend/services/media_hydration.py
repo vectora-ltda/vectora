@@ -39,10 +39,16 @@ def _latest_user_index(messages: Sequence[VMessage]) -> int:
     return -1
 
 
-#: Quantas imagens de ferramentas mais recentes seguem ao modelo (cabe uma
-#: chamada de ``pdf_to_images`` inteira); as anteriores viram uma nota curta
-#: para não lotar o contexto.
-MAX_RECENT_TOOL_IMAGES = 8
+def max_recent_tool_images() -> int:
+    """Quantas imagens de ferramentas mais recentes seguem ao modelo.
+
+    Vem de ``media_max_images`` (padrão 60, o mesmo teto por chamada de
+    ``pdf_to_images`` e ``video_to_frames``); as anteriores viram uma nota
+    curta para não lotar o contexto.
+    """
+    from backend.services.media_limits import media_limits
+
+    return media_limits().max_images
 
 
 def _recent_tool_images(messages: Sequence[VMessage]) -> set[tuple[int, int]]:
@@ -53,7 +59,7 @@ def _recent_tool_images(messages: Sequence[VMessage]) -> set[tuple[int, int]]:
         for position, block in enumerate(message.content)
         if block.kind == "image_url"
     ]
-    return set(found[-MAX_RECENT_TOOL_IMAGES:])
+    return set(found[-max_recent_tool_images() :])
 
 
 def _hydrate_media(
@@ -105,7 +111,7 @@ def hydrate_media_blocks(
       (``backend/llm/media_parts.py``). Anexos de mensagens anteriores seguem
       só pela forma textual, sem reenviar o arquivo a cada turno.
     - Imagens de ferramentas (screenshots): só as
-      ``MAX_RECENT_TOOL_IMAGES`` mais recentes são carregadas; as anteriores
+      ``media_max_images`` mais recentes são carregadas; as anteriores
       viram uma nota curta.
     """
     from backend.llm.media_parts import wants_bytes

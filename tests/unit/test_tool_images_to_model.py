@@ -91,9 +91,9 @@ def test_openrouter_imagem_vai_em_mensagem_de_usuario_depois_das_tools() -> None
 
 
 def test_so_as_imagens_de_ferramenta_mais_recentes_sao_carregadas() -> None:
-    from backend.services.media_hydration import MAX_RECENT_TOOL_IMAGES
+    from backend.services.media_hydration import max_recent_tool_images
 
-    total = MAX_RECENT_TOOL_IMAGES + 2
+    total = max_recent_tool_images() + 2
     messages = [_tool(f"c{i}", image_url=None, asset=f"a{i}") for i in range(total)]
     reads: list[str] = []
 
