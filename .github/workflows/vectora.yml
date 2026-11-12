@@ -744,6 +744,12 @@ jobs:
               export CSC_FOR_PULL_REQUEST=true
             fi
             pnpm --dir frontend exec electron-builder --config "$RUNNER_TEMP/electron-builder.yml" --${{ matrix.target }} --${{ matrix.arch }} --publish never
+          elif [ "${{ matrix.target }}" = "linux" ]; then
+            # O alvo snap remove o chrome-sandbox de linux-unpacked enquanto o
+            # AppImage, construído em paralelo na mesma passada, ainda o lê.
+            # O snap roda numa segunda passada, depois dos demais formatos.
+            pnpm --dir frontend exec electron-builder --config electron/electron-builder.yml --linux AppImage deb rpm pacman flatpak tar.gz --${{ matrix.arch }} --publish never
+            pnpm --dir frontend exec electron-builder --config electron/electron-builder.yml --linux snap --${{ matrix.arch }} --publish never
           else
             pnpm --dir frontend exec electron-builder --config electron/electron-builder.yml --${{ matrix.target }} --${{ matrix.arch }} --publish never
           fi
