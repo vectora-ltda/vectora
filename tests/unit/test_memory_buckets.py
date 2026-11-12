@@ -47,18 +47,28 @@ def test_bucket_id_rejects_path_traversal(bucket_id):
 
 
 def test_memory_buckets_url_ignores_whitespace_only_override(monkeypatch):
+    monkeypatch.setenv("VECTORA_MEMORY_BUCKETS_URL", " https://custom.example/buckets ")
+
+    assert _memory_buckets_url() == "https://custom.example/buckets"
+
     monkeypatch.setenv("VECTORA_MEMORY_BUCKETS_URL", "   ")
-    monkeypatch.setenv("VECTORA_RAG_LIBRARY_URL", " https://legacy.example/buckets ")
-
-    assert _memory_buckets_url() == "https://legacy.example/buckets"
-
-    monkeypatch.setenv("VECTORA_RAG_LIBRARY_URL", "   ")
     assert _memory_buckets_url() == DEFAULT_MEMORY_BUCKETS_URL
 
 
 def _catalog_response(entries: list[dict]) -> httpx.Response:
+    """Resposta da Library: `{entries}`, com o identificador em `slug`."""
+    library_entries = [
+        {
+            key: value
+            for key, value in {**entry, "slug": entry.get("id")}.items()
+            if key != "id"
+        }
+        for entry in entries
+    ]
     return httpx.Response(
-        200, json=entries, request=httpx.Request("GET", "https://x/memory-buckets/")
+        200,
+        json={"entries": library_entries},
+        request=httpx.Request("GET", "https://x/library/memory-buckets"),
     )
 
 
@@ -300,7 +310,7 @@ async def test_publish_missing_local_workspace_raises_clear_error(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_publish_success_returns_bucket_id(tmp_path, monkeypatch):
+async def test_publish_success_returns_bucket_slug(tmp_path, monkeypatch):
     bucket_dir = tmp_path / "bucket_b1.lance"
     bucket_dir.mkdir()
     (bucket_dir / "table.lance").write_bytes(b"data")
@@ -312,7 +322,7 @@ async def test_publish_success_returns_bucket_id(tmp_path, monkeypatch):
         captured["data"] = kwargs.get("data")
         return httpx.Response(
             200,
-            json={"ok": True, "id": "new-bucket-id", "verified": False},
+            json={"ok": True, "slug": "new-bucket-id", "verified": False},
             request=httpx.Request("POST", url),
         )
 
@@ -382,8 +392,8 @@ async def test_list_catalog_consulta_a_rota_memory_buckets(monkeypatch):
 
     monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
     result = await list_catalog()
-    assert calls == ["https://services.vectora.company/memory-buckets"]
-    assert result == [{"id": "legacy", "name": "Legado"}]
+    assert calls == ["https://services.vectora.company/library/memory-buckets"]
+    assert result == [{"id": "legacy", "slug": "legacy", "name": "Legado"}]
 
 
 @pytest.mark.asyncio
@@ -566,7 +576,7 @@ async def test_publish_resposta_sem_id_levanta_erro_claro(tmp_path, monkeypatch)
         "backend.settings.settings.embedding_model", "embed-multilingual-v3.0"
     )
 
-    with pytest.raises(MemoryBucketsError, match="sem id"):
+    with pytest.raises(MemoryBucketsError, match="sem slug"):
         await publish_memory_bucket(
             "b1",
             "n",
@@ -589,7 +599,7 @@ async def test_publish_workspace_com_pasta_vazia_ainda_empacota_sem_erro(
 
     async def _fake_post(self, url, **kwargs):
         return httpx.Response(
-            200, json={"id": "bucket-vazio"}, request=httpx.Request("POST", url)
+            200, json={"slug": "bucket-vazio"}, request=httpx.Request("POST", url)
         )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
@@ -814,7 +824,7 @@ async def test_publish_response_without_id_raises_clear_error(tmp_path, monkeypa
         "backend.settings.settings.embedding_model", "embed-multilingual-v3.0"
     )
 
-    with pytest.raises(MemoryBucketsError, match="sem id"):
+    with pytest.raises(MemoryBucketsError, match="sem slug"):
         await publish_memory_bucket(
             "b1",
             "n",
@@ -838,7 +848,7 @@ async def test_publish_empty_workspace_dir_still_packages_empty_archive(
     async def _fake_post(self, url, **kwargs):
         return httpx.Response(
             200,
-            json={"id": "empty-bucket-id"},
+            json={"slug": "empty-bucket-id"},
             request=httpx.Request("POST", url),
         )
 
@@ -876,7 +886,7 @@ async def test_publish_exige_bucket_do_workspace_antes_de_empacotar(
     async def _fake_post(self, url, **kwargs):
         posts.append(url)
         return httpx.Response(
-            200, json={"ok": True, "id": "remote"}, request=httpx.Request("POST", url)
+            200, json={"ok": True, "slug": "remote"}, request=httpx.Request("POST", url)
         )
 
     monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
@@ -924,3 +934,56 @@ async def test_publish_exige_bucket_do_workspace_antes_de_empacotar(
         == "remote"
     )
     assert len(posts) == 1
+
+
+@pytest.mark.asyncio
+async def test_download_usa_a_rota_da_library_com_slug(monkeypatch, tmp_path):
+    """O download vai em `/library/memory-buckets/download?slug=`."""
+    archive = _make_tar_gz({"table.lance/data": b"x"})
+    calls: list[tuple[str, dict | None]] = []
+
+    async def _fake_get(self, url, **kwargs):
+        calls.append((url, kwargs.get("params")))
+        if url.rstrip("/").endswith("/memory-buckets"):
+            return _catalog_response(
+                [{"id": "b1", "embed_model": "embed-multilingual-v3.0", "name": "b1"}]
+            )
+        return httpx.Response(200, content=archive, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+    monkeypatch.setattr(
+        "backend.settings.settings.embedding_model", "embed-multilingual-v3.0"
+    )
+    monkeypatch.setattr("backend.settings.settings.lancedb_dir", None)
+    await download_memory_bucket("b1", lancedb_dir=tmp_path)
+
+    assert (
+        "https://services.vectora.company/library/memory-buckets/download",
+        {"slug": "b1"},
+    ) in calls
+
+
+@pytest.mark.asyncio
+async def test_publish_recusa_bucket_acima_do_limite_sem_chamar_o_servico(
+    monkeypatch, tmp_path
+):
+    """Acima de 25 MB a publicação falha antes de qualquer chamada de rede."""
+    bucket_dir = tmp_path / "bucket_b1.lance"
+    bucket_dir.mkdir()
+    (bucket_dir / "table.lance").write_bytes(b"x")
+    monkeypatch.setattr("backend.services.memory_buckets.MAX_PUBLISH_BYTES", 1)
+
+    async def _fake_post(self, url, **kwargs):
+        raise AssertionError("não deveria publicar")
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", _fake_post)
+    with pytest.raises(MemoryBucketsError, match="limite de publicação"):
+        await publish_memory_bucket(
+            "b1",
+            "Grande",
+            "d",
+            "MIT",
+            workspace_id="ws1",
+            session_token="tok",
+            lancedb_dir=tmp_path,
+        )

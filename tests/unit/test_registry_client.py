@@ -495,3 +495,66 @@ async def test_fetch_catalog_descarta_cache_mcp_legado_e_atualiza(monkeypatch):
     )
 
     assert await registry_client.fetch_catalog("mcp") == refreshed
+
+
+@pytest.mark.asyncio
+async def test_fetch_catalog_le_a_library_e_normaliza_as_entradas(monkeypatch):
+    """A Library responde com `slug`, `origin` e `rank`; o app usa `id`,
+    `catalog_source` e `stars_count`."""
+    calls: list[str] = []
+
+    async def _fake_get(self, url, **kwargs):
+        calls.append(url)
+        return httpx.Response(
+            200,
+            json={
+                "entries": [
+                    {
+                        "id": "a1b2",
+                        "slug": "io.github.example/server",
+                        "origin": "official",
+                        "rank": 42,
+                        "install_cmd": "npx -y example",
+                    },
+                    "entrada inválida",
+                ]
+            },
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    entries = await registry_client.fetch_catalog("mcp")
+
+    assert calls == ["https://services.vectora.company/library/mcp"]
+    assert entries == [
+        {
+            "id": "io.github.example/server",
+            "slug": "io.github.example/server",
+            "origin": "official",
+            "catalog_source": "official",
+            "rank": 42,
+            "stars_count": 42,
+            "install_cmd": "npx -y example",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_fetch_catalog_status_usa_a_rota_de_status_da_library(monkeypatch):
+    calls: list[str] = []
+
+    async def _fake_get(self, url, **kwargs):
+        calls.append(url)
+        return httpx.Response(
+            200,
+            json={"source": "skills", "status": "ready", "last_synced_at": None},
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    status = await registry_client.fetch_catalog_status("skills")
+
+    assert calls == ["https://services.vectora.company/library/status/skills"]
+    assert status.status == "ready"
