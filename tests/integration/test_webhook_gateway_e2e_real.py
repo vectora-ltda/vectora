@@ -1,12 +1,12 @@
 """Pendência 1.5 — E2E real do webhook via gateway de produção.
 
 Sobe uma instância isolada, registra no gateway real (`gateway.vectora.chat`)
-com `VECTORA_APP_SECRET` (produto, não por-usuário — ver `settings.py`),
+com o token de licença Pro da conta conectada,
 conecta o `GatewayClient`, dispara um evento via `POST
 https://{token}.vectora.chat/webhook/{provider}` de fora, e confirma que
 `dispatch_webhook_event` roda a `background_task` correspondente.
 
-Guardado atrás de skip se `VECTORA_APP_SECRET`/rede não disponíveis — mesma
+Guardado atrás de skip se o token de licença/rede não disponíveis — mesma
 hermeticidade dos demais testes de integração real do projeto (ver
 `tests/integration/test_mcp_marketplace_3rd_party_real.py`). A checagem de
 rede roda dentro do corpo do teste (não no decorator `skipif`, avaliado na
@@ -45,7 +45,6 @@ _SCHEMA = (
     Path(backend.__file__).parent / "storage" / "migrations" / "sqlite" / "schema.sql"
 )
 _GATEWAY_HTTP_URL = "https://gateway.vectora.chat/"
-_APP_SECRET = os.environ.get("VECTORA_APP_SECRET", "")
 
 
 def _gateway_reachable(url: str, timeout: float = 3.0) -> bool:
@@ -93,8 +92,6 @@ class _BackgroundUvicorn:
 async def test_webhook_via_gateway_producao_dispara_background_task(
     tmp_path, monkeypatch
 ) -> None:
-    if not _APP_SECRET:
-        pytest.skip("VECTORA_APP_SECRET ausente")
     if not _gateway_reachable(_GATEWAY_HTTP_URL):
         pytest.skip("gateway.vectora.chat inacessível — sem rede ou serviço fora do ar")
 
@@ -102,7 +99,11 @@ async def test_webhook_via_gateway_producao_dispara_background_task(
     from backend.rbac import auth as rbac_auth
     from backend.scheduling import background_tasks as bg
     from backend.services.gateway import GatewayClient
+    from backend.services.license import get_license_token
     from backend.settings import settings
+
+    if not get_license_token():
+        pytest.skip("token de licença Pro ausente")
 
     # Banco isolado com o schema real aplicado — mesmo padrão de
     # `test_kanban_budget_same_db.py`: só troca `settings.db_dsn`, sem
@@ -140,7 +141,6 @@ async def test_webhook_via_gateway_producao_dispara_background_task(
     token_path = tmp_path / "gateway_token"
     client = GatewayClient(
         gateway_url=settings.gateway_url,
-        app_secret=_APP_SECRET,
         local_url=f"http://127.0.0.1:{port}",
         token_path=token_path,
         secret_path=tmp_path / "gateway_connector_secret",

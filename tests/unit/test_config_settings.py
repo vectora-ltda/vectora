@@ -65,20 +65,6 @@ def test_settings_set_model_updates_llamacpp_model():
     assert s.llamacpp_model == "local-model"
 
 
-def test_settings_vectora_app_secret_nao_vem_embutido_no_codigo(monkeypatch):
-    """O repositório é público: `backend/defaults.env` não pode trazer o valor.
-    O build oficial injeta o secret do GitHub; sem ele o handshake de registro
-    do gateway fica desligado. Quem hospeda por conta própria define a variável
-    de ambiente, que sempre prevalece."""
-    monkeypatch.delenv("VECTORA_APP_SECRET", raising=False)
-    s = Settings()
-    assert s.vectora_app_secret == ""
-
-    monkeypatch.setenv("VECTORA_APP_SECRET", "self-hosted-override")
-    s_override = Settings()
-    assert s_override.vectora_app_secret == "self-hosted-override"
-
-
 def test_defaults_env_nao_embute_nenhum_secret():
     """Nenhuma variável de segredo de `defaults.env` carrega valor de produção."""
     defaults = Path(__file__).resolve().parents[2] / "backend" / "defaults.env"
@@ -90,7 +76,8 @@ def test_defaults_env_nao_embute_nenhum_secret():
         name, _, value = line.partition("=")
         if any(mark in name.upper() for mark in ("SECRET", "TOKEN", "PRIVATE_KEY")):
             secrets[name] = value.strip()
-    assert secrets.get("VECTORA_APP_SECRET", "") == ""
+    assert "VECTORA_APP_SECRET" not in secrets
+    assert not hasattr(Settings(), "vectora_app_secret")
     assert all(value == "" for value in secrets.values()), secrets
 
 

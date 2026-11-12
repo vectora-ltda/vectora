@@ -502,17 +502,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      # O segredo de aplicação do gateway não está no repositório: entra no
-      # defaults.env embutido só neste build. Sem o secret (PR de fork), o
-      # instalador sai com o registro no gateway desligado.
-      - name: Inject the gateway application secret
-        shell: bash
-        env:
-          VECTORA_APP_SECRET: ${{ secrets.VECTORA_APP_SECRET }}
-        run: |
-          if [ -n "$VECTORA_APP_SECRET" ]; then
-            printf '\nVECTORA_APP_SECRET=%s\n' "$VECTORA_APP_SECRET" >> backend/defaults.env
-          fi
       # Windows ARM64 runs the backend under Windows' x64 emulation because
       # PyArrow has no win_arm64 wheel; Electron and the installer remain ARM64-native.
       - uses: ./.github/actions/setup-uv
@@ -603,8 +592,7 @@ jobs:
       - name: Build backend (PyInstaller onedir)
         # Mesmo pipeline que `scons release` roda localmente (build-hybrid.py,
         # na raiz do repositório): o PyInstaller empacota launcher.py, o pacote
-        # backend (código e dados, inclusive o defaults.env com o app secret
-        # injetado acima) e as libs em dist/vectora/ (onedir).
+        # backend (código e dados, inclusive o defaults.env) e as libs em dist/vectora/ (onedir).
         working-directory: .
         run: python build-hybrid.py
         shell: bash

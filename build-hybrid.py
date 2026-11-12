@@ -4,10 +4,8 @@ e arquivos de dados) e as libs Python em `dist/vectora/` (--onedir).
 
 O backend vai como bytecode Python, sem compilação em C. O PyInstaller
 coleta todos os submódulos e os dados de `backend/` (`--collect-submodules` e
-`--collect-data`), o que inclui `backend/defaults.env`. É nesse arquivo que o
-workflow de release injeta o `VECTORA_APP_SECRET` do build oficial, então o
-segredo vai embutido na instalação, como arquivo legível (não é proteção: quem
-baixa o instalador consegue lê-lo).
+`--collect-data`), o que inclui `backend/defaults.env`. Tudo isso vai legível
+para o instalador, então o build recusa segredos no pacote e em `defaults.env`.
 
 Uso:  python build-hybrid.py
 """
@@ -69,7 +67,7 @@ _REQUIRED_BACKEND_DATA = (
 
 def _assert_backend_data_bundled(dist_dir: Path) -> None:
     """Confere que os dados do backend foram coletados e que o `defaults.env`
-    instalado é idêntico ao do build (é nele que o release injeta o segredo)."""
+    instalado é idêntico ao do build."""
     import hashlib
 
     bundled_root = next(iter(dist_dir.rglob("backend/defaults.env")), None)
@@ -87,7 +85,7 @@ def _assert_backend_data_bundled(dist_dir: Path) -> None:
     if digest(source) != digest(bundled_root):
         sys.exit(
             "FALHA: o defaults.env instalado difere do backend/defaults.env do "
-            "build; o app secret do release não ficou embutido."
+            "build; a coleta do PyInstaller não copiou o arquivo certo."
         )
     print("Dados do backend embutidos (defaults.env idêntico ao do build).")
 
@@ -117,9 +115,9 @@ def _add_installed_test_runtime(dist_dir: Path) -> None:
 # build: o PyInstaller coleta TUDO que está no pacote (`--collect-data backend`)
 # para dentro do instalador, em claro, entregue a QUALQUER usuário que baixar
 # o instalador. Um `.env`/chave/credencial esquecido ali vira público. A única
-# exceção é backend/defaults.env, que é o arquivo onde o release injeta o
-# VECTORA_APP_SECRET; segredos pessoais ficam num .env fora do pacote, que o
-# PyInstaller nunca varre.
+# exceção é backend/defaults.env (só valores padrão, sem segredo; ver
+# `_assert_defaults_env_without_secrets`); segredos pessoais ficam num .env
+# fora do pacote, que o PyInstaller nunca varre.
 _FORBIDDEN_BACKEND_FILE_PATTERNS = (
     ".env",
     ".env.*",
@@ -148,8 +146,35 @@ def _assert_no_secrets_inside_backend() -> None:
         )
 
 
+_SECRET_NAME_MARKS = ("SECRET", "TOKEN", "PRIVATE_KEY", "PASSWORD", "API_KEY")
+
+
+def _assert_defaults_env_without_secrets() -> None:
+    """`backend/defaults.env` vai para o instalador sem proteção: nenhuma
+    variável de segredo pode carregar valor ali (o valor nunca é impresso)."""
+    path = VECTORA / "backend" / "defaults.env"
+    if not path.is_file():
+        return
+    offenders: list[str] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        name = name.strip()
+        if value.strip() and any(mark in name.upper() for mark in _SECRET_NAME_MARKS):
+            offenders.append(name)
+    if offenders:
+        sys.exit(
+            "FALHA: backend/defaults.env traz valor em variável de segredo "
+            f"({', '.join(offenders)}); ele vai legível para o instalador. "
+            "Deixe vazio e defina por ambiente."
+        )
+
+
 def main() -> None:
     _assert_no_secrets_inside_backend()
+    _assert_defaults_env_without_secrets()
 
     # nats-server precisa estar em resources/ ANTES do PyInstaller
     # rodar (baixado por `scons nats`/_fetch_nats) — sem ele, o binário

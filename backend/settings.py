@@ -724,14 +724,6 @@ class Settings(BaseSettings):
     """Inicia o GatewayClient automaticamente quando há integrações OAuth/
     webhook configuradas. Desative com GATEWAY_ENABLED=false para desligar."""
 
-    vectora_app_secret: str = ""
-    """Segredo de aplicação usado no handshake `POST /register` do gateway
-    (comparado pelo Worker via `env.VECTORA_APP_SECRET`). Não é por-usuário nem
-    por-máquina e não vem no código: o build oficial o injeta em
-    `backend/defaults.env` e quem hospeda por conta própria define a variável
-    de ambiente. Vazio desabilita o registro e degrada para o fallback sem
-    gateway, sem impedir o backend de iniciar."""
-
     # ============================================================================
     # PYDANTIC CONFIGURATION
     # ============================================================================

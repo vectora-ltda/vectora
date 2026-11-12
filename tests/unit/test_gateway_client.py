@@ -73,7 +73,6 @@ class TestGatewayClientBackoff:
 
         client = GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
         )
         delays: list[float] = []
 
@@ -104,7 +103,6 @@ class TestGatewayClientBackoff:
 
         client = GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
         )
         delays: list[float] = []
 
@@ -141,7 +139,6 @@ class TestGatewayClientBackoff:
 
         client = GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
         )
         delays: list[float] = []
 
@@ -169,12 +166,12 @@ class TestGatewayClientBackoff:
 
 class TestGatewayClientRegister:
     @pytest.mark.asyncio
-    async def test_register_usa_app_secret_e_fingerprint(
+    async def test_register_autentica_com_token_de_licenca_e_fingerprint(
         self, gateway_token_file: Path, gateway_secret_file: Path
     ) -> None:
-        """O handshake de registro autentica com o secret fixo do produto
-        (embutido no build), não mais um JWT por-instalação — o corpo carrega
-        só o fingerprint da máquina. A resposta também traz o connector_secret
+        """O handshake de registro autentica com o token de licença Pro da
+        conta (no corpo), sem nenhum segredo embutido no app, e envia o
+        fingerprint da máquina. A resposta também traz o connector_secret
         (único fator que autoriza abrir o WebSocket como dono da sessão —
         ver contrato do gateway remoto), persistido à parte."""
         from backend.services.gateway import GatewayClient
@@ -187,7 +184,6 @@ class TestGatewayClientRegister:
 
         client = GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="fixed-product-secret",
             token_path=gateway_token_file,
             secret_path=gateway_secret_file,
             fingerprint="fp-machine-a",
@@ -218,20 +214,18 @@ class TestGatewayClientRegister:
         assert gateway_token_file.read_text() == "abc123"
         assert gateway_secret_file.read_text() == "sec-abc123"
         _, call_kwargs = mock_session.post.call_args
-        assert call_kwargs["headers"]["Authorization"] == "Bearer fixed-product-secret"
+        assert "headers" not in call_kwargs
         assert call_kwargs["json"] == {
             "fingerprint": "fp-machine-a",
             "vectora_token": "vectora-account-token",
         }
 
     @pytest.mark.asyncio
-    async def test_duas_instalacoes_mesmo_secret_fingerprints_diferentes(
+    async def test_duas_instalacoes_fingerprints_diferentes(
         self, tmp_path: Path
     ) -> None:
-        """Erro/borda: o esquema antigo (JWT assinado por instalação) nunca
-        batia contra um secret único no Worker — este teste prova que o novo
-        esquema autentica corretamente duas instalações distintas usando o
-        MESMO VECTORA_APP_SECRET, cada uma com seu próprio fingerprint."""
+        """Borda: duas instalações distintas registram com o mesmo token de
+        licença e cada uma envia o próprio fingerprint."""
         from backend.services.gateway import GatewayClient
 
         for fp, expected_token in (("fp-a", "tok-a"), ("fp-b", "tok-b")):
@@ -246,7 +240,6 @@ class TestGatewayClientRegister:
 
             client = GatewayClient(
                 gateway_url="wss://gateway.vectora.chat",
-                app_secret="shared-product-secret",
                 token_path=tmp_path / f"gateway_token_{fp}",
                 secret_path=tmp_path / f"gateway_secret_{fp}",
                 fingerprint=fp,
@@ -271,10 +264,8 @@ class TestGatewayClientRegister:
             assert token == expected_token
             assert secret == f"sec-{expected_token}"
             _, call_kwargs = mock_session.post.call_args
-            assert (
-                call_kwargs["headers"]["Authorization"]
-                == "Bearer shared-product-secret"
-            )
+            assert "headers" not in call_kwargs
+            assert call_kwargs["json"]["fingerprint"] == fp
 
     @pytest.mark.asyncio
     async def test_register_reutiliza_token_e_secret_existentes(
@@ -286,7 +277,6 @@ class TestGatewayClientRegister:
         gateway_secret_file.write_text("existing-secret")
         client = GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
             token_path=gateway_token_file,
             secret_path=gateway_secret_file,
         )
@@ -344,7 +334,6 @@ class TestGatewayClientRegister:
 
         client = GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
             token_path=gateway_token_file,
             secret_path=gateway_secret_file,
             fingerprint="fp-migracao",
@@ -379,7 +368,6 @@ class TestGatewayClientStop:
 
         client = GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
         )
 
         async def blocked() -> None:
@@ -398,7 +386,6 @@ class TestGatewayClientStop:
 
         client = GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
         )
         await client.stop()  # não deve lançar erro
 
@@ -423,7 +410,6 @@ class TestGatewayClientConnectOnce:
 
         return GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
         )
 
     @pytest.mark.asyncio
@@ -637,7 +623,6 @@ class TestGatewayClientDispatch:
 
         return GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
         )
 
     def _queue(self):
@@ -763,7 +748,6 @@ class TestGatewayClientForward:
 
         client = GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
         )
 
         assert client._local_url == "http://localhost:8080"
@@ -773,7 +757,6 @@ class TestGatewayClientForward:
 
         return GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
             local_url="http://localhost:8000",
         )
 
@@ -905,7 +888,6 @@ class TestGatewayClientForwardWorker:
 
         return GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
         )
 
     @pytest.mark.asyncio
@@ -1006,7 +988,6 @@ class TestGatewayClientConcurrency:
 
         return GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
         )
 
     @pytest.mark.asyncio
@@ -1102,7 +1083,6 @@ class TestGatewayClientConcurrency:
 
         client = GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
         )
         ws = AsyncMock()
 
@@ -1237,7 +1217,6 @@ class TestGatewayClientSemPro:
         mock_response.status = 403
         client = GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="fixed-product-secret",
             token_path=gateway_token_file,
             secret_path=gateway_secret_file,
             fingerprint="fp-machine-a",
@@ -1275,7 +1254,6 @@ class TestGatewayClientSemPro:
 
         client = GatewayClient(
             gateway_url="wss://gateway.vectora.chat",
-            app_secret="fixed-product-secret",
             token_path=gateway_token_file,
             secret_path=gateway_secret_file,
             fingerprint="fp-machine-a",

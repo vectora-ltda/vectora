@@ -7,7 +7,7 @@ hífen (não é um módulo Python válido pra `import` direto).
 Guarda contra o PyInstaller copiar um segredo esquecido em backend/ para o
 instalador (`--collect-data backend`) — ver comentário de
 _FORBIDDEN_BACKEND_FILE_PATTERNS. Também cobre o empacotamento do backend sem
-Nuitka e o app secret embutido no defaults.env do instalador.
+Nuitka e o defaults.env sem segredos no instalador.
 """
 
 from __future__ import annotations
@@ -104,12 +104,10 @@ def _fake_source(project: Path, defaults: str) -> None:
     (project / "backend" / "defaults.env").write_text(defaults, encoding="utf-8")
 
 
-def test_app_secret_do_defaults_env_chega_ao_instalador(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_defaults_env_do_instalador_e_o_do_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """O release injeta o VECTORA_APP_SECRET em backend/defaults.env; o
-    instalador precisa levar exatamente esse arquivo (e o log não mostra o valor)."""
-    content = "A=1\nVECTORA_APP_SECRET=segredo-do-release\n"
+    content = "A=1\nGATEWAY_ENABLED=true\n"
     project = tmp_path / "vectora"
     _fake_source(project, content)
     dist_dir = tmp_path / "dist" / "vectora"
@@ -118,20 +116,42 @@ def test_app_secret_do_defaults_env_chega_ao_instalador(
 
     build_hybrid._assert_backend_data_bundled(dist_dir)
 
-    assert "segredo-do-release" not in capsys.readouterr().out
-
 
 def test_instalador_com_defaults_env_diferente_reprova(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = tmp_path / "vectora"
-    _fake_source(project, "VECTORA_APP_SECRET=novo\n")
+    _fake_source(project, "A=novo\n")
     dist_dir = tmp_path / "dist" / "vectora"
-    _fake_installed(dist_dir, defaults="VECTORA_APP_SECRET=antigo\n")
+    _fake_installed(dist_dir, defaults="A=antigo\n")
     monkeypatch.setattr(build_hybrid, "VECTORA", project)
 
-    with pytest.raises(SystemExit, match="app secret"):
+    with pytest.raises(SystemExit, match="difere"):
         build_hybrid._assert_backend_data_bundled(dist_dir)
+
+
+def test_defaults_env_com_valor_de_segredo_reprova(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "vectora"
+    _fake_source(project, "A=1\nVECTORA_APP_SECRET=segredo-vazado\n")
+    monkeypatch.setattr(build_hybrid, "VECTORA", project)
+
+    with pytest.raises(SystemExit, match="VECTORA_APP_SECRET") as exc:
+        build_hybrid._assert_defaults_env_without_secrets()
+
+    assert "segredo-vazado" not in str(exc.value)
+    assert "segredo-vazado" not in capsys.readouterr().out
+
+
+def test_defaults_env_sem_valor_de_segredo_passa(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "vectora"
+    _fake_source(project, "A=1\nQDRANT_API_KEY=\n# NOTE_TOKEN=x\n")
+    monkeypatch.setattr(build_hybrid, "VECTORA", project)
+
+    build_hybrid._assert_defaults_env_without_secrets()
 
 
 def test_dados_do_backend_ausentes_reprovam(
