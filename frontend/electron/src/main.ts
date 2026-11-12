@@ -17,6 +17,10 @@
  */
 
 import { ChildProcess } from "child_process";
+import {
+  DEVELOPMENT_DESKTOP_NAME,
+  registerDevelopmentDesktop,
+} from "./linux-desktop.js";
 import * as fs from "fs";
 import {
   app,
@@ -195,6 +199,30 @@ interface UpdateStatus {
 // que não é o nome do produto. setName() força %APPDATA%\vectora\ sem
 // precisar renomear o pacote. Chamado antes de qualquer path ser resolvido.
 app.setName("vectora");
+if (process.platform === "linux") {
+  app.setDesktopName(
+    app.isPackaged ? "vectora.desktop" : DEVELOPMENT_DESKTOP_NAME,
+  );
+  if (!app.isPackaged) {
+    try {
+      const configuredDataHome = process.env.XDG_DATA_HOME;
+      registerDevelopmentDesktop({
+        dataHome:
+          configuredDataHome && path.isAbsolute(configuredDataHome)
+            ? configuredDataHome
+            : path.join(os.homedir(), ".local", "share"),
+        executable: process.execPath,
+        main: path.join(__dirname, "main.js"),
+        icon: path.join(__dirname, "..", "..", "public", "favicon-600x600.png"),
+      });
+    } catch (error) {
+      console.warn(
+        "[desktop] Failed to register development desktop identity",
+        error,
+      );
+    }
+  }
+}
 
 // O Electron mantém o lock de instância e o perfil Chromium dentro de
 // `userData`. A versão instalada e o Electron de desenvolvimento precisam de
