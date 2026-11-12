@@ -195,6 +195,50 @@ setting_field(
     adapter=RuntimeSettingsAdapter(),
 )
 
+setting_field(
+    "stt_local_model",
+    category="preferences",
+    cli_flag="--stt-local-model",
+    description=(
+        "Tamanho do modelo do faster-whisper embutido usado na transcrição "
+        "local de anexos de áudio e vídeo: tiny, base (padrão), small, medium "
+        "ou large-v3. Modelos maiores transcrevem melhor idiomas além do "
+        "inglês; o modelo é baixado no primeiro uso."
+    ),
+    adapter=RuntimeSettingsAdapter(),
+)
+setting_field(
+    "stt_language",
+    category="preferences",
+    cli_flag="--stt-language",
+    description=(
+        "Idioma fixo da transcrição local (código ISO, ex.: 'pt', 'en', 'es'). "
+        "Vazio detecta o idioma automaticamente."
+    ),
+    adapter=RuntimeSettingsAdapter(),
+)
+setting_field(
+    "stt_system_command",
+    category="preferences",
+    cli_flag="--stt-system-command",
+    description=(
+        "Whisper do sistema usado quando o motor embutido não está disponível: "
+        "caminho do 'whisper-cli' (whisper.cpp) ou do 'whisper' (OpenAI). Vazio "
+        "procura no PATH."
+    ),
+    adapter=RuntimeSettingsAdapter(),
+)
+setting_field(
+    "stt_system_model",
+    category="preferences",
+    cli_flag="--stt-system-model",
+    description=(
+        "Modelo ggml-*.bin do whisper.cpp. Vazio procura nas pastas comuns do "
+        "whisper.cpp (Homebrew, ~/.cache, /usr/share)."
+    ),
+    adapter=RuntimeSettingsAdapter(),
+)
+
 # ── admin/config (~/.vectora/config.toml [server]) — hoje só via /admin/config REST ──
 
 setting_field(

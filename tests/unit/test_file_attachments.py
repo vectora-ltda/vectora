@@ -23,6 +23,7 @@ from backend.api.schemas import (
     ChatConfig,
     StreamChatRequest,
 )
+from backend.services.speech_to_text import SpeechToTextError
 from backend.settings import CapabilityState
 
 # ===========================================================================
@@ -525,9 +526,16 @@ class TestBuildUserVMessage:
             mime_type="audio/mpeg",
             base64_data=_b64_bytes(b"fake_audio_bytes"),
         )
-        with patch(
-            "backend.llm.transcription.transcribe_audio",
-            AsyncMock(return_value="fale sobre o projeto"),
+        # Sem motor local, o anexo cai no provider ativo.
+        with (
+            patch(
+                "backend.services.speech_to_text.transcribe_local",
+                AsyncMock(side_effect=SpeechToTextError("sem motor local")),
+            ),
+            patch(
+                "backend.llm.transcription.transcribe_audio",
+                AsyncMock(return_value="fale sobre o projeto"),
+            ),
         ):
             msg = await _build_user_vmessage("ouça isso", [att], "t1")
 
@@ -550,9 +558,15 @@ class TestBuildUserVMessage:
             mime_type="audio/wav",
             base64_data=_b64_bytes(b"fake_audio_bytes"),
         )
-        with patch(
-            "backend.llm.transcription.transcribe_audio",
-            AsyncMock(side_effect=TranscriptionError("sem chave configurada")),
+        with (
+            patch(
+                "backend.services.speech_to_text.transcribe_local",
+                AsyncMock(side_effect=SpeechToTextError("sem motor local")),
+            ),
+            patch(
+                "backend.llm.transcription.transcribe_audio",
+                AsyncMock(side_effect=TranscriptionError("sem chave configurada")),
+            ),
         ):
             msg = await _build_user_vmessage("ouça isso", [att], "t1")
 

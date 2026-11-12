@@ -362,11 +362,11 @@ def _detect_planning_mode(content: str) -> tuple[str, bool]:
 async def _transcribe_attachment(att: Attachment) -> str:
     """Transcreve um anexo de áudio, devolvendo um bloco de texto pronto pra inserir.
 
-    Falha de transcrição (sem chave configurada, erro de rede/API) nunca
-    propaga — vira uma nota inline indicando que a transcrição não rodou,
-    preservando o resto do turno.
+    Local-first: faster-whisper embutido, depois o whisper do sistema e só
+    então o provider ativo (``backend/services/speech_to_text.py``). Falha
+    nunca propaga — vira uma nota inline, preservando o resto do turno.
     """
-    from backend.llm.transcription import TranscriptionError, transcribe_audio
+    from backend.services.speech_to_text import SpeechToTextError, transcribe_bytes
 
     try:
         audio_bytes = base64.b64decode(att.base64_data, validate=True)
@@ -374,21 +374,13 @@ async def _transcribe_attachment(att: Attachment) -> str:
         return f"\n[Áudio: {att.name} — não foi possível decodificar o arquivo]"
 
     try:
-        from backend.workspace.runtime_settings import runtime_settings
-
-        transcript = await transcribe_audio(
-            audio_bytes,
-            att.name,
-            att.mime_type,
-            provider=runtime_settings.active_provider,
-            model=runtime_settings.active_model,
-            language="",
-        )
-    except TranscriptionError:
+        transcript = await transcribe_bytes(audio_bytes, att.name, att.mime_type)
+    except SpeechToTextError:
         logger.exception("chat: falha ao transcrever áudio %s", att.name)
         return f"\n[Áudio: {att.name} — falha ao transcrever]"
 
-    return f"\n[Áudio: {att.name}]\n{transcript}"
+    language = f", idioma: {transcript.language}" if transcript.language else ""
+    return f"\n[Áudio: {att.name} — transcrição{language}]\n{transcript.text}"
 
 
 #: Diretório onde anexos de imagem sobrevivem a restart do processo — o

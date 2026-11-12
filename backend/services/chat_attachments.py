@@ -186,6 +186,25 @@ def _reference_text(
     return f"{header}\nArquivo salvo em: {path}.{hint}"
 
 
+async def _video_transcript(path: Path, name: str) -> str:
+    """Transcrição local da faixa de áudio do vídeo, se houver."""
+    from backend.services.speech_to_text import (
+        SpeechToTextError,
+        has_audio_stream,
+        transcribe_local,
+    )
+
+    if not await has_audio_stream(path):
+        return "\nO vídeo não tem faixa de áudio."
+    try:
+        transcript = await transcribe_local(path)
+    except SpeechToTextError as exc:
+        logger.warning("chat: áudio do vídeo %s não transcrito: %s", name, exc)
+        return "\nO áudio do vídeo não pôde ser transcrito localmente."
+    language = f", idioma: {transcript.language}" if transcript.language else ""
+    return f"\n[Transcrição do áudio do vídeo{language}]\n{transcript.text}"
+
+
 def text_attachment_block(
     payload: bytes, info: MediaInfo, name: str, size: int
 ) -> ContentBlock:
@@ -251,6 +270,8 @@ async def build_media_block(
             text += "\nNão foi possível extrair texto deste documento."
     else:
         text = _reference_text(info.kind, name, info.mime_type, size, path)
+        if info.kind == "video" and path is not None:
+            text += await _video_transcript(path, name)
 
     preview_ids: list[str] = []
     caption = ""
