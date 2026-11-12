@@ -131,7 +131,9 @@ async def test_fetch_url_github_publico_real(
         raise AttributeError("extração indisponível")
 
     monkeypatch.setattr(web_tools, "_invoke_backend", raise_attribute_error)
-    content = await fetch_url(url="https://github.com/vectora-ltda/vectora/issues/317")
+    content = await fetch_url(
+        url="https://github.com/vectora-company/vectora/issues/317"
+    )
     assert content.strip()
     assert not content.startswith("Error:")
     body = content.split("\n", 2)[-1].rsplit("\n</untrusted_content>", 1)[0]

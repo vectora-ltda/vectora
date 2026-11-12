@@ -546,7 +546,7 @@ def _pr(version: str) -> ReleasePullRequest:
             "baseRefName": "master",
             "headRefName": f"release/{suffix}",
             "headRefOid": "a" * 40,
-            "headRepository": {"nameWithOwner": "vectora-ltda/vectora"},
+            "headRepository": {"nameWithOwner": "vectora-company/vectora"},
             "labels": [{"name": "autorelease: pending"}],
             "title": f"chore(master): release {version}",
         }
@@ -562,7 +562,7 @@ def test_parallel_lines_are_isolated(minor: bool) -> None:
     ]
     result = select_release_pr(
         prs,
-        repository="vectora-ltda/vectora",
+        repository="vectora-company/vectora",
         source="release/0.2" if minor else "master",
         target="master",
         milestone="0.2" if minor else "0.1.x",
@@ -589,7 +589,7 @@ def test_untrusted_pr_is_ignored(field: str, value: object) -> None:
     assert (
         select_release_pr(
             [pr],
-            repository="vectora-ltda/vectora",
+            repository="vectora-company/vectora",
             source="release/0.2",
             target="master",
             milestone="0.2",
@@ -603,7 +603,7 @@ def test_duplicate_release_prs_fail_closed() -> None:
     with pytest.raises(ValueError, match="ambiguous"):
         select_release_pr(
             [_pr("0.2.1"), _pr("0.2.2")],
-            repository="vectora-ltda/vectora",
+            repository="vectora-company/vectora",
             source="master",
             target="master",
             milestone="0.2.x",
@@ -616,7 +616,7 @@ def test_noncanonical_release_head_is_not_a_versioned_release_pr() -> None:
     assert (
         select_release_pr(
             [pr],
-            repository="vectora-ltda/vectora",
+            repository="vectora-company/vectora",
             source="release/0.2",
             target="master",
             milestone="0.2",
@@ -635,7 +635,7 @@ def test_cli_rejects_malformed_json(
         [
             "release.py select-pr",
             "--repository",
-            "vectora-ltda/vectora",
+            "vectora-company/vectora",
             "--source",
             "master",
             "--target",
@@ -878,12 +878,12 @@ def _event(
     milestone: str | None,
     head: str = "feature/example",
     labels: list[str] | None = None,
-    head_repo: str | None = "vectora-ltda/vectora",
+    head_repo: str | None = "vectora-company/vectora",
     title: str = "fix: routine maintenance",
 ) -> PullRequestEvent:
     """Monta um evento mínimo de pull request para os testes do validador."""
     return {
-        "repository": {"full_name": "vectora-ltda/vectora"},
+        "repository": {"full_name": "vectora-company/vectora"},
         "pull_request": {
             "base": {"ref": base},
             "head": {"ref": head, "repo": {"full_name": head_repo}},
@@ -983,9 +983,9 @@ def test_main_uses_github_repository_when_event_repository_is_missing(
         encoding="utf-8",
     )
     monkeypatch.setenv("GITHUB_EVENT_PATH", str(event_path))
-    monkeypatch.setenv("GITHUB_REPOSITORY", "vectora-ltda/vectora")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "vectora-company/vectora")
     monkeypatch.setenv("CURRENT_PR_HEAD_REF", "feat/llm-workbench-integration-review")
-    monkeypatch.setenv("CURRENT_PR_HEAD_REPO", "vectora-ltda/vectora")
+    monkeypatch.setenv("CURRENT_PR_HEAD_REPO", "vectora-company/vectora")
 
     assert release.validate_milestone_main() == 0
 
@@ -1054,7 +1054,7 @@ def test_stack_head_from_same_owner_different_repository_does_not_bypass() -> No
         _event(
             base="stack/base-contracts",
             milestone=None,
-            head_repo="vectora-ltda/other-repository",
+            head_repo="vectora-company/other-repository",
         )
     )
     assert errors and "base declarada" in errors[0]

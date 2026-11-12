@@ -4,7 +4,7 @@ weight: 1
 ---
 
 **Is Vectora open source?**
-Yes. The source code is licensed under GNU AGPL-3.0. See the [LICENSE](https://github.com/vectora-ltda/vectora/blob/master/LICENSE) file for the complete terms.
+Yes. The source code is licensed under GNU AGPL-3.0. See the [LICENSE](https://github.com/vectora-company/vectora/blob/master/LICENSE) file for the complete terms.
 
 **Do I need an account to run Vectora locally?**
 A local instance can be configured by its operator without using optional Vectora services. Features that rely on external providers, authentication, or auxiliary services have their own requirements.
