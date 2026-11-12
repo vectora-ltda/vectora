@@ -339,7 +339,7 @@ export interface GetToolsResponse {
  * Tenta renovar o access token via /auth/refresh.
  *
  * Chamado automaticamente quando qualquer endpoint retorna 401.
- * Em produção (binário Nuitka) e em dev (Vite proxy), o browser fala
+ * Em produção (binário do PyInstaller) e em dev (Vite proxy), o browser fala
  * direto com o FastAPI — cookies httpOnly viajam no `credentials: include`.
  *
  * @returns true se o refresh foi bem-sucedido

@@ -10,9 +10,8 @@ import sys
 os.environ.setdefault("GIT_PYTHON_REFRESH", "quiet")
 
 _here = os.path.dirname(os.path.abspath(__file__))
-for _cand in (_here, os.path.join(_here, "dist-nuitka")):
-    if os.path.isdir(_cand) and _cand not in sys.path:
-        sys.path.insert(0, _cand)
+if os.path.isdir(_here) and _here not in sys.path:
+    sys.path.insert(0, _here)
 
 if __name__ == "__main__":
     from backend.main import run

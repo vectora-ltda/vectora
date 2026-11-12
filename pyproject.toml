@@ -495,7 +495,6 @@ dev = [
     "coverage>=7.14.2",
     "fakeredis>=2.36.2",
     "mypy>=2.1.0",
-    "nuitka[all]>=4.1.2",
     "pyinstaller>=6.21.0",
     "pyright>=1.1.410",
     "pytest>=9.1.1",

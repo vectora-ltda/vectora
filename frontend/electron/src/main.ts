@@ -2,7 +2,7 @@
  * Vectora Desktop — main process.
  *
  * Responsabilidades:
- * - Spawn do binário Nuitka (``vectora-core``) como sidecar (VECTORA_DESKTOP=1).
+ * - Spawn do binário do backend (``vectora-core``, PyInstaller) como sidecar (VECTORA_DESKTOP=1).
  * - Transporte IPC: unix socket (Linux/macOS) / TCP loopback (Windows). A SPA
  *   carrega de ``vectora-app://app/`` e o main encaminha tudo ao backend, sem
  *   expor porta TCP no desktop (em Linux/macOS).
@@ -366,8 +366,8 @@ function getBrowserViewManager(): BrowserViewManager {
 
 const PROTOCOL = "vectora";
 const APP_SCHEME = "vectora-app"; // origem da SPA no desktop (IPC, sem TCP)
-// 90s: cobre extração do Nuitka onefile no primeiro boot (100-200 MB → %TEMP%)
-// e scan do Windows Defender em binário novo não reconhecido.
+// 90s: tempo máximo para o backend responder no primeiro boot, incluindo o
+// scan do Windows Defender em binário novo não reconhecido.
 const READINESS_TIMEOUT_MS = 90_000;
 const HEALTH_BASE_DELAY_MS = 200;
 const HEALTH_MAX_DELAY_MS = 2_000;

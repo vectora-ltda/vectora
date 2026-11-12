@@ -551,7 +551,7 @@ def _install_skill_unlocked(
         if _is_git_url(source):
             git_source, revision, subpath = _git_source_parts(source)
             # `shutil.which("git")` devolve path absoluto — boot do binário
-            # Nuitka inicializa com PATH minimizado, sem isso o spawn falha.
+            # O binário congelado inicializa com PATH minimizado, sem isso o spawn falha.
             git_exe = shutil.which("git")
             if git_exe is None:
                 raise ValueError(

@@ -15,7 +15,7 @@ Uso (PowerShell / cmd, a partir da raiz do repositório):
     scons docker        → sobe PostgreSQL + Redis + Qdrant via docker compose
     scons clean         → remove outputs de build
 
-Pré-requisitos: uv, pnpm, nuitka (incluído no uv.lock)
+Pré-requisitos: uv e pnpm (o PyInstaller vem no uv.lock)
 O runtime de produção e os testes E2E usam o Chromium distribuído pelo pacote
 Electron. Playwright é somente o cliente CDP; nenhum browser Playwright
 separado é instalado ou empacotado.
@@ -188,70 +188,12 @@ def _action_build_chat(target, source, env):
     print(f">> chat dist pronto em {dist}")
 
 
-def _msvc_env() -> dict[str, str] | None:
-    """Captura o ambiente do MSVC (x64) via vcvars64.bat, no Windows.
-
-    O Nuitka ``--msvc=latest`` às vezes não configura o toolchain mesmo com MSVC +
-    Windows SDK instalados (falha com "scons environment variable 'CC' is not
-    set"). Pré-carregar o vcvars exporta INCLUDE/LIB/PATH e o Nuitka reaproveita o
-    ambiente já ativo. O vcvars64.bat pode sair com código ≠ 0 por um aviso interno
-    de vswhere mesmo tendo inicializado o ambiente — por isso validamos INCLUDE/LIB
-    em vez do código de retorno. Retorna ``None`` (sem alterar o env) quando não há
-    toolchain detectável, deixando o Nuitka tentar sua própria detecção.
-    """
-    if sys.platform != "win32":
-        return None
-    program_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
-    vswhere = os.path.join(
-        program_files_x86, "Microsoft Visual Studio", "Installer", "vswhere.exe"
-    )
-    if not os.path.isfile(vswhere):
-        return None
-    try:
-        install_path = subprocess.run(
-            [vswhere, "-latest", "-products", "*", "-property", "installationPath"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-    except (subprocess.SubprocessError, OSError):
-        return None
-    vcvars = os.path.join(install_path, "VC", "Auxiliary", "Build", "vcvars64.bat")
-    if not install_path or not os.path.isfile(vcvars):
-        return None
-    # Forma string (não lista): o cmd precisa parsear o wrap externo de aspas
-    # `cmd /c "..."` para lidar com o caminho do vcvars com espaços + o `&& set`.
-    # A forma lista quebra o redirecionamento/aspas e não captura o ambiente.
-    proc = subprocess.run(
-        f'cmd /c ""{vcvars}" >nul 2>&1 && set"',
-        capture_output=True,
-        text=True,
-    )
-    env: dict[str, str] = {}
-    for line in proc.stdout.splitlines():
-        key, sep, value = line.partition("=")
-        if sep:
-            env[key] = value
-    if "INCLUDE" not in env or "LIB" not in env:
-        return None
-    # Força a saída do MSVC em inglês: o clcache do Nuitka parseia o output do
-    # cl, e mensagens localizadas (pt-BR) disparam o aviso de "language pack".
-    env["VSLANG"] = "1033"
-    return env
-
-
-def _action_build_nuitka(target, source, env):
-    # Build híbrido: Nuitka --mode=package compila SÓ o pacote backend em C
-    # (backend.pyd), depois PyInstaller empacota launcher + backend.pyd + libs
-    # Python num vectora.exe. Compilar só o backend (pequeno) evita o OOM (C1002)
-    # de compilar libs gigantes (google.genai.types ~157k linhas, lance) para C.
-    # Default de jobs conservador (2); quem tem muita RAM sobe via NUITKA_JOBS.
-    jobs = int(os.environ.get("NUITKA_JOBS", "2"))
-    _run(
-        [sys.executable, "build-hybrid.py", "--jobs", str(jobs)],
-        cwd=ROOT,
-        env=_msvc_env(),
-    )
+def _action_build_backend(target, source, env):
+    # Empacota o backend: o PyInstaller coleta o pacote `backend` (código e
+    # dados, inclusive o defaults.env com o app secret do release), as libs
+    # Python e os sidecars numa pasta dist/vectora/ (--onedir). O backend não
+    # é mais compilado em C: não há toolchain C (MSVC, clang, gcc) no build.
+    _run([sys.executable, "build-hybrid.py"], cwd=ROOT)
 
     # build-hybrid.py já valida cada fase, mas reconferimos o artefato final:
     # sem ele, o release empacotaria um instalador sem o executável.
@@ -261,9 +203,9 @@ def _action_build_nuitka(target, source, env):
     if not os.path.isfile(binary):
         raise SystemExit(
             f"ERRO: build-hybrid.py não gerou {binary}. "
-            "Cheque o toolchain C (MSVC + Windows SDK) e o passo do PyInstaller."
+            "Veja o passo do PyInstaller acima."
         )
-    print(f">> executável híbrido pronto em {binary}")
+    print(f">> executável do backend pronto em {binary}")
 
 
 def _action_smoke(target, source, env):
@@ -272,7 +214,7 @@ def _action_smoke(target, source, env):
 
     O único smoke test que já existia (CI, job `release-native`) roda só
     `vectora --version` — confirma que o processo abre e fecha, não que o
-    servidor FastAPI de fato sobe dentro do congelamento Nuitka+PyInstaller
+    servidor FastAPI de fato sobe dentro do congelamento do PyInstaller
     (rotas montadas, settings carregadas, storage inicializado). Um binário
     que quebra nesse caminho só seria descoberto num release real sem isso.
     """
@@ -648,10 +590,10 @@ def _action_package(target, source, env, platform=""):
         dev_env = _get_dev_cert_env() if sys.platform == "win32" else None
         if dev_env:
             build_env.update(dev_env)
-            nuitka_bin = os.path.join(ROOT, "dist", "vectora", "vectora.exe")
-            if os.path.isfile(nuitka_bin):
-                print(">> assinando binário híbrido (extraResource) com dev-cert.pfx...")
-                _sign_binary(nuitka_bin)
+            backend_bin = os.path.join(ROOT, "dist", "vectora", "vectora.exe")
+            if os.path.isfile(backend_bin):
+                print(">> assinando o binário do backend (extraResource) com dev-cert.pfx...")
+                _sign_binary(backend_bin)
             print(">> assinando instaladores com dev-cert.pfx")
         else:
             build_env["CSC_IDENTITY_AUTO_DISCOVERY"] = "false"
@@ -920,7 +862,6 @@ def _action_docker(target, source, env):
 
 def _action_clean(target, source, env):
     paths = [
-        "dist-nuitka",
         "dist",
         "build/pyinstaller",
         "build/vectora.spec",
@@ -949,7 +890,7 @@ def _action_help(target, source, env):
 
   Produto final
     scons release          build completo + instalador para o SO atual
-    scons smoke            builda o binário híbrido (Nuitka+PyInstaller) e confirma
+    scons smoke            roda o backend empacotado (PyInstaller) e confirma
                            que `/health` responde de dentro dele — não só `--version`
 
   Build
@@ -1228,7 +1169,7 @@ _cmd("frontend", _action_build_chat_and_electron)
 # PyInstaller (build-hybrid.py agora embute via --add-binary numa pasta
 # nats/, pro standalone/VPS) quanto do electron-builder (extraResources, pro
 # desktop) — sem esta dependência os dois builds saem sem o sidecar de
-# fila/KV, caindo pra memória. _build_nuitka e _build_desktop dependem
+# fila/KV, caindo pra memória. _build_backend e _build_desktop dependem
 # explicitamente, não só como irmãos em _FULL_DEPS (SCons não garante ordem
 # entre irmãos sem edge de dependência).
 _fetch_nats    = _node("fetch-nats",      _action_fetch_nats)
@@ -1243,9 +1184,9 @@ _cmd("install", _action_install)
 _fetch_speech  = _node("build-macos-speech", _action_build_macos_speech)
 _inst_desktop  = _node("install-desktop", _action_install_desktop)
 _build_chat    = _node("build-chat",      _action_build_chat,    deps=[_inst_desktop])
-_build_nuitka  = _node(
-    "build-nuitka",
-    _action_build_nuitka,
+_build_backend = _node(
+    "build-backend",
+    _action_build_backend,
     deps=[_build_chat, _fetch_nats, _fetch_ffmpeg, _fetch_speech],
 )
 _build_desktop = _node(
@@ -1254,14 +1195,14 @@ _build_desktop = _node(
     deps=[_build_chat, _inst_desktop, _fetch_nats, _fetch_ffmpeg],
 )
 
-_FULL_DEPS = [_build_chat, _fetch_nats, _fetch_ffmpeg, _build_nuitka, _build_desktop]
+_FULL_DEPS = [_build_chat, _fetch_nats, _fetch_ffmpeg, _build_backend, _build_desktop]
 
 _cmd("release", lambda target, source, env: _action_package(target, source, env), deps=_FULL_DEPS)
-# Sem deps=[_build_nuitka]: esse node é AlwaysBuild, então depender dele
-# forçaria uma recompilação Nuitka inteira (cara) toda vez que `scons smoke`
+# Sem deps=[_build_backend]: esse node é AlwaysBuild, então depender dele
+# forçaria um novo empacotamento inteiro (caro) toda vez que `scons smoke`
 # rodasse -- inclusive em CI, logo depois do binário já ter sido construído
 # no passo anterior do workflow. `_action_smoke` já checa se o binário
-# existe e falha com uma mensagem clara ("rode scons build-nuitka/release
+# existe e falha com uma mensagem clara ("rode scons build-backend/release
 # primeiro") se não existir.
 _cmd("smoke", _action_smoke)
 

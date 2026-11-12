@@ -346,7 +346,6 @@ AbilitySystem_repo/
 
 # SCons cache
 .sconsign.dblite
-/dist-nuitka
 
 # WIP isolado fora do src/
 /.wip/
@@ -390,8 +389,7 @@ env.gha
 /.audit-home
 /audit-rg.txt
 
-# Relatório do Nuitka e saída legada do context graph
-/nuitka-report.xml
+# Saída legada do context graph
 graphify-out/
 # Conteúdo de .vectora/ fica fora do git, exceto o lock de skills
 .vectora/*

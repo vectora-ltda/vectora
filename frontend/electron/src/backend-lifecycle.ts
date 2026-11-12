@@ -43,7 +43,7 @@ export interface PathResolutionEnv {
 }
 
 /**
- * Resolve o path do binário Nuitka. Prod: `resourcesPath/vectora-core/`
+ * Resolve o path do binário do backend (PyInstaller). Prod: `resourcesPath/vectora-core/`
  * (electron-builder `extraResources`). Dev: override por
  * `env.VECTORA_CORE_PATH` apontando pra um build local.
  */
