@@ -44,9 +44,9 @@ The same backend serves three different surfaces, at the same time:
 
 ## Open source and operation
 
-Vectora is distributed under the [AGPL-3.0 license](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). You can run it on your machine or infrastructure and study, modify, and redistribute the code under the license terms. The license does not mean every feature has been validated for production or that external services are free.
+Vectora is distributed under the [AGPL-3.0 license](https://github.com/vectora-company/vectora/blob/master/LICENSE). You can run it on your machine or infrastructure and study, modify, and redistribute the code under the license terms. The license does not mean every feature has been validated for production or that external services are free.
 
-Local storage uses SQLite and LanceDB. AI providers and external integrations are configured by the operator; costs, retention, and use of data sent to them follow each connected service's policies. Features that depend on Vectora Services may require an account or an active entitlement. See the [repository](https://github.com/vectora-ltda/vectora), the [contribution guide](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md), and [releases](https://github.com/vectora-ltda/vectora/releases) for verifiable information.
+Local storage uses SQLite and LanceDB. AI providers and external integrations are configured by the operator; costs, retention, and use of data sent to them follow each connected service's policies. Features that depend on Vectora Services may require an account or an active entitlement. See the [repository](https://github.com/vectora-company/vectora), the [contribution guide](https://github.com/vectora-company/vectora/blob/master/CONTRIBUTING.md), and [releases](https://github.com/vectora-company/vectora/releases) for verifiable information.
 
 ## Free and Pro
 

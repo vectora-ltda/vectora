@@ -5,7 +5,7 @@ weight: 2
 
 ## O Vectora open source exige assinatura?
 
-Não para uso local individual do aplicativo e da CLI. O código é distribuído sob a [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE); a assinatura Pro e os serviços comerciais são uma camada separada. Providers externos podem cobrar pelo uso conforme seus próprios termos.
+Não para uso local individual do aplicativo e da CLI. O código é distribuído sob a [AGPL-3.0](https://github.com/vectora-company/vectora/blob/master/LICENSE); a assinatura Pro e os serviços comerciais são uma camada separada. Providers externos podem cobrar pelo uso conforme seus próprios termos.
 
 ## O que exige uma assinatura Pro?
 

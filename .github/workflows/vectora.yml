@@ -1394,7 +1394,7 @@ jobs:
       - name: Check out release publisher
         uses: actions/checkout@v7
         with:
-          repository: vectora-ltda/services
+          repository: vectora-company/services
           ref: master
           token: ${{ secrets.VECTORA_RELEASES_TOKEN }}
           path: release-worker

@@ -44,9 +44,9 @@ O mesmo backend atende três superfícies diferentes, ao mesmo tempo:
 
 ## Código aberto e operação
 
-O Vectora é distribuído sob a licença [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). Você pode executar a aplicação na sua máquina ou infraestrutura e estudar, modificar e redistribuir o código conforme os termos da licença. A licença não significa que todos os recursos tenham sido validados para produção ou que serviços externos sejam gratuitos.
+O Vectora é distribuído sob a licença [AGPL-3.0](https://github.com/vectora-company/vectora/blob/master/LICENSE). Você pode executar a aplicação na sua máquina ou infraestrutura e estudar, modificar e redistribuir o código conforme os termos da licença. A licença não significa que todos os recursos tenham sido validados para produção ou que serviços externos sejam gratuitos.
 
-O modo de armazenamento local usa SQLite e LanceDB. Providers de IA e integrações externas são configurados pelo operador; custos, retenção e uso dos dados enviados seguem as políticas de cada serviço conectado. Recursos que dependem do Vectora Services podem exigir conta ou uma assinatura ativa. Consulte o [repositório](https://github.com/vectora-ltda/vectora), o [guia de contribuição](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md) e a [página de releases](https://github.com/vectora-ltda/vectora/releases) para informações verificáveis.
+O modo de armazenamento local usa SQLite e LanceDB. Providers de IA e integrações externas são configurados pelo operador; custos, retenção e uso dos dados enviados seguem as políticas de cada serviço conectado. Recursos que dependem do Vectora Services podem exigir conta ou uma assinatura ativa. Consulte o [repositório](https://github.com/vectora-company/vectora), o [guia de contribuição](https://github.com/vectora-company/vectora/blob/master/CONTRIBUTING.md) e a [página de releases](https://github.com/vectora-company/vectora/releases) para informações verificáveis.
 
 ## Assinaturas Free e Pro
 

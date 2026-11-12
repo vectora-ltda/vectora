@@ -16,4 +16,4 @@ O conteúdo de arquivos, páginas e resultados de ferramentas é tratado como en
 Sim. Configure o modo HITL, políticas de ferramentas, confiança do workspace e controles do sandbox. A disponibilidade de cada proteção depende da plataforma e da configuração. Consulte os guias de [segurança](../../security/) e [workspaces](../../getting-started/first-workspace).
 
 **Onde reporto uma vulnerabilidade?**
-Siga a [política de segurança do repositório](https://github.com/vectora-ltda/vectora/blob/master/SECURITY.md), em vez de publicar detalhes em uma issue.
+Siga a [política de segurança do repositório](https://github.com/vectora-company/vectora/blob/master/SECURITY.md), em vez de publicar detalhes em uma issue.

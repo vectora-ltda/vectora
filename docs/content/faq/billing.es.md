@@ -5,7 +5,7 @@ weight: 2
 
 ## ¿Vectora de código abierto requiere una suscripción?
 
-No para el uso local individual de la aplicación y la CLI. El código se distribuye bajo la [licencia AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE); la suscripción Pro y los servicios comerciales son una capa separada. Los proveedores externos pueden cobrar por el uso según sus propios términos.
+No para el uso local individual de la aplicación y la CLI. El código se distribuye bajo la [licencia AGPL-3.0](https://github.com/vectora-company/vectora/blob/master/LICENSE); la suscripción Pro y los servicios comerciales son una capa separada. Los proveedores externos pueden cobrar por el uso según sus propios términos.
 
 ## ¿Qué requiere Pro?
 

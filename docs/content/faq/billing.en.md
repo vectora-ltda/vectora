@@ -5,7 +5,7 @@ weight: 2
 
 ## Does open-source Vectora require a Pro entitlement?
 
-Not for individual local use of the app and CLI. The code is distributed under the [AGPL-3.0 license](https://github.com/vectora-ltda/vectora/blob/master/LICENSE); the Pro entitlement and commercial services are separate. External providers may charge for usage under their own terms.
+Not for individual local use of the app and CLI. The code is distributed under the [AGPL-3.0 license](https://github.com/vectora-company/vectora/blob/master/LICENSE); the Pro entitlement and commercial services are separate. External providers may charge for usage under their own terms.
 
 ## What requires Pro?
 

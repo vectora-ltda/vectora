@@ -44,9 +44,9 @@ El mismo backend sirve tres superficies distintas, al mismo tiempo:
 
 ## Código abierto y operación
 
-Vectora se distribuye bajo la licencia [AGPL-3.0](https://github.com/vectora-ltda/vectora/blob/master/LICENSE). Puedes ejecutarlo en tu equipo o infraestructura y estudiar, modificar y redistribuir el código según los términos de la licencia. La licencia no significa que todas las funciones estén validadas para producción ni que los servicios externos sean gratuitos.
+Vectora se distribuye bajo la licencia [AGPL-3.0](https://github.com/vectora-company/vectora/blob/master/LICENSE). Puedes ejecutarlo en tu equipo o infraestructura y estudiar, modificar y redistribuir el código según los términos de la licencia. La licencia no significa que todas las funciones estén validadas para producción ni que los servicios externos sean gratuitos.
 
-El almacenamiento local usa SQLite y LanceDB. El operador configura los proveedores de IA y las integraciones externas; los costes, la retención y el uso de los datos enviados dependen de las políticas de cada servicio conectado. Las funciones que dependen de Vectora Services pueden requerir una cuenta o una suscripción activa. Consulta el [repositorio](https://github.com/vectora-ltda/vectora), la [guía de contribución](https://github.com/vectora-ltda/vectora/blob/master/CONTRIBUTING.md) y las [releases](https://github.com/vectora-ltda/vectora/releases) para obtener información verificable.
+El almacenamiento local usa SQLite y LanceDB. El operador configura los proveedores de IA y las integraciones externas; los costes, la retención y el uso de los datos enviados dependen de las políticas de cada servicio conectado. Las funciones que dependen de Vectora Services pueden requerir una cuenta o una suscripción activa. Consulta el [repositorio](https://github.com/vectora-company/vectora), la [guía de contribución](https://github.com/vectora-company/vectora/blob/master/CONTRIBUTING.md) y las [releases](https://github.com/vectora-company/vectora/releases) para obtener información verificable.
 
 ## Suscripciones Free y Pro
 
