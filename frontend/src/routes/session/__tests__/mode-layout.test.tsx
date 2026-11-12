@@ -22,6 +22,7 @@ import {
   act,
   fireEvent,
 } from "@testing-library/react";
+import { useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 
 const { navigateSpy, chatProps, routeParam } = vi.hoisted(() => ({
@@ -49,14 +50,77 @@ vi.mock("@/components/chat/chat-interface", () => ({
     isNewThread?: boolean;
   }) => {
     chatProps({ compact, isNewThread });
-    return <div data-testid="chat" data-compact={String(!!compact)} />;
+    const [response, setResponse] = useState("");
+    const [isStreaming, setIsStreaming] = useState(false);
+    const [requestCount, setRequestCount] = useState(0);
+    return (
+      <div data-testid="chat" data-compact={String(!!compact)}>
+        <output data-testid="stream-response">{response}</output>
+        <output data-testid="stream-request-count">{requestCount}</output>
+        <button
+          data-testid="stream-send"
+          onClick={() => {
+            setRequestCount((count) => count + 1);
+            setResponse("Resposta parcial");
+            setIsStreaming(true);
+          }}
+        >
+          Enviar
+        </button>
+        {isStreaming && (
+          <>
+            <button
+              data-testid="stream-stop"
+              onClick={() => setIsStreaming(false)}
+            >
+              Parar
+            </button>
+            <button
+              data-testid="stream-next-token"
+              onClick={() => setResponse("Resposta parcial atualizada")}
+            >
+              Próximo token
+            </button>
+            <button
+              data-testid="stream-finish"
+              onClick={() => {
+                setResponse("Resposta completa");
+                setIsStreaming(false);
+              }}
+            >
+              Finalizar resposta
+            </button>
+          </>
+        )}
+      </div>
+    );
   },
 }));
 vi.mock("@/components/kanban/kanban-board", () => ({
   KanbanBoard: () => <div data-testid="kanban" />,
 }));
 vi.mock("@/components/header/header", () => ({
-  Header: () => <div data-testid="header" />,
+  Header: ({
+    compactNavigation,
+  }: {
+    compactNavigation?: {
+      workbenchOpen?: boolean;
+      onToggleWorkbench?: () => void;
+    };
+  }) => (
+    <div data-testid="header">
+      {compactNavigation?.onToggleWorkbench && (
+        <button
+          type="button"
+          data-testid="compact-toggle-workbench"
+          aria-pressed={compactNavigation.workbenchOpen}
+          onClick={compactNavigation.onToggleWorkbench}
+        >
+          Workbench
+        </button>
+      )}
+    </div>
+  ),
 }));
 vi.mock("@/components/header/mode-switcher", () => ({
   ModeSwitch: () => <div data-testid="mode-switch" />,
@@ -358,6 +422,56 @@ describe("SessionPage — chat compacto no IDE", () => {
     expect(screen.getByTestId("chat")).toHaveAttribute("data-compact", "false");
     expect(screen.queryByTestId("session-switcher")).not.toBeInTheDocument();
   });
+
+  it("preserva o stream ao abrir e fechar a Workbench no Assistente compacto", async () => {
+    setMode("assistant");
+    useWorkbenchStore.setState({ panelOpen: { t1: false } });
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 818,
+    });
+
+    render(<SessionPage />);
+
+    const toggleWorkbench = await screen.findByTestId(
+      "compact-toggle-workbench",
+    );
+    fireEvent.click(screen.getByTestId("stream-send"));
+
+    expect(screen.getByTestId("stream-response")).toHaveTextContent(
+      "Resposta parcial",
+    );
+    expect(screen.getByTestId("stream-stop")).toBeInTheDocument();
+    expect(screen.getByTestId("stream-request-count")).toHaveTextContent("1");
+
+    fireEvent.click(toggleWorkbench);
+    expect(await screen.findByTestId("workbench-content")).toBeInTheDocument();
+    expect(screen.getByTestId("chat").closest("[hidden]")).not.toBeNull();
+    expect(screen.getByTestId("stream-response")).toHaveTextContent(
+      "Resposta parcial",
+    );
+    fireEvent.click(screen.getByTestId("stream-next-token"));
+    expect(screen.getByTestId("stream-response")).toHaveTextContent(
+      "Resposta parcial atualizada",
+    );
+
+    fireEvent.click(toggleWorkbench);
+    await waitFor(() =>
+      expect(screen.getByTestId("chat").closest("[hidden]")).toBeNull(),
+    );
+    expect(screen.getByTestId("stream-response")).toHaveTextContent(
+      "Resposta parcial atualizada",
+    );
+    expect(screen.getByTestId("stream-stop")).toBeInTheDocument();
+    expect(screen.getByTestId("stream-request-count")).toHaveTextContent("1");
+
+    fireEvent.click(screen.getByTestId("stream-finish"));
+    expect(screen.getByTestId("stream-response")).toHaveTextContent(
+      "Resposta completa",
+    );
+    expect(screen.queryByTestId("stream-stop")).not.toBeInTheDocument();
+    expect(screen.getByTestId("stream-request-count")).toHaveTextContent("1");
+  });
 });
 
 describe("SessionPage — workbench do IDE compacto", () => {
@@ -416,7 +530,9 @@ describe("SessionPage — workbench do Assistente estreito", () => {
 
     expect(await screen.findByTestId("workbench-navbar")).toBeInTheDocument();
     expect(await screen.findByTestId("workbench-content")).toBeInTheDocument();
-    expect(screen.queryByTestId("chat")).not.toBeInTheDocument();
+    expect(
+      (await screen.findByTestId("chat")).closest("[hidden]"),
+    ).not.toBeNull();
     Object.defineProperty(window, "outerWidth", {
       configurable: true,
       value: 1024,
