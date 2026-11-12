@@ -4,7 +4,7 @@ testes de `backend/tools/mcp.py`. Roda como subprocesso — não é mock.
 
 from __future__ import annotations
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import Image, MCPServer
 
 server = MCPServer("dummy-mcp-server")
 
@@ -39,6 +39,13 @@ def sleep(seconds: float) -> str:
 
     time.sleep(seconds)
     return "acordou"
+
+
+@server.tool()
+def screenshot() -> list:
+    """Devolve texto e uma imagem PNG mínima (ImageContent)."""
+    png = b"\x89PNG\r\n\x1a\n" + b"0" * 16
+    return ["captura pronta", Image(data=png, format="png")]
 
 
 if __name__ == "__main__":

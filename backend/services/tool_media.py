@@ -54,6 +54,23 @@ def save_tool_image(
     }
 
 
+#: Chave com várias imagens (ex.: ferramenta MCP que devolve mais de uma).
+MODEL_IMAGES_KEY = "model_images"
+
+
+def _image_block(image: object) -> ContentBlock | None:
+    if not isinstance(image, dict) or not isinstance(image.get("asset_id"), str):
+        return None
+    size = image.get("size_bytes")
+    return ContentBlock(
+        kind="image_url",
+        asset_id=image["asset_id"],
+        attachment_name=str(image.get("name") or "imagem.png"),
+        attachment_mime_type=str(image.get("mime_type") or "image/png"),
+        attachment_size_bytes=size if isinstance(size, int) else None,
+    )
+
+
 def tool_image_blocks(result_text: str) -> list[ContentBlock]:
     """Blocos de imagem pedidos por um resultado de ferramenta."""
     if MODEL_IMAGE_KEY not in result_text:
@@ -64,16 +81,6 @@ def tool_image_blocks(result_text: str) -> list[ContentBlock]:
         return []
     if not isinstance(data, dict):
         return []
-    image = data.get(MODEL_IMAGE_KEY)
-    if not isinstance(image, dict) or not isinstance(image.get("asset_id"), str):
-        return []
-    size = image.get("size_bytes")
-    return [
-        ContentBlock(
-            kind="image_url",
-            asset_id=image["asset_id"],
-            attachment_name=str(image.get("name") or "imagem.png"),
-            attachment_mime_type=str(image.get("mime_type") or "image/png"),
-            attachment_size_bytes=size if isinstance(size, int) else None,
-        )
-    ]
+    images = data.get(MODEL_IMAGES_KEY)
+    candidates = images if isinstance(images, list) else [data.get(MODEL_IMAGE_KEY)]
+    return [block for image in candidates if (block := _image_block(image))]
