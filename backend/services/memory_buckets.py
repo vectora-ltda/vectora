@@ -1,8 +1,9 @@
 """Memory Buckets — download/publish de buckets RAG pré-vetorizados
 publicados pela comunidade, integrados ao catálogo de bibliotecas first-party.
 
-O catálogo, os downloads e a publicação usam a Library do Services
-(`/library/memory-buckets`), gratuita com login na conta. Publicação exige sessão de usuário da Company (`session_token`).
+O catálogo e os downloads remotos usam a Library do Services e exigem uma
+conta Pro. Buckets já baixados e armazenados localmente continuam disponíveis
+sem assinatura. Publicação exige sessão de usuário da Company (`session_token`).
 """
 
 from __future__ import annotations

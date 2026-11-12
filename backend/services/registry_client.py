@@ -231,7 +231,7 @@ async def fetch_catalog(kind: RegistryKind) -> list[dict]:
             401,
             403,
         ):
-            logger.info("registry_client: catálogo remoto requer login na conta")
+            logger.info("registry_client: catálogo remoto requer conta Pro")
             return []
         logger.warning("registry_client: falha ao buscar catálogo %s (%s)", kind, exc)
         if (
