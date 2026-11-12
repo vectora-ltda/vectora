@@ -238,7 +238,7 @@ class TestFetchUrlSsrfGuard:
         ):
             ms.tavily_api_key = "real-key"
             result = await fetch_url(
-                url="https://github.com/vectora-ltda/vectora/issues/317"
+                url="https://github.com/vectora-company/vectora/issues/317"
             )
 
         direct.assert_awaited_once()
