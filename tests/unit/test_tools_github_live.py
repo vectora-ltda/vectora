@@ -33,7 +33,7 @@ async def test_github_rest_pr_publico_sem_login_real(
     """A API REST deve ler o diff público sem GITHUB_TOKEN."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     result = await github_fetch_pr_diff(
-        owner="vectora-ltda", repo="vectora", pr_number=319
+        owner="vectora-company", repo="vectora", pr_number=319
     )
     if '"error": "GitHub API respondeu 403' in result:
         pytest.skip("GitHub API rate limit sem autenticação atingido no runner")
@@ -48,7 +48,7 @@ async def test_github_rest_pr_com_token_real(monkeypatch: pytest.MonkeyPatch) ->
         pytest.skip("defina VECTORA_LIVE_GITHUB_TOKEN para o teste autenticado")
     monkeypatch.setenv("GITHUB_TOKEN", token)
     result = await github_fetch_pr_diff(
-        owner="vectora-ltda",
+        owner="vectora-company",
         repo="vectora",
         pr_number=319,
     )
@@ -61,7 +61,9 @@ async def test_github_fetch_url_publico_sem_login_real(
 ) -> None:
     """A rota web deve ler a issue pública sem token ou sessão GitHub."""
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    result = await fetch_url(url="https://github.com/vectora-ltda/vectora/issues/317")
+    result = await fetch_url(
+        url="https://github.com/vectora-company/vectora/issues/317"
+    )
     assert result.strip()
     assert not result.startswith("Error:")
     assert "vectora" in result.lower()
@@ -93,7 +95,7 @@ async def test_github_fetch_url_com_token_real(
         pytest.skip("defina VECTORA_LIVE_GITHUB_TOKEN para o teste autenticado")
     monkeypatch.setenv("GITHUB_TOKEN", token)
     result = await fetch_url(
-        url="https://github.com/vectora-ltda/vectora/issues/317",
+        url="https://github.com/vectora-company/vectora/issues/317",
     )
     assert result.strip()
     assert not result.startswith("Error:")

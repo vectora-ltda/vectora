@@ -15,7 +15,7 @@ O caminho recomendado é `scons install`: ele sincroniza todos os grupos Python 
 O script seleciona Node e Python para seu próprio processo, sem trocar as versões padrão existentes do NVM, pyenv ou Rust. Ele pode instalar pacotes de sistema e ferramentas globais; antes de rodar `scons install` em outro shell, confirme que os pré-requisitos estão no `PATH`.
 
 ```bash
-git clone https://github.com/vectora-ltda/vectora.git
+git clone https://github.com/vectora-company/vectora.git
 cd vectora
 # ./dotfiles.sh               # Linux; opcional, prepara a toolchain
 # Em todos os sistemas, com os pré-requisitos no PATH:
