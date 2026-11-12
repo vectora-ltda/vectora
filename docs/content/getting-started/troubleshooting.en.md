@@ -29,4 +29,4 @@ Local logs are stored in `~/.vectora/logs/`. Remove or mask tokens, private path
 
 ## Report a problem
 
-First search [existing issues](https://github.com/vectora-ltda/vectora/issues). For a vulnerability, follow the [security policy](https://github.com/vectora-ltda/vectora/blob/master/SECURITY.md) instead of publishing details in an issue.
+First search [existing issues](https://github.com/vectora-company/vectora/issues). For a vulnerability, follow the [security policy](https://github.com/vectora-company/vectora/blob/master/SECURITY.md) instead of publishing details in an issue.
