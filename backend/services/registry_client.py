@@ -25,7 +25,7 @@ from backend.services.service_auth import services_auth_headers
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_REGISTRY_URL = "https://services.vectora.company/registry"
+DEFAULT_REGISTRY_URL = "https://services.vectora.company/library"
 CACHE_DIR = Path.home() / ".vectora" / "registry_cache"
 
 CACHE_TTL_ONLINE = timedelta(hours=6)
@@ -179,6 +179,25 @@ def _cache_has_current_mcp_shape(payload: Mapping[str, object]) -> bool:
     )
 
 
+def _normalize_library_entry(entry: Mapping[str, object]) -> dict:
+    """Converte uma entrada da Library do Services no formato do catálogo local.
+
+    A Library identifica cada entrada pelo ``slug`` (o nome no registry de
+    origem), informa a procedência em ``origin`` e a relevância em ``rank``.
+    """
+    normalized = dict(entry)
+    slug = entry.get("slug")
+    if isinstance(slug, str) and slug:
+        normalized["id"] = slug
+    origin = entry.get("origin")
+    if isinstance(origin, str) and origin:
+        normalized["catalog_source"] = origin
+    rank = entry.get("rank")
+    if isinstance(rank, int):
+        normalized["stars_count"] = rank
+    return normalized
+
+
 async def fetch_catalog(kind: RegistryKind) -> list[dict]:
     """Busca o catálogo `kind` ("mcp" | "skills") do registry remoto.
 
@@ -200,7 +219,11 @@ async def fetch_catalog(kind: RegistryKind) -> list[dict]:
             resp = await client.get(url, headers=services_auth_headers(url))
             resp.raise_for_status()
             data = resp.json()
-        entries = list(data.get("entries", []))
+        entries = [
+            _normalize_library_entry(entry)
+            for entry in data.get("entries", [])
+            if isinstance(entry, Mapping)
+        ]
         _write_cache(kind, entries)
         return entries
     except Exception as exc:

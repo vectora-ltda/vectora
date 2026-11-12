@@ -1,9 +1,9 @@
 """Memory Buckets — download/publish de buckets RAG pré-vetorizados
 publicados pela comunidade, integrados ao catálogo de bibliotecas first-party.
 
-O catálogo e os downloads remotos usam o Services e exigem uma conta Pro.
-Buckets já baixados e armazenados localmente continuam disponíveis sem
-assinatura. Publicação exige sessão de usuário da Company (`session_token`).
+O catálogo e os downloads remotos usam a Library do Services e exigem uma
+conta Pro. Buckets já baixados e armazenados localmente continuam disponíveis
+sem assinatura. Publicação exige sessão de usuário da Company (`session_token`).
 """
 
 from __future__ import annotations
@@ -22,7 +22,11 @@ from backend.services.service_auth import services_auth_headers
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_MEMORY_BUCKETS_URL: str = "https://services.vectora.company/memory-buckets"
+DEFAULT_MEMORY_BUCKETS_URL: str = (
+    "https://services.vectora.company/library/memory-buckets"
+)
+#: Teto de upload da Library no Services para um Memory Bucket.
+MAX_PUBLISH_BYTES = 25 * 1024 * 1024
 HTTP_TIMEOUT = 30.0
 
 
@@ -70,7 +74,6 @@ def _safe_extract(archive: tarfile.TarFile, target_dir: Path) -> None:
 def _memory_buckets_url() -> str:
     candidates = (
         os.getenv("VECTORA_MEMORY_BUCKETS_URL"),
-        os.getenv("VECTORA_RAG_LIBRARY_URL"),
         DEFAULT_MEMORY_BUCKETS_URL,
     )
     return next(value.strip() for value in candidates if value and value.strip())
@@ -93,11 +96,13 @@ async def _request_catalog(q: str | None = None) -> list[dict]:
         raise MemoryBucketsUnavailableError(
             "Catálogo de Memory Buckets indisponível; tente novamente mais tarde."
         ) from exc
-    if not isinstance(payload, list) or any(
-        not isinstance(entry, dict) for entry in payload
+    entries = payload.get("entries") if isinstance(payload, dict) else None
+    if not isinstance(entries, list) or any(
+        not isinstance(entry, dict) for entry in entries
     ):
         raise MemoryBucketsUnavailableError("Catálogo de Memory Buckets inválido.")
-    return payload
+    # A Library identifica o bucket pelo `slug`; o app usa esse valor como id.
+    return [{**entry, "id": entry.get("slug") or entry.get("id")} for entry in entries]
 
 
 async def list_catalog(q: str | None = None) -> list[dict]:
@@ -152,8 +157,12 @@ async def download_memory_bucket(
         async with httpx.AsyncClient(
             timeout=HTTP_TIMEOUT, follow_redirects=True
         ) as client:
-            url = f"{_memory_buckets_url()}/{bucket_id}/download"
-            resp = await client.get(url, headers=services_auth_headers(url))
+            url = f"{_memory_buckets_url().rstrip('/')}/download"
+            resp = await client.get(
+                url,
+                params={"slug": bucket_id},
+                headers=services_auth_headers(url),
+            )
             resp.raise_for_status()
             archive_bytes = resp.content
     except Exception as exc:
@@ -214,8 +223,8 @@ async def publish_memory_bucket(
 ) -> str:
     """Empacota o bucket local `bucket_id` (uma tabela LanceDB isolada,
     `backend/services/rag_buckets.py`) num tar.gz e publica via
-    `POST /memory-buckets/publish`. Retorna o `id` do bucket recém-publicado
-    na Memory Buckets (sempre `verified=false` até curadoria manual) —
+    `POST /library/memory-buckets`. Retorna o `slug` do bucket recém-publicado
+    na Library (sempre `verified=false` até curadoria manual) —
     distinto do `bucket_id` local que originou a publicação.
 
     O bucket precisa pertencer a `workspace_id`; a posse é verificada aqui,
@@ -262,12 +271,16 @@ async def publish_memory_bucket(
                 )
         for item in source_dir.iterdir():
             tar.add(item, arcname=item.name, recursive=True, filter=_tar_member_filter)
+    if buffer.getbuffer().nbytes > MAX_PUBLISH_BYTES:
+        raise MemoryBucketsError(
+            "Bucket maior que o limite de publicação da Library (25 MB)."
+        )
     buffer.seek(0)
 
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
             resp = await client.post(
-                f"{_memory_buckets_url()}/publish",
+                _memory_buckets_url().rstrip("/"),
                 headers={"Authorization": f"Bearer {session_token}"},
                 data={
                     "name": name,
@@ -286,10 +299,10 @@ async def publish_memory_bucket(
     except Exception as exc:
         raise MemoryBucketsError(f"Falha ao publicar o bucket: {exc}") from exc
 
-    remote_bucket_id = data.get("id")
+    remote_bucket_id = data.get("slug")
     if not remote_bucket_id:
         raise MemoryBucketsError(
-            "Resposta inesperada do memory-buckets/publish (sem id)."
+            "Resposta inesperada da publicação na Library (sem slug)."
         )
     logger.info(
         "memory_buckets: bucket %s publicado como %s", bucket_id, remote_bucket_id
