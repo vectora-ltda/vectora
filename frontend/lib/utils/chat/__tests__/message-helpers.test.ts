@@ -93,7 +93,7 @@ describe("historyMessageToMessage", () => {
     expect(msg.content).toBe("veja essa imagem");
   });
 
-  it("attachment que não é imagem (ex: pdf/code) nunca vira image", () => {
+  it("anexo que não é imagem volta como cartão de arquivo, com ou sem url", () => {
     const hist: HistoryMessage = {
       role: "human",
       content: "leia esse arquivo",
@@ -101,16 +101,37 @@ describe("historyMessageToMessage", () => {
         {
           name: "doc.pdf",
           mimeType: "application/pdf",
-          kind: "pdf",
+          kind: "document",
           size: 1024,
-          url: "/threads/t1/attachments/doc.pdf",
+          url: "/threads/t1/assets/abc",
+        },
+        {
+          name: "notas.txt",
+          mimeType: "text/plain",
+          kind: "text",
+          size: 12,
         },
       ],
     };
 
     const msg = historyMessageToMessage(hist, "id-5");
 
-    expect(msg.images).toBeUndefined();
+    expect(msg.images).toEqual([
+      {
+        id: "/threads/t1/assets/abc",
+        url: "/threads/t1/assets/abc",
+        mimeType: "application/pdf",
+        name: "doc.pdf",
+        size: 1024,
+      },
+      {
+        id: "id-5:attachment:1",
+        url: "",
+        mimeType: "text/plain",
+        name: "notas.txt",
+        size: 12,
+      },
+    ]);
   });
 
   it("múltiplos anexos de imagem viram múltiplas entradas em images", () => {

@@ -41,13 +41,21 @@ function att(over: Partial<ImageAttachment>): ImageAttachment {
 }
 
 describe("toApiAttachments", () => {
-  it("deriva kind por mime type (image/pdf/code)", () => {
+  it("deriva kind por mime type e extensão", () => {
     const out = toApiAttachments([
       att({ name: "a.png", mimeType: "image/png" }),
       att({ name: "b.pdf", mimeType: "application/pdf" }),
       att({ name: "c.ts", mimeType: "text/typescript" }),
+      att({ name: "d.mp4", mimeType: "video/mp4" }),
+      att({ name: "e.zip", mimeType: "application/zip" }),
     ]);
-    expect(out.map((a) => a.kind)).toEqual(["image", "pdf", "code"]);
+    expect(out.map((a) => a.kind)).toEqual([
+      "image",
+      "document",
+      "code",
+      "video",
+      "file",
+    ]);
     expect(out[0].base64_data).toBe("ABC");
     expect(out[0].mime_type).toBe("image/png");
   });

@@ -45,7 +45,8 @@ export interface ChatConfig {
 }
 
 /** Tipo semântico do attachment — espelha AttachmentKind do backend. */
-export type AttachmentKind = "image" | "pdf" | "code" | "text" | "audio";
+export type AttachmentKind =
+  "image" | "pdf" | "document" | "code" | "text" | "audio" | "video" | "file";
 
 /**
  * Arquivo anexado a uma mensagem.
@@ -56,6 +57,18 @@ export interface Attachment {
   name: string;
   mime_type: string;
   base64_data: string;
+}
+
+/** Como um anexo foi enviado ao modelo (evento `media_routed`). */
+export interface MediaRoute {
+  name: string;
+  media_kind: string;
+  mime_type: string;
+  size_bytes: number;
+  /** `native`: o modelo recebeu o arquivo; `text`: recebeu a forma textual. */
+  mode: "native" | "text";
+  reason: string;
+  model: string;
 }
 
 export interface StreamChatRequest {
@@ -193,6 +206,7 @@ export type StreamEvent =
       elapsed_ms: number | null;
     }
   | { type: "model_switched"; from_model: string; to_model: string }
+  | { type: "media_routed"; routes: MediaRoute[] }
   | { type: "terminal_line"; line: string }
   | { type: "todos_updated"; todos: TodoItem[] };
 

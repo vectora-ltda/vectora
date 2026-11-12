@@ -7,12 +7,14 @@
  * - Imagens → thumbnail direto (object-cover)
  * - PDFs    → primeira página renderizada via pdfjs (F2)
  * - Código / texto → primeiras 4 linhas em monospace (F4)
+ * - Vídeo   → primeiro quadro
  * - Outros  → ícone genérico + extensão + tamanho
  */
 
 import { useEffect, useState } from "react";
 import { m } from "@/lib/paraglide/messages";
 import type { ImageAttachment } from "@/lib/types";
+import { mediaKindOf } from "@/lib/utils/chat/media-kind";
 import { renderPdfFirstPage } from "@/lib/utils/files/pdf-preview";
 
 // ============================================================================
@@ -267,6 +269,7 @@ function FilePreviewCard({
   const isImage = file.mimeType?.startsWith("image/");
   const isPdf = file.mimeType === "application/pdf";
   const isAudio = isAudioFile(file);
+  const isVideo = mediaKindOf(file.mimeType ?? "", file.name ?? "") === "video";
   const isCode = isCodeFile(file);
   const fileName = file.name ?? "File";
   const fileExt = extOf(fileName);
@@ -294,6 +297,23 @@ function FilePreviewCard({
       ) : isAudio ? (
         // ── Áudio — ícone dedicado
         <AudioChip file={file} />
+      ) : isVideo ? (
+        // ── Vídeo — primeiro quadro, sem tocar
+        <div className="relative h-full w-full bg-black">
+          <video
+            src={file.url}
+            muted
+            playsInline
+            preload="metadata"
+            className="h-full w-full object-cover"
+            aria-label={fileName}
+          />
+          <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-1.5 py-1">
+            <p className="text-xs text-white truncate" title={fileName}>
+              {fileName}
+            </p>
+          </div>
+        </div>
       ) : isCode ? (
         // ── Código/Texto — snippet das primeiras linhas (F4)
         <CodePreview file={file} />

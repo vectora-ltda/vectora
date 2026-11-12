@@ -26,14 +26,14 @@ describe("toApiAttachments", () => {
     });
   });
 
-  it("deriva kind 'pdf' e 'audio' pelo mimeType, e 'code' pra qualquer outro", () => {
+  it("deriva kind 'document', 'audio' e 'code' pelo tipo do arquivo", () => {
     const [pdf, audio, texto] = toApiAttachments([
       attachment({ id: "p", mimeType: "application/pdf", name: "doc.pdf" }),
       attachment({ id: "a", mimeType: "audio/mpeg", name: "audio.mp3" }),
       attachment({ id: "t", mimeType: "text/plain", name: "notas.txt" }),
     ]);
 
-    expect(pdf?.kind).toBe("pdf");
+    expect(pdf?.kind).toBe("document");
     expect(audio?.kind).toBe("audio");
     expect(texto?.kind).toBe("code");
   });
