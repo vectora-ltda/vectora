@@ -322,7 +322,7 @@ def test_find_agent_page_rejeita_vectora_app_e_ui() -> None:
     devtools_page.url = "devtools://devtools/bundled/inspector.html"
 
     workbench_tab_page = MagicMock()
-    workbench_tab_page.url = "https://github.com/vectora-ltda/vectora/pull/355"
+    workbench_tab_page.url = "https://github.com/vectora-company/vectora/pull/355"
 
     context_with_only_app = SimpleNamespace(
         pages=[app_shell_page, localhost_page, devtools_page]
