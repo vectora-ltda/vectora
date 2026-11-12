@@ -109,7 +109,7 @@ describe("IdeModeLayout", () => {
     expect(screen.getByTestId("panel-chat")).toHaveTextContent("preserved");
   });
 
-  it("viewport estreita: só o painel ativo aparece no DOM; trocar de aba muda qual está visível", () => {
+  it("viewport estreita: só o painel ativo fica visível ao trocar de aba", () => {
     renderLayout("mobile");
 
     // Default: editor.
@@ -129,8 +129,36 @@ describe("IdeModeLayout", () => {
 
     expect(screen.getByTestId("panel-workbench")).toBeInTheDocument();
     expect(screen.getByTestId("panel-navbar")).toBeInTheDocument();
-    expect(screen.queryByTestId("panel-chat")).not.toBeInTheDocument();
+    expect(screen.getByTestId("panel-chat").parentElement).toHaveAttribute(
+      "hidden",
+    );
     expect(screen.queryByTestId("panel-editor")).not.toBeInTheDocument();
+  });
+
+  it("preserva o estado do chat ao alternar para Workbench e voltar", () => {
+    render(
+      <IdeModeLayout
+        layoutState="mobile"
+        header={<div data-testid="panel-header">Header</div>}
+        navBar={<div data-testid="panel-navbar">NavBar</div>}
+        workbenchContent={<div data-testid="panel-workbench">Workbench</div>}
+        editor={<div data-testid="panel-editor">Editor</div>}
+        chat={<StatefulChat />}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("ide-mobile-tab-chat"));
+    fireEvent.click(screen.getByTestId("panel-chat"));
+    expect(screen.getByTestId("panel-chat")).toHaveTextContent("preserved");
+
+    fireEvent.click(screen.getByTestId("ide-mobile-tab-workbench"));
+    expect(screen.getByTestId("panel-workbench")).toBeInTheDocument();
+    expect(screen.getByTestId("panel-chat").parentElement).toHaveAttribute(
+      "hidden",
+    );
+
+    fireEvent.click(screen.getByTestId("ide-mobile-tab-chat"));
+    expect(screen.getByTestId("panel-chat")).toHaveTextContent("preserved");
   });
 
   it("borda: viewport estreita sem workbenchContent (painel fechado) não quebra ao selecionar a aba workbench", () => {

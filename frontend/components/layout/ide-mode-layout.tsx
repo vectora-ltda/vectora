@@ -96,6 +96,9 @@ export function IdeModeLayout({
   const resolvedLayoutState = layoutState ?? (isNarrow ? "mobile" : "wide");
   const [mobilePanel, setMobilePanel] =
     useState<IdeMobilePanel>(defaultMobilePanel);
+  const [mobileChatMounted, setMobileChatMounted] = useState(
+    defaultMobilePanel === "chat",
+  );
   const reducedMotion = useReducedMotion();
 
   useEffect(() => {
@@ -162,6 +165,7 @@ export function IdeModeLayout({
               aria-selected={active}
               data-testid={`ide-mobile-tab-${id}`}
               onClick={() => {
+                if (id === "chat") setMobileChatMounted(true);
                 if (id === "workbench" && !workbenchOpen) {
                   onOpenWorkbench?.();
                 }
@@ -180,20 +184,34 @@ export function IdeModeLayout({
         })}
       </div>
       <div className="flex-1 min-h-0 overflow-hidden relative">
-        <div
-          key={mobilePanel}
-          data-motion-disabled={reducedMotion ? "true" : undefined}
-          className="absolute inset-0 min-h-0 min-w-0 overflow-hidden transition-opacity duration-150 motion-reduce:transition-none"
-        >
-          {mobilePanel === "chat" && chat}
-          {mobilePanel === "workbench" && (
+        {mobileChatMounted && (
+          <div
+            hidden={mobilePanel !== "chat"}
+            data-motion-disabled={reducedMotion ? "true" : undefined}
+            className="absolute inset-0 min-h-0 min-w-0 overflow-hidden transition-opacity duration-150 motion-reduce:transition-none"
+          >
+            {chat}
+          </div>
+        )}
+        {mobilePanel === "workbench" && (
+          <div
+            data-motion-disabled={reducedMotion ? "true" : undefined}
+            className="absolute inset-0 min-h-0 min-w-0 overflow-hidden transition-opacity duration-150 motion-reduce:transition-none"
+          >
             <div className="flex h-full min-w-0">
               {navBar}
               {workbenchContent}
             </div>
-          )}
-          {mobilePanel === "editor" && editor}
-        </div>
+          </div>
+        )}
+        {mobilePanel === "editor" && (
+          <div
+            data-motion-disabled={reducedMotion ? "true" : undefined}
+            className="absolute inset-0 min-h-0 min-w-0 overflow-hidden transition-opacity duration-150 motion-reduce:transition-none"
+          >
+            {editor}
+          </div>
+        )}
       </div>
     </div>
   );

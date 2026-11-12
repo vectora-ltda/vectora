@@ -39,8 +39,9 @@ if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
 }
 
 // O serviço de clipboard do Monaco registra um handler que usa
-// `navigator.clipboard.write` ao copiar conteúdo. O jsdom não fornece essa
-// API; o stub mantém a operação assíncrona inofensiva durante os testes.
+// `navigator.clipboard.write` e pode cancelar o payload assíncrono quando há
+// outro evento de clipboard. O stub consome esses payloads para que o
+// cancelamento esperado não vire uma rejeição não tratada no jsdom.
 if (typeof globalThis.ClipboardItem === "undefined") {
   class ClipboardItemStub {
     constructor(public readonly items: Record<string, unknown>) {}
@@ -54,7 +55,18 @@ if (typeof navigator !== "undefined" && !navigator.clipboard) {
     configurable: true,
     value: {
       readText: async (): Promise<string> => "",
-      write: async (): Promise<void> => {},
+      write: async (items: ClipboardItem[]): Promise<void> => {
+        const payloads = items.flatMap((item) =>
+          Object.values(
+            (item as unknown as { items: Record<string, unknown> }).items,
+          ),
+        );
+        await Promise.all(
+          payloads.map((payload) =>
+            Promise.resolve(payload).catch(() => undefined),
+          ),
+        );
+      },
       writeText: async (): Promise<void> => {},
     },
   });

@@ -14,7 +14,14 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  cleanup,
+  waitFor,
+  act,
+  fireEvent,
+} from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 
 const { navigateSpy, chatProps, routeParam } = vi.hoisted(() => ({
@@ -55,7 +62,11 @@ vi.mock("@/components/header/mode-switcher", () => ({
   ModeSwitch: () => <div data-testid="mode-switch" />,
 }));
 vi.mock("@/components/sidebar/sidebar", () => ({
-  Sidebar: () => <div data-testid="sidebar" />,
+  Sidebar: ({ onNewChat }: { onNewChat: () => void }) => (
+    <div data-testid="sidebar">
+      <button data-testid="sidebar-new-session" onClick={onNewChat} />
+    </div>
+  ),
 }));
 vi.mock("@/components/header/session-switcher", () => ({
   SessionSwitcher: () => <div data-testid="session-switcher" />,
@@ -83,7 +94,8 @@ vi.mock("@/components/layout/command-palette", () => ({
   CommandPalette: () => null,
 }));
 vi.mock("@/components/sidebar/new-chat-dialog", () => ({
-  NewChatDialog: () => null,
+  NewChatDialog: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog" data-testid="new-chat-dialog" /> : null,
 }));
 
 // O IdeModeLayout real traz drag/resize junto; o marcador preserva os SLOTS,
@@ -97,14 +109,29 @@ vi.mock("@/components/layout/ide-mode-layout", () => ({
     workbenchContent,
     editor,
     chat,
+    layoutState,
+    workbenchOpen,
+    onOpenWorkbench,
   }: {
     header: ReactNode;
     navBar: ReactNode;
     workbenchContent: ReactNode;
     editor: ReactNode;
     chat: ReactNode;
+    layoutState?: "wide" | "mobile";
+    workbenchOpen?: boolean;
+    onOpenWorkbench?: () => void;
   }) => (
     <div data-testid="ide-layout">
+      {layoutState === "mobile" && (
+        <button
+          type="button"
+          data-testid="ide-mobile-tab-workbench"
+          onClick={onOpenWorkbench}
+        >
+          {workbenchOpen ? "Workbench aberta" : "Abrir Workbench"}
+        </button>
+      )}
       <div data-testid="slot-center">
         {header}
         <div data-testid="slot-navbar">{navBar}</div>
@@ -307,6 +334,15 @@ describe("SessionPage — sidebar de sessões", () => {
     expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
     expect(screen.getByTestId("workbench-navbar")).toBeInTheDocument();
   });
+
+  it("abre o diálogo de nova sessão pelo sidebar do modo Kanban", () => {
+    setMode("kanban");
+    render(<SessionPage />);
+
+    fireEvent.click(screen.getAllByTestId("sidebar-new-session")[0]!);
+
+    expect(screen.getByTestId("new-chat-dialog")).toBeInTheDocument();
+  });
 });
 
 describe("SessionPage — chat compacto no IDE", () => {
@@ -321,6 +357,35 @@ describe("SessionPage — chat compacto no IDE", () => {
     render(<SessionPage />);
     expect(screen.getByTestId("chat")).toHaveAttribute("data-compact", "false");
     expect(screen.queryByTestId("session-switcher")).not.toBeInTheDocument();
+  });
+});
+
+describe("SessionPage — workbench do IDE compacto", () => {
+  it("reabre a workbench fechada ao selecionar a aba em uma janela de 818px", async () => {
+    setMode("ide");
+    useWorkbenchStore.setState({ panelOpen: { t1: false } });
+    Object.defineProperty(window, "outerWidth", {
+      configurable: true,
+      value: 818,
+    });
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 818,
+    });
+
+    render(<SessionPage />);
+
+    const workbenchTab = await screen.findByTestId("ide-mobile-tab-workbench");
+    expect(workbenchTab).toHaveTextContent("Abrir Workbench");
+
+    act(() => workbenchTab.click());
+
+    await waitFor(() =>
+      expect(useWorkbenchStore.getState().isOpen("t1")).toBe(true),
+    );
+    expect(screen.getByTestId("ide-mobile-tab-workbench")).toHaveTextContent(
+      "Workbench aberta",
+    );
   });
 });
 
