@@ -558,27 +558,25 @@ jobs:
         if: matrix.target == 'linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ccache flatpak flatpak-builder fuse3 libarchive-tools snapd
-          sudo snap install snapcraft --classic
-          # electron-builder still invokes `snapcraft snap`; current Snapcraft
-          # releases renamed that subcommand to `pack`. Keep the .snap target
-          # while adapting only this legacy invocation.
-          mkdir -p "$RUNNER_TEMP/snapcraft-compat"
-          cat > "$RUNNER_TEMP/snapcraft-compat/snapcraft" <<'EOF'
+          sudo apt-get install -y ccache flatpak flatpak-builder fuse3 libarchive-tools
+          image="ghcr.io/canonical/snapcraft:8_core22"
+          compat_dir="${RUNNER_TEMP:?RUNNER_TEMP must be set}/snapcraft-compat"
+          docker pull "$image"
+          mkdir -p "$compat_dir"
+          cat > "$compat_dir/snapcraft" <<'EOF'
           #!/usr/bin/env bash
-          if [[ "${1:-}" == "snap" ]]; then
-            shift
-            # electron-builder runs as the runner user, while the LXD socket
-            # is root-owned on GitHub-hosted runners. Run Snapcraft as root so
-            # craft-providers can use the initialized LXD daemon.
-            # The Linux matrix runs on Ubuntu 22.04, matching this project's
-            # core22 base. Build locally instead of asking LXD to fetch a base.
-            exec sudo /snap/bin/snapcraft pack --destructive-mode "$@"
+          set -euo pipefail
+
+          image="${SNAPCRAFT_IMAGE:-ghcr.io/canonical/snapcraft:8_core22}"
+          args=("$@")
+          if [[ "${args[0]:-}" == "snap" ]]; then
+            args=(pack --destructive-mode "${args[@]:1}")
           fi
-          exec sudo /snap/bin/snapcraft "$@"
+
+          exec docker run --rm -v "$PWD:/project" -w /project "$image" "${args[@]}"
           EOF
-          chmod +x "$RUNNER_TEMP/snapcraft-compat/snapcraft"
-          echo "$RUNNER_TEMP/snapcraft-compat" >> "$GITHUB_PATH"
+          chmod +x "$compat_dir/snapcraft"
+          echo "$compat_dir" >> "${GITHUB_PATH:?GITHUB_PATH must be set}"
           flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
       - name: Cache ccache (Nuitka C compilation)
         uses: actions/cache@v6
@@ -1234,7 +1232,7 @@ jobs:
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
-        run: bash utils/signing/sign-release-artifacts.sh release-assets
+        run: python3 utils/sign_release_artifacts.py release-assets
       - name: Check the release commit workflows
         shell: bash
         env:

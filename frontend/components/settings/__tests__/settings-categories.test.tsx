@@ -1,9 +1,7 @@
 // @vitest-environment jsdom
 /**
- * buildSettingsCategoryGroups — gating de role (Administração) e tier
- * ("Usuários", recurso multi-usuário puro). Antes vivia dentro do
- * `AdminTab` (useLicenseStatus + filtro local); agora é decidido aqui, no
- * mesmo lugar que o gate de role e de feature flag (Connect).
+ * buildSettingsCategoryGroups — gating de role (Administração) e feature flag
+ * (Connect).
  */
 
 import { describe, expect, it, vi } from "vitest";
@@ -22,19 +20,18 @@ vi.mock("@/lib/paraglide/messages", () => ({
 
 import { buildSettingsCategoryGroups } from "../settings-categories";
 
-function adminCategoryIds(isFree: boolean) {
+function adminCategoryIds() {
   const groups = buildSettingsCategoryGroups({
     connectEnabled: false,
     isAdmin: true,
-    isFree,
   });
   const admin = groups.find((g) => g.id === "administracao");
   return admin?.categories.map((c) => c.id) ?? [];
 }
 
 describe("buildSettingsCategoryGroups — Administração achatada (5 categorias, não 1)", () => {
-  it("usuário admin com licença Pro vê as 5 categorias, cada uma no rail", () => {
-    const ids = adminCategoryIds(false);
+  it("usuário admin vê as 5 categorias, cada uma no rail", () => {
+    const ids = adminCategoryIds();
     expect(ids).toEqual([
       "admin_users",
       "admin_tools",
@@ -44,22 +41,22 @@ describe("buildSettingsCategoryGroups — Administração achatada (5 categorias
     ]);
   });
 
-  it("Free (sem licença) esconde só 'Usuários' — as outras 4 continuam", () => {
-    const ids = adminCategoryIds(true);
+  it("usuário admin Free mantém gerenciamento local de usuários", () => {
+    const ids = adminCategoryIds();
     expect(ids).toEqual([
+      "admin_users",
       "admin_tools",
       "admin_saferoots",
       "admin_system",
       "admin_storage",
     ]);
-    expect(ids).not.toContain("admin_users");
+    expect(ids).toContain("admin_users");
   });
 
   it("erro/borda: sem role admin/root, nenhuma categoria de Administração aparece", () => {
     const groups = buildSettingsCategoryGroups({
       connectEnabled: false,
       isAdmin: false,
-      isFree: false,
     });
     expect(groups.find((g) => g.id === "administracao")).toBeUndefined();
   });

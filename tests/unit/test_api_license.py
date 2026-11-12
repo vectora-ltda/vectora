@@ -313,7 +313,7 @@ def test_validate_token_endpoint_pro_persiste(monkeypatch: pytest.MonkeyPatch) -
     assert 'token = "tok_pro"' in lic.CONFIG_PATH.read_text(encoding="utf-8")
 
 
-def test_validate_token_endpoint_free_nao_persiste(
+def test_validate_token_endpoint_free_persiste_token_de_conta(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("backend.rbac.auth.has_users", _async_false, raising=False)
@@ -334,9 +334,12 @@ def test_validate_token_endpoint_free_nao_persiste(
     result = asyncio.run(
         handler.license_validate_token(handler.ValidateTokenBody(token="tok_free"))
     )
-    assert result["valid"] is False
-    assert result["error"] == "not_pro_tier"
-    assert not lic.CONFIG_PATH.is_file()
+    import os
+
+    assert result["valid"] is True
+    assert result["tier"] == "free"
+    assert os.environ["VECTORA_TOKEN"] == "tok_free"
+    assert 'token = "tok_free"' in lic.CONFIG_PATH.read_text(encoding="utf-8")
 
 
 def test_validate_token_endpoint_invalido(monkeypatch: pytest.MonkeyPatch) -> None:

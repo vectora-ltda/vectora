@@ -9,7 +9,7 @@ Not for individual local use of the app and CLI. The code is distributed under t
 
 ## What requires Pro?
 
-A Pro entitlement enables member invitations and multi-member operation, the Vectora VPS hosting flow, advanced storage with Postgres/Qdrant/Redis, webhook-triggered tasks, Vectora Connect, and the GitHub Actions review bot. It also includes priority support under the current commercial terms. See [entitlements and pricing](https://vectora.company/#pricing).
+Free includes local use, self-hosting, and operator-managed storage such as Postgres, Qdrant, and Redis. Pro enables hosted capabilities that depend on Services, including organizations and invitations, remote webhooks, and Vectora Connect. See [entitlements and pricing](https://vectora.company/#pricing).
 
 ## Are the app's core features paid?
 

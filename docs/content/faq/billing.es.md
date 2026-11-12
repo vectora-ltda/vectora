@@ -9,7 +9,7 @@ No para el uso local individual de la aplicación y la CLI. El código se distri
 
 ## ¿Qué requiere Pro?
 
-Una suscripción Pro activa habilita las invitaciones y la operación con varios miembros, el flujo de alojamiento de Vectora en VPS, almacenamiento avanzado con Postgres/Qdrant/Redis, tareas activadas por webhooks, Vectora Connect y el bot de revisión de GitHub Actions. La suscripción también incluye soporte prioritario según los términos comerciales vigentes. Consulta las [suscripciones y los precios](https://vectora.company/#pricing).
+Free incluye ejecución local, alojamiento propio y almacenamiento administrado por el operador, como Postgres, Qdrant y Redis. Pro habilita funciones alojadas que dependen de Services, como organizaciones e invitaciones, webhooks remotos y Vectora Connect. Consulta las [suscripciones y los precios](https://vectora.company/#pricing).
 
 ## ¿Las funciones centrales de la aplicación son de pago?
 

@@ -64,10 +64,7 @@ async def db(tmp_path, monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _pro_tier_by_default(monkeypatch):
-    """Tarefas `webhook` exigem tier pro (`create_task`); os testes deste
-    arquivo cobrem o resto do ciclo de vida, não o gating em si — default
-    pro aqui, `TestWebhookTaskRequiresPro` abaixo testa o gating de verdade.
-    """
+    """Mantém um tier previsível nos testes do ciclo de vida das tarefas."""
     monkeypatch.setenv("VECTORA_LICENSE_BYPASS", "1")
 
 
@@ -382,32 +379,16 @@ async def test_update_and_delete_roundtrip(db):
 
 
 # ---------------------------------------------------------------------------
-# Gating: task com trigger_type="webhook" exige tier pro
+# Webhooks locais não exigem tier Pro.
 # ---------------------------------------------------------------------------
 
 
-class TestWebhookTaskRequiresPro:
-    async def test_free_tier_e_rejeitada_com_402(self, db, monkeypatch, tmp_path):
+class TestWebhookTask:
+    async def test_free_tier_cria_webhook_local(self, db, monkeypatch, tmp_path):
         monkeypatch.delenv("VECTORA_LICENSE_BYPASS", raising=False)
         from backend.services import license as lic
 
         monkeypatch.setattr(lic, "CACHE_PATH", tmp_path / "license_cache.json")
-        from fastapi import HTTPException
-
-        with pytest.raises(HTTPException) as exc:
-            await bg.create_task(
-                session_id="s",
-                user_id="u",
-                kind="routine",
-                name="sync",
-                instruction="i",
-                trigger_type="webhook",
-                trigger_config={"provider": "github", "events": ["push"]},
-            )
-        assert exc.value.status_code == 402
-
-    async def test_pro_tier_cria_normalmente(self, db, monkeypatch):
-        monkeypatch.setenv("VECTORA_LICENSE_BYPASS", "1")
         task = await bg.create_task(
             session_id="s",
             user_id="u",

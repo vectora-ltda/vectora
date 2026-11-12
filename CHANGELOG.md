@@ -16,7 +16,6 @@ Os recursos incluídos nesta versão são listados abaixo.
 - feat: archive safe roots and enforce workspace access (#222)
 - feat: add global responsive session layout bands (#223)
 - feat: add Chromium browser settings and profile isolation (#221)
-- feat: validate GitHub review job contracts (#227)
 - feat: navigate created folders and surface new sessions (#217)
 - feat(frontend): complete adaptive session shell, workbench and responsive chat (#213)
 - feat: add owned multimodal asset metadata (#173)
@@ -57,7 +56,6 @@ Os recursos incluídos nesta versão são listados abaixo.
 - feat: enviar anexos ao modelo ativo antes do fallback multimodal (#80)
 - feat(frontend): revisa Aparência com novo catálogo de temas e UI Scale (#69)
 - feat(services): teste real de update contra produção, sem mock nenhum (#58)
-- feat(gha-bot): modo self-hosted — revisão roda na própria instância Vectora (#52)
 - feat(frontend): theme picker com cards pintados + toggle claro/escuro/sistema (#51)
 
 ### Bug Fixes
@@ -116,7 +114,6 @@ As correções incluídas nesta versão são listadas abaixo.
 - fix(services): reconstrói o manifesto de update por arch (#62)
 - fix(frontend): altura do Header, rename do mode switcher e composer mais limpo (#61)
 - fix: reaplica schema base do D1 em todo deploy de produção (#60)
-- fix(build): enxuga o vectora-cli headless + multipart upload no R2 (#57)
 - fix(services): resolve 3 achados pendentes da auditoria do services/ (#55)
 - fix(deploy): remove flag --skip-confirmation inválida do wrangler d1 migrations (#54)
 - fix(frontend): tela de Integrações dirigida 100% pelo registry do backend (#50)

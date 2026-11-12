@@ -1,15 +1,12 @@
-"""Gating de features por tier de assinatura (free/pro).
+"""Gate Services-hosted features by subscription tier.
 
-Modelo: uso solo local Ã© sempre `free` (sem conta, sem `VECTORA_TOKEN`).
-Capacidades de time â€” chat web multi-usuÃ¡rio, convites, SSO/SAML, storage
-escalÃ¡vel (Postgres/Qdrant/Redis), tasks disparadas por webhook â€” exigem
-`tier=pro`, que sÃ³ existe com um `VECTORA_TOKEN` vÃ¡lido validado contra o
-Supabase (ver `backend/services/license.py`).
+Features executed by the local installation, including self-hosting,
+operator-configured storage, invitations, and automations, remain available
+on Free. The app uses `require_pro` only for flows that depend on Services,
+such as Connect.
 
-`get_current_tier` lÃª o cache local (escrito no boot pelo launcher / pelo loop
-de revalidaÃ§Ã£o de 6h em `backend/api/server.py`) â€” nunca faz chamada de rede
-por request. `require_pro` Ã© uma dependency do FastAPI: usa 402 Payment
-Required (nÃ£o 403) porque a causa Ã© "falta pagar", nÃ£o "sem permissÃ£o".
+`get_current_tier` reads the local cache; `require_pro` returns HTTP 402 when
+a Services-hosted feature requires Pro.
 """
 
 from __future__ import annotations
@@ -73,9 +70,7 @@ def get_current_tier(user_id: str | None = None) -> LicenseTier | None:
 
 
 def require_pro() -> None:
-    """Levanta 402 se a instalaÃ§Ã£o nÃ£o Ã© `pro`. Chame no inÃ­cio do handler,
-    mesmo padrÃ£o de ``require_admin`` em ``backend/api/handlers/admin.py``.
-    """
+    """Raise HTTP 402 when a Services-hosted feature requires Pro."""
     if get_current_tier() != "pro":
         raise HTTPException(
             status_code=402,

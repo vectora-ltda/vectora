@@ -21,6 +21,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from backend.services.extension_trust import TrustState
+from backend.services.service_auth import services_auth_headers
 
 logger = logging.getLogger(__name__)
 
@@ -195,13 +196,20 @@ async def fetch_catalog(kind: RegistryKind) -> list[dict]:
         return list(cache.get("entries", []))
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.get(f"{_registry_url()}/{kind}")
+            url = f"{_registry_url()}/{kind}"
+            resp = await client.get(url, headers=services_auth_headers(url))
             resp.raise_for_status()
             data = resp.json()
         entries = list(data.get("entries", []))
         _write_cache(kind, entries)
         return entries
     except Exception as exc:
+        if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code in (
+            401,
+            403,
+        ):
+            logger.info("registry_client: catálogo remoto requer conta Pro")
+            return []
         logger.warning("registry_client: falha ao buscar catálogo %s (%s)", kind, exc)
         if (
             cache is not None
@@ -223,7 +231,8 @@ async def fetch_catalog_status(kind: Literal["mcp", "skills"]) -> RegistryStatus
     )
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            response = await client.get(f"{_registry_url()}/status/{kind}")
+            url = f"{_registry_url()}/status/{kind}"
+            response = await client.get(url, headers=services_auth_headers(url))
             response.raise_for_status()
             payload = response.json()
         return RegistryStatus.model_validate(
@@ -253,7 +262,8 @@ async def fetch_enterprise_catalog(kind: Literal["mcp", "skills"]) -> list[dict]
         async with httpx.AsyncClient(
             timeout=timeout, limits=limits, follow_redirects=False
         ) as client:
-            response = await client.get(f"{base}/{kind}")
+            url = f"{base}/{kind}"
+            response = await client.get(url, headers=services_auth_headers(url))
             response.raise_for_status()
             payload = response.json()
         entries = payload.get("entries", [])

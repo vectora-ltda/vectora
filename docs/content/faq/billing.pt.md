@@ -9,7 +9,7 @@ Não para uso local individual do aplicativo e da CLI. O código é distribuído
 
 ## O que exige uma assinatura Pro?
 
-Uma assinatura Pro ativa habilita convites e operação com vários membros, o fluxo de hospedagem do Vectora em VPS, storage avançado com Postgres/Qdrant/Redis, tarefas disparadas por webhook, Vectora Connect e o bot de revisão do GitHub Actions. A assinatura também oferece suporte prioritário nos termos comerciais vigentes. Consulte as [assinaturas e os preços](https://vectora.company/#pricing).
+A assinatura Free inclui recursos locais, hospedagem própria e storage configurado pelo operador, incluindo Postgres, Qdrant e Redis. A assinatura Pro habilita recursos hospedados que dependem do Services, como organizações e convites, webhooks remotos e Vectora Connect. Consulte as [assinaturas e os preços](https://vectora.company/#pricing).
 
 ## Os recursos principais do aplicativo são pagos?
 

@@ -260,7 +260,7 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
                 "  ✨  Vectora aguardando setup inicial.\n"
                 "      Abra o chat no browser — o wizard vai perguntar seu\n"
                 "      nome e o modo de operação (local, sem conta, ou VPS\n"
-                "      com VECTORA_TOKEN Pro).\n"
+                "      com VECTORA_TOKEN).\n"
             )
     except Exception:
         pass  # Não bloqueia o startup se o DB ainda não estiver criado

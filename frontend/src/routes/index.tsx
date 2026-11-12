@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Sidebar } from "@/components/sidebar/sidebar";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
@@ -18,6 +18,7 @@ import { Header } from "@/components/header/header";
 import { disposeBrowserThread } from "@/lib/browser-session-store";
 import { useToastStore } from "@/lib/stores/toast-store";
 import { m } from "@/lib/paraglide/messages";
+import { useIsNarrowViewport } from "@/lib/hooks/use-media-query";
 
 /** Largura da sidebar na tela inicial — mais larga que o normal para dar destaque. */
 const HOME_SIDEBAR_WIDTH = 280;
@@ -50,9 +51,14 @@ function HomeScreen() {
   const deleteThread = useDeleteThread();
   const setChatMode = useSettingsStore((s) => s.setChatMode);
   const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
+  const isNarrowViewport = useIsNarrowViewport();
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [leaving, setLeaving] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!isNarrowViewport) setIsMobileSidebarOpen(false);
+  }, [isNarrowViewport]);
 
   /** Anima a sidebar encolhendo e navega após a animação terminar. */
   const go = (fn: () => void) => {
@@ -139,7 +145,13 @@ function HomeScreen() {
         </Sheet>
 
         <main className="flex-1 min-h-0 overflow-auto flex flex-col">
-          <Header />
+          <Header
+            compactNavigation={
+              isNarrowViewport
+                ? { onOpenSessions: () => setIsMobileSidebarOpen(true) }
+                : undefined
+            }
+          />
           <EmptyStateHeader />
         </main>
       </div>

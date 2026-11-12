@@ -52,7 +52,7 @@ El almacenamiento local usa SQLite y LanceDB. El operador configura los proveedo
 
 La licencia de código abierto y la suscripción comercial son cosas distintas. El uso local individual de la aplicación y la CLI es gratuito y no requiere cuenta. Las funciones centrales del producto —incluidos RAG, Library, Browser, Sandbox, Context Graph, HITL y Decision Models— no están bloqueadas por la suscripción Pro. Los proveedores externos de IA pueden cobrar por su propio uso.
 
-Se requiere una suscripción **Pro** activa para invitar a otros miembros y operar en equipo, usar el flujo Pro de alojamiento en VPS, utilizar el almacenamiento avanzado (Postgres, Qdrant y Redis), activar tareas mediante webhooks y usar Vectora Connect o el bot de revisión de GitHub Actions. El soporte prioritario sigue los términos comerciales vigentes. Alojar por cuenta propia la aplicación o las bases de datos no sustituye la suscripción. Consulta las [suscripciones y los precios](https://vectora.company/#pricing).
+**Free** incluye ejecución local, alojamiento propio y almacenamiento administrado por el operador, como Postgres, Qdrant y Redis. **Pro** habilita funciones alojadas que dependen de Services, como organizaciones e invitaciones, webhooks remotos y Vectora Connect. Consulta las [suscripciones y los precios](https://vectora.company/#pricing).
 
 ## Siguiente paso
 

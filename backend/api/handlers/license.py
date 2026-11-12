@@ -113,12 +113,9 @@ class ValidateTokenBody(BaseModel):
 async def license_validate_token(body: ValidateTokenBody) -> dict:
     """Valida um VECTORA_TOKEN ad-hoc, antes de existir qualquer conta.
 
-    Usado pelo wizard de onboarding pra checar o token Pro no passo VPS
-    ANTES do signup de verdade acontecer. Só permitido no primeiro acesso
-    (instância ainda sem nenhum usuário) — mesma guarda de
-    ``/auth/setup-local``. Se válido e ``tier == "pro"``, persiste (o
-    ``/auth/signup`` seguinte já herda o token configurado); se inválido ou
-    Free, não persiste em disco (só fica no ambiente do processo atual).
+    Usado no primeiro acesso para conectar uma conta antes da configuração
+    da instância. Aceita qualquer tier válido: hospedar a própria instância
+    não depende da assinatura Pro.
     """
     from backend.rbac.auth import has_users
 
@@ -138,9 +135,6 @@ async def license_validate_token(body: ValidateTokenBody) -> dict:
         info = await validate_license_async(force=True)
     except LicenseError as exc:
         return {"valid": False, "error": str(exc)}
-
-    if info.tier != "pro":
-        return {"valid": False, "error": "not_pro_tier", **info.to_dict()}
 
     write_token_to_config(token)
     return {"valid": True, **info.to_dict()}

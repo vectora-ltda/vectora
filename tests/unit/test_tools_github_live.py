@@ -72,7 +72,6 @@ async def test_github_fetch_url_publico_sem_login_real(
 @pytest.mark.parametrize(
     ("repo_url", "marker"),
     [
-        ("https://github.com/vectora-company/review-action", "review-action"),
         ("https://github.com/octocat/Hello-World", "hello-world"),
     ],
 )

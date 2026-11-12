@@ -592,14 +592,20 @@ def test_linux_release_installs_native_package_build_tools() -> None:
     content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
 
     assert "libarchive-tools" in content
-    assert '"$RUNNER_TEMP/snapcraft-compat"' in content
-    assert '"${1:-}" == "snap"' in content
+    assert 'image="ghcr.io/canonical/snapcraft:8_core22"' in content
+    assert "cat > \"$compat_dir/snapcraft\" <<'EOF'" in content
+    assert '"${args[0]:-}" == "snap"' in content
+    assert 'exec docker run --rm -v "$PWD:/project"' in content
+    assert not any(
+        line.lstrip().startswith("bash ") and ".sh" in line
+        for line in content.splitlines()
+    )
     assert "os: ubuntu-22.04" in content
     assert "os: ubuntu-22.04-arm" in content
     assert "sudo snap install lxd" not in content
     assert "sudo lxd init --auto" not in content
-    assert 'exec sudo /snap/bin/snapcraft pack --destructive-mode "$@"' in content
-    assert "/snap/bin/snapcraft pack" in content
+    assert "sudo snap install snapcraft" not in content
+    assert "snapd" not in content
 
 
 def test_linux_release_validates_and_uploads_electron_builder_artifact_names() -> None:
@@ -676,37 +682,13 @@ def test_release_attaches_only_the_selected_installers() -> None:
     stage = tag_job.index(
         "python3 utils/release_assets.py stage dist-release release-assets"
     )
-    checksums = tag_job.index("sign-release-artifacts.sh release-assets")
+    checksums = tag_job.index("python3 utils/sign_release_artifacts.py release-assets")
     upload = tag_job.index('gh release upload "$TAG"')
     assert stage < checksums < upload
-    assert "sign-release-artifacts.sh dist-release" not in tag_job
+    assert "sign_release_artifacts.py dist-release" not in tag_job
     assert "find release-assets -maxdepth 1 -type f -print0" in tag_job
     # Trava final: nome com caractere de glob nunca chega ao `gh release upload`.
     assert "[A-Za-z0-9._+-]+" in tag_job
-
-
-def test_release_does_not_build_or_publish_the_vectora_bot_binary() -> None:
-    """Decisão de produto: o Vectora não roda mais na Cloudflare, então nenhum
-    binário do bot é construído, publicado no R2 nem anexado à release."""
-    root = WORKFLOW.parents[2]
-    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
-    build_hybrid = (root / "build-hybrid.py").read_text(encoding="utf-8")
-
-    for marker in (
-        "gha-bot-cli",
-        "publish-gha-bot-cli",
-        "vectora-cli",
-        "VECTORA_BUILD_CLI",
-        "s3://vectora-r2/gha-bot/",
-    ):
-        assert marker not in content, marker
-    for marker in (
-        "VECTORA_BUILD_CLI",
-        "vectora-cli",
-        "COLLECT_ALL_CLI",
-        "collect_cli",
-    ):
-        assert marker not in build_hybrid, marker
 
 
 def test_commitlint_packages_are_installed_with_exact_versions() -> None:

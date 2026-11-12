@@ -1,11 +1,9 @@
 """Memory Buckets — download/publish de buckets RAG pré-vetorizados
 publicados pela comunidade, integrados ao catálogo de bibliotecas first-party.
 
-Download é sempre grátis (decisão de produto) — sem gate de tier/quota.
-Publicação exige sessão de usuário da company (`session_token`) — este
-módulo não resolve *como* obter esse token (login company↔desktop ainda
-não existe no backend local); quem chama `publish_memory_bucket` já deve
-ter um token de sessão válido em mãos.
+O catálogo e os downloads remotos usam o Services e exigem uma conta Pro.
+Buckets já baixados e armazenados localmente continuam disponíveis sem
+assinatura. Publicação exige sessão de usuário da Company (`session_token`).
 """
 
 from __future__ import annotations
@@ -19,6 +17,8 @@ import tempfile
 from pathlib import Path
 
 import httpx
+
+from backend.services.service_auth import services_auth_headers
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +82,11 @@ async def _request_catalog(q: str | None = None) -> list[dict]:
     params = {"q": q} if q else None
     try:
         async with httpx.AsyncClient(timeout=HTTP_TIMEOUT) as client:
-            resp = await client.get(base_url, params=params)
+            resp = await client.get(
+                base_url,
+                params=params,
+                headers=services_auth_headers(base_url),
+            )
             resp.raise_for_status()
             payload = resp.json()
     except Exception as exc:
@@ -148,7 +152,8 @@ async def download_memory_bucket(
         async with httpx.AsyncClient(
             timeout=HTTP_TIMEOUT, follow_redirects=True
         ) as client:
-            resp = await client.get(f"{_memory_buckets_url()}/{bucket_id}/download")
+            url = f"{_memory_buckets_url()}/{bucket_id}/download"
+            resp = await client.get(url, headers=services_auth_headers(url))
             resp.raise_for_status()
             archive_bytes = resp.content
     except Exception as exc:

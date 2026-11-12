@@ -15,7 +15,9 @@ from backend.settings import settings
 
 logger = logging.getLogger(__name__)
 
-MONTHLY_LIMITS: dict[str, int] = {"free": 10, "pro": 100}
+# Media tools use the operator's configured provider and credentials. The
+# operational cap is the same for every subscription tier.
+MONTHLY_LIMITS: dict[str, int] = {"free": 100, "pro": 100}
 UNIT_COSTS: dict[str, int] = {
     "generate_image": 1,
     "text_to_speech": 1,
@@ -397,8 +399,6 @@ class MediaQuota:
         idempotency_key: str,
         units: int | None = None,
     ) -> QuotaReservation | None:
-        from backend.rbac.subscription import get_current_tier
-
         units = UNIT_COSTS.get(operation, 0) if units is None else units
         logger.info(
             "media_quota.estimate",
@@ -417,10 +417,7 @@ class MediaQuota:
             billable_unit="quota_unit",
             currency="quota_units",
         )
-        try:
-            tier = get_current_tier(user_id)
-        except TypeError:
-            tier = get_current_tier() if user_id == "local" else None
+        tier = self._current_tier(user_id)
         if tier is None:
             logger.info(
                 "media_quota.blocked",
@@ -661,12 +658,7 @@ class MediaQuota:
         }
 
     def _summary(self, user_id: str) -> dict[str, int | str]:
-        from backend.rbac.subscription import get_current_tier
-
-        try:
-            tier = get_current_tier(user_id)
-        except TypeError:
-            tier = get_current_tier() if user_id == "local" else None
+        tier = self._current_tier(user_id)
         if tier is None:
             return {"period": self.period(), "used": 0, "limit": 0, "remaining": 0}
         period = self.period()

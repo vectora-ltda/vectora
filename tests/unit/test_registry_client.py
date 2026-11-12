@@ -435,6 +435,27 @@ async def test_fetch_catalog_http_error_status_falls_back_to_cache(monkeypatch):
     assert entries == [{"id": "cached-entry", "catalog_source": "official"}]
 
 
+@pytest.mark.asyncio
+async def test_fetch_catalog_pro_required_does_not_serve_cached_entries(monkeypatch):
+    stale_cache = {
+        "entries": [{"id": "cached-entry", "catalog_source": "official"}],
+        "fetched_at": (datetime.now(UTC) - timedelta(hours=20)).isoformat(),
+    }
+    registry_client._cache_path("mcp").parent.mkdir(parents=True, exist_ok=True)
+    registry_client._cache_path("mcp").write_text(
+        json.dumps(stale_cache), encoding="utf-8"
+    )
+
+    async def _fake_get(self, url, **kwargs):
+        return httpx.Response(
+            403, json={"error": "pro_required"}, request=httpx.Request("GET", url)
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    assert await registry_client.fetch_catalog("mcp") == []
+
+
 def test_clear_registry_cache_when_nothing_cached_does_not_raise():
     # Erro/borda: limpar cache sem nenhum arquivo existente é no-op seguro.
     registry_client.clear_registry_cache()
@@ -464,7 +485,7 @@ async def test_fetch_catalog_descarta_cache_mcp_legado_e_atualiza(monkeypatch):
         async def __aexit__(self, *_args: object) -> None:
             return None
 
-        async def get(self, _url: str) -> Response:
+        async def get(self, _url: str, **_kwargs: object) -> Response:
             return Response()
 
     monkeypatch.setattr(registry_client, "_read_cache", lambda _kind: legacy)

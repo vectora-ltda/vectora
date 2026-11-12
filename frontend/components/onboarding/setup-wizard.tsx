@@ -17,10 +17,8 @@ import {
   FolderOpen,
   FolderPlus,
   Plus,
-  Lock,
 } from "lucide-react";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
-import { useLicenseStatus } from "@/lib/hooks/use-license-status";
 import { WorkspaceTrustDialog } from "@/components/sidebar/workspace-trust-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -491,12 +489,6 @@ function ServiceConnectionCard({
 }
 
 export function StepMode({ onValidityChange }: StepProps) {
-  // `configured=false` (sem VECTORA_TOKEN) é o estado Free — mesma fonte de
-  // admin-tab.tsx (GET /license/status). O modo "Completo" (Postgres+Qdrant+
-  // Redis) é recurso exclusivo do Pro; Free fica preso ao Lite (SQLite +
-  // LanceDB + NATS embutido).
-  const { status: license } = useLicenseStatus();
-  const isFree = !license?.configured || license?.tier !== "pro";
   const [mode, setMode] = useState<"lite" | "complete">("lite");
   const [saving, setSaving] = useState(false);
   const [connected, setConnected] = useState<Record<string, boolean>>({});
@@ -586,7 +578,6 @@ export function StepMode({ onValidityChange }: StepProps) {
   }, []);
 
   const handleSelect = async (next: "lite" | "complete") => {
-    if (next === "complete" && isFree) return;
     setMode(next);
     setSaving(true);
     try {
@@ -622,25 +613,15 @@ export function StepMode({ onValidityChange }: StepProps) {
         </button>
         <button
           onClick={() => handleSelect("complete")}
-          disabled={isFree}
-          aria-disabled={isFree}
           className={`text-left p-3 rounded-md border transition-colors ${
             mode === "complete"
               ? "border-primary bg-primary/10"
               : "border-border text-muted-foreground hover:text-foreground"
-          } ${isFree ? "opacity-60 cursor-not-allowed hover:text-muted-foreground" : ""}`}
+          }`}
         >
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-medium">
-              {m.onboarding_mode_complete_title()}
-            </p>
-            {isFree && (
-              <span className="flex items-center gap-1 text-[10px] font-medium text-muted-foreground">
-                <Lock className="w-3 h-3" />
-                {m.onboarding_mode_complete_locked()}
-              </span>
-            )}
-          </div>
+          <p className="text-xs font-medium">
+            {m.onboarding_mode_complete_title()}
+          </p>
           <p className="text-[11px] mt-1">
             {m.onboarding_mode_complete_desc()}
           </p>

@@ -297,17 +297,8 @@ async def set_user_tools(
 
 @router.post("/invites")
 async def create_invite(request: Request, body: CreateInviteBody) -> dict:
-    """Gera um link de convite de signup com token expirável.
-
-    Convidar membro adicional (2º+ usuário) é feature de time — exige plano
-    Pro. O primeiro usuário (root) não passa por aqui: nasce direto no
-    signup inicial (``backend/services/auth.py::signup``), sempre livre.
-    """
+    """Gera um convite para outra conta na instância local."""
     import os
-
-    from backend.rbac.subscription import require_pro
-
-    require_pro()
 
     user = _get_user(request)
     require_admin(user)
@@ -1335,24 +1326,6 @@ async def update_storage_config(request: Request) -> dict:
     require_admin(user)
 
     body = await request.json()
-
-    # Postgres/Redis/Qdrant são o modo completo, recurso Pro. O gate cobre
-    # tanto o flip do modo quanto os campos de conexão: sem os dois, o não-Pro
-    # deixa tudo configurado e só falta virar a chave. Voltar pra `lite` nunca
-    # é bloqueado — prender no modo completo quem perdeu a licença deixaria a
-    # instalação sem saída.
-    _touches_complete = (
-        body.get("storage_mode") == "complete"
-        or "services" in body
-        or any(
-            k in body
-            for k in ("postgres_dsn", "redis_url", "qdrant_url", "qdrant_api_key")
-        )
-    )
-    if _touches_complete:
-        from backend.rbac.subscription import require_pro
-
-        require_pro()
 
     from backend.workspace.runtime_settings import runtime_settings
 
