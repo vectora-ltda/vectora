@@ -24,7 +24,7 @@ def _bound_tool_results(messages: list[VMessage]) -> list[VMessage]:
         remaining = _TOOL_RESULT_CONTEXT_LIMIT
         blocks: list[ContentBlock] = []
         for block in message.content:
-            if block.kind != "text" or not block.text:
+            if not block.is_textual or not block.text:
                 blocks.append(block)
                 continue
             excerpt = block.text[:remaining]
@@ -48,7 +48,7 @@ def _message_tokens(message: VMessage) -> int:
         # O marcador é um token de controle sintético; contar o texto inteiro
         # faria a sinalização expulsar uma unidade tool-call válida do limite.
         return 1
-    text = message.text()
+    text = message.model_text()
     if message.tool_calls:
         text += "\n".join(str(call.args) for call in message.tool_calls)
     image_count = sum(block.kind == "image_url" for block in message.content)

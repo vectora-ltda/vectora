@@ -502,15 +502,19 @@ async def _build_user_vmessage(
     user_id: str = "local",
     workspace_id: str = "",
 ) -> VMessage:
-    """Constrói VMessage com suporte a conteúdo multimodal.
+    """Constrói a mensagem do usuário com os anexos.
 
-    - Sem attachments → ``VMessage`` com um ``ContentBlock`` de texto.
-    - Imagem → ``ContentBlock(kind="image_url")`` com base64 inline; o
-      arquivo é persistido em disco (``_persist_image_attachment``) para
-      sobreviver a um restart do backend.
-    - Áudio → transcrito via Whisper (STT) e injetado como texto.
-    - Código/PDF/texto → injetado como bloco de texto.
+    O tipo de cada anexo vem dos bytes (``media_types.classify``):
+
+    - Imagem → ``ContentBlock(kind="image_url")`` com base64 inline e asset
+      salvo para sobreviver a restart.
+    - Áudio → transcrito e salvo; o bloco ``media`` leva a transcrição.
+    - Documento (PDF, DOCX, XLSX...) → salvo; o bloco leva o texto extraído.
+    - Texto/código → bloco com o conteúdo.
+    - Vídeo e arquivos genéricos → salvos; o bloco leva a referência.
     """
+    from backend.services.chat_attachments import build_media_block
+    from backend.services.media_types import effective_media_info
 
     if not attachments:
         return VMessage(
@@ -520,46 +524,25 @@ async def _build_user_vmessage(
 
     blocks: list[ContentBlock] = [ContentBlock(kind="text", text=content)]
 
-    for att in attachments:
-        if att.kind == AttachmentKind.IMAGE:
-            # Log de diagnóstico para imagens grandes
-            try:
-                img_size = len(base64.b64decode(att.base64_data, validate=True))
-                if img_size > 5 * 1024 * 1024:
-                    logger.error(
-                        "chat: imagem MUITO grande recebida: %s (%d bytes). "
-                        "Isso pode corromper o checkpointer SQLite.",
-                        att.name,
-                        img_size,
-                    )
-                elif img_size > 2 * 1024 * 1024:
-                    logger.warning(
-                        "chat: imagem grande recebida: %s (%d bytes)",
-                        att.name,
-                        img_size,
-                    )
-            except (ValueError, binascii.Error):
-                logger.warning("chat: imagem Base64 inválida rejeitada: %s", att.name)
-                continue
-
-            from backend.services.assets import (
-                ALLOWED_MIME,
-                MAX_ASSET_BYTES,
-                validate_asset_bytes,
+    for original in attachments:
+        try:
+            raw = base64.b64decode(original.base64_data, validate=True)
+        except (ValueError, binascii.Error):
+            logger.warning(
+                "chat: anexo com base64 inválido ignorado: %s", original.name
             )
+            continue
+        info = effective_media_info(
+            raw, original.name, original.mime_type, original.kind.value
+        )
+        att = original.model_copy(update={"mime_type": info.mime_type})
 
-            normalized_mime = (
-                "image/jpeg" if att.mime_type == "image/jpg" else att.mime_type
-            )
-            raw_image = base64.b64decode(att.base64_data, validate=True)
-            if (
-                normalized_mime not in ALLOWED_MIME
-                or len(raw_image) > MAX_ASSET_BYTES
-                or not validate_asset_bytes(raw_image, normalized_mime, att.name)
-            ):
-                logger.warning("chat: imagem rejeitada antes do provider: %s", att.name)
-                continue
-
+        if info.kind == "image":
+            img_size = len(raw)
+            if img_size > 5 * 1024 * 1024:
+                logger.warning(
+                    "chat: imagem grande recebida: %s (%d bytes)", att.name, img_size
+                )
             persisted = _persist_image_file(thread_id, att)
             asset_id = None
             if persisted is not None:
@@ -591,26 +574,22 @@ async def _build_user_vmessage(
                     attachment_size_bytes=img_size,
                 )
             )
-        elif att.kind == AttachmentKind.AUDIO:
-            blocks.append(
-                ContentBlock(kind="text", text=await _transcribe_attachment(att))
+            continue
+
+        async def _transcribe(current: Attachment = att) -> str:
+            return await _transcribe_attachment(current)
+
+        blocks.append(
+            await build_media_block(
+                raw,
+                info,
+                name=att.name,
+                thread_id=thread_id,
+                user_id=user_id,
+                workspace_id=workspace_id,
+                transcribe=_transcribe,
             )
-        else:
-            # Código, PDF ou texto — decodifica e injeta como texto
-            try:
-                decoded = base64.b64decode(att.base64_data).decode(
-                    "utf-8", errors="replace"
-                )
-            except Exception:
-                decoded = "[conteúdo não pôde ser decodificado]"
-
-            lang = _mime_to_lang(att.name)
-            if lang:
-                block_text = f"\n[Arquivo: {att.name}]\n```{lang}\n{decoded}\n```"
-            else:
-                block_text = f"\n[Arquivo: {att.name}]\n{decoded}"
-
-            blocks.append(ContentBlock(kind="text", text=block_text))
+        )
 
     return VMessage(role=MessageRole.USER, content=blocks)
 

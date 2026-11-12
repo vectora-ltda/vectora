@@ -2365,9 +2365,13 @@ async def get_thread_asset(thread_id: str, asset_id: str, request: Request) -> R
     if loaded is None:
         raise HTTPException(status_code=404, detail="Asset não encontrado")
     asset, payload = loaded
-    return Response(
-        payload, media_type=asset.mime_type, headers={"Cache-Control": "no-store"}
-    )
+    headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
+    inline = asset.mime_type.startswith(("image/", "audio/", "video/"))
+    if not inline:
+        # Documentos e arquivos genéricos só são baixados, nunca renderizados
+        # na origem do app.
+        headers["Content-Disposition"] = "attachment"
+    return Response(payload, media_type=asset.mime_type, headers=headers)
 
 
 # ---------------------------------------------------------------------------

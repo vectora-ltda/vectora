@@ -16,6 +16,12 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
+from backend.services.media_types import (
+    MAX_ATTACHMENT_BYTES,
+    MAX_BYTES_BY_KIND,
+    effective_media_info,
+    max_bytes_for,
+)
 from backend.vtypes.contracts import ToolOption
 from backend.vtypes.permission import PermissionMode
 
@@ -62,23 +68,25 @@ class ChatConfig(BaseModel):
 
 
 class AttachmentKind(StrEnum):
-    """Tipo semântico do attachment — determina como o backend o injeta na mensagem."""
+    """Tipo do anexo declarado pelo cliente.
 
-    IMAGE = "image"  # imagem → image_url part (multimodal)
-    PDF = "pdf"  # PDF → texto decodificado
-    CODE = "code"  # código → bloco de código com linguagem detectada
-    TEXT = "text"  # texto genérico → injetado como texto
-    AUDIO = "audio"  # áudio → transcrito via STT e injetado como texto
+    É só uma dica: o backend reclassifica pelos bytes
+    (``backend/services/media_types.py``) e o tipo efetivo decide como o
+    anexo chega ao modelo.
+    """
+
+    IMAGE = "image"
+    PDF = "pdf"  # legado: PDFs agora são ``document``
+    DOCUMENT = "document"
+    CODE = "code"
+    TEXT = "text"
+    AUDIO = "audio"
+    VIDEO = "video"
+    FILE = "file"
 
 
-# Espelha frontend/lib/utils/chat/validation.ts::validateImageFile — o
-# frontend filtra o picker de arquivo com essas mesmas listas/tetos, mas é só
-# UX; sem essa validação aqui, uma chamada direta ao endpoint de stream (sem
-# passar pela UI) aceitava qualquer base64 de qualquer tamanho como qualquer
-# mimetype.
-_ATTACHMENT_MAX_SIZE_DEFAULT_BYTES = 10 * 1024 * 1024
-_ATTACHMENT_MAX_SIZE_AUDIO_BYTES = 25 * 1024 * 1024
-_ATTACHMENT_MAX_SIZE_HAR_BYTES = 50 * 1024 * 1024
+#: Teto de áudio da transcrição avulsa (``TranscribeAudio``).
+_ATTACHMENT_MAX_SIZE_AUDIO_BYTES = MAX_BYTES_BY_KIND["audio"]
 
 
 def _max_base64_length(max_bytes: int) -> int:
@@ -86,108 +94,13 @@ def _max_base64_length(max_bytes: int) -> int:
     return 4 * ((max_bytes + 2) // 3)
 
 
-_ATTACHMENT_SUPPORTED_MIME_TYPES = {
-    "image/jpeg",
-    "image/jpg",
-    "image/png",
-    "image/gif",
-    "image/webp",
-    "audio/mpeg",
-    "audio/mp3",
-    "audio/wav",
-    "audio/x-wav",
-    "audio/mp4",
-    "audio/m4a",
-    "audio/x-m4a",
-    "audio/ogg",
-    "audio/webm",
-    "text/plain",
-    "text/markdown",
-    "text/x-python",
-    "text/x-java",
-    "text/x-c",
-    "text/x-c++",
-    "text/javascript",
-    "text/typescript",
-    "text/html",
-    "text/css",
-    "text/xml",
-    "application/json",
-    "application/javascript",
-    "application/typescript",
-    "application/x-python",
-    "application/x-python-code",
-    "application/x-sh",
-    "text/x-sh",
-    "text/x-log",
-    "application/pdf",
-}
-
-_ATTACHMENT_SUPPORTED_EXTENSIONS = {
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".gif",
-    ".webp",
-    ".py",
-    ".js",
-    ".ts",
-    ".tsx",
-    ".jsx",
-    ".java",
-    ".cpp",
-    ".c",
-    ".h",
-    ".cs",
-    ".go",
-    ".rs",
-    ".rb",
-    ".php",
-    ".sh",
-    ".bash",
-    ".yaml",
-    ".yml",
-    ".json",
-    ".xml",
-    ".html",
-    ".css",
-    ".md",
-    ".txt",
-    ".log",
-    ".sql",
-    ".graphql",
-    ".r",
-    ".swift",
-    ".kt",
-    ".scala",
-    ".har",
-    ".mp3",
-    ".wav",
-    ".m4a",
-    ".ogg",
-    ".webm",
-    ".pdf",
-}
-
-
-def _attachment_max_size_bytes(name: str, mime_type: str) -> int:
-    """Executa a operação  attachment max size bytes."""
-    lowered = name.lower()
-    if lowered.endswith(".har"):
-        return _ATTACHMENT_MAX_SIZE_HAR_BYTES
-    is_audio = mime_type.startswith("audio/") or any(
-        lowered.endswith(ext) for ext in (".mp3", ".wav", ".m4a", ".ogg", ".webm")
-    )
-    if is_audio:
-        return _ATTACHMENT_MAX_SIZE_AUDIO_BYTES
-    return _ATTACHMENT_MAX_SIZE_DEFAULT_BYTES
-
-
 class Attachment(BaseModel):
     """Arquivo anexado a uma mensagem pelo usuário.
 
     ``base64_data`` armazena o conteúdo em base64 puro (sem prefixo data URL).
-    O frontend usa ``fileToBase64()`` que já remove o prefixo ``data:...;base64,``.
+    Qualquer tipo de arquivo é aceito; o limite de tamanho depende do tipo
+    detectado pelos bytes (imagem, áudio, vídeo, documento, texto ou
+    arquivo genérico).
     """
 
     kind: AttachmentKind
@@ -197,32 +110,23 @@ class Attachment(BaseModel):
 
     @model_validator(mode="after")
     def _validate_content(self) -> Attachment:
-        """Executa a operação  validate content."""
-        lowered_name = self.name.lower()
-        has_valid_mimetype = self.mime_type in _ATTACHMENT_SUPPORTED_MIME_TYPES
-        has_valid_extension = any(
-            lowered_name.endswith(ext) for ext in _ATTACHMENT_SUPPORTED_EXTENSIONS
-        )
-        if not has_valid_mimetype and not has_valid_extension:
-            raise ValueError(
-                f"Tipo de arquivo não suportado: {self.name!r} ({self.mime_type!r})"
-            )
-
-        max_size = _attachment_max_size_bytes(self.name, self.mime_type)
-        if len(self.base64_data) > _max_base64_length(max_size):
+        """Decodifica, classifica pelos bytes e aplica o teto do tipo."""
+        if len(self.base64_data) > _max_base64_length(MAX_ATTACHMENT_BYTES):
             raise ValueError(
                 f"Arquivo {self.name!r} excede o limite de "
-                f"{max_size // (1024 * 1024)}MB"
+                f"{MAX_ATTACHMENT_BYTES // (1024 * 1024)}MB"
             )
-
         try:
             decoded = base64.b64decode(self.base64_data, validate=True)
         except (binascii.Error, ValueError) as exc:
             raise ValueError("base64_data inválido") from exc
 
+        info = effective_media_info(decoded, self.name, self.mime_type, self.kind.value)
+        max_size = max_bytes_for(info.kind, self.name)
         if len(decoded) > max_size:
             raise ValueError(
-                f"Arquivo {self.name!r} excede o limite de {max_size // (1024 * 1024)}MB"
+                f"Arquivo {self.name!r} excede o limite de "
+                f"{max_size // (1024 * 1024)}MB para {info.kind}"
             )
         return self
 
