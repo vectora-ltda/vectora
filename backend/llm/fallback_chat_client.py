@@ -202,7 +202,9 @@ def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
                 )
                 raise ValueError(msg)
             return OpenRouterChatClient(
-                model=model_name, client=OpenRouterClient(api_key=api_key)
+                model=model_name,
+                client=OpenRouterClient(api_key=api_key),
+                media_model_id=f"openrouter:{model_name}",
             )
         case "nine_router":
             from backend.llm.openrouter.chat_client import OpenRouterChatClient
@@ -224,6 +226,7 @@ def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
             return OpenRouterChatClient(
                 model=model_name,
                 client=OpenRouterClient(api_key=api_key, base_url=base_url),
+                media_model_id=f"nine_router:{model_name}",
             )
         case "llamacpp":
             from backend.llm.openrouter.chat_client import OpenRouterChatClient

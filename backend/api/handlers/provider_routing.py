@@ -4016,6 +4016,29 @@ async def discover_openrouter_models(
     return OpenRouterCatalogResponse(models=models[:100])
 
 
+async def openrouter_model_modalities(model_id: str) -> set[str] | None:
+    """Modalidades de entrada do modelo no catálogo da OpenRouter.
+
+    ``None`` quando o modelo não está no catálogo (ou o catálogo está
+    indisponível e sem cache).
+    """
+    import httpx
+
+    if not _catalog_cache["models"]:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                await _ensure_openrouter_catalog_cached(client)
+        except Exception:
+            logger.debug(
+                "provider_routing: catálogo indisponível pra checar modalidades de %s",
+                model_id,
+            )
+    for m in _catalog_cache["models"]:
+        if m.id == model_id:
+            return _normalize_modalities(m.input_modalities)
+    return None
+
+
 async def openrouter_model_image_state(model_id: str) -> CapabilityState:
     """Capability real de visão do modelo `model_id` (ex.:
     "anthropic/claude-3.5-sonnet"), consultando o catálogo público
@@ -4026,27 +4049,14 @@ async def openrouter_model_image_state(model_id: str) -> CapabilityState:
     vazio) devolve ``UNKNOWN``. O modelo ativo pode ser tentado em modo
     fail-open; a cadeia de fallback deve excluir esse estado.
     """
-    import httpx
-
-    if not _catalog_cache["models"]:
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                await _ensure_openrouter_catalog_cached(client)
-        except Exception:
-            logger.debug(
-                "provider_routing: catálogo indisponível pra checar vision de %s",
-                model_id,
-            )
-
-    for m in _catalog_cache["models"]:
-        if m.id == model_id:
-            modalities = _normalize_modalities(m.input_modalities)
-            return (
-                CapabilityState.SUPPORTED
-                if {"image", "image_url", "vision"} & modalities
-                else CapabilityState.UNSUPPORTED
-            )
-    return CapabilityState.UNKNOWN
+    modalities = await openrouter_model_modalities(model_id)
+    if modalities is None:
+        return CapabilityState.UNKNOWN
+    return (
+        CapabilityState.SUPPORTED
+        if {"image", "image_url", "vision"} & modalities
+        else CapabilityState.UNSUPPORTED
+    )
 
 
 async def openrouter_model_supports_image(model_id: str) -> bool:
@@ -4219,6 +4229,18 @@ def _normalize_modalities(values: list[str]) -> set[str]:
 
 async def nine_router_model_supports_image(model_id: str) -> CapabilityState:
     """Resolve image support from the configured Nine Router catalog."""
+    modalities = await nine_router_model_modalities(model_id)
+    if modalities is None:
+        return CapabilityState.UNKNOWN
+    return (
+        CapabilityState.SUPPORTED
+        if {"image", "image_url", "vision"} & modalities
+        else CapabilityState.UNSUPPORTED
+    )
+
+
+async def nine_router_model_modalities(model_id: str) -> set[str] | None:
+    """Modalidades de entrada do modelo no catálogo do 9router configurado."""
     import httpx
 
     now = time.monotonic()
@@ -4226,7 +4248,7 @@ async def nine_router_model_supports_image(model_id: str) -> CapabilityState:
         base_url = settings.nine_router_base_url
         api_key = settings.nine_router_api_key
         if not base_url or not api_key:
-            return CapabilityState.UNKNOWN
+            return None
         try:
             async with httpx.AsyncClient(timeout=10) as client:
                 response = await client.get(
@@ -4259,13 +4281,8 @@ async def nine_router_model_supports_image(model_id: str) -> CapabilityState:
 
     for model in _nine_router_catalog_cache["models"]:
         if model.id == model_id:
-            modalities = _normalize_modalities(model.input_modalities)
-            return (
-                CapabilityState.SUPPORTED
-                if {"image", "image_url", "vision"} & modalities
-                else CapabilityState.UNSUPPORTED
-            )
-    return CapabilityState.UNKNOWN
+            return _normalize_modalities(model.input_modalities)
+    return None
 
 
 def invalidate_catalog_cache() -> None:

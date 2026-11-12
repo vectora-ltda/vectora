@@ -728,10 +728,13 @@ async def _report_media_routing(
     iteration: int,
 ) -> None:
     """Registra no run e mostra na UI como cada anexo chegou ao modelo."""
-    from backend.llm.media_parts import media_routing_evidence
+    from backend.llm.media_parts import media_routing_evidence, resolve_native_media
 
-    provider = model_id.partition(":")[0]
-    entries = media_routing_evidence(messages, provider, model_id)
+    if not any(block.kind == "media" for m in messages for block in m.content):
+        return
+    entries = media_routing_evidence(
+        messages, await resolve_native_media(model_id), model_id
+    )
     if not entries:
         return
     if downgraded:
