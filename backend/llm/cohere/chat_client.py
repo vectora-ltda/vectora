@@ -28,6 +28,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from backend.llm.cohere.client import CohereClient, CohereResponseError
+from backend.llm.media_parts import prepare_content
 from backend.vtypes.contracts import UsageSnapshot
 from backend.vtypes.message import (
     ContentBlock,
@@ -55,6 +56,7 @@ def _to_cohere_content(content: list[ContentBlock]) -> str | list[dict]:
     """Bloco `text` vira string simples (caso comum); qualquer bloco
     `image_url` presente força o formato de lista de partes de conteúdo —
     nunca descarta o bloco de imagem só porque concatenar texto perderia."""
+    content = prepare_content(content, "cohere")
     if not any(b.kind == "image_url" for b in content):
         return "".join(b.text or "" for b in content if b.kind == "text")
     partes: list[dict] = []

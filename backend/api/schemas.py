@@ -455,6 +455,28 @@ class ModelSwitchedEvent(BaseModel):
     to_model: str
 
 
+class MediaRouteItem(BaseModel):
+    """Envio de um anexo ao modelo: ``native`` (arquivo) ou ``text``."""
+
+    name: str
+    media_kind: str
+    mime_type: str
+    size_bytes: int
+    mode: Literal["native", "text"]
+    reason: str
+    model: str
+
+
+class MediaRoutedEvent(BaseModel):
+    """Emitido quando o turno envia anexos ao modelo.
+
+    Diz, para cada anexo que não é imagem, se o modelo recebeu o arquivo ou
+    a forma textual (texto extraído, transcrição ou referência).
+    """
+
+    routes: list[MediaRouteItem]
+
+
 class TodoItem(BaseModel):
     """Um item da checklist de progresso mantida por ``write_todos``
     (``backend/tools/planning.py``, tool nativa exposta a todo agente)."""
@@ -501,6 +523,7 @@ StreamChatEventPayload = (
     | TurnFilesChangedEvent
     | ToolActivityEvent
     | ModelSwitchedEvent
+    | MediaRoutedEvent
     | TerminalLineEvent
     | TodosUpdatedEvent
 )
@@ -523,6 +546,7 @@ _TYPE_MAP: dict[type, str] = {
     TurnFilesChangedEvent: "turn_files_changed",
     ToolActivityEvent: "tool_activity",
     ModelSwitchedEvent: "model_switched",
+    MediaRoutedEvent: "media_routed",
     TerminalLineEvent: "terminal_line",
     TodosUpdatedEvent: "todos_updated",
 }

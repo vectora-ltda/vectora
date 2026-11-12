@@ -26,6 +26,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from backend.llm.google.client import GoogleGenAIClient, GoogleGenAIResponseError
+from backend.llm.media_parts import prepare_content, split_data_url
 from backend.vtypes.contracts import UsageSnapshot
 from backend.vtypes.message import (
     ContentBlock,
@@ -133,11 +134,14 @@ def _to_google_user_parts(content: list[ContentBlock]) -> list[dict]:
     """Traduz o content multimodal de uma mensagem `user` — bloco `image_url`
     nunca é descartado só porque `msg.text()` só concatena texto."""
     partes: list[dict] = []
-    for bloco in content:
+    for bloco in prepare_content(content, "google_genai"):
         if bloco.kind == "text" and bloco.text:
             partes.append({"text": bloco.text})
         elif bloco.kind == "image_url" and bloco.image_url:
             partes.append(_google_image_part(bloco.image_url))
+        elif bloco.kind == "media" and bloco.media_data_url:
+            mime_type, dado = split_data_url(bloco.media_data_url)
+            partes.append({"inlineData": {"mimeType": mime_type, "data": dado}})
     return partes or [{"text": ""}]
 
 
