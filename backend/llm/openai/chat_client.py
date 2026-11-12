@@ -118,6 +118,18 @@ def _to_openai_content(content: list[ContentBlock]) -> str | list[dict]:
     return partes
 
 
+def _tool_output(msg: VMessage) -> str | list[dict]:
+    """``function_call_output`` aceita lista de partes com ``input_image``."""
+    imagens = [
+        {"type": "input_image", "image_url": b.image_url}
+        for b in msg.content
+        if b.kind == "image_url" and b.image_url
+    ]
+    if not imagens:
+        return msg.text()
+    return [{"type": "input_text", "text": msg.text()}, *imagens]
+
+
 def _to_openai_input(messages: list[VMessage]) -> list[dict]:
     """Traduz ``VMessage`` pro formato `input` (lista de items) da Responses
     API. Tool calls viram items `function_call` separados; results de tool
@@ -131,7 +143,7 @@ def _to_openai_input(messages: list[VMessage]) -> list[dict]:
                 {
                     "type": "function_call_output",
                     "call_id": msg.tool_call_id or "",
-                    "output": msg.text(),
+                    "output": _tool_output(msg),
                 }
             )
             continue

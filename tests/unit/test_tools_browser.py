@@ -297,19 +297,39 @@ async def test_browser_navigate_bloqueia_redirect_para_destino_privado(
 
 
 @pytest.mark.asyncio
-async def test_browser_screenshot_returns_data_url_when_preview_running(
-    monkeypatch: pytest.MonkeyPatch, fake_page: _FakePage
+async def test_browser_screenshot_salva_imagem_e_pede_envio_ao_modelo(
+    monkeypatch: pytest.MonkeyPatch, fake_page: _FakePage, tmp_path
 ) -> None:
-    """Preview ativo → screenshot navega pra URL do preview e devolve data URL base64."""
+    """Preview ativo → screenshot salvo como asset da sessão; o resultado traz
+    a URL para a interface e a referência que leva a imagem ao modelo, sem
+    base64 no texto."""
+    import json
+
+    from backend.services.assets import AssetStore
+    from backend.services.tool_media import tool_image_blocks
+    from backend.settings import settings
+
+    monkeypatch.setattr(settings, "vectora_home", tmp_path)
+    monkeypatch.setattr("backend.services.assets.asset_store", AssetStore())
     monkeypatch.setattr(
         browser_tools,
         "resolve_dev_server_url",
         AsyncMock(return_value="http://localhost:5173"),
     )
+    fake_page.screenshot = AsyncMock(return_value=b"\x89PNG\r\n\x1a\n" + b"0" * 16)
 
-    result = await browser_tools.browser_screenshot(ctx=_ctx())
+    result = await browser_tools.browser_screenshot(
+        ctx=ToolContext(workspace_id="ws1", thread_id="t1", user_id="u1")
+    )
 
-    assert result.startswith("data:image/png;base64,")
+    data = json.loads(result)
+    assert data["status"] == "ok"
+    assert data["url"].startswith("/threads/t1/assets/")
+    assert "base64" not in result
+    [block] = tool_image_blocks(result)
+    assert block.kind == "image_url"
+    assert block.asset_id == data["model_image"]["asset_id"]
+    assert block.image_url is None
     fake_page.goto.assert_awaited_once_with(
         "http://localhost:5173", wait_until="domcontentloaded"
     )

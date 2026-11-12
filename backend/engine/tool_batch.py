@@ -308,9 +308,14 @@ async def _run_one(
         await record_tool_usage(
             ctx.user_id or "local", tool_call.name, "error" if is_error else "ok"
         )
+    from backend.services.tool_media import tool_image_blocks
+
     return VMessage(
         role=MessageRole.TOOL,
-        content=[ContentBlock(kind="text", text=texto)],
+        content=[
+            ContentBlock(kind="text", text=texto),
+            *([] if is_error else tool_image_blocks(texto)),
+        ],
         tool_call_id=tool_call.id,
         name=tool_call.name,
         is_error=is_error,
