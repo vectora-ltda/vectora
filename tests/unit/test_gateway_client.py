@@ -196,18 +196,22 @@ class TestGatewayClientRegister:
         with patch(
             "backend.services.gateway.aiohttp.ClientSession"
         ) as mock_session_cls:
-            mock_session = AsyncMock()
-            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-            mock_session.__aexit__ = AsyncMock(return_value=None)
-            mock_session.post = MagicMock(
-                return_value=AsyncMock(
-                    __aenter__=AsyncMock(return_value=mock_response),
-                    __aexit__=AsyncMock(return_value=None),
+            with patch(
+                "backend.services.gateway.get_license_token",
+                return_value="vectora-account-token",
+            ):
+                mock_session = AsyncMock()
+                mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+                mock_session.__aexit__ = AsyncMock(return_value=None)
+                mock_session.post = MagicMock(
+                    return_value=AsyncMock(
+                        __aenter__=AsyncMock(return_value=mock_response),
+                        __aexit__=AsyncMock(return_value=None),
+                    )
                 )
-            )
-            mock_session_cls.return_value = mock_session
+                mock_session_cls.return_value = mock_session
 
-            token, secret = await client._register()
+                token, secret = await client._register()
 
         assert token == "abc123"
         assert secret == "sec-abc123"
@@ -215,7 +219,10 @@ class TestGatewayClientRegister:
         assert gateway_secret_file.read_text() == "sec-abc123"
         _, call_kwargs = mock_session.post.call_args
         assert call_kwargs["headers"]["Authorization"] == "Bearer fixed-product-secret"
-        assert call_kwargs["json"] == {"fingerprint": "fp-machine-a"}
+        assert call_kwargs["json"] == {
+            "fingerprint": "fp-machine-a",
+            "vectora_token": "vectora-account-token",
+        }
 
     @pytest.mark.asyncio
     async def test_duas_instalacoes_mesmo_secret_fingerprints_diferentes(
@@ -284,14 +291,35 @@ class TestGatewayClientRegister:
             secret_path=gateway_secret_file,
         )
 
+        response = AsyncMock()
+        response.status = 200
         with patch(
             "backend.services.gateway.aiohttp.ClientSession"
         ) as mock_session_cls:
-            token, secret = await client._register()
+            mock_session = AsyncMock()
+            mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+            mock_session.__aexit__ = AsyncMock(return_value=None)
+            mock_session.post = MagicMock(
+                return_value=AsyncMock(
+                    __aenter__=AsyncMock(return_value=response),
+                    __aexit__=AsyncMock(return_value=None),
+                )
+            )
+            mock_session_cls.return_value = mock_session
+            with patch(
+                "backend.services.gateway.get_license_token",
+                return_value="vectora-account-token",
+            ):
+                token, secret = await client._register()
 
         assert token == "existing"
         assert secret == "existing-secret"
-        mock_session_cls.assert_not_called()
+        _, call_kwargs = mock_session.post.call_args
+        assert call_kwargs["json"] == {
+            "fingerprint": client._fingerprint,
+            "vectora_token": "vectora-account-token",
+            "token": "existing",
+        }
 
     @pytest.mark.asyncio
     async def test_erro_borda_token_sem_secret_reregistra_migracao_transparente(
@@ -353,14 +381,16 @@ class TestGatewayClientStop:
             gateway_url="wss://gateway.vectora.chat",
             app_secret="test-app-secret",
         )
-        mock_task = MagicMock()
-        mock_task.cancel = MagicMock()
-        mock_task.done = MagicMock(return_value=False)
-        client._task = mock_task
+
+        async def blocked() -> None:
+            await asyncio.Event().wait()
+
+        task = asyncio.create_task(blocked())
+        client._task = task
 
         await client.stop()
 
-        mock_task.cancel.assert_called_once()
+        assert task.cancelled()
 
     @pytest.mark.asyncio
     async def test_stop_idempotente_sem_task(self) -> None:
@@ -725,252 +755,6 @@ class TestGatewayClientDispatch:
         queue.get_nowait()  # libera 1 slot, como um worker faria
         await asyncio.wait_for(dispatch_second, timeout=1.0)
         assert queue.qsize() == 1
-
-
-class TestGatewayClientReviewJob:
-    def _client(self) -> "GatewayClient":
-        from backend.services.gateway import GatewayClient
-
-        return GatewayClient(
-            gateway_url="wss://gateway.vectora.chat",
-            app_secret="test-app-secret",
-        )
-
-    def _queue(self) -> "asyncio.Queue[object]":
-        from backend.services.gateway import _MAX_CONCURRENT_FORWARDS
-
-        return asyncio.Queue(maxsize=_MAX_CONCURRENT_FORWARDS)
-
-    @pytest.mark.asyncio
-    async def test_dispatch_de_review_job_nao_passa_pela_fila_de_forwards(self) -> None:
-        """review_job usa a fila limitada própria, sem ocupar forwards."""
-        client = self._client()
-        ws = AsyncMock()
-        session = AsyncMock()
-        queue = self._queue()
-
-        with patch.object(client, "_handle_review_job", new=AsyncMock()) as mock_handle:
-            await client._dispatch(
-                ws,
-                session,
-                {
-                    "type": "review_job",
-                    "job_id": "job-1",
-                    "diff": "diff x",
-                    "metadata": {"pr": "1"},
-                    "callback_secret": "secret-do-job",
-                },
-                queue,
-            )
-            await client._review_queue.join()
-
-        assert queue.qsize() == 0
-        mock_handle.assert_awaited_once_with(
-            "job-1", "diff x", {"pr": "1"}, "secret-do-job"
-        )
-        await client.stop()
-
-    @pytest.mark.asyncio
-    async def test_dispatch_de_review_job_descarta_delivery_duplicado(self) -> None:
-        client = self._client()
-        ws = AsyncMock()
-        session = AsyncMock()
-        queue = self._queue()
-        message: GatewayMessage = {
-            "type": "review_job",
-            "job_id": "job-1",
-            "diff": "diff x",
-            "metadata": {},
-            "callback_secret": "secret-do-job",
-            "delivery_id": "delivery-1",
-        }
-
-        with patch.object(client, "_handle_review_job", new=AsyncMock()) as mock_handle:
-            await client._dispatch(ws, session, message, queue)
-            await client._dispatch(ws, session, message, queue)
-            await client._review_queue.join()
-
-        mock_handle.assert_awaited_once()
-        await client.stop()
-
-    @pytest.mark.asyncio
-    async def test_dispatch_de_review_job_invalido_falha_job_persistido(self) -> None:
-        client = self._client()
-        ws = AsyncMock()
-        session = AsyncMock()
-        queue = self._queue()
-
-        with patch.object(client, "_post_review_result", new=AsyncMock()) as mock_post:
-            await client._dispatch(
-                ws,
-                session,
-                cast(
-                    "GatewayMessage",
-                    {
-                        "type": "review_job",
-                        "job_id": "job-invalid",
-                        "diff": "diff x",
-                        "metadata": {},
-                        "callback_secret": "secret-do-job",
-                        "head_sha": "malformed-sha",
-                    },
-                ),
-                queue,
-            )
-            await asyncio.sleep(0)
-
-        mock_post.assert_awaited_once()
-        assert mock_post.await_args is not None
-        assert mock_post.await_args.args[:2] == ("job-invalid", "secret-do-job")
-        assert "invalid review_job payload" in mock_post.await_args.kwargs["error"]
-
-    @pytest.mark.asyncio
-    async def test_handle_review_job_sucesso_posta_review_text(self) -> None:
-        client = self._client()
-
-        with patch(
-            "backend.services.gateway.review_job.run_review_job",
-            new=AsyncMock(return_value="LGTM"),
-        ):
-            with patch.object(
-                client, "_post_review_result", new=AsyncMock()
-            ) as mock_post:
-                await client._handle_review_job("job-1", "diff x", {}, "secret-do-job")
-
-        mock_post.assert_awaited_once_with("job-1", "secret-do-job", review_text="LGTM")
-
-    @pytest.mark.asyncio
-    async def test_erro_borda_handle_review_job_falha_posta_error_em_vez_de_propagar(
-        self,
-    ) -> None:
-        """Um erro rodando a revisão não pode derrubar a task solta em
-        silêncio — vira um `error` postado de volta, pra Action saber que o
-        job falhou em vez de ficar em `pending` pra sempre."""
-        client = self._client()
-
-        with patch(
-            "backend.services.gateway.review_job.run_review_job",
-            new=AsyncMock(side_effect=ConnectionError("provider indisponível")),
-        ):
-            with patch.object(
-                client, "_post_review_result", new=AsyncMock()
-            ) as mock_post:
-                await client._handle_review_job("job-1", "diff x", {}, "secret-do-job")
-
-        mock_post.assert_awaited_once_with(
-            "job-1", "secret-do-job", error="provider indisponível"
-        )
-
-    @pytest.mark.asyncio
-    async def test_post_review_result_manda_pro_endpoint_certo(self) -> None:
-        client = self._client()
-
-        mock_resp = AsyncMock()
-        mock_resp.status = 200
-        mock_session = AsyncMock()
-        mock_session.__aenter__ = AsyncMock(return_value=mock_session)
-        mock_session.__aexit__ = AsyncMock(return_value=None)
-        mock_session.post = MagicMock(
-            return_value=AsyncMock(
-                __aenter__=AsyncMock(return_value=mock_resp),
-                __aexit__=AsyncMock(return_value=None),
-            )
-        )
-
-        with patch(
-            "backend.services.gateway.aiohttp.ClientSession",
-            return_value=mock_session,
-        ) as session_cls:
-            await client._post_review_result(
-                "job-1", "secret-do-job", review_text="LGTM"
-            )
-
-        call_args, call_kwargs = mock_session.post.call_args
-        assert call_args[0] == (
-            "https://services.vectora.company/gha-bot/review/job-1/result"
-        )
-        assert call_kwargs["json"] == {"review_text": "LGTM"}
-        assert call_kwargs["headers"] == {"Authorization": "Bearer secret-do-job"}
-        assert session_cls.call_args.kwargs["timeout"].total == 10
-
-    @pytest.mark.asyncio
-    async def test_stop_sinaliza_reviews_que_aguardavam_na_fila(self) -> None:
-        client = self._client()
-        await client._review_queue.put(("queued-1", "diff", {}, "secret"))
-
-        with patch.object(client, "_post_review_result", new=AsyncMock()) as mock_post:
-            await client.stop()
-
-        mock_post.assert_awaited_once_with(
-            "queued-1", "secret", error="review worker shutting down; retry later"
-        )
-
-    @pytest.mark.asyncio
-    async def test_stop_encerra_workers_ociosos_com_sentinela(self) -> None:
-        client = self._client()
-        client._ensure_review_workers()
-
-        await asyncio.wait_for(client.stop(), timeout=1.0)
-
-        assert not client._review_workers
-
-    @pytest.mark.asyncio
-    async def test_stop_limita_callbacks_ao_prazo_de_desligamento(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        client = self._client()
-        await client._review_queue.put(("queued-slow", "diff", {}, "secret"))
-        monkeypatch.setattr("backend.services.gateway._REVIEW_SHUTDOWN_TIMEOUT_S", 0.05)
-
-        async def slow_callback(*_args: object, **_kwargs: object) -> None:
-            await asyncio.sleep(1.0)
-
-        with patch.object(client, "_post_review_result", new=slow_callback):
-            await asyncio.wait_for(client.stop(), timeout=0.5)
-
-    @pytest.mark.asyncio
-    async def test_stop_agenda_callback_para_review_ativo_cancelado(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        client = self._client()
-        monkeypatch.setattr("backend.services.gateway._REVIEW_SHUTDOWN_TIMEOUT_S", 0.05)
-        started = asyncio.Event()
-        blocked = asyncio.Event()
-
-        async def blocked_review(*_args: object) -> None:
-            started.set()
-            await blocked.wait()
-
-        with (
-            patch.object(client, "_handle_review_job", new=blocked_review),
-            patch.object(client, "_post_review_result", new=AsyncMock()) as mock_post,
-        ):
-            client._ensure_review_workers()
-            await client._review_queue.put(("active-1", "diff", {}, "secret"))
-            await asyncio.wait_for(started.wait(), timeout=1.0)
-            await client.stop()
-
-        mock_post.assert_awaited_once_with(
-            "active-1", "secret", error="review worker shutting down; retry later"
-        )
-
-    @pytest.mark.asyncio
-    async def test_erro_borda_post_review_result_falha_de_rede_nao_propaga(
-        self,
-    ) -> None:
-        """Se o POST em si falhar (provider offline, DNS, etc.), não pode
-        derrubar a task solta — só loga; o job fica `pending` no D1 até a
-        Action desistir do long-poll, o que é aceitável (não há pra onde
-        mais reportar o erro nesse cenário)."""
-        client = self._client()
-
-        with patch(
-            "backend.services.gateway.aiohttp.ClientSession",
-            side_effect=ConnectionError("sem rede"),
-        ):
-            await client._post_review_result(
-                "job-1", "secret-do-job", error="x"
-            )  # não lança
 
 
 class TestGatewayClientForward:
@@ -1438,3 +1222,65 @@ class TestMachineFingerprint:
 
         assert isinstance(fp, str)
         assert len(fp) == 32
+
+
+class TestGatewayClientSemPro:
+    @pytest.mark.asyncio
+    async def test_conta_sem_pro_desliga_o_gateway_sem_retry(
+        self, gateway_token_file: Path, gateway_secret_file: Path
+    ) -> None:
+        """403 do registro (conta Free) encerra o loop sem reconectar; os
+        webhooks locais continuam funcionando."""
+        from backend.services.gateway import GatewayClient, GatewayRequiresProError
+
+        mock_response = AsyncMock()
+        mock_response.status = 403
+        client = GatewayClient(
+            gateway_url="wss://gateway.vectora.chat",
+            app_secret="fixed-product-secret",
+            token_path=gateway_token_file,
+            secret_path=gateway_secret_file,
+            fingerprint="fp-machine-a",
+        )
+        with patch(
+            "backend.services.gateway.aiohttp.ClientSession"
+        ) as mock_session_cls:
+            with patch(
+                "backend.services.gateway.get_license_token",
+                return_value="vectora-account-token",
+            ):
+                mock_session = AsyncMock()
+                mock_session.__aenter__ = AsyncMock(return_value=mock_session)
+                mock_session.__aexit__ = AsyncMock(return_value=None)
+                mock_session.post = MagicMock(
+                    return_value=AsyncMock(
+                        __aenter__=AsyncMock(return_value=mock_response),
+                        __aexit__=AsyncMock(return_value=None),
+                    )
+                )
+                mock_session_cls.return_value = mock_session
+
+                with pytest.raises(GatewayRequiresProError):
+                    await client._register()
+
+                with patch.object(client, "_connect_once") as connect_once:
+                    await client._connect_loop()
+                connect_once.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_sem_vectora_token_desliga_o_gateway(
+        self, gateway_token_file: Path, gateway_secret_file: Path
+    ) -> None:
+        from backend.services.gateway import GatewayClient
+
+        client = GatewayClient(
+            gateway_url="wss://gateway.vectora.chat",
+            app_secret="fixed-product-secret",
+            token_path=gateway_token_file,
+            secret_path=gateway_secret_file,
+            fingerprint="fp-machine-a",
+        )
+        with patch("backend.services.gateway.get_license_token", return_value=None):
+            with patch.object(client, "_connect_once") as connect_once:
+                await client._connect_loop()
+        connect_once.assert_not_called()

@@ -70,7 +70,7 @@ Os artefatos do Context Graph e o cache ficam em `.vectora/context-graph/` dentr
 | Requisito        | Notas                                                                                             |
 | ---------------- | ------------------------------------------------------------------------------------------------- |
 | **Python 3.13**  | Gerenciado pelo [uv](https://docs.astral.sh/uv/) — fixado em 3.13 (Nuitka ainda não suporta 3.14) |
-| **Node.js 24+**  | Para o frontend web (`pnpm` obrigatório)                                                          |
+| **Node.js 26**   | Para o frontend web; versão e pnpm 11.5 são fixados pelo workspace                                |
 | **Chave Cohere** | Embeddings + reranking — [plano gratuito](https://dashboard.cohere.com/api-keys)                  |
 | **Chave Tavily** | Busca web — [plano gratuito](https://app.tavily.com/)                                             |
 | **Provedor LLM** | Google Gemini, OpenAI, Anthropic, Cohere, ou Ollama                                               |
@@ -83,21 +83,25 @@ Os artefatos do Context Graph e o cache ficam em `.vectora/context-graph/` dentr
 git clone https://github.com/vectora-company/vectora.git
 cd vectora
 
-# Instalar dependências Python
-uv sync
+# Linux: prepara toolchains e dependências do sistema (opcional)
+# ./dotfiles.sh
+
+# Instalar dependências do projeto em qualquer plataforma
+uv run --locked scons install
 
 # Copiar e preencher suas chaves de API
 cp .env.example .env
 # Edite o .env: GOOGLE_API_KEY, COHERE_API_KEY, TAVILY_API_KEY
-
-# Instalar dependências do frontend (SPA Vite)
-pnpm --dir frontend install
 
 # Terminal 1 — backend completo + SPA (porta 8080)
 uv run vectora start --port 8080
 # Terminal 2 — frontend dev (Vite, porta 3000, faz proxy p/ a API)
 pnpm --dir frontend dev
 ```
+
+No Windows/macOS, instale `uv`, Python 3.13, Node.js 26 e pnpm 11.5 e execute `uv run --locked scons install` antes de iniciar o projeto.
+
+`scons install` sincroniza todos os grupos Python, executa `pnpm ci`, garante o binário nativo do Electron e baixa NATS/FFmpeg para `resources/`. No Linux, `dotfiles.sh` é opcional e prepara a toolchain separadamente. `pnpm ci` recria `frontend/node_modules` conforme o lockfile. O app usa o Chromium distribuído com Electron; Playwright é apenas cliente CDP e não precisa baixar browsers.
 
 Abra `http://localhost:3000`. O primeiro usuário a se cadastrar vira administrador root.
 

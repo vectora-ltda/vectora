@@ -1,12 +1,10 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./electron-test";
 
 /**
- * E2E (browser real): recuperação do histórico da sessão (bug #1).
+ * E2E no Chromium do Electron: recuperação do histórico da sessão.
  *
- * Envia uma mensagem, espera a resposta, recarrega a página (o reload zera o
- * cache em memória do Zustand → força o `getHistory` ao backend, exatamente o
- * caminho de restauração corrigido) e navega de volta à MESMA sessão. As
- * mensagens precisam reaparecer — antes a sessão abria vazia.
+ * Envia uma mensagem, aguarda a resposta, recarrega a página e volta à mesma
+ * sessão para confirmar que as mensagens persistidas reaparecem.
  *
  * Requer backend + LLM real (ver playwright.config.ts).
  */

@@ -1,7 +1,7 @@
 /**
  * Tipos ambient dos módulos virtuais `next/link`, `next/image`,
  * `next/navigation` resolvidos pelo `resolve.alias` do
- * `vite.config.ts` para os arquivos em `chat/src/shims/`.
+ * `vite.config.mts` para os arquivos em `chat/src/shims/`.
  *
  * Invariante: este arquivo NÃO pode ter `import`/`export` no top
  * level — qualquer um transforma o `.d.ts` em módulo e os

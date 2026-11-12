@@ -35,7 +35,6 @@ from backend.engine.conversation_loop import (
 from backend.engine.goal_mode import resume_goal, run_goal
 from backend.engine.hitl import should_require_approval
 from backend.llm.fallback_chat_client import FallbackChatClient
-from backend.rbac.subscription import require_pro
 from backend.vtypes.context import ctx_from_config
 from backend.vtypes.message import MessageRole, text_message
 
@@ -317,8 +316,6 @@ async def create_task(
     """
     cfg = trigger_config or {}
     _validate(kind, trigger_type, cfg, priority)
-    if trigger_type == "webhook":
-        require_pro()
     task_id = str(uuid4())
     if next_run_at is not None:
         next_run = next_run_at
@@ -1991,8 +1988,7 @@ async def sync_github_issue_to_kanban(
 # Contrato genérico pra qualquer ferramenta de alerta (Sentry, Grafana,
 # PagerDuty, etc.) — sem parsing nativo de vendor nenhum. O provider aponta
 # seu webhook de saída pra POST /webhook/observability com o payload já no
-# formato {title, description, severity, url, external_id} (ver docs/content/
-# guides/observability-webhooks.en.md).
+# formato {title, description, severity, url, external_id}.
 # ---------------------------------------------------------------------------
 
 #: Chave de agrupamento das tasks 'webhook' que ligam alertas de

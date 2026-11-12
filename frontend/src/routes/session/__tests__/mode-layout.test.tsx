@@ -14,7 +14,15 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor, act } from "@testing-library/react";
+import {
+  render,
+  screen,
+  cleanup,
+  waitFor,
+  act,
+  fireEvent,
+} from "@testing-library/react";
+import { useState } from "react";
 import type { ReactElement, ReactNode } from "react";
 
 const { navigateSpy, chatProps, routeParam } = vi.hoisted(() => ({
@@ -37,25 +45,101 @@ vi.mock("@/components/chat/chat-interface", () => ({
   ChatInterface: ({
     compact,
     isNewThread,
+    threadId,
   }: {
     compact?: boolean;
     isNewThread?: boolean;
+    threadId: string;
   }) => {
     chatProps({ compact, isNewThread });
-    return <div data-testid="chat" data-compact={String(!!compact)} />;
+    const [response, setResponse] = useState("");
+    const [isStreaming, setIsStreaming] = useState(false);
+    const [requestCount, setRequestCount] = useState(0);
+    return (
+      <div
+        data-testid="chat"
+        data-compact={String(!!compact)}
+        data-thread-id={threadId}
+      >
+        <output data-testid="stream-response">{response}</output>
+        <output data-testid="stream-request-count">{requestCount}</output>
+        <button
+          data-testid="stream-send"
+          onClick={() => {
+            setRequestCount((count) => count + 1);
+            setResponse("Resposta parcial");
+            setIsStreaming(true);
+          }}
+        >
+          Enviar
+        </button>
+        {isStreaming && (
+          <>
+            <button
+              data-testid="stream-stop"
+              onClick={() => setIsStreaming(false)}
+            >
+              Parar
+            </button>
+            <button
+              data-testid="stream-next-token"
+              onClick={() => setResponse("Resposta parcial atualizada")}
+            >
+              Próximo token
+            </button>
+            <button
+              data-testid="stream-finish"
+              onClick={() => {
+                setResponse("Resposta completa");
+                setIsStreaming(false);
+              }}
+            >
+              Finalizar resposta
+            </button>
+          </>
+        )}
+      </div>
+    );
   },
 }));
 vi.mock("@/components/kanban/kanban-board", () => ({
   KanbanBoard: () => <div data-testid="kanban" />,
 }));
 vi.mock("@/components/header/header", () => ({
-  Header: () => <div data-testid="header" />,
+  Header: ({
+    compactNavigation,
+  }: {
+    compactNavigation?: {
+      workbenchOpen?: boolean;
+      onToggleWorkbench?: () => void;
+    };
+  }) => (
+    <div
+      data-testid="header"
+      data-compact-navigation={String(!!compactNavigation)}
+    >
+      {compactNavigation?.onToggleWorkbench && (
+        <button
+          type="button"
+          data-testid="compact-toggle-workbench"
+          aria-pressed={compactNavigation.workbenchOpen}
+          onClick={compactNavigation.onToggleWorkbench}
+        >
+          Workbench
+        </button>
+      )}
+    </div>
+  ),
 }));
 vi.mock("@/components/header/mode-switcher", () => ({
   ModeSwitch: () => <div data-testid="mode-switch" />,
 }));
 vi.mock("@/components/sidebar/sidebar", () => ({
-  Sidebar: () => <div data-testid="sidebar" />,
+  Sidebar: ({ onNewChat }: { onNewChat: () => void }) => (
+    <div data-testid="sidebar">
+      <button data-testid="sidebar-new-session" onClick={onNewChat} />
+    </div>
+  ),
 }));
 vi.mock("@/components/header/session-switcher", () => ({
   SessionSwitcher: () => <div data-testid="session-switcher" />,
@@ -83,7 +167,8 @@ vi.mock("@/components/layout/command-palette", () => ({
   CommandPalette: () => null,
 }));
 vi.mock("@/components/sidebar/new-chat-dialog", () => ({
-  NewChatDialog: () => null,
+  NewChatDialog: ({ open }: { open: boolean }) =>
+    open ? <div role="dialog" data-testid="new-chat-dialog" /> : null,
 }));
 
 // O IdeModeLayout real traz drag/resize junto; o marcador preserva os SLOTS,
@@ -97,14 +182,29 @@ vi.mock("@/components/layout/ide-mode-layout", () => ({
     workbenchContent,
     editor,
     chat,
+    layoutState,
+    workbenchOpen,
+    onOpenWorkbench,
   }: {
     header: ReactNode;
     navBar: ReactNode;
     workbenchContent: ReactNode;
     editor: ReactNode;
     chat: ReactNode;
+    layoutState?: "wide" | "mobile";
+    workbenchOpen?: boolean;
+    onOpenWorkbench?: () => void;
   }) => (
     <div data-testid="ide-layout">
+      {layoutState === "mobile" && (
+        <button
+          type="button"
+          data-testid="ide-mobile-tab-workbench"
+          onClick={onOpenWorkbench}
+        >
+          {workbenchOpen ? "Workbench aberta" : "Abrir Workbench"}
+        </button>
+      )}
       <div data-testid="slot-center">
         {header}
         <div data-testid="slot-navbar">{navBar}</div>
@@ -307,6 +407,15 @@ describe("SessionPage — sidebar de sessões", () => {
     expect(screen.queryByTestId("sidebar")).not.toBeInTheDocument();
     expect(screen.getByTestId("workbench-navbar")).toBeInTheDocument();
   });
+
+  it("abre o diálogo de nova sessão pelo sidebar do modo Kanban", () => {
+    setMode("kanban");
+    render(<SessionPage />);
+
+    fireEvent.click(screen.getAllByTestId("sidebar-new-session")[0]!);
+
+    expect(screen.getByTestId("new-chat-dialog")).toBeInTheDocument();
+  });
 });
 
 describe("SessionPage — chat compacto no IDE", () => {
@@ -321,6 +430,192 @@ describe("SessionPage — chat compacto no IDE", () => {
     render(<SessionPage />);
     expect(screen.getByTestId("chat")).toHaveAttribute("data-compact", "false");
     expect(screen.queryByTestId("session-switcher")).not.toBeInTheDocument();
+  });
+
+  it("preserva o stream ao abrir e fechar a Workbench no Assistente compacto", async () => {
+    setMode("assistant");
+    useWorkbenchStore.setState({ panelOpen: { t1: false } });
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 818,
+    });
+
+    render(<SessionPage />);
+
+    const toggleWorkbench = await screen.findByTestId(
+      "compact-toggle-workbench",
+    );
+    fireEvent.click(screen.getByTestId("stream-send"));
+
+    expect(screen.getByTestId("stream-response")).toHaveTextContent(
+      "Resposta parcial",
+    );
+    expect(screen.getByTestId("stream-stop")).toBeInTheDocument();
+    expect(screen.getByTestId("stream-request-count")).toHaveTextContent("1");
+
+    fireEvent.click(toggleWorkbench);
+    expect(await screen.findByTestId("workbench-content")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("chat").parentElement?.parentElement?.parentElement,
+    ).toHaveStyle({ opacity: "0", pointerEvents: "none" });
+    expect(
+      screen.getByTestId("chat").parentElement?.parentElement?.parentElement,
+    ).toHaveAttribute("inert");
+    expect(screen.getByTestId("stream-response")).toHaveTextContent(
+      "Resposta parcial",
+    );
+    fireEvent.click(screen.getByTestId("stream-next-token"));
+    expect(screen.getByTestId("stream-response")).toHaveTextContent(
+      "Resposta parcial atualizada",
+    );
+
+    fireEvent.click(toggleWorkbench);
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("chat").parentElement?.parentElement?.parentElement,
+      ).toHaveStyle({ opacity: "1", pointerEvents: "auto" }),
+    );
+    expect(screen.getByTestId("stream-response")).toHaveTextContent(
+      "Resposta parcial atualizada",
+    );
+    expect(screen.getByTestId("stream-stop")).toBeInTheDocument();
+    expect(screen.getByTestId("stream-request-count")).toHaveTextContent("1");
+
+    fireEvent.click(screen.getByTestId("stream-finish"));
+    expect(screen.getByTestId("stream-response")).toHaveTextContent(
+      "Resposta completa",
+    );
+    expect(screen.queryByTestId("stream-stop")).not.toBeInTheDocument();
+    expect(screen.getByTestId("stream-request-count")).toHaveTextContent("1");
+  });
+
+  it("preserva a instância do chat ao cruzar o breakpoint durante o stream", async () => {
+    setMode("assistant");
+    useWorkbenchStore.setState({ panelOpen: { t1: false } });
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 818,
+    });
+    Object.defineProperty(window, "visualViewport", {
+      configurable: true,
+      value: undefined,
+    });
+
+    render(<SessionPage />);
+    const chat = await screen.findByTestId("chat");
+    const chatLayout = chat.parentElement?.parentElement?.parentElement;
+    expect(chatLayout).toHaveClass("absolute");
+    fireEvent.click(screen.getByTestId("stream-send"));
+
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1024,
+    });
+    fireEvent(window, new Event("resize"));
+    await waitFor(() =>
+      expect(screen.getByTestId("header")).toHaveAttribute(
+        "data-compact-navigation",
+        "false",
+      ),
+    );
+    expect(chatLayout).toHaveClass("absolute");
+    expect(screen.getByTestId("chat")).toBe(chat);
+    expect(screen.getByTestId("chat")).toHaveAttribute("data-compact", "false");
+    expect(screen.getByTestId("stream-response")).toHaveTextContent(
+      "Resposta parcial",
+    );
+    expect(screen.getByTestId("stream-stop")).toBeInTheDocument();
+
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 818,
+    });
+    fireEvent(window, new Event("resize"));
+    await waitFor(() =>
+      expect(screen.getByTestId("header")).toHaveAttribute(
+        "data-compact-navigation",
+        "true",
+      ),
+    );
+    expect(chatLayout).toHaveClass("absolute");
+    expect(screen.getByTestId("chat")).toBe(chat);
+    expect(screen.getByTestId("stream-request-count")).toHaveTextContent("1");
+  });
+
+  it("isola o stream ao trocar de sessão com a Workbench aberta", async () => {
+    setMode("assistant");
+    useWorkbenchStore.setState({ panelOpen: { t1: false, t2: true } });
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 818,
+    });
+
+    const { rerender } = render(<SessionPage />);
+    fireEvent.click(await screen.findByTestId("stream-send"));
+    fireEvent.click(screen.getByTestId("compact-toggle-workbench"));
+    expect(await screen.findByTestId("workbench-content")).toBeInTheDocument();
+    expect(screen.getByTestId("stream-stop")).toBeInTheDocument();
+
+    routeParam.value = "t2";
+    rerender(<SessionPage />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("chat")).toHaveAttribute(
+        "data-thread-id",
+        "t2",
+      ),
+    );
+    expect(screen.queryByTestId("stream-stop")).not.toBeInTheDocument();
+    expect(screen.getByTestId("stream-response")).toBeEmptyDOMElement();
+    expect(
+      screen.getByTestId("chat").parentElement?.parentElement?.parentElement,
+    ).toHaveStyle({ opacity: "0", pointerEvents: "none" });
+  });
+
+  it("mantém o chat central ao abrir a Workbench no layout largo", async () => {
+    setMode("assistant");
+    useWorkbenchStore.setState({ panelOpen: { t1: true } });
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 1024,
+    });
+
+    render(<SessionPage />);
+
+    expect(await screen.findByTestId("workbench-content")).toBeInTheDocument();
+    expect(await screen.findByTestId("chat")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("chat").parentElement?.parentElement?.parentElement,
+    ).toHaveStyle({ opacity: "1", pointerEvents: "auto" });
+  });
+});
+
+describe("SessionPage — workbench do IDE compacto", () => {
+  it("reabre a workbench fechada ao selecionar a aba em uma janela de 818px", async () => {
+    setMode("ide");
+    useWorkbenchStore.setState({ panelOpen: { t1: false } });
+    Object.defineProperty(window, "outerWidth", {
+      configurable: true,
+      value: 818,
+    });
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 818,
+    });
+
+    render(<SessionPage />);
+
+    const workbenchTab = await screen.findByTestId("ide-mobile-tab-workbench");
+    expect(workbenchTab).toHaveTextContent("Abrir Workbench");
+
+    act(() => workbenchTab.click());
+
+    await waitFor(() =>
+      expect(useWorkbenchStore.getState().isOpen("t1")).toBe(true),
+    );
+    expect(screen.getByTestId("ide-mobile-tab-workbench")).toHaveTextContent(
+      "Workbench aberta",
+    );
   });
 });
 
@@ -351,7 +646,10 @@ describe("SessionPage — workbench do Assistente estreito", () => {
 
     expect(await screen.findByTestId("workbench-navbar")).toBeInTheDocument();
     expect(await screen.findByTestId("workbench-content")).toBeInTheDocument();
-    expect(screen.queryByTestId("chat")).not.toBeInTheDocument();
+    expect(
+      (await screen.findByTestId("chat")).parentElement?.parentElement
+        ?.parentElement,
+    ).toHaveStyle({ opacity: "0", pointerEvents: "none" });
     Object.defineProperty(window, "outerWidth", {
       configurable: true,
       value: 1024,

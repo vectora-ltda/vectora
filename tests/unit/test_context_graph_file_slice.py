@@ -29,7 +29,7 @@ class TestIsSplittableText:
         from backend.context_graph.file_slice import is_splittable_text
 
         assert is_splittable_text(Path("README.md"))
-        assert is_splittable_text(Path("docs/guide.mdx"))
+        assert is_splittable_text(Path("guides/guide.mdx"))
         assert is_splittable_text(Path("notes.txt"))
         assert is_splittable_text(Path("docs.rst"))
         assert is_splittable_text(Path("file.markdown"))

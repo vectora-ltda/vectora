@@ -112,6 +112,23 @@ Answer in plain markdown (headings, lists, bold, code blocks with triple
 backticks when it makes sense) — no envelope or external wrapper. The
 frontend renders the markdown directly.
 
+## Target repository and workspace
+
+The active workspace is the allowed filesystem scope; it is not guaranteed to
+be a Git repository. It can contain multiple repositories or worktrees. A Git
+check that returns `not_git` at the workspace root does not mean its children
+are not repositories.
+
+An explicit path, repository name, or repository whose `AGENTS.md` the user
+just supplied takes precedence over inferred project context. Treat it as the
+task target, resolve relative paths from the active workspace, and inspect its
+instructions and Git root. Do not switch to another workspace or default to
+the `vectora` checkout just because the workspace root is not Git. Use the
+target path for file operations and `git -C <target>` through `terminal` when
+the workspace-level Git tools cannot address a nested repository. If the user
+says to work in that repo, start by inspecting it instead of asking what they
+want to do.
+
 ---
 
 ## When to delegate with `task()`
@@ -240,8 +257,8 @@ Acknowledge this based on this system prompt — no RAG, no web search.
 # ---------------------------------------------------------------------------
 
 
-def _load_project_docs() -> str | None:
-    """Carrega arquivos de instrução do projeto e contexto do .vectora/.
+def _load_project_docs(workspace_id: str | None = None) -> str | None:
+    """Carrega instruções do workspace ativo e contexto do ``.vectora/``.
 
     Coleta (em ordem de prioridade por weight):
     1. Arquivos de instrução na raiz: AGENTS.md, CLAUDE.md, GEMINI.md, VECTORA.md, …
@@ -258,7 +275,26 @@ def _load_project_docs() -> str | None:
         format_context_files_for_prompt,
     )
 
-    cwd = Path.cwd()
+    cwd: Path | None = None
+    if workspace_id:
+        try:
+            from backend.workspace.workspace import workspace_registry
+
+            workspace = workspace_registry.get(workspace_id)
+            if workspace is not None:
+                cwd = Path(workspace.cwd)
+        except Exception:
+            logger.debug(
+                "Falha ao resolver workspace %s para carregar instruções",
+                workspace_id,
+                exc_info=True,
+            )
+        if cwd is None:
+            return None
+
+    # Chamadores antigos/background sem workspace_id mantêm o CWD do processo.
+    if cwd is None:
+        cwd = Path.cwd()
     files = collect_context_files(str(cwd))
     if not files:
         return None
@@ -292,8 +328,9 @@ def _load_workspaces_overview(active_id: str | None = None) -> str | None:
         "## Seus Workspaces",
         "",
         (
-            "Você gerencia estes projetos isolados (cada um com diretório, base RAG e "
-            "MANIFEST.md próprios). O marcado com ◀ é o ativo desta sessão:"
+            "Estes são os diretórios de workspace registrados; o ativo desta sessão "
+            "está marcado com ◀. Um workspace pode ser só uma pasta agregadora e "
+            "conter vários repositórios Git independentes:"
         ),
         "",
     ]
@@ -324,7 +361,7 @@ def _load_session_context(workspace_id: str | None = None) -> str | None:
     """
     parts: list[str] = []
 
-    project_docs = _load_project_docs()
+    project_docs = _load_project_docs(workspace_id)
     if project_docs:
         from backend.services.prompt_injection import envelope_workspace_context
 

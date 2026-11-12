@@ -4,8 +4,6 @@ vectora                 imprime o help (descobre a CLI de configuração)
 vectora start           sobe backend + SPA (fullstack)
 vectora start --headless  sobe sem janela (bandeja + backend)
 vectora web             sobe o webapp com Electron/Chromium, sem bandeja Python
-vectora run --task "..."  roda uma tarefa uma vez e sai — sem servidor (CI)
-
 Configuração (operacional, para VPS via SSH):
   vectora config                 mostra ~/.vectora/settings.json
   vectora config --set K=V       edita uma chave de settings
@@ -353,36 +351,6 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PEM",
         default=None,
         help="Chave privada TLS correspondente. Também via env SSL_KEYFILE.",
-    )
-
-    # ── run — one-shot, sem servidor (CI) ────────────────
-    run_p = sub.add_parser(
-        "run",
-        help="Roda uma tarefa uma única vez e sai — sem servidor (CI)",
-        description=(
-            "Sobe o motor nativo, roda run_conversation uma vez com a tarefa\n"
-            "dada e imprime a resposta final em stdout. Sem servidor FastAPI,\n"
-            "sem HITL interativo (permission_mode=auto — não há UI de\n"
-            "aprovação num runner de CI), sem estado persistente entre\n"
-            "execuções a menos que VECTORA_HOME já esteja setado.\n\n"
-            'Exemplo: vectora run --task "revise este PR" < diff.txt'
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    run_p.add_argument(
-        "--task",
-        default=None,
-        help="Tarefa a executar. Se omitido, lê de stdin.",
-    )
-    run_p.add_argument(
-        "--model",
-        default=None,
-        metavar="PROVIDER:MODEL_ID",
-        help=(
-            "Modelo a usar (ex.: google_genai:gemini-3-flash). Não existe "
-            "resolução de 'modelo padrão' no servidor — obrigatório aqui ou "
-            "via env var VECTORA_MODEL."
-        ),
     )
 
     # ── config — settings + keys/docker/qdrant/redis ──────────────────────────
@@ -764,6 +732,14 @@ def _run_start(args: argparse.Namespace, *, force_web: bool = False) -> None:
         )
     server = uvicorn.Server(config)
 
+    # Uvicorn configura handlers próprios para ``uvicorn.error`` durante a
+    # criação de Config, fora dos handlers da raiz instalados pelo backend.
+    # Anexa o filtro após essa configuração para cancelar sem traceback as
+    # requisições interrompidas pelo shutdown gracioso.
+    from backend.services.log_setup import install_uvicorn_shutdown_filter
+
+    install_uvicorn_shutdown_filter()
+
     # Aplicado ANTES do branch Windows named-pipe abaixo — esse branch tem um
     # `return` próprio, e sem instalar o handler aqui primeiro ele nunca seria
     # alcançado nesse caminho (o mais comum em dev desktop no Windows).
@@ -908,13 +884,6 @@ def _run_doctor_command(args: argparse.Namespace) -> None:
     run_doctor(args)
 
 
-def _run_run_task_command(args: argparse.Namespace) -> None:
-    """Executa a operação run run task command."""
-    from backend.cli.run_task import run_run_task
-
-    run_run_task(args)
-
-
 def _run_marketplace_command(args: argparse.Namespace) -> None:
     """Executa a operação run marketplace command."""
     from backend.cli.marketplace import run_marketplace
@@ -975,7 +944,6 @@ _COMMAND_HANDLERS: dict[str, Any] = {
     "storage": _run_storage_command,
     "doctor": _run_doctor_command,
     "auth": _run_auth_command,
-    "run": _run_run_task_command,
     "mcp": _run_marketplace_command,
     "skills": _run_marketplace_command,
     "media": _run_media_command,

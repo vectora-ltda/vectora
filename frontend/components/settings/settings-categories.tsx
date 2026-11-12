@@ -194,19 +194,12 @@ export interface SettingsCategoryGroup {
 interface BuildCategoriesArgs {
   connectEnabled: boolean;
   isAdmin: boolean;
-  /** `true` quando não há licença configurada (plano Free) — "Usuários" é
-   * recurso multi-usuário puro (convites, roles de outras contas): sem
-   * conta Pro só mostraria uma lista vazia, sem caminho pra ativar. */
-  isFree: boolean;
 }
 
-/** Monta a lista de grupos/categorias visíveis pro usuário atual — gating
- * de feature flag (Connect), role (Administração) e tier (Usuários) decidido
- * aqui, num só lugar, em vez de espalhado pelos componentes individuais. */
+/** Monta as categorias visíveis, respeitando feature flag (Connect) e role. */
 export function buildSettingsCategoryGroups({
   connectEnabled,
   isAdmin,
-  isFree,
 }: BuildCategoriesArgs): SettingsCategoryGroup[] {
   const preferencias: SettingsCategory[] = [
     {
@@ -292,16 +285,12 @@ export function buildSettingsCategoryGroups({
 
   const administracao: SettingsCategory[] = isAdmin
     ? [
-        ...(isFree
-          ? []
-          : ([
-              {
-                id: "admin_users",
-                group: "administracao",
-                label: m.admin_tab_users(),
-                Component: UsersPanel,
-              },
-            ] as SettingsCategory[])),
+        {
+          id: "admin_users",
+          group: "administracao",
+          label: m.admin_tab_users(),
+          Component: UsersPanel,
+        },
         {
           id: "admin_tools",
           group: "administracao",

@@ -1,14 +1,12 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./electron-test";
 
 /**
- * E2E (browser real): streaming token-a-token renderizado incrementalmente.
+ * E2E no Chromium do Electron: streaming token-a-token renderizado
+ * incrementalmente.
  *
- * Prova o invariante do bug #2: a resposta aparece CRESCENDO ao longo do tempo,
- * não de uma vez só no final. Amostramos o comprimento do texto da mensagem do
- * assistente em alta frequência enquanto `data-streaming="true"` e exigimos
- * vários comprimentos crescentes distintos — impossível se a saída fosse
- * bufferizada (RunnableRetry), onde o texto saltaria de vazio → completo entre
- * duas amostras (só 2 comprimentos distintos).
+ * Amostra o comprimento da resposta enquanto `data-streaming="true"` e exige
+ * vários comprimentos crescentes distintos para confirmar a renderização
+ * incremental.
  *
  * Requer backend + LLM real (ver playwright.config.ts).
  */
@@ -50,7 +48,7 @@ test("a resposta do assistente é renderizada incrementalmente (streaming)", asy
   // Comprimentos crescentes distintos observados ANTES do fim.
   const distinctGrowing = [...new Set(samples.map((s) => s.len))]
     .filter((n) => n > 0)
-    .sort((a, b) => a - b);
+    .toSorted((a, b) => a - b);
   expect(
     distinctGrowing.length,
     `esperado crescimento incremental; amostras=${JSON.stringify(samples)}`,

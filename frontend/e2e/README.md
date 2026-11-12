@@ -24,14 +24,21 @@ sentido com a stack inteira de pé:
 
 ## Pré-requisitos
 
-1. **Backend rodando** em `http://127.0.0.1:8080` com uma chave de provider
-   configurada (ex.: `GOOGLE_API_KEY`) — os testes exercitam o LLM real.
-2. **Browser de teste do Playwright** instalado (uma vez). Isso é usado apenas
-   pela suíte E2E e não é o Chromium do app distribuído; em produção o Vectora
-   usa o Chromium que vem dentro do Electron:
+1. **Vectora desktop de desenvolvimento rodando** com o renderer atualizado,
+   Electron e CDP restrito ao loopback. Compile e inicie o app com porta
+   conhecida:
+   ```sh
+   scons frontend
+   VECTORA_ELECTRON_CDP_PORT=9222 uv run vectora start
    ```
-   pnpm --dir frontend exec playwright install chromium
-   ```
+   O setup autentica pela ponte `vectora-app://` da própria janela, usando o
+   backend conectado ao Electron. Os testes conectam ao Chromium incluído;
+   Playwright é somente o cliente CDP e nenhum browser adicional é instalado.
+   A suíte cria usuários e dados reais: inicie o Electron e o backend com um
+   `VECTORA_HOME` isolado. Definir essa variável apenas no shell dos testes não
+   isola um app/backend que já esteja rodando.
+2. **Chave de provider** configurada (ex.: `GOOGLE_API_KEY`) — alguns testes
+   exercitam o LLM real.
 3. **Credenciais e2e** (opcional; há defaults). Numa instalação limpa (sem
    usuários), o `global-setup` cria o root automaticamente:
    ```
@@ -42,13 +49,14 @@ sentido com a stack inteira de pé:
 
 ## Rodar
 
-```
-pnpm --dir frontend test:e2e        # headless
-pnpm --dir frontend test:e2e:ui     # modo UI (debug)
+```sh
+VECTORA_ELECTRON_CDP_PORT=9222 pnpm --dir frontend test:e2e
+VECTORA_ELECTRON_CDP_PORT=9222 pnpm --dir frontend test:e2e:ui
 ```
 
-O dev server do Vite (porta 5173) sobe automaticamente (`webServer` na
-`playwright.config.ts`) e faz proxy de `/auth` e `/vectora` para o backend.
+A porta CDP deve ser a mesma usada ao iniciar o Vectora. Os testes conectam à
+janela Electron e navegam pela origem `vectora-app://app/`, exercitando o
+Chromium e o renderer que o app realmente distribui.
 
-> Estes testes **não** entram no `scons tests` (exigem browser instalado +
-> backend + LLM real). Rode-os sob demanda no fluxo de QA.
+> Estes testes **não** entram no `scons tests` (exigem Electron em execução,
+> backend e, em alguns casos, LLM real). Rode-os sob demanda no fluxo de QA.

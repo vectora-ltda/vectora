@@ -21,23 +21,26 @@ def test_identity_contains_stack():
     assert "LanceDB" in VECTORA_IDENTITY
 
 
-def test_identity_licenca_so_quando_perguntado():
-    """Vectora é comercial self-hosted, mas a regra é CONDICIONAL: só fala de
-    licença/open-source quando perguntado — nunca anuncia proativamente (senão
-    responde "não sou open source" a um simples "oi").
-    """
+def test_identity_names_official_organization_and_founder():
+    assert "[vectora-ltda](https://github.com/vectora-ltda/)" in VECTORA_IDENTITY
+    assert "[brunosrz](https://github.com/brunosrz/)" in VECTORA_IDENTITY
+    assert "Founder and lead maintainer" in VECTORA_IDENTITY
+
+
+def test_identity_reconhece_licenca_open_source_sem_anunciar_no_cumprimento():
+    """A identidade distingue AGPL open source do produto comercial self-hosted."""
     lowered = VECTORA_IDENTITY.lower()
     # Normaliza quebras de linha do blockquote markdown antes de checar frases
     # que podem estar wrapadas em linhas diferentes.
     flat = " ".join(lowered.split())
-    # Sabe que é comercial/self-hosted, sem reivindicar licença OSS.
+    # Sabe que é open source e também comercial/self-hosted.
     assert "commercial" in lowered
     assert "self-hosted" in lowered or "self hosted" in lowered
-    assert "apache" not in lowered
-    # Regra de comportamento: só esclarecer licença quando o usuário perguntar.
-    assert "when the user asks" in flat
-    # Erro/borda: não pode haver afirmação proativa "isn't open source" (a versão
-    # antiga liderava com isso e o agente passou a anunciar num "oi").
+    assert "open source under the" in flat
+    assert "agpl-3.0" in lowered
+    assert "proprietary" not in lowered
+    # Não deve anunciar o modelo de licença num simples cumprimento.
+    assert "i'm open source" in flat
     assert "is not open source" not in flat
 
 

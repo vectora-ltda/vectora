@@ -435,6 +435,27 @@ async def test_fetch_catalog_http_error_status_falls_back_to_cache(monkeypatch):
     assert entries == [{"id": "cached-entry", "catalog_source": "official"}]
 
 
+@pytest.mark.asyncio
+async def test_fetch_catalog_pro_required_does_not_serve_cached_entries(monkeypatch):
+    stale_cache = {
+        "entries": [{"id": "cached-entry", "catalog_source": "official"}],
+        "fetched_at": (datetime.now(UTC) - timedelta(hours=20)).isoformat(),
+    }
+    registry_client._cache_path("mcp").parent.mkdir(parents=True, exist_ok=True)
+    registry_client._cache_path("mcp").write_text(
+        json.dumps(stale_cache), encoding="utf-8"
+    )
+
+    async def _fake_get(self, url, **kwargs):
+        return httpx.Response(
+            403, json={"error": "pro_required"}, request=httpx.Request("GET", url)
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    assert await registry_client.fetch_catalog("mcp") == []
+
+
 def test_clear_registry_cache_when_nothing_cached_does_not_raise():
     # Erro/borda: limpar cache sem nenhum arquivo existente é no-op seguro.
     registry_client.clear_registry_cache()
@@ -464,7 +485,7 @@ async def test_fetch_catalog_descarta_cache_mcp_legado_e_atualiza(monkeypatch):
         async def __aexit__(self, *_args: object) -> None:
             return None
 
-        async def get(self, _url: str) -> Response:
+        async def get(self, _url: str, **_kwargs: object) -> Response:
             return Response()
 
     monkeypatch.setattr(registry_client, "_read_cache", lambda _kind: legacy)
@@ -474,3 +495,66 @@ async def test_fetch_catalog_descarta_cache_mcp_legado_e_atualiza(monkeypatch):
     )
 
     assert await registry_client.fetch_catalog("mcp") == refreshed
+
+
+@pytest.mark.asyncio
+async def test_fetch_catalog_le_a_library_e_normaliza_as_entradas(monkeypatch):
+    """A Library responde com `slug`, `origin` e `rank`; o app usa `id`,
+    `catalog_source` e `stars_count`."""
+    calls: list[str] = []
+
+    async def _fake_get(self, url, **kwargs):
+        calls.append(url)
+        return httpx.Response(
+            200,
+            json={
+                "entries": [
+                    {
+                        "id": "a1b2",
+                        "slug": "io.github.example/server",
+                        "origin": "official",
+                        "rank": 42,
+                        "install_cmd": "npx -y example",
+                    },
+                    "entrada inválida",
+                ]
+            },
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    entries = await registry_client.fetch_catalog("mcp")
+
+    assert calls == ["https://services.vectora.company/library/mcp"]
+    assert entries == [
+        {
+            "id": "io.github.example/server",
+            "slug": "io.github.example/server",
+            "origin": "official",
+            "catalog_source": "official",
+            "rank": 42,
+            "stars_count": 42,
+            "install_cmd": "npx -y example",
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_fetch_catalog_status_usa_a_rota_de_status_da_library(monkeypatch):
+    calls: list[str] = []
+
+    async def _fake_get(self, url, **kwargs):
+        calls.append(url)
+        return httpx.Response(
+            200,
+            json={"source": "skills", "status": "ready", "last_synced_at": None},
+            request=httpx.Request("GET", url),
+        )
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", _fake_get)
+
+    status = await registry_client.fetch_catalog_status("skills")
+
+    assert calls == ["https://services.vectora.company/library/status/skills"]
+    assert status.status == "ready"

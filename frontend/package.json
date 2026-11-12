@@ -1,6 +1,7 @@
 {
   "name": "vectora",
-  "version": "0.1.23",
+  "desktopName": "vectora",
+  "version": "0.1.24",
   "description": "Vectora — AI-first development assistant",
   "author": "Vectora Ltda <contato@vectora.company>",
   "homepage": "https://vectora.company",

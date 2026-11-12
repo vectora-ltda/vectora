@@ -121,7 +121,7 @@ describe("FileViewer — dispatch por tipo de arquivo", () => {
         }),
       ),
     );
-    render(<FileViewer workspaceId="ws1" path="docs/readme.md" />);
+    render(<FileViewer workspaceId="ws1" path="guides/readme.md" />);
     const md = await screen.findByTestId("markdown-view");
     expect(md.textContent).toBe("# Título");
   });

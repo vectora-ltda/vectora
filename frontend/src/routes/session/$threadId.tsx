@@ -931,9 +931,30 @@ function SessionPage() {
         onToggleToolCalls={() => setShowToolCalls((v) => !v)}
         onShowShortcuts={() => setShowShortcutsDialog(true)}
         showModeSwitch={!chatMode}
+        compactNavigation={
+          isCompactSession
+            ? {
+                onOpenSessions: () => setIsMobileSidebarOpen(true),
+                workbenchOpen:
+                  uiMode === "assistant" && !chatMode && workbenchOpen,
+                onToggleWorkbench:
+                  uiMode !== "assistant" || chatMode
+                    ? undefined
+                    : () => setWorkbenchOpen(threadId, !workbenchOpen),
+              }
+            : undefined
+        }
       />
     ),
-    [showToolCalls, chatMode],
+    [
+      showToolCalls,
+      chatMode,
+      isCompactSession,
+      workbenchOpen,
+      setWorkbenchOpen,
+      threadId,
+      uiMode,
+    ],
   );
 
   // Cada modo escolhe explicitamente a coluna esquerda. Assistente e Kanban
@@ -980,6 +1001,7 @@ function SessionPage() {
           )}
           <div className="flex-1 min-h-0">
             <ChatInterface
+              key={threadId}
               threadId={threadId}
               showToolCalls={showToolCalls}
               agentConfig={agentConfig}
@@ -1017,6 +1039,28 @@ function SessionPage() {
     ],
   );
 
+  const assistantWorkbenchPanel = (
+    <div className="flex h-full min-w-0">
+      {assistantWorkbenchSide === "left" && (
+        <WorkbenchNavBar threadId={threadId} side={assistantWorkbenchSide} />
+      )}
+      <div className="min-w-0 flex-1">
+        <WorkbenchContent
+          threadId={threadId}
+          side={assistantWorkbenchSide}
+          visible
+          onOpenCommitDetails={openGitCommitDetails}
+          onOpenPlanDocument={openPlanDocument}
+          onAddToContext={pushMention}
+          onSendPrompt={pushDraft}
+        />
+      </div>
+      {assistantWorkbenchSide === "right" && (
+        <WorkbenchNavBar threadId={threadId} side={assistantWorkbenchSide} />
+      )}
+    </div>
+  );
+
   return (
     <div
       className="flex flex-col h-full overflow-hidden bg-background"
@@ -1027,19 +1071,14 @@ function SessionPage() {
       <LicenseBanner fullWidth onBlockingChange={setInputLocked} />
 
       <div className="relative flex flex-1 min-h-0 overflow-hidden">
-        {uiMode !== "ide" && (
-          <Sheet
-            open={isMobileSidebarOpen}
-            onOpenChange={setIsMobileSidebarOpen}
+        <Sheet open={isMobileSidebarOpen} onOpenChange={setIsMobileSidebarOpen}>
+          <SheetContent
+            side={sidebarOnRight ? "right" : "left"}
+            className={`p-0 w-72 ${sidebarOnRight ? "border-l" : "border-r"}`}
           >
-            <SheetContent
-              side={sidebarOnRight ? "right" : "left"}
-              className={`p-0 w-72 ${sidebarOnRight ? "border-l" : "border-r"}`}
-            >
-              {sidebar}
-            </SheetContent>
-          </Sheet>
-        )}
+            {sidebar}
+          </SheetContent>
+        </Sheet>
 
         <div className="flex flex-col flex-1 min-w-0 min-h-0 overflow-hidden">
           {/* `headerEl` é montado uma única vez e entregue ao slot físico
@@ -1249,13 +1288,6 @@ function SessionPage() {
                 onOpenChange={setShowCommandPalette}
                 commands={paletteCommands}
               />
-              <NewChatDialog
-                open={showNewChatDialog}
-                onOpenChange={setShowNewChatDialog}
-                onConfirm={(workspaceId) =>
-                  void handleConfirmNewChat(workspaceId)
-                }
-              />
             </motion.div>
           ) : (
             // ── Layout Assistente/Chat (atual) ─────────────────────────────────
@@ -1270,35 +1302,32 @@ function SessionPage() {
                 centerHeader={headerEl}
                 left={showSidebarPanel ? sidebarPanel : null}
                 center={
-                  <div className="flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden">
-                    {isCompactSession && assistantWorkbenchVisible ? (
-                      <div className="flex h-full min-w-0">
-                        {assistantWorkbenchSide === "left" && (
-                          <WorkbenchNavBar
-                            threadId={threadId}
-                            side={assistantWorkbenchSide}
-                          />
-                        )}
-                        <div className="min-w-0 flex-1">
-                          <WorkbenchContent
-                            threadId={threadId}
-                            side={assistantWorkbenchSide}
-                            visible
-                            onOpenCommitDetails={openGitCommitDetails}
-                            onOpenPlanDocument={openPlanDocument}
-                            onAddToContext={pushMention}
-                            onSendPrompt={pushDraft}
-                          />
-                        </div>
-                        {assistantWorkbenchSide === "right" && (
-                          <WorkbenchNavBar
-                            threadId={threadId}
-                            side={assistantWorkbenchSide}
-                          />
-                        )}
+                  <div className="relative flex flex-1 min-w-0 min-h-0 overflow-hidden">
+                    <div
+                      aria-hidden={
+                        isCompactSession && assistantWorkbenchVisible
+                      }
+                      inert={
+                        isCompactSession && assistantWorkbenchVisible
+                          ? true
+                          : undefined
+                      }
+                      className="absolute inset-0 min-w-0 min-h-0 overflow-hidden"
+                      style={{
+                        opacity:
+                          isCompactSession && assistantWorkbenchVisible ? 0 : 1,
+                        pointerEvents:
+                          isCompactSession && assistantWorkbenchVisible
+                            ? "none"
+                            : "auto",
+                      }}
+                    >
+                      {renderChatPanel(false)}
+                    </div>
+                    {isCompactSession && assistantWorkbenchVisible && (
+                      <div className="absolute inset-0 z-10 flex min-w-0 min-h-0 overflow-hidden">
+                        {assistantWorkbenchPanel}
                       </div>
-                    ) : (
-                      renderChatPanel(false)
                     )}
                   </div>
                 }
@@ -1417,20 +1446,17 @@ function SessionPage() {
                 onOpenChange={setShowCommandPalette}
                 commands={paletteCommands}
               />
-              <NewChatDialog
-                open={showNewChatDialog}
-                onOpenChange={setShowNewChatDialog}
-                onConfirm={(workspaceId) =>
-                  void handleConfirmNewChat(workspaceId)
-                }
-              />
-
               {/* Workstation: janelas flutuantes de arquivos + dock de minimizadas */}
               <WindowLayer />
               <WindowDock />
             </motion.div>
           )}
         </div>
+        <NewChatDialog
+          open={showNewChatDialog}
+          onOpenChange={setShowNewChatDialog}
+          onConfirm={(workspaceId) => void handleConfirmNewChat(workspaceId)}
+        />
         <CanvasDocumentDialog
           open={modalCanvasDocument !== null}
           onOpenChange={(open) => {

@@ -101,6 +101,14 @@ def test_parser_remove_chat_e_server(monkeypatch: pytest.MonkeyPatch) -> None:
         parser.parse_args(["server", "web"])
 
 
+def test_parser_nao_expoe_o_antigo_comando_run() -> None:
+    parser = _build_parser()
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args(["run", "--task", "revisar pull request"])
+
+    assert exc_info.value.code == 2
+
+
 def test_parser_start_headless_e_porta():
     parser = _build_parser()
     args = parser.parse_args(["start", "--headless", "--port", "9000"])

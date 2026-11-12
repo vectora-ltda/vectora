@@ -1,6 +1,6 @@
 # Contribuindo com o Vectora
 
-Obrigado pelo interesse. Este arquivo explica como preparar o ambiente, escolher uma tarefa e abrir um PR. A documentação para quem usa o produto fica em `docs/` (site público); a documentação de desenvolvimento fica aqui e nas issues do repositório.
+Obrigado pelo interesse. Este arquivo explica como preparar o ambiente, escolher uma tarefa e abrir um PR. A documentação para quem usa o produto fica em [docs.vectora.company](https://docs.vectora.company/) e é mantida no repositório [vectora-ltda/documentation](https://github.com/vectora-ltda/documentation); a documentação de desenvolvimento fica aqui e nas issues do repositório.
 
 ## Antes de começar
 
@@ -10,15 +10,20 @@ Obrigado pelo interesse. Este arquivo explica como preparar o ambiente, escolher
 
 ## Ambiente
 
-Requisitos: [uv](https://docs.astral.sh/uv/) (instala o Python 3.13), Node.js 26 e [pnpm](https://pnpm.io/).
+O caminho recomendado é `scons install`: ele sincroniza todos os grupos Python de desenvolvimento, executa `pnpm ci`, garante o Electron nativo e baixa os sidecars NATS e FFmpeg. No Linux, `dotfiles.sh` é opcional e detecta a distribuição, instala dependências nativas e prepara a toolchain do desenvolvedor com base no repositório [DotFiles](https://github.com/brunosrz/DotFiles). O script é específico para Linux e encerra em Windows/macOS; nessas plataformas, instale os pré-requisitos indicados abaixo e rode o alvo SCons.
+
+O script seleciona Node e Python para seu próprio processo, sem trocar as versões padrão existentes do NVM, pyenv ou Rust. Ele pode instalar pacotes de sistema e ferramentas globais; antes de rodar `scons install` em outro shell, confirme que os pré-requisitos estão no `PATH`.
 
 ```bash
 git clone https://github.com/vectora-company/vectora.git
 cd vectora
-uv sync
-pnpm --dir frontend install
+# ./dotfiles.sh               # Linux; opcional, prepara a toolchain
+# Em todos os sistemas, com os pré-requisitos no PATH:
+uv run --locked scons install
 cp .env.example .env
 ```
+
+`pnpm ci` remove e recria `frontend/node_modules` usando o lockfile congelado. O Chromium de execução vem do pacote Electron; Playwright é usado como cliente CDP e o bootstrap não baixa browsers Playwright. Para reinstalar manualmente só o workspace frontend: `pnpm --dir frontend ci`.
 
 Para subir o backend em desenvolvimento: `uv run vectora start`.
 

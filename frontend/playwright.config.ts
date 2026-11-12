@@ -1,19 +1,16 @@
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig } from "@playwright/test";
 
 /**
- * Playwright — testes e2e de browser real do chat do Vectora.
+ * Playwright — testes E2E no Chromium que acompanha o Electron do Vectora.
  *
- * Pré-requisitos para rodar (`pnpm --dir frontend test:e2e`):
- *  - Backend do Vectora rodando em http://127.0.0.1:8080 (com GOOGLE_API_KEY
- *    ou outra chave de provider configurada — os testes exercitam o LLM real).
- *  - Credenciais e2e via env: E2E_EMAIL / E2E_PASSWORD (o global-setup cria o
- *    usuário root na primeira execução se ainda não houver usuários).
+ * Pré-requisitos: Vectora desktop rodando com CDP habilitado e as credenciais
+ * E2E disponíveis via E2E_EMAIL / E2E_PASSWORD.
  *
- * O dev server do Vite (porta 5173) é iniciado automaticamente (webServer) e
- * faz proxy de /auth e /vectora para o backend.
+ * Playwright conecta via CDP ao Electron já iniciado e navega pela origem
+ * vectora-app://app/, servida pelo próprio app.
  */
 
-const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:5173";
+const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "vectora-app://app/";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -27,20 +24,7 @@ export default defineConfig({
   globalSetup: "./e2e/global-setup.ts",
   use: {
     baseURL: BASE_URL,
-    storageState: "./e2e/.auth/state.json",
     trace: "on-first-retry",
     video: "retain-on-failure",
-  },
-  projects: [
-    {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
-    },
-  ],
-  webServer: {
-    command: "pnpm dev",
-    url: BASE_URL,
-    reuseExistingServer: true,
-    timeout: 120_000,
   },
 });

@@ -18,7 +18,6 @@ exclude: |
     \.venv/.*|
     graphify.*|
     backend/services/context_graph/.*|
-    docs/_vendor/.*|
     # `\.mjs.*` (sem `.*` no início) só batia com caminho começando
     # literalmente em ".mjs" — nunca excluía nada de verdade. O prettier
     # vinha reformatando frontend/public/pdf.worker.min.mjs (vendor
@@ -49,6 +48,15 @@ exclude: |
 # analisam código recebem só os arquivos do commit.
 
 repos:
+  - repo: local
+    hooks:
+      - id: environment
+        name: Detectar ambiente (Linux, Windows, macOS)
+        entry: uv run --no-project python utils/checks.py environment
+        language: system
+        always_run: true
+        pass_filenames: false
+
   # ==========================================================================
   # Base compartilhada: idêntica nos repositórios do app, do services e da
   # company. Mudou aqui, mude nos três. Tudo que é Python roda via `uv run`; o
@@ -201,9 +209,10 @@ repos:
 
       - id: i18n
         name: Frontend i18n lint
-        entry: pnpm --dir frontend run lint:i18n -- --changed
+        entry: uv run --no-project python utils/checks.py frontend-i18n
         language: system
         files: ^frontend/.*\.(ts|tsx)$
+        pass_filenames: false
 
   # ==========================================
   # Type Checking — TypeScript (tsc)
@@ -216,7 +225,7 @@ repos:
         name: Type Check — TypeScript (tsc)
         # `typecheck` gera o routeTree.gen.ts (TanStack Router, gitignored) antes
         # do tsc --noEmit; tsc puro falharia sem o route tree.
-        entry: pnpm --dir frontend run typecheck
+        entry: uv run --no-project python utils/checks.py frontend-typecheck
         language: system
         files: ^frontend/.*\.(ts|tsx)$
         pass_filenames: false

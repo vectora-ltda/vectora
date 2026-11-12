@@ -180,7 +180,7 @@ def test_release_please_requires_candidates_and_uses_canonical_branches() -> Non
     )
 
 
-@pytest.mark.parametrize("development", ["release/0.1.23", "release/0.2"])
+@pytest.mark.parametrize("development", ["release/0.1.24", "release/0.2"])
 async def test_sync_outputs_expand_stable_branch(
     tmp_path: Path, development: str
 ) -> None:
@@ -500,39 +500,27 @@ def _trigger_block(content: str, event: str) -> str:
     return after.split("\n  workflow_dispatch:", 1)[0].split("\n  pull_request:", 1)[0]
 
 
-def test_app_and_docs_workflows_validam_todo_pr_e_publicam_so_de_master() -> None:
-    """Todo PR, qualquer que seja a base (inclusive PRs empilhados em feat/*),
-    passa pelo pipeline completo; push e jobs de publicação seguem restritos às
-    linhas de release."""
-    for name in ("docs.yml", "vectora.yml"):
-        content = (WORKFLOW.parent / name).read_text(encoding="utf-8")
-        pull_request = _trigger_block(content, "pull_request")
-        push = _trigger_block(content, "push")
-
-        assert 'branches: ["**"]' in pull_request, name
-        assert "master" not in pull_request, name
-        assert 'branches: [master, "release/**"]' in push, name
-        assert '"**"' not in push, name
-
+def test_app_workflow_valida_prs_e_publica_so_de_master() -> None:
+    """O pipeline do app valida PRs e restringe publicação às linhas estáveis."""
     app = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
-    docs = (WORKFLOW.parent / "docs.yml").read_text(encoding="utf-8")
-    # These jobs only resolve metadata or build artifacts and must run on PRs
-    # so the package matrix is validated before merge. Only publication and
-    # tagging jobs are restricted to master.
+    pull_request = _trigger_block(app, "pull_request")
+    push = _trigger_block(app, "push")
+
+    assert 'branches: ["**"]' in pull_request
+    assert "master" not in pull_request
+    assert 'branches: [master, "release/**"]' in push
+    assert '"**"' not in push
+
+    # Jobs que resolvem metadados ou constroem artefatos validam PRs; apenas
+    # publicação e criação de tags ficam restritas à branch master.
     for job in ("release-channel:", "release-native:"):
         guard = app.split(f"\n  {job}\n", 1)[1].split("\n    steps:", 1)[0]
         assert "github.event_name == 'pull_request'" in guard, job
 
-    for job in (
-        "publish-update-channel:",
-        "tag-release:",
-    ):
+    for job in ("publish-update-channel:", "tag-release:"):
         guard = app.split(f"\n  {job}\n", 1)[1].split("\n    steps:", 1)[0]
         assert "github.ref == 'refs/heads/master'" in guard, job
         assert "pull_request" not in guard, job
-    deploy = docs.split("\n  deploy:\n", 1)[1].split("\n    steps:", 1)[0]
-    assert "github.ref == 'refs/heads/master'" in deploy
-    assert "pull_request" not in deploy
 
 
 def test_native_release_uses_supported_python_architectures_for_backend_deps() -> None:
@@ -592,14 +580,20 @@ def test_linux_release_installs_native_package_build_tools() -> None:
     content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
 
     assert "libarchive-tools" in content
-    assert '"$RUNNER_TEMP/snapcraft-compat"' in content
-    assert '"${1:-}" == "snap"' in content
+    assert 'image="ghcr.io/canonical/snapcraft:8_core22"' in content
+    assert "cat > \"$compat_dir/snapcraft\" <<'EOF'" in content
+    assert '"${args[0]:-}" == "snap"' in content
+    assert 'exec docker run --rm -v "$PWD:/project"' in content
+    assert not any(
+        line.lstrip().startswith("bash ") and ".sh" in line
+        for line in content.splitlines()
+    )
     assert "os: ubuntu-22.04" in content
     assert "os: ubuntu-22.04-arm" in content
     assert "sudo snap install lxd" not in content
     assert "sudo lxd init --auto" not in content
-    assert 'exec sudo /snap/bin/snapcraft pack --destructive-mode "$@"' in content
-    assert "/snap/bin/snapcraft pack" in content
+    assert "sudo snap install snapcraft" not in content
+    assert "snapd" not in content
 
 
 def test_linux_release_validates_and_uploads_electron_builder_artifact_names() -> None:
@@ -676,37 +670,13 @@ def test_release_attaches_only_the_selected_installers() -> None:
     stage = tag_job.index(
         "python3 utils/release_assets.py stage dist-release release-assets"
     )
-    checksums = tag_job.index("sign-release-artifacts.sh release-assets")
+    checksums = tag_job.index("python3 utils/sign_release_artifacts.py release-assets")
     upload = tag_job.index('gh release upload "$TAG"')
     assert stage < checksums < upload
-    assert "sign-release-artifacts.sh dist-release" not in tag_job
+    assert "sign_release_artifacts.py dist-release" not in tag_job
     assert "find release-assets -maxdepth 1 -type f -print0" in tag_job
     # Trava final: nome com caractere de glob nunca chega ao `gh release upload`.
     assert "[A-Za-z0-9._+-]+" in tag_job
-
-
-def test_release_does_not_build_or_publish_the_vectora_bot_binary() -> None:
-    """Decisão de produto: o Vectora não roda mais na Cloudflare, então nenhum
-    binário do bot é construído, publicado no R2 nem anexado à release."""
-    root = WORKFLOW.parents[2]
-    content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
-    build_hybrid = (root / "build-hybrid.py").read_text(encoding="utf-8")
-
-    for marker in (
-        "gha-bot-cli",
-        "publish-gha-bot-cli",
-        "vectora-cli",
-        "VECTORA_BUILD_CLI",
-        "s3://vectora-r2/gha-bot/",
-    ):
-        assert marker not in content, marker
-    for marker in (
-        "VECTORA_BUILD_CLI",
-        "vectora-cli",
-        "COLLECT_ALL_CLI",
-        "collect_cli",
-    ):
-        assert marker not in build_hybrid, marker
 
 
 def test_commitlint_packages_are_installed_with_exact_versions() -> None:

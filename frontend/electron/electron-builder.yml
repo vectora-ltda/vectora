@@ -12,8 +12,8 @@
 # - Linux: SHA256SUMS e assinatura GPG destacada quando a chave estiver configurada.
 #
 # Publish: vectora-services (Cloudflare Worker + R2), não GitHub Releases — o
-# repo é privado (Vectora é vendido, não open source) e o Free precisa baixar
-# e atualizar sem conta. `${os}`/`${arch}` resolvem por build (mesmo macro do
+# Free precisa baixar e atualizar sem conta. `${os}`/`${arch}` resolvem por
+# build (mesmo macro do
 # artifactName), então cada instalador aponta pro seu próprio
 # /updates/<channel>/<os>/<arch>/latest.yml no Worker remoto.
 
@@ -75,6 +75,8 @@ extraResources:
       - nats-server*
   - from: public/favicon-32x32.png
     to: tray-icon.png
+  - from: public/favicon-600x600.png
+    to: vectora-icon.png
   - from: public/vectora.ico
     to: vectora.ico
 
@@ -130,6 +132,8 @@ dmg:
     height: 380
 
 linux:
+  executableName: vectora
+  syncDesktopName: true
   target:
     - AppImage
     - deb
@@ -138,14 +142,21 @@ linux:
     - pacman
     - flatpak
     - tar.gz
-  icon: public/favicon-600x600.png
+  icon: electron/build-resources/linux-icons
   category: Development
-  # electron-builder 26: as chaves do .desktop ficam sob `desktop.entry`.
+  # Os PNGs em electron/build-resources/linux-icons são instalados sob hicolor/<tamanho>/apps;
+  # Icon referencia o mesmo nome em todas as entradas .desktop geradas.
   desktop:
     entry:
+      Name: Vectora
       StartupWMClass: vectora
+      Icon: vectora
+      GenericName: AI development assistant
       Categories: Development;IDE;
-  synopsis: Vectora — AI-first development assistant
+      Comment: Self-hosted AI-first development assistant
+      Keywords: AI;development;coding;assistant;
+      StartupNotify: true
+  synopsis: Vectora - AI-first development assistant
   description: Self-hosted AI assistant with RAG, terminals, code editing and workflows.
   vendor: Vectora Company
   maintainer: Vectora Ltda <contato@vectora.company>
@@ -192,9 +203,9 @@ pacman:
     - libdrm
     - mesa
 
-# Sem LICENSE no repo (produto proprietário, sem texto de licença definido
-# ainda) — electron-builder falha o build do AppImage se `license:` apontar
-# pra um arquivo inexistente. Reintroduzir aqui quando houver um EULA real.
+# A licença AGPL-3.0 fica na raiz do repositório, fora dos arquivos de licença
+# que o electron-builder inclui automaticamente no AppImage. Não configurar
+# `license:` para um caminho inexistente dentro de `frontend/`.
 appImage: {}
 
 flatpak:

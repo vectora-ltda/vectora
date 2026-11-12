@@ -6,11 +6,9 @@ Estas regras valem para mudanças neste repositório. Leia este arquivo antes de
 
 Escreva Markdown legível, em português. Não coloque títulos consecutivos sem texto explicativo entre eles, e mantenha exemplos e caminhos de arquivo coerentes com o repositório.
 
-### 1.1. `docs/` é o site Hugo público
+### 1.1. Documentação pública
 
-`docs/` é o site oficial de documentação do Vectora para quem usa o produto, construído com Hugo e Hextra e publicado em `https://docs.vectora.company/`. Tudo em `docs/content/` é público: coloque ali somente guias, referências e documentação de produto, inclusive de releases.
-
-Não use `docs/` para planos internos, handoffs de implementação, auditorias, estratégia privada ou acompanhamento de tarefas de PR. Esse trabalho fica em issues do GitHub, no repositório apropriado. Antes de mudar o site, leia a estrutura do Hugo e o workflow de build e deploy; `docs/` não é um app TypeScript nem uma pasta genérica de Markdown.
+A documentação pública do Vectora é publicada em [docs.vectora.company](https://docs.vectora.company/) e mantida no repositório independente [vectora-ltda/documentation](https://github.com/vectora-ltda/documentation). Este repositório não contém mais a fonte local do site.
 
 ## 2. Alterações, commits e PRs
 
@@ -28,7 +26,7 @@ O [CONTRIBUTING.md](CONTRIBUTING.md) é a referência completa do fluxo de contr
 
 - **Spec em issue antes do PR.** O desenvolvimento é guiado por spec, e a spec mora numa issue pública, nunca só em arquivo local. A issue traz objetivo, não objetivos, comportamento esperado (com exemplos de entrada e saída), critérios de aceite (casos felizes e de erro), riscos e plano de testes, e um mantenedor confirma que ela está pronta antes de a implementação começar. Feature (`feat:`) sempre tem issue com spec; PR de feature sem issue vinculada é questionado por inteiro. Correção (`fix:`) pode dispensar a issue quando for pequena e óbvia, com teste que a reproduz; mudança de contrato, comportamento visível, segurança ou várias áreas precisa de issue.
 - **Vínculo no PR.** O corpo do PR aponta a issue com uma linha só: `Closes #N`, `Refs #N` ou `Spec: #N`. É a única referência a issue aceita no texto do PR.
-- **Ambiente e checks.** `uv sync` e `pnpm --dir frontend install`, depois as verificações da seção 5. Rode as da área que mudou e informe o resultado.
+- **Ambiente e checks.** Prefira `scons install`: sincroniza todos os grupos Python, executa `pnpm ci` e prepara Electron, NATS e FFmpeg. No Linux, `./dotfiles.sh` é opcional e prepara a toolchain separadamente; instale os pré-requisitos indicados no `CONTRIBUTING.md`. O Chromium vem do Electron; Playwright atua como cliente CDP e não deve baixar browser para o runtime. Depois rode as verificações da seção 5 e informe o resultado.
 - **Mudanças em `.github/`.** Toda mudança em workflows ou actions é verificada com o `gh` simulado antes do PR: `uv run pytest tests/unit/test_workflow_sim.py tests/unit/test_release_workflow_simulation.py -q` (precisa de bash; no Windows, o Git Bash). O passo a passo e como cobrir um passo novo estão no CONTRIBUTING.md.
 - **Fluxo.** Escolha ou abra a issue, crie a branch a partir da base certa, faça mudanças pequenas com Conventional Commits, abra o PR em português e atenda à revisão.
 - **Linhas de release.** `master` com a milestone `0.1.x` (manutenção) e `release/0.2` com a `0.2` (desenvolvimento), conforme `.github/release-lines.json`.
@@ -37,7 +35,7 @@ O [CONTRIBUTING.md](CONTRIBUTING.md) é a referência completa do fluxo de contr
 
 ## 3. Arquitetura e convenções atuais
 
-A raiz do repositório contém o backend Python, o frontend desktop, a documentação pública em Hugo, os testes, a orquestração de build e os utilitários de desenvolvimento. Os diretórios principais são `backend/`, `frontend/`, `docs/`, `tests/` e `utils/`; não existe um `src/` na raiz.
+A raiz do repositório contém o backend Python, o frontend desktop, os testes, a orquestração de build e os utilitários de desenvolvimento. Os diretórios principais são `backend/`, `frontend/`, `tests/` e `utils/`; não existe um `src/` na raiz.
 
 ### 3.1. Python e contratos
 
@@ -113,7 +111,6 @@ Use este mapa como ponto de partida e confira-o na árvore atual quando precisar
 | `backend/cli/`                      | Operações pela linha de comando do Vectora               |
 | `backend/services/security.py`      | Utilitários de segurança de comandos e entradas          |
 | `frontend/`                         | Interface React/Vite do desktop e shell do Electron      |
-| `docs/`                             | Site público de documentação em Hugo                     |
 | `tests/`                            | Testes unitários, de integração, ponta a ponta e carga   |
 | `utils/`                            | Utilitários de build, release e automação do repositório |
 | `SConstruct`                        | Orquestração de build e tarefas de desenvolvimento       |

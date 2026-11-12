@@ -13,6 +13,7 @@ import pytest
 import release
 from release import (
     Commit,
+    ReleaseLine,
     ReleaseLines,
     ReleasePullRequest,
     apply_plan,
@@ -128,8 +129,8 @@ from release import normalize_changelog
 
 
 def test_feature_bumps_minor_before_one() -> None:
-    plan = calculate_plan("0.3.0", [Commit(subject="feat: add canonical release PR")])
-    assert plan.next_version == "0.4.0"
+    plan = calculate_plan("0.1.24", [Commit(subject="feat: add canonical release PR")])
+    assert plan.next_version == "0.2.0"
     assert plan.bump == "minor"
 
 
@@ -139,8 +140,8 @@ def test_fix_bumps_patch() -> None:
 
 
 def test_breaking_change_uses_minor_before_one() -> None:
-    plan = calculate_plan("0.3.0", [Commit(subject="feat!: change release contract")])
-    assert plan.next_version == "0.4.0"
+    plan = calculate_plan("0.1.24", [Commit(subject="feat!: change release contract")])
+    assert plan.next_version == "0.2.0"
 
 
 def test_breaking_change_footer_uses_major_after_one() -> None:
@@ -158,8 +159,8 @@ def test_breaking_change_footer_uses_major_after_one() -> None:
 
 
 def test_non_release_commits_do_not_create_plan() -> None:
-    plan = calculate_plan("0.3.0", [Commit(subject="docs: explain release flow")])
-    assert plan.next_version == "0.3.0"
+    plan = calculate_plan("0.1.24", [Commit(subject="docs: explain release flow")])
+    assert plan.next_version == "0.1.24"
     assert plan.bump == "none"
 
 
@@ -167,12 +168,12 @@ _LOCK_TEMPLATE = """version = 1
 
 [[package]]
 name = "pydantic"
-version = "0.3.0"
+version = "2.14.0"
 source = { registry = "https://pypi.org/simple" }
 
 [[package]]
 name = "vectora"
-version = "0.3.0"
+version = "0.1.24"
 source = { editable = "." }
 dependencies = [
     { name = "pydantic" },
@@ -183,21 +184,21 @@ dependencies = [
 def test_apply_updates_all_configured_versions_and_lockfile(
     tmp_path: Path,
 ) -> None:
-    (tmp_path / "pyproject.toml").write_text('version = "0.3.0"\n', encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text('version = "0.1.24"\n', encoding="utf-8")
     frontend_package = tmp_path / "frontend" / "package.json"
     frontend_package.parent.mkdir()
-    frontend_package.write_text(json.dumps({"version": "0.3.0"}), encoding="utf-8")
+    frontend_package.write_text(json.dumps({"version": "0.1.24"}), encoding="utf-8")
     lock_path = tmp_path / "uv.lock"
     lock_path.write_text(_LOCK_TEMPLATE, encoding="utf-8")
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text("# Changelog\n", encoding="utf-8")
-    plan = calculate_plan("0.3.0", [Commit(subject="fix: repair release")])
+    plan = calculate_plan("0.1.24", [Commit(subject="fix: repair release")])
     apply_plan(tmp_path, plan, ["pyproject.toml", "frontend/package.json", "uv.lock"])
     assert lock_path.read_text(encoding="utf-8") == _LOCK_TEMPLATE.replace(
-        'name = "vectora"\nversion = "0.3.0"', 'name = "vectora"\nversion = "0.3.1"'
+        'name = "vectora"\nversion = "0.1.24"', 'name = "vectora"\nversion = "0.1.25"'
     )
-    assert '"version": "0.3.1"' in frontend_package.read_text(encoding="utf-8")
-    assert changelog.read_text(encoding="utf-8").startswith("## [0.3.1]")
+    assert '"version": "0.1.25"' in frontend_package.read_text(encoding="utf-8")
+    assert changelog.read_text(encoding="utf-8").startswith("## [0.1.25]")
     assert sorted(path.name for path in tmp_path.iterdir()) == [
         "CHANGELOG.md",
         "frontend",
@@ -219,13 +220,13 @@ def test_apply_updates_all_configured_versions_and_lockfile(
 
 
 def test_current_version_comes_from_first_version_file(tmp_path: Path) -> None:
-    (tmp_path / "package.json").write_text('{"version": "0.3.0"}', encoding="utf-8")
+    (tmp_path / "package.json").write_text('{"version": "0.1.24"}', encoding="utf-8")
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "x"\nversion = "1.2.3"\n', encoding="utf-8"
     )
 
     assert read_current_version(tmp_path, ["pyproject.toml", "package.json"]) == "1.2.3"
-    assert read_current_version(tmp_path, ["package.json"]) == "0.3.0"
+    assert read_current_version(tmp_path, ["package.json"]) == "0.1.24"
 
     (tmp_path / "package.json").write_text('{"name": "sem-versao"}', encoding="utf-8")
     with pytest.raises(ValueError, match=r"package\.json"):
@@ -241,7 +242,7 @@ def test_current_version_comes_from_first_version_file(tmp_path: Path) -> None:
 
 def test_cli_prints_current_version_without_commits(tmp_path: Path) -> None:
     (tmp_path / "pyproject.toml").write_text(
-        '[project]\nname = "x"\nversion = "0.3.0"\n', encoding="utf-8"
+        '[project]\nname = "x"\nversion = "0.1.24"\n', encoding="utf-8"
     )
     script = Path(__file__).with_name("release.py")
     args = [
@@ -258,7 +259,7 @@ def test_cli_prints_current_version_without_commits(tmp_path: Path) -> None:
         [*args, "--print-current-version"], capture_output=True, text=True, check=False
     )
     assert ok.returncode == 0
-    assert ok.stdout.strip() == "0.3.0"
+    assert ok.stdout.strip() == "0.1.24"
 
     missing_commits = subprocess.run(  # noqa: S603  # nosec B603
         args, capture_output=True, text=True, check=False
@@ -270,7 +271,7 @@ def test_cli_prints_current_version_without_commits(tmp_path: Path) -> None:
 # ── prepare-line ─────────────────────────────────────────────────────────────
 
 
-def _write_inputs(tmp_path: Path, version: str = "0.3.0") -> tuple[Path, Path]:
+def _write_inputs(tmp_path: Path, version: str = "0.2.0") -> tuple[Path, Path]:
     """Prepara arquivos temporários para testar a migração da configuração."""
     changelog = tmp_path / "CHANGELOG.md"
     lines = tmp_path / "release-lines.json"
@@ -279,8 +280,8 @@ def _write_inputs(tmp_path: Path, version: str = "0.3.0") -> tuple[Path, Path]:
         json.dumps(
             {
                 "version_files": ["package.json"],
-                "development": {"branch": "release/0.3", "milestone": "0.3"},
-                "maintenance": {"branch": "master", "milestone": "0.2.x"},
+                "development": {"branch": "release/0.2", "milestone": "0.2"},
+                "maintenance": {"branch": "master", "milestone": "0.1.x"},
             }
         ),
         encoding="utf-8",
@@ -290,13 +291,13 @@ def _write_inputs(tmp_path: Path, version: str = "0.3.0") -> tuple[Path, Path]:
 
 def test_minor_release_updates_next_lines(tmp_path: Path) -> None:
     """A minor prepara a próxima linha e a manutenção da versão publicada."""
-    changelog, lines = _write_inputs(tmp_path)
+    changelog, lines = _write_inputs(tmp_path, "0.2.0")
 
-    assert update_release_line_files(changelog, lines, "release/0.3") is True
+    assert update_release_line_files(changelog, lines, "release/0.2") is True
     assert json.loads(lines.read_text(encoding="utf-8")) == {
         "version_files": ["package.json"],
-        "development": {"branch": "release/0.4", "milestone": "0.4"},
-        "maintenance": {"branch": "master", "milestone": "0.3.x"},
+        "development": {"branch": "release/0.3", "milestone": "0.3"},
+        "maintenance": {"branch": "master", "milestone": "0.2.x"},
     }
     assert sorted(path.name for path in tmp_path.iterdir()) == [
         "CHANGELOG.md",
@@ -306,10 +307,10 @@ def test_minor_release_updates_next_lines(tmp_path: Path) -> None:
 
 def test_patch_release_does_not_rotate_lines(tmp_path: Path) -> None:
     """Uma versão patch, ou de outra branch, preserva as linhas existentes."""
-    changelog, lines = _write_inputs(tmp_path, "0.3.1")
+    changelog, lines = _write_inputs(tmp_path, "0.2.1")
     before = lines.read_text(encoding="utf-8")
 
-    assert update_release_line_files(changelog, lines, "release/0.3") is False
+    assert update_release_line_files(changelog, lines, "release/0.2") is False
     assert lines.read_text(encoding="utf-8") == before
 
     changelog, lines = _write_inputs(tmp_path)
@@ -322,40 +323,40 @@ def test_patch_release_does_not_rotate_lines(tmp_path: Path) -> None:
 
 CONFIG = ReleaseLines(
     version_files=("package.json",),
-    development={"branch": "release/0.3", "milestone": "0.3"},
-    maintenance={"branch": "master", "milestone": "0.2.x"},
+    development={"branch": "release/0.2", "milestone": "0.2"},
+    maintenance={"branch": "master", "milestone": "0.1.x"},
 )
 
 
 def test_minor_release_opens_next_release_branch() -> None:
     """Publicar a minor mantém master estável e abre a próxima minor."""
-    rotation = rotation_for_release("v0.3.0", CONFIG, "master")
+    rotation = rotation_for_release("v0.2.0", CONFIG, "master")
     assert rotation is not None
-    assert rotation["development_branch"] == "release/0.4"
-    assert rotation["development_milestone"] == "0.4"
+    assert rotation["development_branch"] == "release/0.3"
+    assert rotation["development_milestone"] == "0.3"
     assert rotation["maintenance_branch"] == "master"
-    assert rotation["maintenance_milestone"] == "0.3.x"
+    assert rotation["maintenance_milestone"] == "0.2.x"
 
 
 def test_release_on_development_branch_does_not_rotate() -> None:
     """Uma publicação feita na origem de desenvolvimento não roda a rotação."""
-    assert rotation_for_release("v0.3.0", CONFIG, "release/0.3") is None
+    assert rotation_for_release("v0.2.0", CONFIG, "release/0.2") is None
 
 
 def test_patch_release_does_not_rotate() -> None:
     """Patches não abrem outra linha de desenvolvimento."""
-    assert rotation_for_release("v0.3.1", CONFIG, "master") is None
+    assert rotation_for_release("v0.2.1", CONFIG, "master") is None
 
 
 def test_rotation_plan_moves_open_minor_prs() -> None:
     """Move somente PRs da minor anterior, preservando patches em master."""
-    rotation = rotation_for_release("v0.3.0", CONFIG, "master")
+    rotation = rotation_for_release("v0.2.0", CONFIG, "master")
     assert rotation is not None
     plan = build_rotation_plan(
         rotation,
         [
-            {"number": 12, "base_branch": "release/0.3", "milestone": "0.3"},
-            {"number": 13, "base_branch": "master", "milestone": "0.3.x"},
+            {"number": 12, "base_branch": "release/0.2", "milestone": "0.2"},
+            {"number": 13, "base_branch": "master", "milestone": "0.2.x"},
         ],
     )
     assert {item["kind"] for item in plan} == {
@@ -366,63 +367,77 @@ def test_rotation_plan_moves_open_minor_prs() -> None:
         "publish_config",
     }
     assert {item["value"] for item in plan if item["kind"] == "update_base"} == {
-        "release/0.4"
+        "release/0.3"
     }
     assert not any(item["pull_request"] == 13 for item in plan)
     assert [item for item in plan if item["kind"] == "update_milestone"] == [
-        {"kind": "update_milestone", "pull_request": 12, "value": "0.4"}
+        {"kind": "update_milestone", "pull_request": 12, "value": "0.3"}
     ]
 
 
 def test_rotation_writes_next_config(tmp_path: Path) -> None:
     """Persiste as novas linhas e preserva os arquivos de versão."""
-    rotation = rotation_for_release("v0.3.0", CONFIG, "master")
+    rotation = rotation_for_release("v0.2.0", CONFIG, "master")
     assert rotation is not None
     path = tmp_path / "release-lines.json"
     write_rotated_config(path, CONFIG, rotation)
     result = json.loads(path.read_text(encoding="utf-8"))
-    assert result["development"]["branch"] == "release/0.4"
-    assert result["development"]["milestone"] == "0.4"
+    assert result["development"]["branch"] == "release/0.3"
+    assert result["development"]["milestone"] == "0.3"
     assert result["maintenance"]["branch"] == "master"
-    assert result["maintenance"]["milestone"] == "0.3.x"
+    assert result["maintenance"]["milestone"] == "0.2.x"
     assert result["version_files"] == ["package.json"]
 
 
-@pytest.mark.parametrize("target", [None, "", "develop", "release/0.3"])
+@pytest.mark.parametrize("target", [None, "", "develop", "release/0.2"])
 def test_invalid_target_does_not_rotate(target: str | None) -> None:
     """Uma origem não autorizada não gera operações de rotação."""
-    assert rotation_for_release("v0.3.0", CONFIG, target) is None
+    assert rotation_for_release("v0.2.0", CONFIG, target) is None
 
 
 def test_commit_target_can_rotate() -> None:
     """O workflow verifica ancestralidade quando o evento aponta para um SHA."""
-    assert rotation_for_release("v0.3.0", CONFIG, "a" * 40) is not None
+    assert rotation_for_release("v0.2.0", CONFIG, "a" * 40) is not None
 
 
-@pytest.mark.parametrize("tag", ["", "v0.1.0", "v0.3.1", "invalid", "v00.3.0"])
+@pytest.mark.parametrize("tag", ["", "v0.0.0", "v0.2.1", "invalid", "v00.9.0"])
 def test_unrelated_tags_do_not_rotate(tag: str) -> None:
     """Tags antigas, patches e valores inválidos não avançam a configuração."""
-    assert rotation_for_release(tag, CONFIG, "master") is None
+    later_config = CONFIG.model_copy(
+        update={
+            "development": ReleaseLine(branch="release/0.3", milestone="0.3"),
+            "maintenance": ReleaseLine(branch="master", milestone="0.2.x"),
+        }
+    )
+    assert rotation_for_release(tag, later_config, "master") is None
+
+
+def test_previous_minor_tag_can_retry_completed_rotation() -> None:
+    """A minor anterior pode repetir a rotação já aplicada sem avançá-la de novo."""
+    rotation = rotation_for_release("v0.1.0", CONFIG, "master")
+    assert rotation is not None
+    assert rotation["development_branch"] == "release/0.2"
+    assert rotation["maintenance_milestone"] == "0.1.x"
 
 
 def test_newer_release_requires_configuration() -> None:
     """Uma minor futura falha explicitamente até a configuração ser atualizada."""
     with pytest.raises(ValueError, match="newer than configured"):
-        rotation_for_release("v0.4.0", CONFIG, "master")
+        rotation_for_release("v0.9.0", CONFIG, "master")
 
 
 def test_already_rotated_preserves_previous_line(tmp_path: Path) -> None:
     """Reexecutar a rotação continua identificando PRs da minor publicada."""
-    rotation = rotation_for_release("v0.3.0", CONFIG, "master")
+    rotation = rotation_for_release("v0.2.0", CONFIG, "master")
     assert rotation is not None
     path = tmp_path / "lines.json"
     write_rotated_config(path, CONFIG, rotation)
     config = ReleaseLines.model_validate_json(path.read_bytes())
-    repeated = rotation_for_release("v0.3.0", config, "master")
+    repeated = rotation_for_release("v0.2.0", config, "master")
     assert repeated is not None
-    assert repeated["previous_development_branch"] == "release/0.3"
-    assert repeated["previous_development_milestone"] == "0.3"
-    assert repeated["development_branch"] == "release/0.4"
+    assert repeated["previous_development_branch"] == "release/0.2"
+    assert repeated["previous_development_milestone"] == "0.2"
+    assert repeated["development_branch"] == "release/0.3"
 
 
 def test_incomplete_rotation_is_not_accepted() -> None:
@@ -431,13 +446,13 @@ def test_incomplete_rotation_is_not_accepted() -> None:
         update={
             "development": CONFIG.development.model_copy(
                 update={
-                    "branch": "release/0.4",
-                    "milestone": "0.4",
+                    "branch": "release/0.3",
+                    "milestone": "0.3",
                 }
             ),
         }
     )
-    assert rotation_for_release("v0.3.0", config, "master") is None
+    assert rotation_for_release("v0.2.0", config, "master") is None
 
 
 @pytest.mark.parametrize(
@@ -467,7 +482,7 @@ def test_main_valid_event(
     """O CLI emite saídas e só grava a configuração quando solicitado."""
     event = tmp_path / "event.json"
     event.write_text(
-        json.dumps({"release": {"tag_name": "v0.3.0", "target_commitish": "master"}}),
+        json.dumps({"release": {"tag_name": "v0.2.0", "target_commitish": "master"}}),
         encoding="utf-8",
     )
     config = tmp_path / "lines.json"
@@ -480,7 +495,7 @@ def test_main_valid_event(
     assert release.rotate_main() == 0
     assert "rotate=true" in capsys.readouterr().out
     assert json.loads(config.read_text(encoding="utf-8"))["development"]["branch"] == (
-        "release/0.4" if write else "release/0.3"
+        "release/0.3" if write else "release/0.2"
     )
 
 
@@ -490,7 +505,7 @@ def test_main_patch_event(
     """Um patch válido termina com sucesso sem produzir uma rotação."""
     event = tmp_path / "event.json"
     event.write_text(
-        json.dumps({"release": {"tag_name": "v0.3.1", "target_commitish": "master"}}),
+        json.dumps({"release": {"tag_name": "v0.2.1", "target_commitish": "master"}}),
         encoding="utf-8",
     )
     monkeypatch.setattr(sys, "argv", ["release.py", str(event)])
@@ -506,7 +521,7 @@ def test_main_accepts_workflow_dispatch_release_tag(
     """Workflow dispatch recovers rotation when GITHUB_TOKEN suppresses release events."""
     event = tmp_path / "event.json"
     event.write_text(
-        json.dumps({"inputs": {"release_tag": "v0.3.0", "target_branch": "master"}}),
+        json.dumps({"inputs": {"release_tag": "v0.2.0", "target_branch": "master"}}),
         encoding="utf-8",
     )
     monkeypatch.setattr(release, "load_release_lines", lambda _: CONFIG)
@@ -514,7 +529,7 @@ def test_main_accepts_workflow_dispatch_release_tag(
 
     assert release.rotate_main() == 0
     output = capsys.readouterr().out
-    assert "release_tag=v0.3.0" in output
+    assert "release_tag=v0.2.0" in output
     assert "rotate=true" in output
 
 
@@ -524,7 +539,7 @@ def test_main_accepts_workflow_dispatch_release_tag(
 def _pr(version: str) -> ReleasePullRequest:
     """Cria uma resposta do CLI para a minor ou o patch em master."""
     minor = version.endswith(".0")
-    suffix = "0.3" if minor else version
+    suffix = "0.2" if minor else version
     return ReleasePullRequest.model_validate(
         {
             "number": 3 if minor else 20,
@@ -542,15 +557,15 @@ def _pr(version: str) -> ReleasePullRequest:
 def test_parallel_lines_are_isolated(minor: bool) -> None:
     """A PR mais recente do patch não é selecionada durante a minor e vice-versa."""
     prs = [
-        _pr("0.3.0"),
-        _pr("0.2.1"),
+        _pr("0.2.0"),
+        _pr("0.1.24"),
     ]
     result = select_release_pr(
         prs,
         repository="vectora-company/vectora",
-        source="release/0.3" if minor else "master",
+        source="release/0.2" if minor else "master",
         target="master",
-        milestone="0.3" if minor else "0.2.x",
+        milestone="0.2" if minor else "0.1.x",
     )
     assert result == prs[0 if minor else 1]
 
@@ -563,21 +578,21 @@ def test_parallel_lines_are_isolated(minor: bool) -> None:
         ("headRepository", {"nameWithOwner": "attacker/vectora"}),
         ("headRepository", None),
         ("labels", []),
-        ("title", "chore(master): release 0.4.0"),
+        ("title", "chore(master): release 0.9.0"),
     ],
 )
 def test_untrusted_pr_is_ignored(field: str, value: object) -> None:
     """Nome parecido, fork ou metadados divergentes nunca autorizam mutações."""
-    data = _pr("0.3.0").model_dump()
+    data = _pr("0.2.0").model_dump()
     data[field] = value
     pr = ReleasePullRequest.model_validate(data)
     assert (
         select_release_pr(
             [pr],
             repository="vectora-company/vectora",
-            source="release/0.3",
+            source="release/0.2",
             target="master",
-            milestone="0.3",
+            milestone="0.2",
         )
         is None
     )
@@ -597,14 +612,14 @@ def test_duplicate_release_prs_fail_closed() -> None:
 
 def test_noncanonical_release_head_is_not_a_versioned_release_pr() -> None:
     """Somente a branch canônica da linha pode virar a PR oficial."""
-    pr = _pr("0.3.0").model_copy(update={"headRefName": "release-0.3"})
+    pr = _pr("0.2.0").model_copy(update={"headRefName": "release-0.2"})
     assert (
         select_release_pr(
             [pr],
             repository="vectora-company/vectora",
-            source="release/0.3",
+            source="release/0.2",
             target="master",
-            milestone="0.3",
+            milestone="0.2",
         )
         is None
     )
@@ -642,7 +657,7 @@ def test_keeps_only_the_first_release_section() -> None:
     notes = """:robot: release
 ---
 
-## [0.2.0](https://example.test/0.2)
+## [0.1.24](https://example.test/0.1.24)
 
 ### Features
 
@@ -655,14 +670,14 @@ def test_keeps_only_the_first_release_section() -> None:
 
     body = prepare_body(notes)
 
-    assert "0.2.0" in body
+    assert "0.1.24" in body
     assert "current" in body
     assert "historical" not in body
 
 
 def test_compacts_links_when_current_section_is_too_large() -> None:
     """Remove URLs repetitivas antes de recorrer ao resumo curto."""
-    notes = "## [0.2.0](https://example.test/release)\n\n" + "\n".join(
+    notes = "## [0.1.24](https://example.test/release)\n\n" + "\n".join(
         f"* change {index} ([commit](https://example.test/commits/{index}))"
         for index in range(100)
     )
@@ -683,15 +698,15 @@ def test_rejects_notes_without_a_release_heading() -> None:
 
 def test_drops_changelog_document_header() -> None:
     """Não duplica o título geral do changelog no corpo da PR."""
-    body = prepare_body("# Changelog\n\n## [0.2.0]\n\n### Features\n\n* current\n")
+    body = prepare_body("# Changelog\n\n## [0.1.24]\n\n### Features\n\n* current\n")
 
-    assert body.startswith("## [0.2.0]")
+    assert body.startswith("## [0.1.24]")
     assert "# Changelog" not in body
 
 
 def test_strips_process_metadata_from_release_entries() -> None:
     """Remove metadados de planejamento e revisão das entradas publicadas."""
-    notes = """## [0.2.0]
+    notes = """## [0.1.24]
 
 ### Features
 
@@ -710,14 +725,14 @@ def test_strips_process_metadata_from_release_entries() -> None:
 
 def test_summarizes_release_when_compacted_notes_still_exceed_limit() -> None:
     """Usa um resumo mínimo quando o changelog continua grande após compactação."""
-    notes = "## [0.2.0]\n\n### Features\n\n" + "\n".join(
+    notes = "## [0.1.24]\n\n### Features\n\n" + "\n".join(
         f"* change {index}" for index in range(100)
     )
 
     body = prepare_body(notes, max_body_bytes=200)
 
     assert body == (
-        "## [0.2.0]\n\nThe complete release notes are maintained in `CHANGELOG.md`.\n"
+        "## [0.1.24]\n\nThe complete release notes are maintained in `CHANGELOG.md`.\n"
     )
 
 
@@ -725,7 +740,7 @@ def test_summarizes_release_when_compacted_notes_still_exceed_limit() -> None:
 
 
 def test_maintenance_version_selects_maintenance() -> None:
-    assert select_update_channel("0.1.23") == "maintenance"
+    assert select_update_channel("0.1.24") == "maintenance"
 
 
 @pytest.mark.parametrize("version", ["0.2.0", "1.0.0"])
@@ -733,7 +748,7 @@ def test_current_minor_versions_select_latest(version: str) -> None:
     assert select_update_channel(version) == "latest"
 
 
-@pytest.mark.parametrize("version", ["", "0.1", "v0.1.23", "0.1.x"])
+@pytest.mark.parametrize("version", ["", "0.1", "v0.1.24", "0.1.x"])
 def test_missing_or_malformed_versions_fail(version: str) -> None:
     with pytest.raises(ValueError, match="Versão do pacote inválida"):
         select_update_channel(version)
@@ -747,18 +762,18 @@ def test_null_version_fails_with_controlled_error() -> None:
 # ── release-promotion ────────────────────────────────────────────────────────
 
 
-def _lines(maintenance_milestone: str = "0.3.x") -> ReleaseLines:
+def _lines(maintenance_milestone: str = "0.2.x") -> ReleaseLines:
     return ReleaseLines.model_validate(
         {
             "version_files": ["pyproject.toml"],
-            "development": {"branch": "release/0.4", "milestone": "0.4"},
+            "development": {"branch": "release/0.3", "milestone": "0.3"},
             "maintenance": {"branch": "master", "milestone": maintenance_milestone},
         }
     )
 
 
 def test_maintenance_release_branch_follows_the_maintenance_milestone() -> None:
-    assert release.maintenance_release_branch(_lines("0.3.x")) == "release/0.3"
+    assert release.maintenance_release_branch(_lines("0.2.x")) == "release/0.2"
     assert release.maintenance_release_branch(_lines("1.12.x")) == "release/1.12"
 
 
@@ -768,13 +783,13 @@ def test_maintenance_release_branch_is_none_for_an_unusual_milestone() -> None:
 
 def test_release_please_commit_is_a_release_promotion() -> None:
     assert release.is_release_promotion(
-        "chore(master): release 0.3.1 (#500)", [], _lines()
+        "chore(master): release 0.2.1 (#500)", [], _lines()
     )
 
 
 def test_pull_request_from_the_maintenance_release_branch_is_a_promotion() -> None:
     assert release.is_release_promotion(
-        "fix: corrige o empacotamento (#501)", ["release/0.3"], _lines()
+        "fix: corrige o empacotamento (#501)", ["release/0.2"], _lines()
     )
 
 
@@ -786,7 +801,7 @@ def test_pull_request_from_another_branch_is_not_a_promotion() -> None:
 
 def test_pull_request_from_another_release_line_is_not_a_promotion() -> None:
     assert not release.is_release_promotion(
-        "fix: x (#502)", ["release/0.4", "release/0.2"], _lines()
+        "fix: x (#502)", ["release/0.3", "release/0.1"], _lines()
     )
 
 
@@ -799,7 +814,7 @@ def test_release_promotion_command_reads_message_and_head_refs(
 ) -> None:
     monkeypatch.setattr(release, "_release_lines", lambda: _lines())
     monkeypatch.setenv("COMMIT_MESSAGE", "fix: algo (#9)")
-    monkeypatch.setenv("PULL_HEAD_REFS", "feat/a\nrelease/0.3\n")
+    monkeypatch.setenv("PULL_HEAD_REFS", "feat/a\nrelease/0.2\n")
 
     assert release.release_promotion_main([]) == 0
     assert capsys.readouterr().out.strip() == "true"
@@ -1095,7 +1110,7 @@ def test_maintenance_accepts_the_rolling_patch_milestone() -> None:
 def test_maintenance_rejects_exact_patch() -> None:
     """Rejeita uma milestone de patch exata na linha contínua."""
     errors = release.validate_pull_request(
-        _event(base=MAINTENANCE_BRANCH, milestone="0.1.23")
+        _event(base=MAINTENANCE_BRANCH, milestone="0.1.24")
     )
     assert errors and MAINTENANCE_MILESTONE in errors[0]
 
@@ -1124,7 +1139,7 @@ def test_release_branch_promotion_to_master_is_exempt() -> None:
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=DEVELOPMENT_MILESTONE,
-        head="release/0.3",
+        head="release/0.2",
     )
     assert release.validate_pull_request(event) == []
 
@@ -1134,7 +1149,7 @@ def test_release_branch_promotion_from_another_repo_is_rejected() -> None:
     event = _event(
         base=MAINTENANCE_BRANCH,
         milestone=DEVELOPMENT_MILESTONE,
-        head="release/0.3",
+        head="release/0.2",
         head_repo="attacker/vectora",
     )
     errors = release.validate_pull_request(event)

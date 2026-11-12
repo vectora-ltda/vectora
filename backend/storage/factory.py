@@ -432,10 +432,7 @@ async def get_pg_pool(dsn: str | None = None) -> Any:
 
     import asyncpg
 
-    from backend.rbac.subscription import require_pro
     from backend.settings import settings as _s
-
-    require_pro()
 
     effective_dsn = dsn or _s.postgres_dsn
     if not effective_dsn:

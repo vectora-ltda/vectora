@@ -14,9 +14,11 @@ Comandos:
 from __future__ import annotations
 
 import argparse
+import errno
 import io
 import json
 import os
+import platform
 import re
 import shutil
 import subprocess  # nosec B404
@@ -549,13 +551,75 @@ def frontend_lint_main(argv: list[str]) -> int:
     ]
     if not files:
         return 0
+    return run_pnpm(["--dir", "frontend", "exec", "oxlint", "--no-ignore", *files])
+
+
+def run_pnpm(arguments: list[str]) -> int:
+    """Execute pnpm with the launcher convention used by the current OS."""
     pnpm = shutil.which("pnpm")
     if pnpm is None:
-        print("frontend-lint: pnpm não encontrado no PATH", file=sys.stderr)
+        print("pre-commit: pnpm não encontrado no PATH", file=sys.stderr)
         return 2
-    return subprocess.run(  # nosec B603
-        [pnpm, "--dir", "frontend", "exec", "oxlint", *files], check=False
-    ).returncode
+
+    command = [pnpm, *arguments]
+    if os.name == "nt" and Path(pnpm).suffix.lower() in {".cmd", ".bat"}:
+        command = [
+            os.environ.get("COMSPEC", "cmd.exe"),
+            "/d",
+            "/s",
+            "/c",
+            subprocess.list2cmdline(command),
+        ]
+    try:
+        return subprocess.run(command, check=False).returncode  # nosec B603
+    except OSError as exc:
+        if os.name != "nt" and exc.errno == errno.ENOEXEC:
+            shell = shutil.which("sh") or "/bin/sh"
+            return subprocess.run([shell, *command], check=False).returncode  # nosec B603
+        print(f"pre-commit: não foi possível iniciar pnpm ({exc})", file=sys.stderr)
+        return 2
+
+
+def frontend_i18n_main(_: list[str]) -> int:
+    return run_pnpm(["--dir", "frontend", "run", "lint:i18n", "--", "--changed"])
+
+
+def frontend_typecheck_main(_: list[str]) -> int:
+    return run_pnpm(["--dir", "frontend", "run", "typecheck"])
+
+
+def environment_main(_: list[str]) -> int:
+    """Log host details and tool availability at the start of pre-commit."""
+    system = platform.system()
+    print(
+        "Pre-commit environment: "
+        f"OS={system} ({platform.release()}), arch={platform.machine()}, "
+        f"Python={platform.python_version()}"
+    )
+    if system not in {"Linux", "Windows", "Darwin"}:
+        print(
+            "Ambiente não suportado; esperado Linux, Windows ou macOS.", file=sys.stderr
+        )
+        return 2
+    for executable in ("uv", "node", "pnpm"):
+        path = shutil.which(executable)
+        if path is None:
+            print(f"  {executable}: ausente no PATH")
+            continue
+        if executable == "pnpm":
+            print(
+                f"  pnpm: encontrado; o dispatcher do hook trata wrappers por SO ({path})"
+            )
+            continue
+        try:
+            result = subprocess.run(  # nosec B603 - executável de versão vem do PATH local
+                [path, "--version"], capture_output=True, text=True, check=False
+            )
+            version = (result.stdout or result.stderr).strip().splitlines()
+            print(f"  {executable}: {version[0] if version else 'disponível'} ({path})")
+        except OSError as exc:
+            print(f"  {executable}: encontrado, mas não iniciável ({exc})")
+    return 0
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────────
@@ -567,6 +631,9 @@ _COMMANDS: dict[str, tuple[Callable[..., int], bool]] = {
     "removed-paths": (removed_paths_main, False),
     "translation-keys": (translation_keys_main, False),
     "frontend-lint": (frontend_lint_main, True),
+    "frontend-i18n": (frontend_i18n_main, True),
+    "frontend-typecheck": (frontend_typecheck_main, True),
+    "environment": (environment_main, True),
 }
 
 

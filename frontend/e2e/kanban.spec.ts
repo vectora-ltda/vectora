@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./electron-test";
 
 /**
  * E2E (browser real): o board do Kanban não pode produzir scrollbar própria.

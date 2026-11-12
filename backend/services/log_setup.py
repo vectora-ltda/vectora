@@ -76,6 +76,26 @@ class _ShutdownCancellationFilter(logging.Filter):
         return type(exception).__name__ != "CancelledError"
 
 
+def install_uvicorn_shutdown_filter() -> None:
+    """Filtra cancelamentos de shutdown nos handlers próprios do Uvicorn.
+
+    O Uvicorn configura ``uvicorn.error`` com handlers dedicados, que não
+    passam pelos handlers da raiz configurados por :func:`setup_logging`.
+    Chame depois de criar ``uvicorn.Config``, quando esses handlers já existem.
+    """
+    filtro = _ShutdownCancellationFilter()
+    logger = logging.getLogger("uvicorn.error")
+    if not any(
+        isinstance(item, _ShutdownCancellationFilter) for item in logger.filters
+    ):
+        logger.addFilter(filtro)
+    for handler in logger.handlers:
+        if not any(
+            isinstance(item, _ShutdownCancellationFilter) for item in handler.filters
+        ):
+            handler.addFilter(_ShutdownCancellationFilter())
+
+
 def _redact_url(value: str) -> str:
     """Remove credential-like query parameters while preserving the URL target."""
     try:

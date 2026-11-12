@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import checks
 import pytest
@@ -358,10 +359,10 @@ class TestStripBotBlocks:
 
 
 def test_parses_deletion_and_rename_records() -> None:
-    raw = b"D\0documents/old.md\0R100\0docs/old.md\0docs/new.md\0"
+    raw = b"D\0documents/old.md\0R100\0guides/old.md\0guides/new.md\0"
     assert _staged_removed_paths(raw) == [
         RemovedPath("documents/old.md"),
-        RemovedPath("docs/old.md", "docs/new.md"),
+        RemovedPath("guides/old.md", "guides/new.md"),
     ]
 
 
@@ -381,9 +382,9 @@ def test_ignores_deleted_file_and_clean_snapshot() -> None:
 
 
 def test_reports_backslash_reference_to_renamed_path() -> None:
-    files = {"config.json": '{"source": "docs\\old.md"}\n'}
-    assert _find_references(files, [RemovedPath("docs/old.md", "docs/new.md")]) == [
-        ("config.json", 1, "docs/old.md", '{"source": "docs\\old.md"}')
+    files = {"config.json": '{"source": "guides\\old.md"}\n'}
+    assert _find_references(files, [RemovedPath("guides/old.md", "guides/new.md")]) == [
+        ("config.json", 1, "guides/old.md", '{"source": "guides\\old.md"}')
     ]
 
 
@@ -466,7 +467,16 @@ def test_frontend_lint_runs_oxlint_only_on_frontend_files(monkeypatch) -> None:
 
     assert code == 0
     assert calls == [
-        ["pnpm", "--dir", "frontend", "exec", "oxlint", "lib/a.ts", "components/b.tsx"]
+        [
+            "pnpm",
+            "--dir",
+            "frontend",
+            "exec",
+            "oxlint",
+            "--no-ignore",
+            "lib/a.ts",
+            "components/b.tsx",
+        ]
     ]
 
 
@@ -485,3 +495,70 @@ def test_frontend_lint_reports_missing_pnpm(monkeypatch) -> None:
     monkeypatch.setattr(checks.shutil, "which", lambda _: None)
 
     assert checks.frontend_lint_main(["frontend/lib/a.ts"]) == 2
+
+
+def test_pnpm_retries_shell_wrapper_after_exec_format_error(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    class Done:
+        returncode = 0
+
+    def fake_run(command: list[str], **_: object) -> Done:
+        calls.append(command)
+        if len(calls) == 1:
+            raise OSError(8, "Exec format error")
+        return Done()
+
+    monkeypatch.setattr(
+        checks.shutil,
+        "which",
+        lambda name: "/usr/bin/pnpm" if name == "pnpm" else "/bin/sh",
+    )
+    monkeypatch.setattr(checks.subprocess, "run", fake_run)
+    monkeypatch.setattr(checks, "os", SimpleNamespace(name="posix"))
+
+    assert checks.run_pnpm(["--version"]) == 0
+    assert calls == [
+        ["/usr/bin/pnpm", "--version"],
+        ["/bin/sh", "/usr/bin/pnpm", "--version"],
+    ]
+
+
+def test_pnpm_uses_cmd_for_windows_batch_launcher(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    class Done:
+        returncode = 0
+
+    monkeypatch.setattr(checks.shutil, "which", lambda _: r"C:\tools\pnpm.cmd")
+    monkeypatch.setattr(
+        checks,
+        "os",
+        SimpleNamespace(name="nt", environ={"COMSPEC": "cmd.exe"}),
+    )
+    monkeypatch.setattr(
+        checks.subprocess,
+        "run",
+        lambda command, **_: calls.append(command) or Done(),
+    )
+
+    assert checks.run_pnpm(["--version"]) == 0
+    assert calls[0][:4] == ["cmd.exe", "/d", "/s", "/c"]
+    assert "pnpm.cmd" in calls[0][4]
+
+
+def test_environment_hook_reports_supported_platform(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(checks.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(checks.platform, "release", lambda: "test")
+    monkeypatch.setattr(checks.platform, "machine", lambda: "x86_64")
+    monkeypatch.setattr(checks.platform, "python_version", lambda: "3.13.0")
+    monkeypatch.setattr(checks.shutil, "which", lambda _: None)
+
+    assert checks.environment_main([]) == 0
+    assert "OS=Linux" in capsys.readouterr().out
+
+
+def test_environment_hook_rejects_unknown_platform(monkeypatch) -> None:
+    monkeypatch.setattr(checks.platform, "system", lambda: "Plan9")
+
+    assert checks.environment_main([]) == 2

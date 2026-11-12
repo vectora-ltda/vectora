@@ -27,7 +27,7 @@ declare module "@tanstack/react-router" {
 // disparando `controllerchange`. Recarregamos UMA vez aqui para servir os assets
 // novos em vez do cache antigo, evitando ver UI desatualizada após `scons frontend`.
 //
-// Registro manual (`injectRegister: false` em vite.config.ts) — o script
+// Registro manual (`injectRegister: false` em vite.config.mts) — o script
 // auto-injetado do vite-plugin-pwa chamava `serviceWorker.register()` sem
 // checar o protocolo da origem; no app desktop (Electron, scheme customizado
 // `vectora-app://`) isso sempre falha (service worker só existe em

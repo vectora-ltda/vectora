@@ -6,8 +6,7 @@ Endpoints:
     POST /webhook/{provider}      — recebe evento, verifica assinatura, persiste e emite SSE
     POST /webhook/observability   — contrato genérico de alerta (Sentry, Grafana,
                                      PagerDuty, ...) → card do Kanban, sem parsing
-                                     nativo de vendor (ver docs/content/guides/
-                                     observability-webhooks.en.md)
+                                     nativo de vendor.
 
 Provedores suportados:
     github   — X-Hub-Signature-256 (HMAC-SHA256)

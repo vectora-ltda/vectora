@@ -23,7 +23,6 @@ import {
 import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useFeatureFlags } from "@/lib/hooks/use-feature-flags";
-import { useLicenseStatus } from "@/lib/hooks/use-license-status";
 import { useElementWidth } from "@/lib/hooks/use-element-width";
 import { useSettingsOverlayStore } from "@/lib/stores/settings-overlay-store";
 import type { SettingsCategoryId } from "@/lib/stores/settings-overlay-store";
@@ -54,22 +53,17 @@ export function SettingsOverlay() {
   const setActiveCategory = useSettingsOverlayStore((s) => s.setActiveCategory);
   const user = useAuthStore((s) => s.user);
   const { enableFeaturesBeta } = useFeatureFlags();
-  const { status: license, loading: licenseLoading } = useLicenseStatus();
   const [query, setQuery] = useState("");
   const [containerRef, containerWidth] = useElementWidth<HTMLDivElement>();
 
   const isAdmin = user?.role === "root" || user?.role === "admin";
-  // Enquanto `licenseLoading`, trata como não-free — sem isso a categoria
-  // "Usuários" pisca visível→escondida no primeiro render pra quem É Pro.
-  const isFree = !licenseLoading && !license?.configured;
   const groups = useMemo(
     () =>
       buildSettingsCategoryGroups({
         connectEnabled: enableFeaturesBeta,
         isAdmin,
-        isFree,
       }),
-    [enableFeaturesBeta, isAdmin, isFree],
+    [enableFeaturesBeta, isAdmin],
   );
 
   const effectiveCategoryId =
