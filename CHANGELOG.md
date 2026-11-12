@@ -10,6 +10,10 @@ Esta seção reúne as alterações publicadas nesta versão.
 
 Os recursos incluídos nesta versão são listados abaixo.
 
+- Unifica a instalação do ambiente de desenvolvimento e separa dela o bootstrap opcional da toolchain Linux.
+- Libera recursos locais e armazenamento configurado pelo operador no plano Free.
+- Integra a Library hospedada pelo Services para os catálogos MCP, Skills e Memory Buckets; buckets já instalados localmente continuam disponíveis sem assinatura.
+- Remove a fonte local do site Hugo incorporado; a documentação pública continua disponível no site oficial.
 - feat: document Vectora App capabilities before 0.1.23 (#291)
 - feat: consolidar o shell e modernizar a UI/UX do App (#272)
 - feat: support parallel release lines with milestones (#247)
@@ -62,6 +66,14 @@ Os recursos incluídos nesta versão são listados abaixo.
 
 As correções incluídas nesta versão são listadas abaixo.
 
+- Corrige o build e a integração do aplicativo desktop no Linux, incluindo os metadados de identidade do ícone.
+- Preserva os padrões existentes das toolchains Linux e registra a identidade do aplicativo no dock durante o desenvolvimento.
+- Respeita o repositório alvo ao montar o contexto do agente e mantém o contexto dos gatilhos de tarefas.
+- Suprime o traceback esperado de cancelamento durante o encerramento do servidor.
+- Autentica os testes E2E pela janela Electron e usa o Chromium distribuído com o aplicativo.
+- Mantém os painéis do shell acessíveis em telas compactas e preserva o streaming ao alternar workbenches.
+- Remove a implementação obsoleta do modo de revisão automatizada.
+- Desativa o gateway remoto sem novas tentativas quando a conta não tem Pro, preservando os webhooks locais.
 - fix: endurece validacao de entradas e caminhos (#431)
 - fix: remove o segredo do gateway do código e adiciona varredura de segredos (#428)
 - fix(ci): consolidate release workflow corrections
