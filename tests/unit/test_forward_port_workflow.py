@@ -765,8 +765,12 @@ def test_labeler_keeps_labels_owned_by_path_rules() -> None:
 def test_release_please_le_epoch_de_tag_anotada(tmp_path: Path) -> None:
     """Regressão da 0.1.24: com tag anotada, `git show --format=%ct` imprime o
     cabeçalho da tag e o `jq --argjson` do passo de candidatos falhava."""
-    import re
     import subprocess
+
+    git = shutil.which("git")
+    bash = shutil.which("bash")
+    if git is None or bash is None:
+        pytest.skip("git e bash necessários para executar a linha do workflow")
 
     workflow = WORKFLOW.parent / "release-please.yml"
     content = workflow.read_text(encoding="utf-8")
@@ -779,22 +783,19 @@ def test_release_please_le_epoch_de_tag_anotada(tmp_path: Path) -> None:
         "GIT_AUTHOR_EMAIL": "t@example.com",
         "GIT_COMMITTER_NAME": "t",
         "GIT_COMMITTER_EMAIL": "t@example.com",
-        "GIT_CONFIG_GLOBAL": "/dev/null",
-        "PATH": "/usr/bin:/bin",
+        "GIT_CONFIG_GLOBAL": os.devnull,
+        "PATH": str(Path(git).parent),
     }
-    run = lambda *args: subprocess.run(  # noqa: E731
-        args, cwd=tmp_path, env=env, check=True, capture_output=True, text=True
-    )
-    run("git", "init", "-q")
-    run("git", "commit", "-q", "--allow-empty", "-m", "release")
-    run("git", "tag", "-a", "v0.1.24", "-m", "Vectora 0.1.24")
 
-    result = subprocess.run(
-        ["bash", "-c", f'latest_tag=v0.1.24; echo "{command}"'],
-        cwd=tmp_path,
-        env=env,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    assert result.stdout.strip().isdigit()
+    def run(*args: str) -> str:
+        # Argumentos fixos do teste, sem entrada externa.
+        return subprocess.run(  # noqa: S603
+            args, cwd=tmp_path, env=env, check=True, capture_output=True, text=True
+        ).stdout
+
+    run(git, "init", "-q")
+    run(git, "commit", "-q", "--allow-empty", "-m", "release")
+    run(git, "tag", "-a", "v0.1.24", "-m", "Vectora 0.1.24")
+
+    output = run(bash, "-c", f'latest_tag=v0.1.24; echo "{command}"')
+    assert output.strip().isdigit()
