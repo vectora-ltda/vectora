@@ -7,6 +7,16 @@ const APP_URL = process.env.PLAYWRIGHT_BASE_URL ?? "vectora-app://app/";
 const EMAIL = process.env.E2E_EMAIL ?? "e2e@vectora.local";
 const PASSWORD = process.env.E2E_PASSWORD ?? "Vectora-e2e-2026!";
 
+/** Warns when E2E authentication could write into the developer's real app data. */
+function warnIfHomeNotIsolated(): void {
+  if (process.env.VECTORA_HOME) return;
+  console.warn(
+    "\n⚠️  VECTORA_HOME não está setado neste shell.\n" +
+      "   Confirme que o processo Electron e o backend conectado também usam um VECTORA_HOME isolado;\n" +
+      "   esta suíte cria usuários e dados reais no armazenamento do Vectora.\n",
+  );
+}
+
 /** Prepara a sessão no backend conectado à janela Electron. */
 async function globalSetup(_config: FullConfig): Promise<void> {
   const appUrl = new URL(APP_URL);
@@ -19,9 +29,7 @@ async function globalSetup(_config: FullConfig): Promise<void> {
   ) {
     throw new Error("E2E: a autenticação exige a origem vectora-app://app/.");
   }
-  console.warn(
-    "E2E: confirme que o processo Electron e seu backend usam um VECTORA_HOME isolado; a suíte cria dados reais.",
-  );
+  warnIfHomeNotIsolated();
 
   const browser = await chromium.connectOverCDP(CDP_URL);
   try {

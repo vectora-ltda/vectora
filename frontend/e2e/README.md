@@ -34,6 +34,9 @@ sentido com a stack inteira de pé:
    O setup autentica pela ponte `vectora-app://` da própria janela, usando o
    backend conectado ao Electron. Os testes conectam ao Chromium incluído;
    Playwright é somente o cliente CDP e nenhum browser adicional é instalado.
+   A suíte cria usuários e dados reais: inicie o Electron e o backend com um
+   `VECTORA_HOME` isolado. Definir essa variável apenas no shell dos testes não
+   isola um app/backend que já esteja rodando.
 2. **Chave de provider** configurada (ex.: `GOOGLE_API_KEY`) — alguns testes
    exercitam o LLM real.
 3. **Credenciais e2e** (opcional; há defaults). Numa instalação limpa (sem
