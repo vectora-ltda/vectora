@@ -1,4 +1,4 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Page } from "./electron-test";
 
 /**
  * E2E (browser real): a tool `web_search` é chamada de verdade (Tavily

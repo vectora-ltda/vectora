@@ -45,7 +45,6 @@
     "build",
     "public/service-worker.js",
     "lib/paraglide",
-    "e2e",
     "playwright-report",
     "test-results"
   ]
