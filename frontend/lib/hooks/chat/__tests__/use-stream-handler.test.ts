@@ -91,6 +91,35 @@ describe("useStreamHandler.processStream", () => {
     expect(assistant?.persistedMessageId).toBe(42);
   });
 
+  it("evento repetido, reordenado ou posterior ao done não altera a resposta", async () => {
+    const seq = (n: number) => ({ seq: n, event_id: `run-1:${n}` });
+    streamChatMock.mockReturnValue(
+      gen([
+        { type: "thread", thread_id: "t1", run_id: "run-1", ...seq(1) },
+        { type: "token", content: "Olá", ...seq(2) },
+        { type: "token", content: "Olá", ...seq(2) }, // retransmitido
+        { type: "token", content: "NUNCA", ...seq(1) }, // reordenado
+        { type: "token", content: ", mundo", ...seq(3) },
+        {
+          type: "done",
+          thread_id: "t1",
+          run_id: "run-1",
+          message_id: 7,
+          stopped_reason: "stop",
+          ...seq(4),
+        },
+        { type: "token", content: "DEPOIS", ...seq(5) }, // após o terminal
+      ] as StreamEvent[]),
+    );
+
+    const { result } = run();
+    const out = await result.current.processStream("oi", "a1");
+
+    expect(out.assistantContent).toBe("Olá, mundo");
+    expect(out.runId).toBe("run-1");
+    expect(messages.find((msg) => msg.id === "a1")?.content).toBe("Olá, mundo");
+  });
+
   it("forkFromCheckpointId presente manda config.fork_from_checkpoint_id; ausente omite (edit/regenerate)", async () => {
     streamChatMock.mockReturnValue(
       gen([
