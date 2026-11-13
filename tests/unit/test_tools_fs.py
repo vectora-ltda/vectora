@@ -875,6 +875,18 @@ class TestArtifactSlug:
 # ---------------------------------------------------------------------------
 
 
+def _approve_current_hooks(root: Path) -> None:
+    """Grava no workspace do fixture o digest dos hooks atuais do vectora.toml."""
+    from backend.workspace import workspace as ws_mod
+    from backend.workspace.workspace_config import hooks_digest, load_workspace_config
+
+    config = load_workspace_config(root)
+    assert config is not None
+    workspace = ws_mod.workspace_registry.get("testws")
+    assert workspace is not None
+    workspace.hooks_rules_digest = hooks_digest(config.hooks)
+
+
 class TestPostWriteHooksAndAutoCommit:
     async def test_file_write_runs_post_write_hook(self, tmp_path, trusted_ws):
         """[hooks] post_file_write roda com {file} substituído pelo path real."""
@@ -885,6 +897,7 @@ class TestPostWriteHooksAndAutoCommit:
             "[hooks]\npost_file_write = [\"python -c \\\"open(r'{file}' + '.marker', 'w').close()\\\"\"]\n",
             encoding="utf-8",
         )
+        _approve_current_hooks(tmp_path)
 
         dest = tmp_path / "novo.txt"
         await file_write(
@@ -893,6 +906,30 @@ class TestPostWriteHooksAndAutoCommit:
 
         marker_file = Path(str(dest) + ".marker")
         assert marker_file.exists()
+
+    async def test_post_write_hook_alterado_depois_da_aprovacao_nao_roda(
+        self, tmp_path, trusted_ws
+    ):
+        """O digest cobre post_file_write: comando trocado depois da aprovação
+        não executa e a resposta avisa."""
+        from backend.tools.fs import file_write
+
+        (tmp_path / "vectora.toml").write_text(
+            '[hooks]\npost_file_write = ["python -c pass"]\n', encoding="utf-8"
+        )
+        _approve_current_hooks(tmp_path)
+        (tmp_path / "vectora.toml").write_text(
+            "[hooks]\npost_file_write = [\"python -c \\\"open(r'{file}' + '.marker', 'w').close()\\\"\"]\n",
+            encoding="utf-8",
+        )
+
+        dest = tmp_path / "novo.txt"
+        result = await file_write(
+            file_path=str(dest), content="ola", ctx=ctx_from_config(trusted_ws)
+        )
+
+        assert not Path(str(dest) + ".marker").exists()
+        assert "mudaram depois da aprovação" in result
 
     async def test_file_write_without_config_does_not_run_hooks(
         self, tmp_path, trusted_ws
@@ -957,12 +994,11 @@ class TestPostWriteHooksAndAutoCommit:
         proj = tmp_path / "proj"
         proj.mkdir()
         ws = registry.create(str(proj), trust=True)
-        registry.approve_hooks(ws.id)
-
         (proj / "vectora.toml").write_text(
             "[hooks]\npost_file_write = [\"python -c \\\"open(r'{file}' + '.marker', 'w').close()\\\"\"]\n",
             encoding="utf-8",
         )
+        registry.approve_hooks(ws.id)
 
         dest = proj / "novo.txt"
         await file_write(
