@@ -490,7 +490,7 @@ jobs:
           - os: ubuntu-22.04-arm
             arch: arm64
             target: linux
-          - os: macos-26
+          - os: macos-15
             arch: arm64
             target: mac
           - os: windows-latest
@@ -944,11 +944,11 @@ jobs:
             arch: arm64
             format: msi
           - platform: macOS
-            os: macos-26
+            os: macos-15
             arch: arm64
             format: dmg
           - platform: macOS
-            os: macos-26
+            os: macos-15
             arch: arm64
             format: zip
           - platform: Linux
