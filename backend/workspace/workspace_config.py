@@ -67,7 +67,7 @@ name = "{name}"
 #
 # [[hooks.rules]]                            # hook do harness (exige aprovação do workspace)
 # id = "bloqueia-rm"
-# event = "pre_tool"                         # "pre_tool" | "post_tool"
+# event = "pre_tool"                         # "pre_tool" | "post_tool" | "pre_response"
 # tools = ["run_command"]                    # padrões fnmatch; vazio vale para todas
 # command = ["python", ".vectora/hooks/check.py"]  # lista de argumentos, sem shell
 # mode = "blocking"                          # "blocking" | "informative"
@@ -122,8 +122,9 @@ class HookRule(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(pattern=HOOK_ID_PATTERN)
-    event: Literal["pre_tool", "post_tool"]
-    #: Padrões ``fnmatch`` dos nomes de tool; vazio vale para todas.
+    event: Literal["pre_tool", "post_tool", "pre_response"]
+    #: Padrões ``fnmatch`` dos nomes de tool; vazio vale para todas. Ignorado
+    #: em ``pre_response``, que não tem tool.
     tools: list[str] = Field(default_factory=list, max_length=64)
     command: list[str] = Field(min_length=1, max_length=32)
     mode: Literal["blocking", "informative"] = "blocking"
@@ -135,7 +136,7 @@ class HooksSection(BaseModel):
 
     ``post_file_write`` são comandos shell disparados após uma escrita de
     arquivo (``{file}`` vira o path absoluto; falha nunca propaga para a
-    tool). ``rules`` são os hooks do harness (``pre_tool`` e ``post_tool``).
+    tool). ``rules`` são os hooks do harness (``pre_tool``, ``post_tool`` e ``pre_response``).
     Regras inválidas são descartadas com um aviso (sem o valor), para que um
     erro de digitação não derrube o resto da configuração do workspace.
     """

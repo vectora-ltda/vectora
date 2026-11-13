@@ -38,6 +38,7 @@ from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 from backend.engine.guardrails import LoopCapConfig, TurnBudget
+from backend.engine.hooks import MAX_RESPONSE_REVISIONS, response_denial_feedback
 from backend.engine.stream_events import (
     ErrorSignal,
     HitlRequested,
@@ -59,6 +60,7 @@ from backend.engine.tool_batch import (
     _is_tool_error,
     _post_tool_hooks,
     _pre_tool_hooks,
+    _redact_secrets,
     drain_hook_outcomes,
     execute_tool_batch,
 )
@@ -550,6 +552,23 @@ async def _safe_update_agent_run_status(
         )
 
 
+async def _pre_response_hooks(ctx: ToolContext, text: str) -> Any | None:
+    """Roda os hooks ``pre_response``; devolve o desfecho que negou a resposta."""
+    from backend.engine.hooks import blocking_outcome, run_hooks
+    from backend.engine.tool_batch import _record_hook_outcomes
+
+    outcomes = await run_hooks(
+        "pre_response",
+        ctx=ctx,
+        tool_name="",
+        tool_args={},
+        result=text,
+        redact=_redact_secrets,
+    )
+    _record_hook_outcomes(ctx, outcomes)
+    return blocking_outcome(outcomes)
+
+
 async def _safe_record_run_evidence(
     session_store: Any, run_id: str | None, **evidence: Any
 ) -> None:
@@ -964,6 +983,7 @@ async def run_conversation(  # noqa: PLR0911
             )
 
     media_routed_model: str | None = None
+    response_revisions = 0
     for _iteracao in range(config.max_iterations):
         raw_history = await session_store.get_history(thread_id)
         if ctx.permission_mode == "plan":
@@ -1311,6 +1331,39 @@ async def run_conversation(  # noqa: PLR0911
         )
 
         if not tool_calls:
+            response_denial = await _pre_response_hooks(ctx, texto_final)
+            for hook_evidence in drain_hook_outcomes(ctx):
+                await _safe_record_run_evidence(
+                    session_store, config.run_id, evidence=hook_evidence
+                )
+            if response_denial is not None:
+                if response_revisions < MAX_RESPONSE_REVISIONS:
+                    response_revisions += 1
+                    parent_id = await session_store.append_message(
+                        thread_id,
+                        VMessage(
+                            role=MessageRole.USER,
+                            content=[
+                                ContentBlock(
+                                    kind="text",
+                                    text=response_denial_feedback(response_denial),
+                                )
+                            ],
+                        ),
+                        parent_message_id=parent_id,
+                        run_id=config.run_id,
+                    )
+                    continue
+                await emit(
+                    ErrorSignal(
+                        code="RESPONSE_HOOK_DENIED",
+                        message=(
+                            f"O hook {response_denial.hook_id} negou a resposta "
+                            "mesmo depois das revisões; ela não atende à regra "
+                            "configurada no workspace."
+                        ),
+                    )
+                )
             if config.run_id:
                 try:
                     if hasattr(session_store, "append_ledger_event"):

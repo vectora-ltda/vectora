@@ -5,6 +5,11 @@ As regras ficam em ``[[hooks.rules]]`` do ``vectora.toml`` do workspace
 argumentos, sem shell) que recebe o contexto da chamada como JSON na entrada
 padrão e responde ``{"decision": "allow" | "deny", "reason": "..."}``.
 
+Eventos: ``pre_tool`` (antes de despachar a tool), ``post_tool`` (depois dela)
+e ``pre_response`` (o modelo terminou sem pedir tool; o hook recebe o texto da
+resposta em ``response``). Uma negação em ``pre_response`` devolve o motivo ao
+modelo para revisar a resposta, até ``MAX_RESPONSE_REVISIONS`` vezes por run.
+
 Garantias:
 
 - **Aprovação.** Comando vindo de ``vectora.toml`` pode ter vindo de um
@@ -44,7 +49,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-HookEvent = Literal["pre_tool", "post_tool"]
+HookEvent = Literal["pre_tool", "post_tool", "pre_response"]
+#: Revisões que o loop pede ao modelo por run quando um ``pre_response`` nega.
+MAX_RESPONSE_REVISIONS = 2
 OutcomeKind = Literal["allowed", "denied", "error", "timeout", "skipped_not_approved"]
 
 #: Versão do contrato JSON entregue ao hook.
@@ -88,7 +95,18 @@ def block_message(outcome: HookOutcome) -> str:
     return f"Error: hook_denied: {outcome.hook_id}{detail}"
 
 
+def response_denial_feedback(outcome: HookOutcome) -> str:
+    """Mensagem que pede ao modelo para revisar a resposta negada por um hook."""
+    detail = f": {outcome.reason}" if outcome.reason else ""
+    return (
+        f"[hook pre_response {outcome.hook_id}] A resposta foi recusada por uma "
+        f"regra do workspace{detail}. Revise a resposta e atenda à regra."
+    )
+
+
 def _matches(rule: HookRule, tool_name: str) -> bool:
+    if rule.event == "pre_response":
+        return True
     return not rule.tools or any(
         fnmatch.fnmatchcase(tool_name, pattern) for pattern in rule.tools
     )
@@ -129,10 +147,13 @@ def build_payload(
         "hook_id": rule.id,
         "run_id": getattr(ctx, "run_id", None),
         "thread_id": getattr(ctx, "thread_id", None),
-        "tool": {"name": tool_name, "args": tool_args},
     }
-    if result is not None:
-        payload["result"] = _clip(result, MAX_RESULT_CHARS)
+    if rule.event == "pre_response":
+        payload["response"] = _clip(result or "", MAX_RESULT_CHARS)
+    else:
+        payload["tool"] = {"name": tool_name, "args": tool_args}
+        if result is not None:
+            payload["result"] = _clip(result, MAX_RESULT_CHARS)
     return redact(json.dumps(payload, ensure_ascii=False, default=str))
 
 
