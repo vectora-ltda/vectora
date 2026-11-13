@@ -39,9 +39,10 @@ def _latest_user_index(messages: Sequence[VMessage]) -> int:
     return -1
 
 
-#: Quantas imagens de ferramentas (screenshots) mais recentes seguem ao
-#: modelo; as anteriores viram uma nota curta para não lotar o contexto.
-MAX_RECENT_TOOL_IMAGES = 3
+#: Quantas imagens de ferramentas mais recentes seguem ao modelo (cabe uma
+#: chamada de ``pdf_to_images`` inteira); as anteriores viram uma nota curta
+#: para não lotar o contexto.
+MAX_RECENT_TOOL_IMAGES = 8
 
 
 def _recent_tool_images(messages: Sequence[VMessage]) -> set[tuple[int, int]]:
