@@ -276,6 +276,18 @@ class TestDescricao:
         monkeypatch.delenv("PR_BODY", raising=False)
         assert pr_metadata_main() == 0
 
+    def test_pr_de_release_com_changelog_gerado_passa(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        body = "- feat(chat): aceita qualquer arquivo anexado (#480)"
+        assert _run(monkeypatch, "chore(master): release 0.1.25", body) == 0
+
+    def test_titulo_parecido_com_release_nao_isenta(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        body = "- feat(chat): aceita qualquer arquivo anexado (#480)"
+        assert _run(monkeypatch, "feat: prepara o release 0.1.25", body) == 1
+
 
 class TestVinculoComIssue:
     """O corpo do PR pode apontar a issue com a spec numa linha só dessa
