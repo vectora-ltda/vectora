@@ -21,11 +21,14 @@ import base64
 import binascii
 import json
 import logging
+import mimetypes
 import os
 import shutil
+import tempfile
 import time
 from collections.abc import Mapping
 from contextlib import AsyncExitStack
+from pathlib import Path
 from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
@@ -211,7 +214,7 @@ class VectoraMCPClient:
             "mcp_external_tool_done",
             extra={"tool": tool_name, "elapsed_s": round(time.perf_counter() - t0, 3)},
         )
-        return _render_call_result(result, ctx)
+        return _render_call_result(result, ctx, await _transcribe_audio_blocks(result))
 
     async def aclose(self) -> None:
         """Fecha as sessões/subprocessos abertos — best-effort, nunca propaga.
@@ -234,13 +237,69 @@ class VectoraMCPClient:
             self._connected = False
 
 
-def _render_call_result(result: Any, ctx: ToolContext | None = None) -> str:
+#: Áudio maior que isto não é transcrito (a nota diz que foi ignorado).
+_MAX_AUDIO_BYTES = 25 * 1024 * 1024
+#: Teto da transcrição de um áudio no texto do resultado.
+_MAX_AUDIO_TRANSCRIPT_CHARS = 12_000
+
+
+async def _transcribe_audio_blocks(result: Any) -> dict[int, str]:
+    """Transcreve localmente cada ``AudioContent`` do resultado.
+
+    Devolve o texto por posição do bloco; áudio inválido, grande demais ou sem
+    motor local fica de fora e o resultado traz só a nota. Nada sai do
+    computador: não há envio ao provider.
+    """
+    from backend.services.speech_to_text import (
+        SpeechToTextError,
+        transcribe_local,
+    )
+
+    transcripts: dict[int, str] = {}
+    for index, block in enumerate(getattr(result, "content", []) or []):
+        if getattr(block, "type", None) != "audio":
+            continue
+        try:
+            payload = base64.b64decode(getattr(block, "data", "") or "", validate=True)
+        except (ValueError, binascii.Error):
+            continue
+        if not payload or len(payload) > _MAX_AUDIO_BYTES:
+            continue
+        mime_type = str(getattr(block, "mimeType", "") or "")
+        suffix = (
+            mimetypes.guess_extension(mime_type.split(";", maxsplit=1)[0].strip())
+            or ".bin"
+        )
+        with tempfile.TemporaryDirectory(prefix="vectora-mcp-audio-") as workdir:
+            source = Path(workdir) / f"audio{suffix}"
+            source.write_bytes(payload)
+            try:
+                transcript = await transcribe_local(source)
+            except SpeechToTextError as exc:
+                logger.warning("mcp: áudio da tool não transcrito: %s", exc)
+                continue
+        text = transcript.text.strip()
+        if text:
+            language = f", idioma: {transcript.language}" if transcript.language else ""
+            transcripts[index] = (
+                f"[áudio retornado pela tool ({mime_type}), transcrição local"
+                f"{language}]\n{text[:_MAX_AUDIO_TRANSCRIPT_CHARS]}"
+            )
+    return transcripts
+
+
+def _render_call_result(
+    result: Any,
+    ctx: ToolContext | None = None,
+    audio_transcripts: dict[int, str] | None = None,
+) -> str:
     """Converte um `CallToolResult` em texto para o modelo.
 
     Texto é concatenado como antes. Imagens (`ImageContent`) são salvas como
     asset da sessão e anexadas ao resultado para o modelo (mesmo caminho dos
-    screenshots); o base64 nunca entra no texto. Áudio e recursos binários
-    viram uma nota curta.
+    screenshots); o base64 nunca entra no texto. Áudio entra como a
+    transcrição local (``audio_transcripts``, por posição do bloco) e, sem
+    ela, como uma nota; recursos binários viram uma nota curta.
     """
     parts: list[str] = []
     images: list[dict[str, Any]] = []
@@ -264,9 +323,14 @@ def _render_call_result(result: Any, ctx: ToolContext | None = None) -> str:
                 parts.append(f"[imagem anexada: {saved['model_image']['name']}]")
             continue
         if kind == "audio":
+            transcript = (audio_transcripts or {}).get(index)
             parts.append(
-                f"[áudio retornado pela tool ({getattr(block, 'mimeType', '')}) "
-                "não enviado ao modelo]"
+                transcript
+                if transcript is not None
+                else (
+                    f"[áudio retornado pela tool ({getattr(block, 'mimeType', '')}) "
+                    "não transcrito e não enviado ao modelo]"
+                )
             )
             continue
         if kind == "resource":
