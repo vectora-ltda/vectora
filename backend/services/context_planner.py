@@ -174,7 +174,7 @@ def _fit_required_message(message: VMessage, budget: int) -> VMessage:
     """Mantém a mensagem obrigatória dentro do orçamento aproximado."""
     if budget <= 0 or _message_tokens(message) <= budget:
         return message
-    text_blocks = [block for block in message.content if block.kind == "text"]
+    text_blocks = [block for block in message.content if block.is_textual]
     if not text_blocks:
         return message
     # A estimativa do serviço de tokens varia por modelo; um limite de quatro
@@ -184,7 +184,7 @@ def _fit_required_message(message: VMessage, budget: int) -> VMessage:
     remaining = max_chars
     bounded = []
     for block in message.content:
-        if block.kind != "text" or not block.text:
+        if not block.is_textual or not block.text:
             bounded.append(block)
             continue
         excerpt = block.text[:remaining]
@@ -203,7 +203,7 @@ def _fit_required_message(message: VMessage, budget: int) -> VMessage:
         remaining = max_chars
         bounded = []
         for block in message.content:
-            if block.kind != "text" or not block.text:
+            if not block.is_textual or not block.text:
                 bounded.append(block)
                 continue
             excerpt = block.text[:remaining]

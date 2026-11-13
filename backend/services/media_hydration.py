@@ -48,18 +48,25 @@ def hydrate_media_blocks(
       assinatura).
     - Asset ausente, inválido ou de outro dono vira bloco de texto que
       avisa a indisponibilidade, em vez de sumir em silêncio.
+    - Bloco ``media`` (anexo que não é imagem) vira texto com a forma
+      textual do anexo.
     """
     read = reader or _default_reader()
     hydrated: list[VMessage] = []
     for message in messages:
         if not any(
-            block.kind == "image_url" and not block.image_url
+            (block.kind == "image_url" and not block.image_url) or block.kind == "media"
             for block in message.content
         ):
             hydrated.append(message)
             continue
         blocks: list[ContentBlock] = []
         for block in message.content:
+            if block.kind == "media":
+                # Anexo não-imagem chega ao provider pela forma textual
+                # (conteúdo, texto extraído, transcrição ou referência).
+                blocks.append(ContentBlock(kind="text", text=block.text or ""))
+                continue
             if block.kind != "image_url" or block.image_url:
                 blocks.append(block)
                 continue

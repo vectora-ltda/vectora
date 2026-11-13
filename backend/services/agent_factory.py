@@ -928,6 +928,24 @@ def _history_pairs_from_messages(
                 )
             )
         ]
+        attachments.extend(
+            {
+                "kind": block.media_kind or "file",
+                "name": block.attachment_name or "arquivo",
+                "mimeType": block.attachment_mime_type or "application/octet-stream",
+                "size": block.attachment_size_bytes or 0,
+                **(
+                    {
+                        "url": f"/threads/{thread_id}/assets/{block.asset_id}",
+                        "asset_id": block.asset_id,
+                    }
+                    if block.asset_id
+                    else {}
+                ),
+            }
+            for block in msg.content
+            if block.kind == "media"
+        )
         text = msg.text().strip()
         if not text and not attachments:
             continue
