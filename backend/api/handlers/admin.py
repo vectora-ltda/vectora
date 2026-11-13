@@ -711,6 +711,64 @@ async def patch_image_fallback_model(
     return {"status": "updated", "model": model}
 
 
+class TranscriptionSettingsBody(BaseModel):
+    """Campos ausentes (``None``) não mudam; string vazia limpa a escolha."""
+
+    model: str | None = None
+    language: str | None = None
+    system_command: str | None = None
+    system_model: str | None = None
+
+
+@router.get("/transcription")
+async def get_transcription_settings(request: Request) -> dict:
+    """Configuração da transcrição local de áudio e vídeo: modelo e idioma do
+    faster-whisper embutido, whisper do sistema, e quais motores existem
+    nesta máquina (``backend/services/speech_to_text.py``)."""
+    require_admin(_get_user(request))
+    from backend.services.speech_to_text import stt_settings
+
+    return stt_settings()
+
+
+@router.patch("/transcription")
+async def patch_transcription_settings(
+    request: Request, body: TranscriptionSettingsBody
+) -> dict:
+    """Grava a configuração da transcrição local e devolve o estado efetivo."""
+    require_admin(_get_user(request))
+    from backend.config.registry import get_field
+    from backend.services.speech_to_text import (
+        LOCAL_MODEL_SIZES,
+        stt_settings,
+        validate_language,
+        validate_system_command,
+        validate_system_model,
+    )
+
+    updates: dict[str, str] = {}
+    try:
+        if body.model is not None:
+            if body.model not in LOCAL_MODEL_SIZES:
+                raise ValueError("modelo inválido; use " + ", ".join(LOCAL_MODEL_SIZES))
+            updates["stt_local_model"] = body.model
+        if body.language is not None:
+            updates["stt_language"] = validate_language(body.language)
+        if body.system_command is not None:
+            updates["stt_system_command"] = validate_system_command(body.system_command)
+        if body.system_model is not None:
+            updates["stt_system_model"] = validate_system_model(body.system_model)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    for name, value in updates.items():
+        field = get_field(name)
+        if field is None:
+            raise HTTPException(status_code=500, detail=f"campo ausente: {name}")
+        field.set(value)
+    return stt_settings()
+
+
 class MediaModelsBody(BaseModel):
     """String vazia **limpa** a escolha (volta a valer a env var); `None`
     significa "não mexe nesta chave"."""

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ChatModelSettings,
+  LocalSpeechSettings,
   SystemOneConfiguration,
   TranscriptionSettings,
 } from "../ai-models-tab";
@@ -257,5 +258,132 @@ describe("ChatModelSettings", () => {
       selectedModel: "ollama:qwen3",
     });
     expect(useSettingsStore.getState().selectedModel).toBe("ollama:qwen3");
+  });
+});
+
+describe("LocalSpeechSettings", () => {
+  const payload = {
+    model: "base",
+    language: "",
+    system_command: "",
+    system_model: "",
+    models: [
+      { id: "tiny", cached: false },
+      { id: "base", cached: true },
+      { id: "small", cached: false },
+    ],
+    languages: ["pt", "en"],
+    engines: {
+      embedded: true,
+      apple_speech: true,
+      system: false,
+      system_kind: "",
+    },
+  };
+
+  const stubFetch = (patchResponse?: { ok: boolean; body: unknown }) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (
+        String(input) === "/admin/transcription" &&
+        init?.method === "PATCH"
+      ) {
+        const sent = JSON.parse(String(init.body)) as Record<string, string>;
+        return Promise.resolve({
+          ok: patchResponse?.ok ?? true,
+          status: patchResponse?.ok === false ? 422 : 200,
+          json: async () => patchResponse?.body ?? { ...payload, ...sent },
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => payload,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  };
+
+  it("shows detected engines and models with their download state", async () => {
+    stubFetch();
+    render(<LocalSpeechSettings />);
+
+    expect(
+      await screen.findByTestId("stt-engine-embedded"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("stt-engine-apple")).toBeInTheDocument();
+    expect(screen.getByTestId("stt-engine-system")).toBeInTheDocument();
+    const model = screen.getByLabelText(
+      /Bundled whisper model|ai_models_stt_model_label/,
+    );
+    expect(model).toHaveValue("base");
+    expect(
+      screen.getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(expect.arrayContaining([expect.stringContaining("small")]));
+  });
+
+  it("hides the macOS engine when the helper is not present", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ...payload,
+            engines: { ...payload.engines, apple_speech: false },
+          }),
+        }),
+      ),
+    );
+    render(<LocalSpeechSettings />);
+    await screen.findByTestId("stt-engine-embedded");
+    expect(screen.queryByTestId("stt-engine-apple")).not.toBeInTheDocument();
+  });
+
+  it("saves the model and the language when they change", async () => {
+    const fetchMock = stubFetch();
+    render(<LocalSpeechSettings />);
+
+    const model = await screen.findByLabelText(
+      /Bundled whisper model|ai_models_stt_model_label/,
+    );
+    fireEvent.change(model, { target: { value: "small" } });
+    await waitFor(() => expect(model).toHaveValue("small"));
+
+    const language = screen.getByLabelText(
+      /Transcription language|ai_models_stt_language_label/,
+    );
+    fireEvent.change(language, { target: { value: "pt" } });
+    await waitFor(() => expect(language).toHaveValue("pt"));
+
+    const bodies = fetchMock.mock.calls
+      .filter(([, init]) => init?.method === "PATCH")
+      .map(([, init]) => JSON.parse(String(init?.body)));
+    expect(bodies).toEqual([{ model: "small" }, { language: "pt" }]);
+    expect(await screen.findByRole("status")).toBeInTheDocument();
+  });
+
+  it("shows the server reason when a value is rejected", async () => {
+    stubFetch({ ok: false, body: { detail: "modelo inválido" } });
+    render(<LocalSpeechSettings />);
+
+    const model = await screen.findByLabelText(
+      /Bundled whisper model|ai_models_stt_model_label/,
+    );
+    fireEvent.change(model, { target: { value: "tiny" } });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("modelo inválido");
+  });
+
+  it("explains that the settings need an administrator when loading fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({ ok: false, status: 403, json: async () => ({}) }),
+      ),
+    );
+    render(<LocalSpeechSettings />);
+    expect(await screen.findByRole("status")).toBeInTheDocument();
   });
 });

@@ -24,6 +24,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -112,6 +113,20 @@ def local_model_size() -> str:
     return size if size in LOCAL_MODEL_SIZES else DEFAULT_LOCAL_MODEL
 
 
+def cached_local_models() -> dict[str, bool]:
+    """Quais tamanhos do faster-whisper já estão baixados no cache do Vectora."""
+    from backend.settings import settings
+
+    root = settings.vectora_home / "models" / "whisper"
+    cached: dict[str, bool] = {}
+    for size in LOCAL_MODEL_SIZES:
+        snapshots = root / f"models--Systran--faster-whisper-{size}" / "snapshots"
+        cached[size] = snapshots.is_dir() and any(
+            (snapshot / "model.bin").is_file() for snapshot in snapshots.iterdir()
+        )
+    return cached
+
+
 def preferred_language() -> str:
     """Idioma fixo da transcrição; vazio detecta automaticamente."""
     return _setting("stt_language")
@@ -187,6 +202,77 @@ def apple_locale(language: str) -> str:
     if "-" in language or "_" in language:
         return language.replace("_", "-")
     return _APPLE_LOCALES.get(language.lower(), language)
+
+
+#: Idiomas oferecidos na interface (código ISO do Whisper). O Whisper aceita
+#: outros; qualquer código válido pode ser gravado pela API.
+SELECTABLE_LANGUAGES = (
+    "pt",
+    "en",
+    "es",
+    "fr",
+    "de",
+    "it",
+    "ja",
+    "ko",
+    "zh",
+    "ru",
+    "nl",
+    "pl",
+    "tr",
+    "ar",
+    "hi",
+)
+
+_LANGUAGE_PATTERN = re.compile(r"^[a-z]{2,3}([-_][A-Za-z]{2,4})?$")
+
+
+def validate_language(language: str) -> str:
+    """Idioma fixo da transcrição: vazio (automático) ou código ISO."""
+    value = language.strip()
+    if value and not _LANGUAGE_PATTERN.match(value):
+        raise ValueError("idioma inválido; use um código como pt, en ou pt-BR")
+    return value
+
+
+def validate_system_command(command: str) -> str:
+    """Whisper do sistema: caminho ou nome de um executável ``whisper*``."""
+    value = command.strip()
+    if not value:
+        return ""
+    resolved = shutil.which(str(Path(value).expanduser()))
+    if resolved is None or not Path(resolved).name.lower().startswith("whisper"):
+        raise ValueError(
+            "comando inválido; informe um executável whisper-cli ou whisper"
+        )
+    return value
+
+
+def validate_system_model(model: str) -> str:
+    """Modelo ggml do whisper.cpp: arquivo ``.bin`` existente."""
+    value = model.strip()
+    if not value:
+        return ""
+    path = Path(value).expanduser()
+    if not path.is_file() or path.suffix.lower() != ".bin":
+        raise ValueError("modelo inválido; informe um arquivo ggml-*.bin existente")
+    return value
+
+
+def stt_settings() -> dict[str, object]:
+    """Configuração efetiva, motores detectados e modelos em cache."""
+    return {
+        "model": local_model_size(),
+        "language": preferred_language(),
+        "system_command": _setting("stt_system_command"),
+        "system_model": _setting("stt_system_model"),
+        "models": [
+            {"id": size, "cached": cached}
+            for size, cached in cached_local_models().items()
+        ],
+        "languages": list(SELECTABLE_LANGUAGES),
+        "engines": available_engines(),
+    }
 
 
 def available_engines() -> dict[str, object]:
