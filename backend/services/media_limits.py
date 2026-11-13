@@ -79,3 +79,42 @@ def media_limits() -> MediaLimits:
             _setting("media_max_images"), MAX_IMAGES_RANGE, DEFAULT_MAX_IMAGES
         ),
     )
+
+
+#: Campo de configuração, valor padrão e faixa aceita de cada limite, na ordem
+#: em que a interface os mostra.
+LIMIT_FIELDS: dict[str, tuple[str, int, tuple[int, int]]] = {
+    "pdf_pages": ("media_pdf_max_pages", DEFAULT_PDF_PAGES, PDF_PAGES_RANGE),
+    "video_frames": (
+        "media_video_max_frames",
+        DEFAULT_VIDEO_FRAMES,
+        VIDEO_FRAMES_RANGE,
+    ),
+    "max_side": ("media_image_max_side", DEFAULT_MAX_SIDE, MAX_SIDE_RANGE),
+    "quality": ("media_image_quality", DEFAULT_QUALITY, QUALITY_RANGE),
+    "max_images": ("media_max_images", DEFAULT_MAX_IMAGES, MAX_IMAGES_RANGE),
+}
+
+
+def limits_settings() -> dict[str, object]:
+    """Valores efetivos, padrões e faixas aceitas, para a interface."""
+    effective = media_limits()
+    return {
+        name: {
+            "value": getattr(effective, name),
+            "default": default,
+            "min": bounds[0],
+            "max": bounds[1],
+        }
+        for name, (_field, default, bounds) in LIMIT_FIELDS.items()
+    }
+
+
+def validate_limit(name: str, value: object) -> int:
+    """Número inteiro dentro da faixa do limite; do contrário, ``ValueError``."""
+    _field, _default, (low, high) = LIMIT_FIELDS[name]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} deve ser um número inteiro")
+    if not low <= value <= high:
+        raise ValueError(f"{name} deve estar entre {low} e {high}")
+    return value
