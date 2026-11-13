@@ -195,15 +195,21 @@ def _resolve_env_placeholders(value: object) -> object:
     return value
 
 
-def hook_rules_digest(rules: list[HookRule]) -> str:
-    """Digest SHA-256 das regras de hook, em forma canônica.
+def hook_rules_digest(
+    rules: list[HookRule], post_file_write: list[str] | tuple[str, ...] = ()
+) -> str:
+    """Digest SHA-256 dos hooks do workspace, em forma canônica.
 
-    A aprovação do workspace fica presa a este valor: qualquer mudança em
+    Cobre as regras ``[[hooks.rules]]`` e os comandos de ``post_file_write``. A
+    aprovação do workspace fica presa a este valor: qualquer mudança em
     comando, evento, ferramentas, modo ou timeout produz outro digest e exige
-    nova aprovação. A ordem das regras conta.
+    nova aprovação. A ordem conta.
     """
     canonical = json.dumps(
-        [rule.model_dump(mode="json") for rule in rules],
+        {
+            "rules": [rule.model_dump(mode="json") for rule in rules],
+            "post_file_write": list(post_file_write),
+        },
         sort_keys=True,
         ensure_ascii=False,
         separators=(",", ":"),
@@ -211,18 +217,34 @@ def hook_rules_digest(rules: list[HookRule]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def hooks_digest(section: HooksSection) -> str | None:
+    """Digest dos hooks configurados; ``None`` quando não há nada a aprovar."""
+    if not section.rules and not section.post_file_write:
+        return None
+    return hook_rules_digest(section.rules, section.post_file_write)
+
+
+def hooks_approval_valid(
+    section: HooksSection, *, approved: bool, approved_digest: str | None
+) -> bool:
+    """True quando a aprovação do workspace vale para os hooks de ``section``."""
+    return approved and approved_digest == hooks_digest(section)
+
+
 def hook_rules_pending(
     cwd: str | Path, *, approved: bool, approved_digest: str | None
 ) -> bool:
-    """True quando há ``[[hooks.rules]]`` que ainda não valem para execução.
+    """True quando há hooks no ``vectora.toml`` que ainda não valem para execução.
 
-    Vale tanto para regras nunca aprovadas quanto para regras alteradas depois
-    da aprovação (digest diferente do gravado).
+    Vale tanto para hooks nunca aprovados quanto para hooks alterados depois da
+    aprovação (digest diferente do gravado).
     """
     config = load_workspace_config(cwd)
-    if config is None or not config.hooks.rules:
+    if config is None or hooks_digest(config.hooks) is None:
         return False
-    return not (approved and approved_digest == hook_rules_digest(config.hooks.rules))
+    return not hooks_approval_valid(
+        config.hooks, approved=approved, approved_digest=approved_digest
+    )
 
 
 def load_workspace_config(cwd: str | Path) -> WorkspaceConfig | None:
