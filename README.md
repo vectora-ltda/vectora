@@ -101,7 +101,7 @@ pnpm --dir frontend dev
 
 No Windows/macOS, instale `uv`, Python 3.13, Node.js 26 e pnpm 11.5 e execute `uv run --locked scons install` antes de iniciar o projeto.
 
-`scons install` sincroniza todos os grupos Python, executa `pnpm ci`, garante o binário nativo do Electron e baixa NATS/FFmpeg para `resources/`. No Linux, `dotfiles.sh` é opcional e prepara a toolchain separadamente. `pnpm ci` recria `frontend/node_modules` conforme o lockfile. O app usa o Chromium distribuído com Electron; Playwright é apenas cliente CDP e não precisa baixar browsers.
+`scons install` começa informando o sistema, a arquitetura e, no Linux, a distribuição; depois sincroniza todos os grupos Python, executa `pnpm ci`, garante o binário nativo do Electron, baixa NATS e FFmpeg/FFprobe para `resources/` (conforme a arquitetura detectada) e, só no macOS, compila o helper de fala nativo. Ao final lista o que ficou instalado. No Linux, `dotfiles.sh` é opcional e prepara a toolchain separadamente. `pnpm ci` recria `frontend/node_modules` conforme o lockfile. O app usa o Chromium distribuído com Electron; Playwright é apenas cliente CDP e não precisa baixar browsers.
 
 Abra `http://localhost:3000`. O primeiro usuário a se cadastrar vira administrador root.
 
