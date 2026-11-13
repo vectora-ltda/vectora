@@ -44,6 +44,8 @@ function gen(events: StreamEvent[]): AsyncGenerator<StreamEvent> {
   })();
 }
 
+const seq = (n: number) => ({ seq: n, event_id: `run-1:${n}` });
+
 describe("useStreamHandler.processStream", () => {
   let messages: Message[];
   const setMessages = (u: Message[] | ((p: Message[]) => Message[])) => {
@@ -92,7 +94,6 @@ describe("useStreamHandler.processStream", () => {
   });
 
   it("evento repetido, reordenado ou posterior ao done não altera a resposta", async () => {
-    const seq = (n: number) => ({ seq: n, event_id: `run-1:${n}` });
     streamChatMock.mockReturnValue(
       gen([
         { type: "thread", thread_id: "t1", run_id: "run-1", ...seq(1) },
@@ -118,6 +119,31 @@ describe("useStreamHandler.processStream", () => {
     expect(out.assistantContent).toBe("Olá, mundo");
     expect(out.runId).toBe("run-1");
     expect(messages.find((msg) => msg.id === "a1")?.content).toBe("Olá, mundo");
+  });
+
+  it("turnId informado vai como turn_id da requisição; ausente deixa o cliente gerar", async () => {
+    streamChatMock.mockImplementation(() =>
+      gen([
+        { type: "thread", thread_id: "t1" },
+        { type: "done", thread_id: "t1", run_id: "run-1" },
+      ]),
+    );
+    const { result } = run();
+
+    await result.current.processStream(
+      "oi",
+      "a1",
+      undefined,
+      undefined,
+      "turno-estavel",
+    );
+    const comId = streamChatMock.mock.calls[0]?.[0] as { turn_id?: string };
+    expect(comId.turn_id).toBe("turno-estavel");
+
+    streamChatMock.mockClear();
+    await result.current.processStream("oi", "a2");
+    const semId = streamChatMock.mock.calls[0]?.[0] as { turn_id?: string };
+    expect(semId.turn_id).toBeUndefined();
   });
 
   it("forkFromCheckpointId presente manda config.fork_from_checkpoint_id; ausente omite (edit/regenerate)", async () => {

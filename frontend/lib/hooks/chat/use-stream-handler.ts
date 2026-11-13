@@ -306,6 +306,7 @@ interface UseStreamHandlerReturn {
     assistantMessageId: string,
     images?: ImageAttachment[],
     forkFromCheckpointId?: string,
+    turnId?: string,
   ) => Promise<{
     assistantContent: string;
     runId: string | undefined;
@@ -346,6 +347,7 @@ export function useStreamHandler({
       assistantMessageId: string,
       images?: ImageAttachment[],
       forkFromCheckpointId?: string,
+      turnId?: string,
     ): Promise<{
       assistantContent: string;
       runId: string | undefined;
@@ -443,6 +445,9 @@ export function useStreamHandler({
             thread_id: threadId,
             content: userContent,
             config,
+            // ID estável do turno: o backend deduplica por ele, então repetir
+            // o envio (retry da fila) não duplica a mensagem do usuário.
+            ...(turnId && { turn_id: turnId }),
             ...(attachments && attachments.length > 0 && { attachments }),
           },
           abort.signal,
