@@ -8,6 +8,7 @@ import type { ToolCall } from "./tools";
 import type { SubgraphOutput } from "./tools";
 import type { UsageMetadata } from "./metadata";
 import type { ImageAttachment } from "./images";
+import type { MediaRoute } from "@/lib/api/vectora-client";
 
 export interface EditedFile {
   path: string;
@@ -32,6 +33,8 @@ export interface Message {
 
   // Image attachments
   images?: ImageAttachment[];
+  /** Como cada anexo chegou ao modelo (evento `media_routed`). */
+  mediaRoutes?: MediaRoute[];
 
   // Tool execution
   toolCalls?: ToolCall[];

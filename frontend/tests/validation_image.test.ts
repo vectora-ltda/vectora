@@ -41,10 +41,24 @@ describe("validateImageFile", () => {
     expect(res.error).toContain("50MB");
   });
 
-  it("rejeita tipo não suportado e informa a extensão", () => {
-    const res = validateImageFile(file("malware.exe", 1 * MB, ""));
-    expect(res.valid).toBe(false);
-    expect(res.error).toContain(".exe");
+  it("aceita qualquer tipo de arquivo; o backend decide como enviar", () => {
+    expect(validateImageFile(file("ferramenta.exe", 1 * MB, "")).valid).toBe(
+      true,
+    );
+    expect(
+      validateImageFile(file("relatorio.pdf", 20 * MB, "application/pdf"))
+        .valid,
+    ).toBe(true);
+    expect(
+      validateImageFile(file("demo.mp4", 45 * MB, "video/mp4")).valid,
+    ).toBe(true);
+  });
+
+  it("aplica o limite do tipo a arquivos genéricos e vídeos", () => {
+    expect(validateImageFile(file("dump.bin", 26 * MB, "")).valid).toBe(false);
+    expect(
+      validateImageFile(file("demo.mp4", 51 * MB, "video/mp4")).valid,
+    ).toBe(false);
   });
 
   it("aceita áudio até 25MB por mimetype", () => {

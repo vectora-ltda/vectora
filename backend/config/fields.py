@@ -195,6 +195,101 @@ setting_field(
     adapter=RuntimeSettingsAdapter(),
 )
 
+setting_field(
+    "stt_local_model",
+    category="preferences",
+    cli_flag="--stt-local-model",
+    description=(
+        "Tamanho do modelo do faster-whisper embutido usado na transcrição "
+        "local de anexos de áudio e vídeo: tiny, base (padrão), small, medium "
+        "ou large-v3. Modelos maiores transcrevem melhor idiomas além do "
+        "inglês; o modelo é baixado no primeiro uso."
+    ),
+    adapter=RuntimeSettingsAdapter(),
+)
+setting_field(
+    "stt_language",
+    category="preferences",
+    cli_flag="--stt-language",
+    description=(
+        "Idioma fixo da transcrição local (código ISO, ex.: 'pt', 'en', 'es'). "
+        "Vazio detecta o idioma automaticamente."
+    ),
+    adapter=RuntimeSettingsAdapter(),
+)
+setting_field(
+    "stt_system_command",
+    category="preferences",
+    cli_flag="--stt-system-command",
+    description=(
+        "Whisper do sistema usado quando o motor embutido não está disponível: "
+        "caminho do 'whisper-cli' (whisper.cpp) ou do 'whisper' (OpenAI). Vazio "
+        "procura no PATH."
+    ),
+    adapter=RuntimeSettingsAdapter(),
+)
+setting_field(
+    "stt_system_model",
+    category="preferences",
+    cli_flag="--stt-system-model",
+    description=(
+        "Modelo ggml-*.bin do whisper.cpp. Vazio procura nas pastas comuns do "
+        "whisper.cpp (Homebrew, ~/.cache, /usr/share)."
+    ),
+    adapter=RuntimeSettingsAdapter(),
+)
+
+setting_field(
+    "media_pdf_max_pages",
+    category="preferences",
+    cli_flag="--media-pdf-max-pages",
+    description=(
+        "Páginas de PDF convertidas em imagem por anexo e por chamada da "
+        "ferramenta pdf_to_images (padrão 20, máximo 500). Cada página enviada "
+        "ao modelo custa cerca de 1,6 mil tokens."
+    ),
+    adapter=RuntimeSettingsAdapter(),
+)
+setting_field(
+    "media_video_max_frames",
+    category="preferences",
+    cli_flag="--media-video-max-frames",
+    description=(
+        "Quadros de vídeo extraídos por anexo e por chamada da ferramenta "
+        "video_to_frames (padrão 12, máximo 300)."
+    ),
+    adapter=RuntimeSettingsAdapter(),
+)
+setting_field(
+    "media_image_max_side",
+    category="preferences",
+    cli_flag="--media-image-max-side",
+    description=(
+        "Lado maior, em pixels, das imagens geradas de PDF e vídeo (padrão "
+        "1280, de 256 a 4096). Aumente para ler texto pequeno; diminua para "
+        "gastar menos tokens."
+    ),
+    adapter=RuntimeSettingsAdapter(),
+)
+setting_field(
+    "media_image_quality",
+    category="preferences",
+    cli_flag="--media-image-quality",
+    description="Qualidade JPEG das imagens geradas de PDF e vídeo (padrão 80, de 30 a 95).",
+    adapter=RuntimeSettingsAdapter(),
+)
+setting_field(
+    "media_max_images",
+    category="preferences",
+    cli_flag="--media-max-images",
+    description=(
+        "Teto de imagens por chamada de ferramenta de mídia e de imagens de "
+        "ferramentas mantidas no contexto do modelo (padrão 60, de 8 a 500). "
+        "Imagens mais antigas viram uma nota curta."
+    ),
+    adapter=RuntimeSettingsAdapter(),
+)
+
 # ── admin/config (~/.vectora/config.toml [server]) — hoje só via /admin/config REST ──
 
 setting_field(

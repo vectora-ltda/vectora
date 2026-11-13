@@ -9,9 +9,9 @@ não edite à mão.
 
 | Categoria | Pacotes |
 | --- | ---: |
-| Permissiva | 1152 |
+| Permissiva | 1149 |
 | Copyleft fraco (LGPL, MPL, EPL) | 11 |
-| Copyleft forte (GPL-3.0, AGPL-3.0) | 4 |
+| Copyleft forte (GPL-3.0, AGPL-3.0) | 3 |
 | Requer revisão | 4 |
 
 ## Requer revisão
@@ -31,7 +31,6 @@ Cada item precisa de decisão antes de distribuir um build que o contenha.
 | Pacote | Versão | Licença |
 | --- | --- | --- |
 | MouseInfo | 0.1.3 | GPL-3.0 |
-| Nuitka | 4.2.2 | AGPL-3.0 |
 | pykeepass | 4.2.0 | GPL-3.0 |
 | PyMsgBox | 2.0.1 | GPL-3.0 |
 
@@ -141,7 +140,6 @@ SOFTWARE.
 | huggingface_hub | 2.2.0 | Apache-2.0 |
 | hyperframe | 6.1.0 | MIT |
 | idna | 3.20 | BSD-3-Clause |
-| ImageIO | 2.38.1 | BSD-2-Clause |
 | importlib_metadata | 9.0.1 | Apache-2.0 |
 | iniconfig | 2.3.1 | MIT |
 | jaraco.classes | 3.4.0 | MIT |
@@ -243,7 +241,6 @@ SOFTWARE.
 | tenacity | 9.1.4 | Apache-2.0 |
 | tiktoken | 0.14.0 | MIT |
 | tokenizers | 0.23.3 | Apache-2.0 |
-| toml | 0.10.2 | MIT |
 | tree-sitter | 0.25.2 | MIT |
 | tree-sitter-c | 0.24.2 | MIT |
 | tree-sitter-cpp | 0.23.4 | MIT |
@@ -272,7 +269,6 @@ SOFTWARE.
 | youtube-transcript-api | 1.2.4 | MIT |
 | yt-dlp | 2026.8.19 | Unlicense |
 | zipp | 4.1.1 | MIT |
-| zstandard | 0.25.0 | BSD-3-Clause |
 | @adobe/css-tools | 4.5.0 | MIT |
 | @apideck/better-ajv-errors | 0.3.7 | MIT |
 | @asamuzakjp/css-color | 7.1.4 | MIT |

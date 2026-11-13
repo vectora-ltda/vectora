@@ -4,8 +4,10 @@ build-hybrid.py fica na raiz do monorepo (fora de vectora/), sem suíte de
 testes própria — importado aqui via importlib porque o nome do arquivo tem
 hífen (não é um módulo Python válido pra `import` direto).
 
-Guarda contra o Nuitka embutir segredo esquecido em backend/ dentro
-do binário compilado — ver comentário de _FORBIDDEN_BACKEND_FILE_PATTERNS.
+Guarda contra o PyInstaller copiar um segredo esquecido em backend/ para o
+instalador (`--collect-data backend`) — ver comentário de
+_FORBIDDEN_BACKEND_FILE_PATTERNS. Também cobre o empacotamento do backend sem
+Nuitka e o defaults.env sem segredos no instalador.
 """
 
 from __future__ import annotations
@@ -84,3 +86,99 @@ def test_build_fails_if_uv_is_unavailable(
 
     with pytest.raises(SystemExit, match="uv não encontrado"):
         build_hybrid._add_installed_test_runtime(tmp_path / "dist" / "vectora")
+
+
+def _fake_installed(dist_dir: Path, *, defaults: str, schema: bool = True) -> None:
+    """Pasta `_internal/backend` como o PyInstaller a deixa."""
+    backend = dist_dir / "_internal" / "backend"
+    (backend / "assets").mkdir(parents=True)
+    (backend / "defaults.env").write_text(defaults, encoding="utf-8")
+    if schema:
+        sqlite = backend / "storage" / "migrations" / "sqlite"
+        sqlite.mkdir(parents=True)
+        (sqlite / "schema.sql").write_text("-- schema", encoding="utf-8")
+
+
+def _fake_source(project: Path, defaults: str) -> None:
+    (project / "backend").mkdir(parents=True)
+    (project / "backend" / "defaults.env").write_text(defaults, encoding="utf-8")
+
+
+def test_defaults_env_do_instalador_e_o_do_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    content = "A=1\nGATEWAY_ENABLED=true\n"
+    project = tmp_path / "vectora"
+    _fake_source(project, content)
+    dist_dir = tmp_path / "dist" / "vectora"
+    _fake_installed(dist_dir, defaults=content)
+    monkeypatch.setattr(build_hybrid, "VECTORA", project)
+
+    build_hybrid._assert_backend_data_bundled(dist_dir)
+
+
+def test_instalador_com_defaults_env_diferente_reprova(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "vectora"
+    _fake_source(project, "A=novo\n")
+    dist_dir = tmp_path / "dist" / "vectora"
+    _fake_installed(dist_dir, defaults="A=antigo\n")
+    monkeypatch.setattr(build_hybrid, "VECTORA", project)
+
+    with pytest.raises(SystemExit, match="difere"):
+        build_hybrid._assert_backend_data_bundled(dist_dir)
+
+
+def test_defaults_env_com_valor_de_segredo_reprova(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = tmp_path / "vectora"
+    _fake_source(project, "A=1\nVECTORA_APP_SECRET=segredo-vazado\n")
+    monkeypatch.setattr(build_hybrid, "VECTORA", project)
+
+    with pytest.raises(SystemExit, match="VECTORA_APP_SECRET") as exc:
+        build_hybrid._assert_defaults_env_without_secrets()
+
+    assert "segredo-vazado" not in str(exc.value)
+    assert "segredo-vazado" not in capsys.readouterr().out
+
+
+def test_defaults_env_sem_valor_de_segredo_passa(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "vectora"
+    _fake_source(
+        project, "A=1\nQDRANT_API_KEY=vectora\nGATEWAY_TOKEN=\n# NOTE_TOKEN=x\n"
+    )
+    monkeypatch.setattr(build_hybrid, "VECTORA", project)
+
+    build_hybrid._assert_defaults_env_without_secrets()
+
+
+def test_dados_do_backend_ausentes_reprovam(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = tmp_path / "vectora"
+    _fake_source(project, "A=1\n")
+    dist_dir = tmp_path / "dist" / "vectora"
+    _fake_installed(dist_dir, defaults="A=1\n", schema=False)
+    monkeypatch.setattr(build_hybrid, "VECTORA", project)
+
+    with pytest.raises(SystemExit, match=r"schema\.sql"):
+        build_hybrid._assert_backend_data_bundled(dist_dir)
+
+    empty = tmp_path / "vazio"
+    empty.mkdir()
+    with pytest.raises(SystemExit, match="dados do backend ausentes"):
+        build_hybrid._assert_backend_data_bundled(empty)
+
+
+def test_build_empacota_o_backend_so_com_pyinstaller() -> None:
+    """Sem Nuitka: nada de compilador, e o PyInstaller coleta código e dados."""
+    source = (_ROOT / "build-hybrid.py").read_text(encoding="utf-8")
+    assert "nuitka" not in source.lower()
+    assert "backend.pyd" not in source
+    assert '"--collect-submodules", "backend"' in source
+    assert '"--collect-data", "backend"' in source
+    assert "--jobs" not in source

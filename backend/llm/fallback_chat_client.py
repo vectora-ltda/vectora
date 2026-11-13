@@ -19,9 +19,11 @@ import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import TYPE_CHECKING
 
+from backend.llm.media_parts import downgrade_to_text, has_native_media
 from backend.llm.provider_fallback import (
     QuotaExhaustedError,
     get_fallback_chain,
+    is_media_rejection_error,
     is_multimodal_incompatible_error,
     is_provider_incompatible_error,
     is_quota_error,
@@ -200,7 +202,9 @@ def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
                 )
                 raise ValueError(msg)
             return OpenRouterChatClient(
-                model=model_name, client=OpenRouterClient(api_key=api_key)
+                model=model_name,
+                client=OpenRouterClient(api_key=api_key),
+                media_model_id=f"openrouter:{model_name}",
             )
         case "nine_router":
             from backend.llm.openrouter.chat_client import OpenRouterChatClient
@@ -222,6 +226,7 @@ def load_chat_client(model_id: str) -> ChatClient:  # noqa: PLR0911
             return OpenRouterChatClient(
                 model=model_name,
                 client=OpenRouterClient(api_key=api_key, base_url=base_url),
+                media_model_id=f"nine_router:{model_name}",
             )
         case "llamacpp":
             from backend.llm.openrouter.chat_client import OpenRouterChatClient
@@ -335,6 +340,9 @@ class FallbackChatClient:
         self.primary_model_id = primary_model_id
         self.on_model_switch = on_model_switch
         self.last_model_id: str | None = None
+        #: ``True`` quando o provider recusou um anexo enviado como arquivo e
+        #: o turno foi repetido com os anexos em texto.
+        self.last_media_downgraded = False
 
     async def _candidate_ids(self, messages: list[VMessage]) -> list[str]:
         """Executa a operação  candidate ids."""
@@ -397,19 +405,46 @@ class FallbackChatClient:
         candidatos = await self._candidate_ids(messages)
 
         last_exc: BaseException | None = None
+        self.last_media_downgraded = False
         for i, mid in enumerate(candidatos):
             streamed = False
             try:
                 self.last_model_id = mid
                 client = load_chat_client(mid)
-                async for chunk in client.astream(
-                    messages,
-                    tools=tools,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                ):
-                    streamed = True
-                    yield chunk
+                try:
+                    async for chunk in client.astream(
+                        messages,
+                        tools=tools,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    ):
+                        streamed = True
+                        yield chunk
+                except Exception as media_exc:
+                    if (
+                        streamed
+                        or not has_native_media(messages)
+                        or not is_media_rejection_error(media_exc)
+                    ):
+                        raise
+                    # O provider recusou um anexo enviado como arquivo: repete
+                    # uma vez com os anexos pela forma textual.
+                    logger.warning(
+                        "fallback_chat_client: %s recusou anexo nativo; "
+                        "repetindo com texto: %s",
+                        mid,
+                        media_exc,
+                    )
+                    self.last_media_downgraded = True
+                    messages = downgrade_to_text(messages)
+                    async for chunk in client.astream(
+                        messages,
+                        tools=tools,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    ):
+                        streamed = True
+                        yield chunk
                 return
             except Exception as exc:
                 # Nunca troca de provider depois de já ter streamado chunks

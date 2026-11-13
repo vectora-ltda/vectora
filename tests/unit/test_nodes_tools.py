@@ -150,9 +150,11 @@ def test_all_tools_count() -> None:
     # sumiu, e a contagem já ficou defasada em silêncio uma vez por isso.
     """Verifica o comportamento de all tools count."""
     nomes = sorted(t.name for t in ALL_TOOLS)
-    assert len(ALL_TOOLS) == 191, f"tools registradas: {nomes}"
+    assert len(ALL_TOOLS) == 193, f"tools registradas: {nomes}"
     nomes_registrados = set(nomes)
     for esperado in (
+        "pdf_to_images",
+        "video_to_frames",
         "systemone_list_patterns",
         "systemone_evaluate_pattern",
         "systemone_propose_kanban_transition",

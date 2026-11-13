@@ -61,14 +61,25 @@ class ToolCallChunk:
     args_fragment: str = ""
 
 
+MediaKind = Literal["image", "audio", "video", "document", "text", "file"]
+
+
 @dataclass(slots=True)
 class ContentBlock:
-    """Bloco de conteúdo multimodal — ``text`` | ``image_url`` | ``reasoning``.
+    """Bloco de conteúdo multimodal.
 
-    Um único campo por ``kind`` fica preenchido; os demais ficam ``None``.
+    - ``text``: texto.
+    - ``image_url``: imagem (``image_url`` com URL ou ``data:``; no histórico
+      persistido fica só ``asset_id``).
+    - ``media``: anexo que não é imagem (áudio, vídeo, documento, texto,
+      arquivo). ``text`` guarda a representação textual usada quando o
+      modelo não recebe o arquivo nativamente (texto extraído, transcrição
+      ou referência); ``asset_id`` aponta os bytes; ``media_data_url`` só
+      existe na cópia montada para o provider e nunca é persistido.
+    - ``reasoning``: raciocínio exposto pelo provider.
     """
 
-    kind: Literal["text", "image_url", "reasoning"]
+    kind: Literal["text", "image_url", "media", "reasoning"]
     text: str | None = None
     image_url: str | None = None
     asset_id: str | None = None
@@ -76,6 +87,19 @@ class ContentBlock:
     attachment_mime_type: str | None = None
     attachment_size_bytes: int | None = None
     reasoning_text: str | None = None
+    media_kind: MediaKind | None = None
+    media_sha256: str | None = None
+    media_data_url: str | None = None
+    media_preview_asset_ids: list[str] | None = None
+    """Prévias visuais salvas (páginas de PDF, quadros de vídeo)."""
+    media_preview_caption: str | None = None
+    media_preview_urls: list[str] | None = None
+    """``data:`` URLs das prévias; só na cópia do provider, nunca persistido."""
+
+    @property
+    def is_textual(self) -> bool:
+        """Bloco cujo ``text`` chega ao modelo (texto ou anexo em texto)."""
+        return self.kind in {"text", "media"}
 
 
 @dataclass(slots=True)
@@ -103,6 +127,10 @@ class VMessage:
         `.content` string-only que o código hoje lê de `AIMessage`."""
         return "".join(b.text or "" for b in self.content if b.kind == "text")
 
+    def model_text(self) -> str:
+        """Texto que o modelo recebe, incluindo a forma textual dos anexos."""
+        return "".join(b.text or "" for b in self.content if b.is_textual)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialização pra persistência (`SessionStore.append_message`)."""
         return {
@@ -117,6 +145,12 @@ class VMessage:
                     "attachment_mime_type": b.attachment_mime_type,
                     "attachment_size_bytes": b.attachment_size_bytes,
                     "reasoning_text": b.reasoning_text,
+                    "media_kind": b.media_kind,
+                    "media_sha256": b.media_sha256,
+                    "media_data_url": b.media_data_url,
+                    "media_preview_asset_ids": b.media_preview_asset_ids,
+                    "media_preview_caption": b.media_preview_caption,
+                    "media_preview_urls": b.media_preview_urls,
                 }
                 for b in self.content
             ],
@@ -149,6 +183,12 @@ class VMessage:
                         attachment_mime_type=b.get("attachment_mime_type"),
                         attachment_size_bytes=b.get("attachment_size_bytes"),
                         reasoning_text=b.get("reasoning_text"),
+                        media_kind=b.get("media_kind"),
+                        media_sha256=b.get("media_sha256"),
+                        media_data_url=b.get("media_data_url"),
+                        media_preview_asset_ids=b.get("media_preview_asset_ids"),
+                        media_preview_caption=b.get("media_preview_caption"),
+                        media_preview_urls=b.get("media_preview_urls"),
                     )
                     for b in data.get("content", [])
                 ],

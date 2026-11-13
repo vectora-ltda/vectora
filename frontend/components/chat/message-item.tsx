@@ -883,6 +883,25 @@ export const MessageItem = memo(
                         })}
                       </div>
                     )}
+                    {message.mediaRoutes && message.mediaRoutes.length > 0 && (
+                      <ul
+                        data-testid="media-routes"
+                        className="space-y-0.5 text-xs text-muted-foreground"
+                      >
+                        {message.mediaRoutes.map((route) => (
+                          <li
+                            key={`${route.name}:${route.model}`}
+                            title={`${route.reason} (${route.model})`}
+                          >
+                            {route.mode === "native"
+                              ? m.chat_media_route_native({ name: route.name })
+                              : route.mode === "image"
+                                ? m.chat_media_route_image({ name: route.name })
+                                : m.chat_media_route_text({ name: route.name })}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     {/* Text content */}
                     {message.content && (
                       <p

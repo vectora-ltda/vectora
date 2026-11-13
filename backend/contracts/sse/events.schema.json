@@ -177,6 +177,78 @@
       "title": "HITLEvent",
       "type": "object"
     },
+    "MediaRouteItem": {
+      "description": "Envio de um anexo ao modelo: ``native`` (arquivo), ``image`` (páginas\nou quadros como imagem) ou ``text``.",
+      "properties": {
+        "media_kind": {
+          "title": "Media Kind",
+          "type": "string"
+        },
+        "mime_type": {
+          "title": "Mime Type",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "native",
+            "image",
+            "text"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "size_bytes": {
+          "title": "Size Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name",
+        "media_kind",
+        "mime_type",
+        "size_bytes",
+        "mode",
+        "reason",
+        "model"
+      ],
+      "title": "MediaRouteItem",
+      "type": "object"
+    },
+    "MediaRoutedEvent": {
+      "description": "Emitido quando o turno envia anexos ao modelo.\n\nDiz, para cada anexo que não é imagem, se o modelo recebeu o arquivo ou\na forma textual (texto extraído, transcrição ou referência).",
+      "properties": {
+        "routes": {
+          "items": {
+            "$ref": "#/$defs/MediaRouteItem"
+          },
+          "title": "Routes",
+          "type": "array"
+        },
+        "type": {
+          "const": "media_routed",
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "routes",
+        "type"
+      ],
+      "title": "MediaRoutedEvent",
+      "type": "object"
+    },
     "MessageBreakEvent": {
       "description": "Sinaliza quebra de bolha: o agente começou a emitir tokens de um nó diferente.\n\nO frontend cria uma nova mensagem do assistente ao receber este evento.",
       "properties": {
@@ -949,6 +1021,9 @@
     },
     {
       "$ref": "#/$defs/ModelSwitchedEvent"
+    },
+    {
+      "$ref": "#/$defs/MediaRoutedEvent"
     },
     {
       "$ref": "#/$defs/TerminalLineEvent"

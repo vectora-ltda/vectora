@@ -26,7 +26,7 @@ def get_vectora_version() -> str:
 def get_build_version() -> str:
     """Versão completa com hash numérico de build (X.Y.Z.<hash>), quando
     ``VECTORA_BUILD_VERSION`` está definida no ambiente; senão cai pra
-    versão semver sem hash. O binário Nuitka distribuído não carrega
+    versão semver sem hash. O binário distribuído não carrega
     ``.git``, então esse hash não pode ser calculado em runtime.
     """
     return os.environ.get("VECTORA_BUILD_VERSION", get_vectora_version())

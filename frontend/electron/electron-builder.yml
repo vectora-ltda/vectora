@@ -3,7 +3,7 @@
 # Gera instaladores nativos (Windows NSIS .exe + MSI, macOS .dmg/.zip e Linux
 # AppImage, DEB, RPM, Pacman e Flatpak). A assinatura/notarização é configurada pelo workflow
 # segundo as credenciais disponíveis. Cada instalador empacota a shell Electron
-# + o binário Nuitka como extraResource.
+# + o backend empacotado (PyInstaller) como extraResource.
 #
 # Pre-req:
 # - Win: CSC_LINK + CSC_KEY_PASSWORD (certificado Authenticode confiável).
@@ -113,6 +113,10 @@ mac:
   category: public.app-category.developer-tools
   hardenedRuntime: true
   gatekeeperAssess: false
+  # O helper de fala nativo (resources/vectora-core/speech/vectora-speech)
+  # usa o framework Speech; o macOS mostra este texto ao pedir permissão.
+  extendInfo:
+    NSSpeechRecognitionUsageDescription: "O Vectora transcreve áudios e vídeos anexados no próprio Mac quando você usa o reconhecimento de fala do sistema."
 
 dmg:
   title: ${productName} ${version}

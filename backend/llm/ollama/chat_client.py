@@ -21,6 +21,7 @@ import re
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
+from backend.llm.media_parts import prepare_content
 from backend.llm.ollama.client import OllamaClient, OllamaResponseError
 from backend.vtypes.message import (
     ContentBlock,
@@ -254,7 +255,7 @@ def _split_conteudo(msg: VMessage) -> tuple[str, list[str]]:
     `data:image/...;base64,` é removido, o Ollama espera só o payload."""
     texto_partes: list[str] = []
     imagens: list[str] = []
-    for bloco in msg.content:
+    for bloco in prepare_content(msg.content, "ollama"):
         if bloco.kind == "text" and bloco.text:
             texto_partes.append(bloco.text)
         elif bloco.kind == "image_url" and bloco.image_url:

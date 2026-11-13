@@ -307,17 +307,20 @@ async def computer_use(
                 (info.left, info.top, info.width, info.height),
                 _native_window_handle(selection.native),
             )
-            directory = window_media_dir(ctx.thread_id)
-            directory.mkdir(parents=True, exist_ok=True)
-            path = (
-                directory / f"{datetime.now(UTC):%Y%m%d-%H%M%S}-{uuid4().hex[:8]}.png"
-            )
-            path.write_bytes(data)
+            from backend.services.tool_media import save_tool_image
+
+            name = f"{datetime.now(UTC):%Y%m%d-%H%M%S}-{uuid4().hex[:8]}.png"
+            saved = save_tool_image(ctx, data, name=name)
+            if saved is None:
+                directory = window_media_dir(ctx.thread_id)
+                directory.mkdir(parents=True, exist_ok=True)
+                (directory / name).write_bytes(data)
+                saved = {"path": f"media/{name}"}
             await _audit_event(
                 ctx, "screenshot", success=True, window_id=info.window_id
             )
             return json.dumps(
-                {"status": "ok", "action": "screenshot", "path": f"media/{path.name}"},
+                {"status": "ok", "action": "screenshot", **saved},
                 ensure_ascii=False,
             )
 

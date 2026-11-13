@@ -7,21 +7,15 @@
 
 import type { ImageAttachment } from "@/lib/types";
 import type { Attachment, AttachmentKind } from "@/lib/api/vectora-client";
+import { mediaKindOf } from "./media-kind";
 
 /**
- * Deriva o `AttachmentKind` a partir do MIME type do arquivo.
- *
- * - `image/*` → "image"
- * - `application/pdf` → "pdf"
- * - `audio/*` → "audio"
- * - qualquer outra coisa → "code" (tratado como código/texto pelo backend)
+ * Deriva o `AttachmentKind` declarado ao backend. É só uma dica: o backend
+ * reclassifica pelos bytes. Arquivos de texto/código seguem como "code".
  */
-function deriveKind(mimeType: string): AttachmentKind {
-  if (mimeType.startsWith("image/")) return "image";
-  if (mimeType === "application/pdf") return "pdf";
-  if (mimeType.startsWith("audio/")) return "audio";
-  // txt, json, yaml, markdown, código-fonte, etc.
-  return "code";
+function deriveKind(mimeType: string, name: string): AttachmentKind {
+  const kind = mediaKindOf(mimeType, name);
+  return kind === "text" ? "code" : kind;
 }
 
 /**
@@ -34,7 +28,7 @@ export function toApiAttachments(files: ImageAttachment[]): Attachment[] {
   return files
     .filter((f) => Boolean(f.base64) && Boolean(f.name))
     .map((f) => ({
-      kind: deriveKind(f.mimeType),
+      kind: deriveKind(f.mimeType, f.name ?? ""),
       name: f.name ?? "unknown",
       mime_type: f.mimeType,
       // O campo base64 já armazena dados puros (sem prefixo data URL)

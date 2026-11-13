@@ -23,6 +23,7 @@ from backend.api.schemas import (
     ChatConfig,
     StreamChatRequest,
 )
+from backend.services.speech_to_text import SpeechToTextError
 from backend.settings import CapabilityState
 
 # ===========================================================================
@@ -154,18 +155,17 @@ class TestAttachmentContentValidation:
                 base64_data=too_big,
             )
 
-    def test_unsupported_type_rejected_extension_fallback_accepts(self) -> None:
-        with pytest.raises(ValidationError, match="não suportado"):
-            Attachment(
-                kind=AttachmentKind.CODE,
-                name="malware.exe",
-                mime_type="application/x-msdownload",
-                base64_data=_b64("conteudo"),
-            )
+    def test_any_file_type_is_accepted_and_limited_by_detected_kind(self) -> None:
+        # Binário desconhecido entra como arquivo genérico (vira referência
+        # para o agente), não é recusado pelo tipo.
+        binary = Attachment(
+            kind=AttachmentKind.FILE,
+            name="ferramenta.exe",
+            mime_type="application/x-msdownload",
+            base64_data=_b64_bytes(b"MZ\x90\x00\x03\x00"),
+        )
+        assert binary.name == "ferramenta.exe"
 
-        # mimetype vazio/genérico, mas extensão reconhecida — mesmo fallback
-        # do frontend (alguns navegadores não reportam mimetype pra certas
-        # extensões de texto/config).
         ok = Attachment(
             kind=AttachmentKind.CODE,
             name="config.yaml",
@@ -173,6 +173,15 @@ class TestAttachmentContentValidation:
             base64_data=_b64("key: value"),
         )
         assert ok.name == "config.yaml"
+
+        too_big_binary = _b64_bytes(b"\x00" * (25 * 1024 * 1024 + 1))
+        with pytest.raises(ValidationError, match="excede o limite"):
+            Attachment(
+                kind=AttachmentKind.FILE,
+                name="dump.bin",
+                mime_type="application/octet-stream",
+                base64_data=too_big_binary,
+            )
 
     def test_invalid_base64_rejected(self) -> None:
         with pytest.raises(ValidationError, match="base64_data inválido"):
@@ -420,7 +429,7 @@ class TestBuildUserVMessage:
         )
         msg = await _build_user_vmessage("explique", [att], "t1")
 
-        all_text = "\n".join(b.text or "" for b in msg.content if b.kind == "text")
+        all_text = msg.model_text()
         assert "hello.py" in all_text
         assert "python" in all_text  # linguagem detectada pela extensão
         assert code in all_text
@@ -438,7 +447,7 @@ class TestBuildUserVMessage:
         )
         msg = await _build_user_vmessage("resuma", [att], "t1")
 
-        all_text = "\n".join(b.text or "" for b in msg.content if b.kind == "text")
+        all_text = msg.model_text()
         assert "relatorio.pdf" in all_text
         assert content in all_text
 
@@ -455,7 +464,7 @@ class TestBuildUserVMessage:
         )
         msg = await _build_user_vmessage("leia", [att], "t1")
 
-        all_text = "\n".join(b.text or "" for b in msg.content if b.kind == "text")
+        all_text = msg.model_text()
         assert content in all_text
 
     @pytest.mark.asyncio
@@ -476,9 +485,10 @@ class TestBuildUserVMessage:
         )
         msg = await _build_user_vmessage("analyze", [img_att, code_att], "t1")
 
-        assert len(msg.content) == 3  # texto + image_url + texto-código
+        assert len(msg.content) == 3  # texto + image_url + anexo de código
         kinds = [b.kind for b in msg.content]
-        assert kinds == ["text", "image_url", "text"]
+        assert kinds == ["text", "image_url", "media"]
+        assert msg.content[2].media_kind == "text"
 
     @pytest.mark.asyncio
     async def test_multiple_images(self) -> None:
@@ -516,13 +526,20 @@ class TestBuildUserVMessage:
             mime_type="audio/mpeg",
             base64_data=_b64_bytes(b"fake_audio_bytes"),
         )
-        with patch(
-            "backend.llm.transcription.transcribe_audio",
-            AsyncMock(return_value="fale sobre o projeto"),
+        # Sem motor local, o anexo cai no provider ativo.
+        with (
+            patch(
+                "backend.services.speech_to_text.transcribe_local",
+                AsyncMock(side_effect=SpeechToTextError("sem motor local")),
+            ),
+            patch(
+                "backend.llm.transcription.transcribe_audio",
+                AsyncMock(return_value="fale sobre o projeto"),
+            ),
         ):
             msg = await _build_user_vmessage("ouça isso", [att], "t1")
 
-        all_text = "\n".join(b.text or "" for b in msg.content if b.kind == "text")
+        all_text = msg.model_text()
         assert "memo.mp3" in all_text
         assert "fale sobre o projeto" in all_text
 
@@ -541,13 +558,19 @@ class TestBuildUserVMessage:
             mime_type="audio/wav",
             base64_data=_b64_bytes(b"fake_audio_bytes"),
         )
-        with patch(
-            "backend.llm.transcription.transcribe_audio",
-            AsyncMock(side_effect=TranscriptionError("sem chave configurada")),
+        with (
+            patch(
+                "backend.services.speech_to_text.transcribe_local",
+                AsyncMock(side_effect=SpeechToTextError("sem motor local")),
+            ),
+            patch(
+                "backend.llm.transcription.transcribe_audio",
+                AsyncMock(side_effect=TranscriptionError("sem chave configurada")),
+            ),
         ):
             msg = await _build_user_vmessage("ouça isso", [att], "t1")
 
-        all_text = "\n".join(b.text or "" for b in msg.content if b.kind == "text")
+        all_text = msg.model_text()
         assert "memo.wav" in all_text
         assert "falha ao transcrever" in all_text
 

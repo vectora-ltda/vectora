@@ -114,12 +114,17 @@ describe("validateImageFile", () => {
     expect(result.valid).toBe(true);
   });
 
-  it("rejeita tipo de arquivo não suportado (nem mimetype nem extensão reconhecidos) — erro/borda", () => {
+  it("aceita binário desconhecido como arquivo genérico", () => {
     const result = validateImageFile(
       makeFile("binario.exe", "application/octet-stream", 100),
     );
 
+    expect(result.valid).toBe(true);
+  });
+
+  it("recusa arquivo vazio — erro/borda", () => {
+    const result = validateImageFile(makeFile("vazio.txt", "text/plain", 0));
+
     expect(result.valid).toBe(false);
-    expect(result.error).toContain(".exe");
   });
 });

@@ -569,6 +569,434 @@ export function TranscriptionSettings() {
   );
 }
 
+type LocalSpeechSettingsData = {
+  model: string;
+  language: string;
+  system_command: string;
+  system_model: string;
+  models: { id: string; cached: boolean }[];
+  languages: string[];
+  engines: {
+    embedded: boolean;
+    apple_speech: boolean;
+    system: boolean;
+    system_kind: string;
+  };
+};
+
+function languageName(code: string): string {
+  try {
+    const names = new Intl.DisplayNames([navigator.language || "en"], {
+      type: "language",
+    });
+    return names.of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+async function patchLocalSpeech(
+  body: Partial<
+    Pick<
+      LocalSpeechSettingsData,
+      "model" | "language" | "system_command" | "system_model"
+    >
+  >,
+): Promise<{ data?: LocalSpeechSettingsData; error?: string }> {
+  const response = await fetch("/admin/transcription", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    let detail = `HTTP ${response.status}`;
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      if (typeof payload.detail === "string") detail = payload.detail;
+    } catch {
+      /* mantém o status HTTP */
+    }
+    return { error: detail };
+  }
+  return { data: (await response.json()) as LocalSpeechSettingsData };
+}
+
+/**
+ * Transcrição local de anexos de áudio e vídeo: modelo e idioma do whisper
+ * embutido, whisper do sistema e os motores detectados nesta máquina
+ * (`backend/services/speech_to_text.py`).
+ */
+export function LocalSpeechSettings() {
+  const [data, setData] = useState<LocalSpeechSettingsData | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  const [systemCommand, setSystemCommand] = useState("");
+  const [systemModel, setSystemModel] = useState("");
+  const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [errorText, setErrorText] = useState("");
+
+  const apply = (value: LocalSpeechSettingsData) => {
+    setData(value);
+    setSystemCommand(value.system_command ?? "");
+    setSystemModel(value.system_model ?? "");
+  };
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/admin/transcription")
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const value = (await response.json()) as LocalSpeechSettingsData;
+        if (!Array.isArray(value.models)) throw new Error("formato inesperado");
+        return value;
+      })
+      .then((value) => {
+        if (active) apply(value);
+      })
+      .catch(() => {
+        if (active) setUnavailable(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const save = async (
+    body: Parameters<typeof patchLocalSpeech>[0],
+  ): Promise<void> => {
+    const result = await patchLocalSpeech(body);
+    if (result.data) {
+      apply(result.data);
+      setStatus("saved");
+      setErrorText("");
+    } else {
+      setStatus("error");
+      setErrorText(result.error ?? "");
+    }
+  };
+
+  if (unavailable) {
+    return (
+      <section
+        className="space-y-2 rounded-lg border p-3"
+        aria-label={mDyn("ai_models_stt_title")}
+      >
+        <h4 className="text-sm font-medium">{mDyn("ai_models_stt_title")}</h4>
+        <p role="status" className="text-xs text-muted-foreground">
+          {mDyn("ai_models_stt_unavailable")}
+        </p>
+      </section>
+    );
+  }
+  if (!data) return null;
+
+  const engines: { key: string; label: string; available: boolean }[] = [
+    {
+      key: "embedded",
+      label: mDyn("ai_models_stt_engine_embedded"),
+      available: data.engines.embedded,
+    },
+    ...(data.engines.apple_speech
+      ? [
+          {
+            key: "apple",
+            label: mDyn("ai_models_stt_engine_apple"),
+            available: true,
+          },
+        ]
+      : []),
+    {
+      key: "system",
+      label: data.engines.system_kind
+        ? `${mDyn("ai_models_stt_engine_system")} (${data.engines.system_kind})`
+        : mDyn("ai_models_stt_engine_system"),
+      available: data.engines.system,
+    },
+  ];
+
+  return (
+    <section
+      className="space-y-3 rounded-lg border p-3"
+      aria-label={mDyn("ai_models_stt_title")}
+    >
+      <div>
+        <h4 className="text-sm font-medium">{mDyn("ai_models_stt_title")}</h4>
+        <p className="text-xs text-muted-foreground">
+          {mDyn("ai_models_stt_description")}
+        </p>
+      </div>
+      <ul
+        className="space-y-1 text-xs"
+        aria-label={mDyn("ai_models_stt_engines")}
+      >
+        {engines.map((engine) => (
+          <li key={engine.key} data-testid={`stt-engine-${engine.key}`}>
+            {engine.label}:{" "}
+            {engine.available
+              ? mDyn("ai_models_stt_engine_available")
+              : mDyn("ai_models_stt_engine_missing")}
+          </li>
+        ))}
+      </ul>
+      <label className="grid gap-1 text-xs text-muted-foreground">
+        {mDyn("ai_models_stt_model_label")}
+        <select
+          aria-label={mDyn("ai_models_stt_model_label")}
+          className="h-9 rounded-md border bg-background px-2 text-sm text-foreground"
+          value={data.model}
+          onChange={(event) => void save({ model: event.target.value })}
+        >
+          {data.models.map((model) => (
+            <option key={model.id} value={model.id}>
+              {model.id} —{" "}
+              {model.cached
+                ? mDyn("ai_models_stt_model_cached")
+                : mDyn("ai_models_stt_model_download")}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="grid gap-1 text-xs text-muted-foreground">
+        {mDyn("ai_models_stt_language_label")}
+        <select
+          aria-label={mDyn("ai_models_stt_language_label")}
+          className="h-9 rounded-md border bg-background px-2 text-sm text-foreground"
+          value={data.language}
+          onChange={(event) => void save({ language: event.target.value })}
+        >
+          <option value="">{mDyn("ai_models_stt_language_auto")}</option>
+          {data.languages.map((code) => (
+            <option key={code} value={code}>
+              {languageName(code)} ({code})
+            </option>
+          ))}
+        </select>
+      </label>
+      <details className="space-y-2 text-xs">
+        <summary className="cursor-pointer text-muted-foreground">
+          {mDyn("ai_models_stt_advanced")}
+        </summary>
+        <label className="grid gap-1 text-muted-foreground">
+          {mDyn("ai_models_stt_system_command")}
+          <input
+            aria-label={mDyn("ai_models_stt_system_command")}
+            className="h-8 rounded-md border bg-background px-2 text-sm text-foreground"
+            placeholder={mDyn("ai_models_stt_system_command_placeholder")}
+            value={systemCommand}
+            onChange={(event) => setSystemCommand(event.target.value)}
+          />
+        </label>
+        <label className="grid gap-1 text-muted-foreground">
+          {mDyn("ai_models_stt_system_model")}
+          <input
+            aria-label={mDyn("ai_models_stt_system_model")}
+            className="h-8 rounded-md border bg-background px-2 text-sm text-foreground"
+            placeholder={mDyn("ai_models_stt_system_model_placeholder")}
+            value={systemModel}
+            onChange={(event) => setSystemModel(event.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          className="h-8 rounded-md border px-3 text-xs"
+          onClick={() =>
+            void save({
+              system_command: systemCommand,
+              system_model: systemModel,
+            })
+          }
+        >
+          {mDyn("ai_models_stt_save")}
+        </button>
+      </details>
+      {status === "saved" && (
+        <p role="status" className="text-xs text-muted-foreground">
+          {mDyn("ai_models_stt_saved")}
+        </p>
+      )}
+      {status === "error" && (
+        <p role="alert" className="text-xs text-destructive">
+          {mDyn("ai_models_stt_error")} {errorText}
+        </p>
+      )}
+    </section>
+  );
+}
+
+const MEDIA_LIMIT_FIELDS = [
+  ["pdf_pages", "ai_models_media_limits_pdf_pages"],
+  ["video_frames", "ai_models_media_limits_video_frames"],
+  ["max_side", "ai_models_media_limits_max_side"],
+  ["quality", "ai_models_media_limits_quality"],
+  ["max_images", "ai_models_media_limits_max_images"],
+] as const;
+
+type MediaLimitName = (typeof MEDIA_LIMIT_FIELDS)[number][0];
+
+type MediaLimitsData = Record<
+  MediaLimitName,
+  { value: number; default: number; min: number; max: number }
+>;
+
+function isMediaLimitsData(value: unknown): value is MediaLimitsData {
+  if (typeof value !== "object" || value === null) return false;
+  const record = value as Record<string, unknown>;
+  return MEDIA_LIMIT_FIELDS.every(([name]) => {
+    const item = record[name] as { value?: unknown } | undefined;
+    return typeof item?.value === "number";
+  });
+}
+
+/**
+ * Limites das imagens geradas de PDF e vídeo: páginas, quadros, resolução,
+ * qualidade e teto de imagens (`backend/services/media_limits.py`).
+ */
+export function MediaLimitsSettings() {
+  const [data, setData] = useState<MediaLimitsData | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
+  const [errorText, setErrorText] = useState("");
+
+  const apply = (value: MediaLimitsData) => {
+    setData(value);
+    setDraft(
+      Object.fromEntries(
+        MEDIA_LIMIT_FIELDS.map(([name]) => [name, String(value[name].value)]),
+      ),
+    );
+  };
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/admin/media-limits")
+      .then(async (response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const value: unknown = await response.json();
+        if (!isMediaLimitsData(value)) throw new Error("formato inesperado");
+        return value;
+      })
+      .then((value) => {
+        if (active) apply(value);
+      })
+      .catch(() => {
+        if (active) setUnavailable(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const save = async (): Promise<void> => {
+    if (!data) return;
+    const body: Record<string, number> = {};
+    for (const [name] of MEDIA_LIMIT_FIELDS) {
+      const next = Number(draft[name]);
+      if (Number.isFinite(next) && next !== data[name].value) body[name] = next;
+    }
+    const response = await fetch("/admin/media-limits", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (response.ok) {
+      const value: unknown = await response.json();
+      if (isMediaLimitsData(value)) apply(value);
+      setStatus("saved");
+      setErrorText("");
+      return;
+    }
+    let detail = `HTTP ${response.status}`;
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      if (typeof payload.detail === "string") detail = payload.detail;
+    } catch {
+      /* mantém o status HTTP */
+    }
+    setStatus("error");
+    setErrorText(detail);
+  };
+
+  if (unavailable) {
+    return (
+      <section
+        className="space-y-2 rounded-lg border p-3"
+        aria-label={mDyn("ai_models_media_limits_title")}
+      >
+        <h4 className="text-sm font-medium">
+          {mDyn("ai_models_media_limits_title")}
+        </h4>
+        <p className="text-xs text-muted-foreground">
+          {mDyn("ai_models_media_limits_unavailable")}
+        </p>
+      </section>
+    );
+  }
+  if (!data) return null;
+
+  return (
+    <section
+      className="space-y-3 rounded-lg border p-3"
+      aria-label={mDyn("ai_models_media_limits_title")}
+    >
+      <div>
+        <h4 className="text-sm font-medium">
+          {mDyn("ai_models_media_limits_title")}
+        </h4>
+        <p className="text-xs text-muted-foreground">
+          {mDyn("ai_models_media_limits_description")}
+        </p>
+      </div>
+      {MEDIA_LIMIT_FIELDS.map(([name, labelKey]) => {
+        const limit = data[name];
+        return (
+          <label
+            key={name}
+            className="grid gap-1 text-xs text-muted-foreground"
+          >
+            {mDyn(labelKey)}
+            <input
+              type="number"
+              inputMode="numeric"
+              aria-label={mDyn(labelKey)}
+              className="h-9 rounded-md border bg-background px-2 text-sm text-foreground"
+              min={limit.min}
+              max={limit.max}
+              value={draft[name] ?? ""}
+              onChange={(event) =>
+                setDraft((current) => ({
+                  ...current,
+                  [name]: event.target.value,
+                }))
+              }
+            />
+            <span>
+              {mDyn("ai_models_media_limits_range")} {limit.min}–{limit.max},{" "}
+              {mDyn("ai_models_media_limits_default")} {limit.default}
+            </span>
+          </label>
+        );
+      })}
+      <button
+        type="button"
+        className="h-8 rounded-md border px-3 text-xs"
+        onClick={() => void save()}
+      >
+        {mDyn("ai_models_media_limits_save")}
+      </button>
+      {status === "saved" && (
+        <p role="status" className="text-xs text-muted-foreground">
+          {mDyn("ai_models_media_limits_saved")}
+        </p>
+      )}
+      {status === "error" && (
+        <p role="alert" className="text-xs text-destructive">
+          {mDyn("ai_models_media_limits_error")} {errorText}
+        </p>
+      )}
+    </section>
+  );
+}
+
 export function ChatModelSettings() {
   const selected = useSettingsStore((state) => state.selectedModel);
   const setSelected = useSettingsStore((state) => state.setSelectedModel);
@@ -634,6 +1062,8 @@ export function AiModelsTab() {
         <MemorySettings />
       </section>
       <TranscriptionSettings />
+      <LocalSpeechSettings />
+      <MediaLimitsSettings />
     </div>
   );
 }

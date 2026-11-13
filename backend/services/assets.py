@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import importlib
 import json
 import os
@@ -16,6 +17,7 @@ from threading import Lock
 from typing import Protocol, cast
 from uuid import uuid4
 
+from backend.services.media_types import EXTENSION_BY_MIME, OCTET_STREAM, sniff_mime
 from backend.settings import settings
 
 
@@ -71,50 +73,62 @@ except ImportError:  # pragma: no cover - Unix
 _PROCESS_LOCKS: dict[Path, Lock] = {}
 _PROCESS_LOCKS_GUARD = Lock()
 
-ALLOWED_MIME = {
-    "image/png",
-    "image/jpeg",
-    "image/gif",
-    "image/webp",
-    "audio/mpeg",
-    "video/mp4",
+ALLOWED_MIME = frozenset(mime for mime in EXTENSION_BY_MIME if mime != "image/jpg") | {
+    "audio/mp3"
 }
 MAX_ASSET_BYTES = 100 * 1024 * 1024
 
+#: MIMEs que compartilham contêiner e só se distinguem pela extensão.
+_EQUIVALENT_MIMES = (
+    frozenset({"audio/webm", "video/webm"}),
+    frozenset({"audio/mp4", "video/mp4"}),
+    frozenset({"audio/mpeg", "audio/mp3"}),
+)
+_EXTRA_EXTENSIONS: dict[str, set[str]] = {
+    "image/jpeg": {".jpeg"},
+    "audio/mp3": {".mp3"},
+    "audio/webm": {".weba"},
+}
 
-def _has_valid_signature(data: bytes, mime_type: str) -> bool:
-    signatures: dict[str, tuple[bytes, ...]] = {
-        "image/png": (b"\x89PNG\r\n\x1a\n",),
-        "image/jpeg": (b"\xff\xd8\xff",),
-        "image/gif": (b"GIF87a", b"GIF89a"),
-        "audio/mpeg": (b"ID3", b"\xff\xfb", b"\xff\xf3", b"\xff\xf2"),
-    }
-    if mime_type == "image/webp":
-        return len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
-    if mime_type == "video/mp4":
-        return len(data) >= 8 and data[4:8] == b"ftyp"
-    return any(
-        data.startswith(signature) for signature in signatures.get(mime_type, ())
-    )
+
+def _normalize_mime(mime_type: str) -> str:
+    return "image/jpeg" if mime_type == "image/jpg" else mime_type
+
+
+def _same_media(declared: str, sniffed: str | None) -> bool:
+    if sniffed is None:
+        return False
+    if declared == sniffed:
+        return True
+    return any({declared, sniffed} <= group for group in _EQUIVALENT_MIMES)
+
+
+def _has_valid_signature(data: bytes, mime_type: str, filename: str = "") -> bool:
+    """Bytes conferem com o MIME; arquivo genérico aceita qualquer conteúdo."""
+    if mime_type == OCTET_STREAM:
+        return True
+    return _same_media(mime_type, sniff_mime(data, filename))
 
 
 def validate_asset_bytes(
     data: bytes, mime_type: str, filename: str | None = None
 ) -> bool:
-    normalized = "image/jpeg" if mime_type == "image/jpg" else mime_type
-    if normalized not in ALLOWED_MIME or not _has_valid_signature(data, normalized):
+    normalized = _normalize_mime(mime_type)
+    if normalized not in ALLOWED_MIME or not _has_valid_signature(
+        data, normalized, filename or ""
+    ):
         return False
-    if filename:
-        extensions = {
-            "image/png": {".png"},
-            "image/jpeg": {".jpg", ".jpeg"},
-            "image/gif": {".gif"},
-            "image/webp": {".webp"},
-            "audio/mpeg": {".mp3"},
-            "video/mp4": {".mp4"},
-        }
+    if filename and normalized != OCTET_STREAM:
+        expected = {EXTENSION_BY_MIME.get(normalized, "")} | _EXTRA_EXTENSIONS.get(
+            normalized, set()
+        )
+        for group in _EQUIVALENT_MIMES:
+            if normalized in group:
+                for alias in group:
+                    expected.add(EXTENSION_BY_MIME.get(alias, ""))
+                    expected |= _EXTRA_EXTENSIONS.get(alias, set())
         suffix = Path(filename).suffix.lower()
-        if suffix and suffix not in extensions.get(normalized, set()):
+        if suffix and suffix not in expected:
             return False
     return True
 
@@ -130,6 +144,7 @@ class Asset:
     size_bytes: int
     source: str
     created_at: str
+    sha256: str = ""
 
 
 class AssetStore:
@@ -196,7 +211,7 @@ class AssetStore:
         mime_type: str,
         source: str,
     ) -> Asset:
-        mime_type = "image/jpeg" if mime_type == "image/jpg" else mime_type
+        mime_type = _normalize_mime(mime_type)
         original_path = path
         storage_root = self._storage_root()
         path = path.resolve()
@@ -210,7 +225,8 @@ class AssetStore:
         size = path.stat().st_size
         if size > MAX_ASSET_BYTES:
             raise ValueError("asset excede o tamanho máximo")
-        if not validate_asset_bytes(path.read_bytes(), mime_type, path.name):
+        payload = path.read_bytes()
+        if not validate_asset_bytes(payload, mime_type, path.name):
             raise ValueError("assinatura do asset inválida")
         item = Asset(
             uuid4().hex,
@@ -222,6 +238,7 @@ class AssetStore:
             size,
             source,
             datetime.now(UTC).isoformat(),
+            hashlib.sha256(payload).hexdigest(),
         )
         with self._locked_index():
             records = self._read(strict=True)
@@ -295,6 +312,9 @@ class AssetStore:
                 valid = not validate_asset_bytes(
                     payload, str(raw["mime_type"]), path.name
                 )
+            expected_digest = str(raw.get("sha256") or "")
+            if not valid and expected_digest:
+                valid = hashlib.sha256(payload).hexdigest() != expected_digest
         except OSError:
             valid = True
         if valid:
@@ -309,6 +329,7 @@ class AssetStore:
             size_bytes=size_bytes,
             source=str(raw["source"]),
             created_at=str(raw["created_at"]),
+            sha256=str(raw.get("sha256") or ""),
         )
         return asset, payload
 

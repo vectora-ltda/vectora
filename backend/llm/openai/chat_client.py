@@ -19,6 +19,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
+from backend.llm.media_parts import prepare_content
 from backend.llm.openai.client import OpenAIClient, OpenAIResponseError
 from backend.vtypes.contracts import UsageSnapshot
 from backend.vtypes.message import (
@@ -97,7 +98,8 @@ def _to_openai_content(content: list[ContentBlock]) -> str | list[dict]:
     `image_url` presente força o formato de lista de partes da Responses API
     (`input_text`/`input_image`) — nunca descarta o bloco de imagem só
     porque `msg.text()` só concatena texto."""
-    if not any(b.kind == "image_url" for b in content):
+    content = prepare_content(content, "openai")
+    if not any(b.kind in {"image_url", "media"} for b in content):
         return "".join(b.text or "" for b in content if b.kind == "text")
     partes: list[dict] = []
     for bloco in content:
@@ -105,7 +107,27 @@ def _to_openai_content(content: list[ContentBlock]) -> str | list[dict]:
             partes.append({"type": "input_text", "text": bloco.text})
         elif bloco.kind == "image_url" and bloco.image_url:
             partes.append({"type": "input_image", "image_url": bloco.image_url})
+        elif bloco.kind == "media" and bloco.media_data_url:
+            partes.append(
+                {
+                    "type": "input_file",
+                    "filename": bloco.attachment_name or "anexo",
+                    "file_data": bloco.media_data_url,
+                }
+            )
     return partes
+
+
+def _tool_output(msg: VMessage) -> str | list[dict]:
+    """``function_call_output`` aceita lista de partes com ``input_image``."""
+    imagens = [
+        {"type": "input_image", "image_url": b.image_url}
+        for b in msg.content
+        if b.kind == "image_url" and b.image_url
+    ]
+    if not imagens:
+        return msg.text()
+    return [{"type": "input_text", "text": msg.text()}, *imagens]
 
 
 def _to_openai_input(messages: list[VMessage]) -> list[dict]:
@@ -121,7 +143,7 @@ def _to_openai_input(messages: list[VMessage]) -> list[dict]:
                 {
                     "type": "function_call_output",
                     "call_id": msg.tool_call_id or "",
-                    "output": msg.text(),
+                    "output": _tool_output(msg),
                 }
             )
             continue

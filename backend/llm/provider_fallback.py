@@ -117,6 +117,33 @@ def is_multimodal_incompatible_error(exc: BaseException) -> bool:
     return any(marker in msg for marker in _MULTIMODAL_INCOMPATIBLE_MARKERS)
 
 
+_MEDIA_REJECTION_MARKERS = (
+    "document",
+    "pdf",
+    "input_file",
+    "file_data",
+    "inline_data",
+    "inlinedata",
+    "audio",
+    "video",
+    "mime",
+    "media type",
+    "unsupported",
+    "too large",
+    "image",
+)
+
+
+def is_media_rejection_error(exc: BaseException) -> bool:
+    """Erro do provider que pode ter sido causado por um arquivo anexado."""
+    if is_quota_error(exc) or is_transient_error(exc):
+        return False
+    msg = str(exc).lower()
+    return is_multimodal_incompatible_error(exc) or any(
+        marker in msg for marker in _MEDIA_REJECTION_MARKERS
+    )
+
+
 def _provider_of(model_id: str) -> str:
     return model_id.split(":", 1)[0]
 

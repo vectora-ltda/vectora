@@ -113,6 +113,9 @@ def _message_to_row(
     """Executa a operação  message to row."""
     data = msg.to_dict()
     for block in data["content"]:
+        # Bytes de anexo só existem na cópia enviada ao provider.
+        block["media_data_url"] = None
+        block["media_preview_urls"] = None
         if block.get("kind") == "image_url" and (
             block.get("asset_id")
             or block.get("attachment_name")

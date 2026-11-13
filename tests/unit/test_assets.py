@@ -30,17 +30,36 @@ def test_asset_store_returns_only_owned_non_symlink_assets(tmp_path: Path) -> No
 
 
 def test_asset_store_rejects_unknown_mime(tmp_path: Path) -> None:
-    path = tmp_path / "payload.bin"
-    path.write_bytes(b"x")
+    path = tmp_path / "payload.html"
+    path.write_bytes(b"<script>alert(1)</script>")
     with pytest.raises(ValueError):
         AssetStore(tmp_path / "metadata").create(
             path=path,
             owner_id="u1",
             workspace_id="w1",
             thread_id="t1",
-            mime_type="application/octet-stream",
+            mime_type="text/html",
             source="upload",
         )
+
+
+def test_asset_store_keeps_generic_file_with_digest(tmp_path: Path) -> None:
+    path = tmp_path / "payload.bin"
+    path.write_bytes(b"\x00\x01binary")
+    store = AssetStore(tmp_path / "metadata")
+    asset = store.create(
+        path=path,
+        owner_id="u1",
+        workspace_id="w1",
+        thread_id="t1",
+        mime_type="application/octet-stream",
+        source="upload",
+    )
+    assert len(asset.sha256) == 64
+    loaded = store.read(asset.id, owner_id="u1", workspace_id="w1", thread_id="t1")
+    assert loaded is not None and loaded[1] == b"\x00\x01binary"
+    path.write_bytes(b"\x00\x01binarY")
+    assert store.read(asset.id, owner_id="u1", workspace_id="w1") is None
 
 
 def test_asset_store_rejects_bytes_with_wrong_signature(tmp_path: Path) -> None:

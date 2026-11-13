@@ -11,6 +11,7 @@
 import { useState, useCallback } from "react";
 import type { ImageAttachment } from "../../types";
 import { createImageAttachment, validateImageFile } from "../../utils/chat";
+import { isTextKind, mediaKindOf } from "../../utils/chat/media-kind";
 import { IMAGE_UNSUPPORTED_MODEL_MESSAGE } from "../../constants/features";
 
 // ============================================================================
@@ -40,7 +41,7 @@ interface UseFileUploadOptions {
 }
 
 const isImageFile = (file: File): boolean =>
-  file.type.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/i.test(file.name);
+  mediaKindOf(file.type, file.name) === "image";
 
 // ============================================================================
 // Hook Implementation
@@ -93,7 +94,11 @@ export function useFileUpload(
             return { error: IMAGE_UNSUPPORTED_MODEL_MESSAGE } as const;
           }
           try {
-            const textLength = isImage ? undefined : (await file.text()).length;
+            // Só arquivos de texto têm contagem de caracteres; ler binário
+            // (PDF, áudio, vídeo) como texto não tem significado.
+            const textLength = isTextKind(mediaKindOf(file.type, file.name))
+              ? (await file.text()).length
+              : undefined;
             const imageAttachment = await createImageAttachment(file);
             imageAttachment.textLength = textLength;
             return { attachment: imageAttachment } as const;
@@ -134,7 +139,7 @@ export function useFileUpload(
   );
 
   /**
-   * Handle paste events (images from clipboard).
+   * Handle paste events (files from clipboard: images, documents, any file).
    */
   const handlePaste = useCallback(
     async (event: React.ClipboardEvent) => {
@@ -143,22 +148,24 @@ export function useFileUpload(
 
       setUploadError(null);
 
-      // Coleta os arquivos de imagem do clipboard primeiro (síncrono),
-      // depois processa todos em paralelo para evitar await dentro de loop.
-      const imageFiles: File[] = [];
+      // Coleta os arquivos do clipboard primeiro (síncrono), depois processa
+      // todos em paralelo para evitar await dentro de loop. Texto colado
+      // (item "string") continua indo para o campo de mensagem.
+      const pastedFiles: File[] = [];
       for (const item of Array.from(items)) {
-        if (!item.type.startsWith("image/")) continue;
+        if (item.kind !== "file") continue;
+        const file = item.getAsFile();
+        if (!file) continue;
         event.preventDefault();
-        if (disableImageUploads) {
+        if (disableImageUploads && isImageFile(file)) {
           setUploadError(IMAGE_UNSUPPORTED_MODEL_MESSAGE);
           continue;
         }
-        const file = item.getAsFile();
-        if (file) imageFiles.push(file);
+        pastedFiles.push(file);
       }
 
-      if (imageFiles.length === 0) return;
-      await processFiles(imageFiles);
+      if (pastedFiles.length === 0) return;
+      await processFiles(pastedFiles);
     },
     [disableImageUploads, processFiles],
   );

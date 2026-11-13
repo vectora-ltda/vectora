@@ -24,6 +24,10 @@ from backend.tools.registry import ToolExtras, ToolSpec
 
 logger = logging.getLogger(__name__)
 
+#: Nome reservado para o contexto da chamada nas tools MCP de plugins; não
+#: colide com argumentos do schema remoto.
+_PLUGIN_CTX_PARAM = "__vectora_tool_context"
+
 _HEALTH_TIMEOUT_S = 10
 
 #: Contador de versão por usuário — bumpado a cada add/remove. Permite invalidar
@@ -368,6 +372,7 @@ def _remote_tool_spec(
     tool_name = mcp_tool.name
 
     async def _handler(**kwargs: Any) -> str:
+        tool_context = kwargs.pop(_PLUGIN_CTX_PARAM, None)
         decision = mcp_policy.evaluate(server_name, workspace_id or None)
         if not decision.allowed:
             _schedule_policy_audit(
@@ -383,7 +388,7 @@ def _remote_tool_spec(
         try:
             async with asyncio.timeout(_HEALTH_TIMEOUT_S):
                 await client.connect({server_name: connection}, strict=True)
-                return await client.call_tool(tool_name, kwargs)
+                return await client.call_tool(tool_name, kwargs, tool_context)
         except TimeoutError:
             return f"Erro: tool MCP '{tool_name}' excedeu {_HEALTH_TIMEOUT_S}s."
         except Exception as exc:
@@ -402,7 +407,9 @@ def _remote_tool_spec(
         args_model=_args_model_from_input_schema(tool_name, mcp_tool.input_schema),
         handler=_handler,
         extras=ToolExtras(render_hint="json", category="mcp", icon="share-2"),
-        needs_ctx=False,
+        # O contexto da chamada salva imagens do resultado na sessão.
+        needs_ctx=True,
+        ctx_param_name=_PLUGIN_CTX_PARAM,
     )
 
 

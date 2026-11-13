@@ -13,7 +13,7 @@ motivo, gracioso ou não.
 
 `ctypes` puro contra `kernel32.dll`, não `pywin32` — o projeto não tem essa
 dependência hoje e adicioná-la só por 3 chamadas de API bem conhecidas
-traria DLLs binárias por plataforma, complicando o bundle Nuitka/
+traria DLLs binárias por plataforma, complicando o bundle do
 PyInstaller (que já resolve paths de bundle manualmente, ver
 `nats_sidecar.py::_frozen_bundle_bases`).
 

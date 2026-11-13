@@ -21,6 +21,7 @@ from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any
 
 from backend.llm.anthropic.client import AnthropicClient, AnthropicResponseError
+from backend.llm.media_parts import prepare_content, split_data_url
 from backend.vtypes.contracts import UsageSnapshot
 from backend.vtypes.message import (
     ContentBlock,
@@ -78,7 +79,8 @@ def _to_anthropic_content(content: list[ContentBlock]) -> str | list[dict]:
     desnecessário); qualquer bloco `image_url` presente força o formato de
     lista de blocos tipados da Messages API — nunca descarta a imagem só
     porque `msg.text()` só concatena texto."""
-    if not any(b.kind == "image_url" for b in content):
+    content = prepare_content(content, "anthropic")
+    if not any(b.kind in {"image_url", "media"} for b in content):
         return "".join(b.text or "" for b in content if b.kind == "text")
     partes: list[dict] = []
     for bloco in content:
@@ -86,7 +88,29 @@ def _to_anthropic_content(content: list[ContentBlock]) -> str | list[dict]:
             partes.append({"type": "text", "text": bloco.text})
         elif bloco.kind == "image_url" and bloco.image_url:
             partes.append(_anthropic_image_block(bloco.image_url))
+        elif bloco.kind == "media" and bloco.media_data_url:
+            media_type, dado = split_data_url(bloco.media_data_url)
+            documento: dict = {
+                "type": "document",
+                "source": {"type": "base64", "media_type": media_type, "data": dado},
+            }
+            if bloco.attachment_name:
+                documento["title"] = bloco.attachment_name
+            partes.append(documento)
     return partes
+
+
+def _tool_result_content(msg: VMessage) -> str | list[dict]:
+    """``tool_result`` aceita blocos de imagem junto do texto (screenshots)."""
+    imagens = [
+        _anthropic_image_block(b.image_url)
+        for b in msg.content
+        if b.kind == "image_url" and b.image_url
+    ]
+    if not imagens:
+        return msg.text()
+    texto = msg.text()
+    return [*([{"type": "text", "text": texto}] if texto else []), *imagens]
 
 
 def _assistant_content_blocks(msg: VMessage) -> list[dict]:
@@ -124,7 +148,7 @@ def _to_anthropic_messages(messages: list[VMessage]) -> tuple[str | None, list[d
                         {
                             "type": "tool_result",
                             "tool_use_id": msg.tool_call_id or "",
-                            "content": msg.text(),
+                            "content": _tool_result_content(msg),
                             **({"is_error": True} if msg.is_error else {}),
                         }
                     ],

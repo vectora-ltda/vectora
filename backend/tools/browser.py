@@ -13,7 +13,6 @@ caem no dev server ativo do workspace (mesmo fallback de sempre).
 from __future__ import annotations
 
 import asyncio
-import base64
 import contextlib
 import json
 import logging
@@ -282,25 +281,30 @@ async def browser_navigate(url: str, ctx: ToolContext) -> str:
 
 @vtool(
     extras=ToolExtras(
-        render_hint="image",
+        render_hint="image_preview",
         category="browser",
         destructive=False,
         icon="camera",
     )
 )
 async def browser_screenshot(ctx: ToolContext) -> str:
-    """Tira um screenshot da página atual do browser (base64 PNG, data URL).
+    """Tira um screenshot da página atual do browser e mostra a imagem ao modelo.
 
     Returns:
-        Data URL `data:image/png;base64,...` ou mensagem de erro.
+        JSON com `url` da imagem salva na sessão (a imagem segue anexada ao
+        resultado quando o modelo aceita imagens) ou mensagem de erro.
     """
     page, err = await _resolve_page(ctx)
     if page is None:
         return err
     try:
         png_bytes = await page.screenshot(type="png")
-        encoded = base64.b64encode(png_bytes).decode("ascii")
-        return f"data:image/png;base64,{encoded}"
+        from backend.services.tool_media import save_tool_image
+
+        saved = save_tool_image(ctx, png_bytes, name="browser-screenshot.png")
+        if saved is None:
+            return "Error: falha ao salvar screenshot. Veja logs."
+        return json.dumps({"status": "ok", **saved}, ensure_ascii=False)
     except Exception:
         logger.exception("browser_screenshot failed")
         return "Error: falha ao capturar screenshot. Veja logs."

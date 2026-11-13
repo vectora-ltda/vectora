@@ -15,7 +15,7 @@ Uso (PowerShell / cmd, a partir da raiz do repositório):
     scons docker        → sobe PostgreSQL + Redis + Qdrant via docker compose
     scons clean         → remove outputs de build
 
-Pré-requisitos: uv, pnpm, nuitka (incluído no uv.lock)
+Pré-requisitos: uv e pnpm (o PyInstaller vem no uv.lock)
 O runtime de produção e os testes E2E usam o Chromium distribuído pelo pacote
 Electron. Playwright é somente o cliente CDP; nenhum browser Playwright
 separado é instalado ou empacotado.
@@ -41,6 +41,7 @@ import urllib.error
 import urllib.request
 from typing import TextIO
 
+from utils import build_env
 from utils.subprocess_compat import command_for_execution
 
 AddOption(
@@ -187,70 +188,12 @@ def _action_build_chat(target, source, env):
     print(f">> chat dist pronto em {dist}")
 
 
-def _msvc_env() -> dict[str, str] | None:
-    """Captura o ambiente do MSVC (x64) via vcvars64.bat, no Windows.
-
-    O Nuitka ``--msvc=latest`` às vezes não configura o toolchain mesmo com MSVC +
-    Windows SDK instalados (falha com "scons environment variable 'CC' is not
-    set"). Pré-carregar o vcvars exporta INCLUDE/LIB/PATH e o Nuitka reaproveita o
-    ambiente já ativo. O vcvars64.bat pode sair com código ≠ 0 por um aviso interno
-    de vswhere mesmo tendo inicializado o ambiente — por isso validamos INCLUDE/LIB
-    em vez do código de retorno. Retorna ``None`` (sem alterar o env) quando não há
-    toolchain detectável, deixando o Nuitka tentar sua própria detecção.
-    """
-    if sys.platform != "win32":
-        return None
-    program_files_x86 = os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)")
-    vswhere = os.path.join(
-        program_files_x86, "Microsoft Visual Studio", "Installer", "vswhere.exe"
-    )
-    if not os.path.isfile(vswhere):
-        return None
-    try:
-        install_path = subprocess.run(
-            [vswhere, "-latest", "-products", "*", "-property", "installationPath"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-    except (subprocess.SubprocessError, OSError):
-        return None
-    vcvars = os.path.join(install_path, "VC", "Auxiliary", "Build", "vcvars64.bat")
-    if not install_path or not os.path.isfile(vcvars):
-        return None
-    # Forma string (não lista): o cmd precisa parsear o wrap externo de aspas
-    # `cmd /c "..."` para lidar com o caminho do vcvars com espaços + o `&& set`.
-    # A forma lista quebra o redirecionamento/aspas e não captura o ambiente.
-    proc = subprocess.run(
-        f'cmd /c ""{vcvars}" >nul 2>&1 && set"',
-        capture_output=True,
-        text=True,
-    )
-    env: dict[str, str] = {}
-    for line in proc.stdout.splitlines():
-        key, sep, value = line.partition("=")
-        if sep:
-            env[key] = value
-    if "INCLUDE" not in env or "LIB" not in env:
-        return None
-    # Força a saída do MSVC em inglês: o clcache do Nuitka parseia o output do
-    # cl, e mensagens localizadas (pt-BR) disparam o aviso de "language pack".
-    env["VSLANG"] = "1033"
-    return env
-
-
-def _action_build_nuitka(target, source, env):
-    # Build híbrido: Nuitka --mode=package compila SÓ o pacote backend em C
-    # (backend.pyd), depois PyInstaller empacota launcher + backend.pyd + libs
-    # Python num vectora.exe. Compilar só o backend (pequeno) evita o OOM (C1002)
-    # de compilar libs gigantes (google.genai.types ~157k linhas, lance) para C.
-    # Default de jobs conservador (2); quem tem muita RAM sobe via NUITKA_JOBS.
-    jobs = int(os.environ.get("NUITKA_JOBS", "2"))
-    _run(
-        [sys.executable, "build-hybrid.py", "--jobs", str(jobs)],
-        cwd=ROOT,
-        env=_msvc_env(),
-    )
+def _action_build_backend(target, source, env):
+    # Empacota o backend: o PyInstaller coleta o pacote `backend` (código e
+    # dados, inclusive o defaults.env), as libs
+    # Python e os sidecars numa pasta dist/vectora/ (--onedir). O backend não
+    # é mais compilado em C: não há toolchain C (MSVC, clang, gcc) no build.
+    _run([sys.executable, "build-hybrid.py"], cwd=ROOT)
 
     # build-hybrid.py já valida cada fase, mas reconferimos o artefato final:
     # sem ele, o release empacotaria um instalador sem o executável.
@@ -260,9 +203,9 @@ def _action_build_nuitka(target, source, env):
     if not os.path.isfile(binary):
         raise SystemExit(
             f"ERRO: build-hybrid.py não gerou {binary}. "
-            "Cheque o toolchain C (MSVC + Windows SDK) e o passo do PyInstaller."
+            "Veja o passo do PyInstaller acima."
         )
-    print(f">> executável híbrido pronto em {binary}")
+    print(f">> executável do backend pronto em {binary}")
 
 
 def _action_smoke(target, source, env):
@@ -271,7 +214,7 @@ def _action_smoke(target, source, env):
 
     O único smoke test que já existia (CI, job `release-native`) roda só
     `vectora --version` — confirma que o processo abre e fecha, não que o
-    servidor FastAPI de fato sobe dentro do congelamento Nuitka+PyInstaller
+    servidor FastAPI de fato sobe dentro do congelamento do PyInstaller
     (rotas montadas, settings carregadas, storage inicializado). Um binário
     que quebra nesse caminho só seria descoberto num release real sem isso.
     """
@@ -397,6 +340,203 @@ def _ensure_electron_binary() -> None:
         raise SystemExit(1)
 
 
+def _install_versions() -> dict[str, str | None]:
+    """Versões das ferramentas que o ``install`` usa (``None`` = não responde)."""
+    versions: dict[str, str | None] = {
+        "python": f"Python {sys.version.split()[0]}",
+        "uv": build_env.probe_version([_find_bin("uv"), "--version"]),
+        "node": build_env.probe_version([_find_bin("node"), "--version"]),
+        "pnpm": build_env.probe_version([PNPM, "--version"]),
+        "git": build_env.probe_version([_find_bin("git"), "--version"]),
+    }
+    if sys.platform == "darwin":
+        versions["swiftc"] = build_env.probe_version(
+            [_find_bin("swiftc"), "--version"]
+        )
+    return versions
+
+
+def _sidecar_labels(host) -> list[str]:
+    """Sidecars que o ``install`` baixa ou compila para esta máquina."""
+    labels: list[str] = []
+    try:
+        _url, member, _ext = _nats_asset()
+        labels.append(member.split("/")[0])
+    except RuntimeError as exc:
+        labels.append(f"nats-server: {exc}")
+    try:
+        ffmpeg_url, _name = _ffmpeg_assets()[0]
+        labels.append(f"ffmpeg/ffprobe ({os.path.basename(ffmpeg_url)})")
+    except RuntimeError as exc:
+        labels.append(f"ffmpeg/ffprobe: {exc}")
+    if host.is_macos:
+        labels.append("vectora-speech (fala nativa, compilado com swiftc)")
+    return labels
+
+
+def _exe(name: str) -> str:
+    return f"{name}.exe" if sys.platform == "win32" else name
+
+
+def _installed_components(host, versions) -> list:
+    """Confere no disco o que o ``install`` deve ter deixado pronto."""
+    resources = os.path.join(VECTORA, "resources")
+    venv_python = os.path.join(
+        VECTORA,
+        ".venv",
+        "Scripts" if sys.platform == "win32" else "bin",
+        _exe("python"),
+    )
+    electron_dir = os.path.join(VECTORA, "frontend", "node_modules", "electron")
+    electron_binary = ""
+    path_txt = os.path.join(electron_dir, "path.txt")
+    if os.path.isfile(path_txt):
+        with open(path_txt, encoding="utf-8") as handle:
+            electron_binary = os.path.join(electron_dir, "dist", handle.read().strip())
+
+    def binary(name: str, version_args: list[str]) -> build_env.Component:
+        path = os.path.join(resources, _exe(name))
+        if not os.path.isfile(path):
+            return build_env.Component(name, "ausente", f"{path} não encontrado")
+        version = build_env.probe_version([path, *version_args]) or ""
+        return build_env.Component(
+            name, "ok", f"{build_env.extract_version(version)} {path}".strip()
+        )
+
+    components = [
+        build_env.Component(
+            "Python (.venv)",
+            "ok" if os.path.isfile(venv_python) else "ausente",
+            venv_python,
+        ),
+        build_env.Component(
+            "Frontend (node_modules)",
+            "ok"
+            if os.path.isdir(os.path.join(VECTORA, "frontend", "node_modules"))
+            else "ausente",
+            os.path.join(VECTORA, "frontend", "node_modules"),
+        ),
+        build_env.Component(
+            "Electron (binário nativo)",
+            "ok" if electron_binary and os.path.isfile(electron_binary) else "ausente",
+            electron_binary or electron_dir,
+        ),
+        binary("nats-server", ["--version"]),
+        binary("ffmpeg", ["-version"]),
+        binary("ffprobe", ["-version"]),
+    ]
+    speech = os.path.join(resources, "vectora-speech")
+    if host.is_macos:
+        components.append(
+            build_env.Component(
+                "vectora-speech (fala do macOS)",
+                "ok" if os.path.isfile(speech) else "ausente",
+                speech,
+            )
+        )
+    else:
+        components.append(
+            build_env.Component(
+                "vectora-speech (fala do macOS)",
+                "ignorado",
+                f"não é macOS ({host.system})",
+                required=False,
+            )
+        )
+    return components
+
+
+def _action_install(target, source, env):
+    """Instala tudo o que o build de release usa, em passos numerados.
+
+    1. Ambiente (detecta e informa; confere pré-requisitos antes de baixar).
+    2. Dependências Python.  3. Dependências do frontend.  4. Electron nativo.
+    5. nats-server.  6. ffmpeg e ffprobe.  7. Helper de fala (só no macOS).
+    8. Verificação final, com a lista do que ficou instalado.
+
+    Idempotente: binários já presentes em ``resources/`` são pulados.
+    """
+    total = 8
+    host = build_env.detect_host()
+    versions = _install_versions()
+
+    def header(number: int, title: str) -> None:
+        print(f"\n[{number}/{total}] {title}", flush=True)
+
+    header(1, "Ambiente")
+    missing, command = ([], "")
+    if host.system == "Linux" and host.distro is not None:
+        missing, command = build_env.packaging_hint(host.distro.family)
+    print(
+        build_env.render_environment(
+            host, versions, _sidecar_labels(host), missing, command
+        ),
+        flush=True,
+    )
+    problems = build_env.missing_prerequisites(versions)
+    if problems:
+        print("\nFaltam pré-requisitos; nada foi baixado:")
+        for problem in problems:
+            print(f"  - {problem}")
+        raise SystemExit(1)
+
+    def step(number: int, title: str, action, retry: str) -> None:
+        header(number, title)
+        try:
+            action()
+        except (SystemExit, Exception) as exc:  # noqa: BLE001 - resumo antes de sair
+            reason = exc if not isinstance(exc, SystemExit) else f"código {exc.code}"
+            print(f"\nFalhou no passo {number}/{total} ({title}): {reason}")
+            print(f"Repita só este passo com: {retry}")
+            print("\nO que já está instalado:")
+            print(build_env.render_components(_installed_components(host, versions)))
+            raise SystemExit(1) from exc
+
+    step(
+        2,
+        "Dependências Python (uv sync --locked --all-groups)",
+        lambda: _run([_find_bin("uv"), "sync", "--locked", "--all-groups"]),
+        "uv sync --locked --all-groups",
+    )
+    step(
+        3,
+        "Dependências do frontend (pnpm ci)",
+        lambda: _run([PNPM, "--dir", "frontend", *PNPM_CI]),
+        "pnpm --dir frontend ci",
+    )
+    step(4, "Electron (binário nativo)", _ensure_electron_binary, "scons install")
+    step(
+        5,
+        "nats-server",
+        lambda: _action_fetch_nats(None, None, None),
+        "scons nats",
+    )
+    step(
+        6,
+        "ffmpeg e ffprobe",
+        lambda: _action_fetch_ffmpeg(None, None, None),
+        "scons ffmpeg",
+    )
+    if host.is_macos:
+        step(
+            7,
+            "Helper de fala do macOS (swiftc)",
+            lambda: _action_build_macos_speech(None, None, None),
+            "scons macos-speech",
+        )
+    else:
+        header(7, "Helper de fala do macOS")
+        print(f"  ignorado: este sistema é {host.system}, não macOS")
+
+    header(8, "Verificação")
+    components = _installed_components(host, versions)
+    print(build_env.render_components(components))
+    if not build_env.components_ok(components):
+        print("\nHá componentes obrigatórios ausentes; veja a lista acima.")
+        raise SystemExit(1)
+    print("\nPronto: o ambiente está completo para desenvolver e para o build de release.")
+
+
 def _action_build_desktop(target, source, env):
     _run([PNPM, "--dir", "frontend", "run", "electron:build"])
 
@@ -450,10 +590,10 @@ def _action_package(target, source, env, platform=""):
         dev_env = _get_dev_cert_env() if sys.platform == "win32" else None
         if dev_env:
             build_env.update(dev_env)
-            nuitka_bin = os.path.join(ROOT, "dist", "vectora", "vectora.exe")
-            if os.path.isfile(nuitka_bin):
-                print(">> assinando binário híbrido (extraResource) com dev-cert.pfx...")
-                _sign_binary(nuitka_bin)
+            backend_bin = os.path.join(ROOT, "dist", "vectora", "vectora.exe")
+            if os.path.isfile(backend_bin):
+                print(">> assinando o binário do backend (extraResource) com dev-cert.pfx...")
+                _sign_binary(backend_bin)
             print(">> assinando instaladores com dev-cert.pfx")
         else:
             build_env["CSC_IDENTITY_AUTO_DISCOVERY"] = "false"
@@ -722,7 +862,6 @@ def _action_docker(target, source, env):
 
 def _action_clean(target, source, env):
     paths = [
-        "dist-nuitka",
         "dist",
         "build/pyinstaller",
         "build/vectora.spec",
@@ -751,12 +890,14 @@ def _action_help(target, source, env):
 
   Produto final
     scons release          build completo + instalador para o SO atual
-    scons smoke            builda o binário híbrido (Nuitka+PyInstaller) e confirma
+    scons smoke            roda o backend empacotado (PyInstaller) e confirma
                            que `/health` responde de dentro dele — não só `--version`
 
   Build
     scons frontend         só o build do frontend (frontend/dist/)
-    scons install          prepara Python/dev tools, pnpm ci, Electron, NATS e FFmpeg
+    scons install          prepara tudo: detecta o sistema e a arquitetura (e a distro no
+                           Linux), sincroniza Python, pnpm ci, Electron, NATS, FFmpeg e,
+                           só no macOS, o helper de fala; termina com a lista do instalado
     scons docker           sobe infraestrutura (PostgreSQL, Redis, Qdrant)
 
   Qualidade
@@ -775,6 +916,8 @@ def _action_help(target, source, env):
                            (sidecar de fila/KV com JetStream; precisa de rede)
     scons ffmpeg           baixa ffmpeg+ffprobe pra resources/
                            (backend/tools/media_native.py; precisa de rede)
+    scons macos-speech     compila o helper de fala nativo do macOS
+                           (native/macos-speech, swiftc; só no macOS; o install já o faz)
 """)
     sys.stdout.flush()
 
@@ -850,6 +993,49 @@ def _action_fetch_ffmpeg(target, source, env):
         if not filename.endswith(".exe"):
             os.chmod(dest, 0o755)
         print(f">> {filename} instalado em {dest}")
+
+
+def _action_build_macos_speech(target, source, env):
+    """Compila ``native/macos-speech/main.swift`` em ``resources/vectora-speech``.
+
+    Helper de reconhecimento de fala nativo do macOS (framework Speech),
+    usado por ``backend/services/speech_to_text.py``. Em outros sistemas não
+    faz nada. Exige o swiftc das Command Line Tools do Xcode.
+    """
+    import platform as _plat
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    if _plat.system() != "Darwin":
+        print(">> macos-speech: ignorado fora do macOS")
+        return 0
+    swiftc = _shutil.which("swiftc")
+    if swiftc is None:
+        raise RuntimeError(
+            "swiftc não encontrado; instale as Command Line Tools com "
+            "`xcode-select --install`"
+        )
+    source_file = os.path.join(VECTORA, "native", "macos-speech", "main.swift")
+    dest_dir = os.path.join(VECTORA, "resources")
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, "vectora-speech")
+    _subprocess.run(  # noqa: S603
+        [
+            swiftc,
+            "-O",
+            "-swift-version",
+            "5",
+            "-framework",
+            "Speech",
+            "-o",
+            dest,
+            source_file,
+        ],
+        check=True,
+    )
+    os.chmod(dest, 0o755)
+    print(f">> vectora-speech compilado em {dest}")
+    return 0
 
 
 def _nats_asset() -> tuple[str, str, str]:
@@ -983,7 +1169,7 @@ _cmd("frontend", _action_build_chat_and_electron)
 # PyInstaller (build-hybrid.py agora embute via --add-binary numa pasta
 # nats/, pro standalone/VPS) quanto do electron-builder (extraResources, pro
 # desktop) — sem esta dependência os dois builds saem sem o sidecar de
-# fila/KV, caindo pra memória. _build_nuitka e _build_desktop dependem
+# fila/KV, caindo pra memória. _build_backend e _build_desktop dependem
 # explicitamente, não só como irmãos em _FULL_DEPS (SCons não garante ordem
 # entre irmãos sem edge de dependência).
 _fetch_nats    = _node("fetch-nats",      _action_fetch_nats)
@@ -992,24 +1178,31 @@ _fetch_nats    = _node("fetch-nats",      _action_fetch_nats)
 # empacotarem — sem isso, media_native.py cai pro fallback de PATH do
 # sistema em qualquer build empacotado sem ffmpeg instalado separadamente.
 _fetch_ffmpeg  = _node("fetch-ffmpeg",    _action_fetch_ffmpeg)
-_cmd("install", _action_install_desktop, deps=[_fetch_nats, _fetch_ffmpeg])
+_cmd("install", _action_install)
+# Helper de fala do macOS: o build-hybrid.py o exige no macOS; em outros
+# sistemas a ação não faz nada, então o nó pode ficar no grafo de qualquer SO.
+_fetch_speech  = _node("build-macos-speech", _action_build_macos_speech)
 _inst_desktop  = _node("install-desktop", _action_install_desktop)
 _build_chat    = _node("build-chat",      _action_build_chat,    deps=[_inst_desktop])
-_build_nuitka  = _node("build-nuitka",    _action_build_nuitka,   deps=[_build_chat, _fetch_nats, _fetch_ffmpeg])
+_build_backend = _node(
+    "build-backend",
+    _action_build_backend,
+    deps=[_build_chat, _fetch_nats, _fetch_ffmpeg, _fetch_speech],
+)
 _build_desktop = _node(
     "build-desktop",
     _action_build_desktop,
     deps=[_build_chat, _inst_desktop, _fetch_nats, _fetch_ffmpeg],
 )
 
-_FULL_DEPS = [_build_chat, _fetch_nats, _fetch_ffmpeg, _build_nuitka, _build_desktop]
+_FULL_DEPS = [_build_chat, _fetch_nats, _fetch_ffmpeg, _build_backend, _build_desktop]
 
 _cmd("release", lambda target, source, env: _action_package(target, source, env), deps=_FULL_DEPS)
-# Sem deps=[_build_nuitka]: esse node é AlwaysBuild, então depender dele
-# forçaria uma recompilação Nuitka inteira (cara) toda vez que `scons smoke`
+# Sem deps=[_build_backend]: esse node é AlwaysBuild, então depender dele
+# forçaria um novo empacotamento inteiro (caro) toda vez que `scons smoke`
 # rodasse -- inclusive em CI, logo depois do binário já ter sido construído
 # no passo anterior do workflow. `_action_smoke` já checa se o binário
-# existe e falha com uma mensagem clara ("rode scons build-nuitka/release
+# existe e falha com uma mensagem clara ("rode scons build-backend/release
 # primeiro") se não existir.
 _cmd("smoke", _action_smoke)
 
@@ -1021,6 +1214,7 @@ _cmd("lint",          _action_lint)
 _cmd("update",        _action_update)
 _cmd("nats",          _action_fetch_nats)
 _cmd("ffmpeg",        _action_fetch_ffmpeg)
+_cmd("macos-speech",  _action_build_macos_speech)
 _cmd("clean",         _action_clean)
 _cmd("help",          _action_help)
 _cmd("docker",        _action_docker)

@@ -25,6 +25,11 @@ import json
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from backend.llm.media_parts import (
+    AcceptedMedia,
+    prepare_content,
+    resolve_native_media,
+)
 from backend.llm.openrouter.client import OpenRouterClient, OpenRouterResponseError
 from backend.vtypes.contracts import UsageSnapshot
 from backend.vtypes.message import (
@@ -54,12 +59,46 @@ class _UsagePayload(TypedDict, total=False):
     total_tokens: int
 
 
-def _to_openrouter_content(content: list[ContentBlock]) -> str | list[dict]:
-    """Bloco `text` vira string simples (caso comum); qualquer bloco
-    `image_url` presente força o formato de lista de partes Chat-Completions
-    (`image_url` aninhado) — nunca descarta a imagem só porque `msg.text()`
-    só concatena texto."""
-    if not any(b.kind == "image_url" for b in content):
+_AUDIO_FORMATS = {"audio/mpeg": "mp3", "audio/wav": "wav"}
+
+
+def _media_part(bloco: ContentBlock) -> dict | None:
+    """Parte Chat-Completions de um anexo enviado como arquivo."""
+    data_url = bloco.media_data_url or ""
+    mime_type, _, dado = data_url.partition(";base64,")
+    mime_type = mime_type.removeprefix("data:")
+    if mime_type == "application/pdf":
+        return {
+            "type": "file",
+            "file": {
+                "filename": bloco.attachment_name or "anexo.pdf",
+                "file_data": data_url,
+            },
+        }
+    if mime_type in _AUDIO_FORMATS:
+        return {
+            "type": "input_audio",
+            "input_audio": {"data": dado, "format": _AUDIO_FORMATS[mime_type]},
+        }
+    if mime_type.startswith("video/"):
+        return {"type": "video_url", "video_url": {"url": data_url}}
+    return None
+
+
+def _to_openrouter_content(
+    content: list[ContentBlock], accepted: AcceptedMedia | None = None
+) -> str | list[dict]:
+    """Bloco `text` vira string simples (caso comum); imagens e anexos
+    enviados como arquivo forçam o formato de lista de partes
+    Chat-Completions — nunca descarta a imagem só porque `msg.text()` só
+    concatena texto.
+
+    ``accepted`` vem do catálogo do gateway para o modelo
+    (:func:`backend.llm.media_parts.resolve_native_media`); sem ele, anexos
+    que não são imagem seguem pela forma textual.
+    """
+    content = prepare_content(content, accepted or {})
+    if not any(b.kind in {"image_url", "media"} for b in content):
         return "".join(b.text or "" for b in content if b.kind == "text")
     partes: list[dict] = []
     for bloco in content:
@@ -67,10 +106,15 @@ def _to_openrouter_content(content: list[ContentBlock]) -> str | list[dict]:
             partes.append({"type": "text", "text": bloco.text})
         elif bloco.kind == "image_url" and bloco.image_url:
             partes.append({"type": "image_url", "image_url": {"url": bloco.image_url}})
+        elif bloco.kind == "media":
+            parte = _media_part(bloco)
+            partes.append(parte or {"type": "text", "text": bloco.text or ""})
     return partes
 
 
-def _to_openrouter_message(msg: VMessage) -> dict:
+def _to_openrouter_message(
+    msg: VMessage, accepted: AcceptedMedia | None = None
+) -> dict:
     """Executa a operação  to openrouter message."""
     role = _ROLE_POR_TIPO.get(msg.role)
     if role is None:
@@ -79,13 +123,16 @@ def _to_openrouter_message(msg: VMessage) -> dict:
 
     saida: dict[str, Any] = {
         "role": role,
-        "content": _to_openrouter_content(msg.content),
+        "content": _to_openrouter_content(msg.content, accepted),
     }
 
     if role == "tool":
         # Obrigatório no formato OpenAI-compatível — sem ele o provider
         # recusa a mensagem de tool com 400.
         saida["tool_call_id"] = msg.tool_call_id or ""
+        # Mensagem de tool só aceita texto; imagens da ferramenta seguem numa
+        # mensagem de usuário logo depois (``_to_openrouter_messages``).
+        saida["content"] = msg.text()
 
     if role == "assistant" and msg.tool_calls:
         saida["tool_calls"] = [
@@ -101,6 +148,43 @@ def _to_openrouter_message(msg: VMessage) -> dict:
         ]
         saida["content"] = msg.text() or None
 
+    return saida
+
+
+def _to_openrouter_messages(
+    messages: list[VMessage], accepted: AcceptedMedia | None = None
+) -> list[dict]:
+    """Traduz o histórico e entrega imagens de ferramentas (screenshots).
+
+    Depois de cada sequência de mensagens de tool, as imagens que elas
+    trouxeram seguem numa mensagem de usuário, o formato que o Chat
+    Completions aceita para imagem.
+    """
+    saida: list[dict] = []
+    pendentes: list[dict] = []
+    for msg in messages:
+        if msg.role != MessageRole.TOOL and pendentes:
+            saida.append({"role": "user", "content": pendentes})
+            pendentes = []
+        saida.append(_to_openrouter_message(msg, accepted))
+        if msg.role == MessageRole.TOOL:
+            imagens = [
+                {"type": "image_url", "image_url": {"url": b.image_url}}
+                for b in msg.content
+                if b.kind == "image_url" and b.image_url
+            ]
+            if imagens:
+                pendentes.extend(
+                    [
+                        {
+                            "type": "text",
+                            "text": f"Imagem retornada pela ferramenta {msg.name or ''}:",
+                        },
+                        *imagens,
+                    ]
+                )
+    if pendentes:
+        saida.append({"role": "user", "content": pendentes})
     return saida
 
 
@@ -160,11 +244,28 @@ class OpenRouterChatClient:
         client: OpenRouterClient,
         *,
         compact_system_prompt: bool = False,
+        media_model_id: str | None = None,
     ) -> None:
-        """Inicializa o estado da instância."""
+        """Inicializa o estado da instância.
+
+        ``media_model_id`` (``"openrouter:<modelo>"`` ou
+        ``"nine_router:<modelo>"``) liga a consulta ao catálogo do gateway
+        para enviar PDF, áudio e vídeo como arquivo aos modelos que aceitam.
+        """
         self.model = model
         self.client = client
         self.compact_system_prompt = compact_system_prompt
+        self.media_model_id = media_model_id
+
+    async def _accepted_media(self, messages: list[VMessage]) -> AcceptedMedia:
+        """Tipos aceitos pelo modelo, consultados só quando há arquivo."""
+        if not self.media_model_id or not any(
+            block.kind == "media" and (block.media_data_url or block.media_preview_urls)
+            for message in messages
+            for block in message.content
+        ):
+            return {}
+        return await resolve_native_media(self.media_model_id)
 
     def _payload(
         self,
@@ -173,11 +274,12 @@ class OpenRouterChatClient:
         tools: list[ToolSpec] | None,
         temperature: float | None,
         max_tokens: int | None,
+        accepted: AcceptedMedia | None = None,
     ) -> dict:
         """Executa a operação  payload."""
         corpo: dict[str, Any] = {
             "model": self.model,
-            "messages": [_to_openrouter_message(m) for m in messages],
+            "messages": _to_openrouter_messages(messages, accepted),
         }
         if self.compact_system_prompt:
             from backend.llm.prompt_projection import compact_small_model_system_prompt
@@ -226,7 +328,11 @@ class OpenRouterChatClient:
     ) -> VMessage:
         """Executa a operação agenerate."""
         corpo = self._payload(
-            messages, tools=tools, temperature=temperature, max_tokens=max_tokens
+            messages,
+            tools=tools,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            accepted=await self._accepted_media(messages),
         )
         resposta = await self.client.post_json("/chat/completions", corpo)
         escolha = self._primeira_escolha(resposta)
@@ -258,7 +364,11 @@ class OpenRouterChatClient:
     ) -> AsyncIterator[VMessageChunk]:
         """Executa a operação astream."""
         corpo = self._payload(
-            messages, tools=tools, temperature=temperature, max_tokens=max_tokens
+            messages,
+            tools=tools,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            accepted=await self._accepted_media(messages),
         )
 
         async for evento in self.client.stream_sse("/chat/completions", corpo):

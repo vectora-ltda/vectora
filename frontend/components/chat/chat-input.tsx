@@ -665,7 +665,6 @@ export function ChatInput({
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/*,audio/*,.py,.js,.ts,.tsx,.jsx,.java,.cpp,.c,.h,.cs,.go,.rs,.rb,.php,.sh,.bash,.yaml,.yml,.json,.xml,.html,.css,.md,.txt,.log,.sql,.graphql,.r,.swift,.kt,.scala,.har,.mp3,.wav,.m4a,.ogg,.webm"
                     multiple
                     onChange={onFileSelect}
                     className="hidden"

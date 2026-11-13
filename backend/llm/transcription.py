@@ -72,6 +72,12 @@ _LOCAL_PROBE_TIMEOUT_S = 45.0
 _LOCAL_TRANSCRIPTION_TIMEOUT_S = 60.0
 
 
+def _local_model() -> str:
+    from backend.services.speech_to_text import local_model_size
+
+    return local_model_size()
+
+
 def local_transcription_readiness() -> LocalTranscriptionReadiness:
     """Report whether local STT can run without downloading model weights.
 
@@ -87,7 +93,7 @@ def local_transcription_readiness() -> LocalTranscriptionReadiness:
         any(
             snapshot.is_dir() and (snapshot / "model.bin").is_file()
             for snapshots in model_root.glob(
-                "models--Systran--faster-whisper-base/snapshots"
+                f"models--Systran--faster-whisper-{_local_model()}/snapshots"
             )
             for snapshot in snapshots.iterdir()
         )
@@ -99,7 +105,7 @@ def local_transcription_readiness() -> LocalTranscriptionReadiness:
     if not dependency_available:
         diagnostic = "faster-whisper não está instalado"
     elif not model_cached:
-        diagnostic = "modelo base ainda não baixado; o primeiro uso exigirá download"
+        diagnostic = f"modelo {_local_model()} ainda não baixado; o primeiro uso exigirá download"
     elif probe_in_progress:
         diagnostic = "teste do runtime local em andamento"
     else:
@@ -134,7 +140,7 @@ def _probe_local_transcription_sync() -> str:
         snapshots = [
             snapshot
             for snapshot in model_root.glob(
-                "models--Systran--faster-whisper-base/snapshots/*"
+                f"models--Systran--faster-whisper-{_local_model()}/snapshots/*"
             )
             if snapshot.is_dir() and (snapshot / "model.bin").is_file()
         ]
@@ -287,7 +293,11 @@ def _transcribe_audio_local_sync(data: bytes, filename: str, language: str) -> s
         descriptor, temp_path = tempfile.mkstemp(prefix="vectora-stt-", suffix=suffix)
         with os.fdopen(descriptor, "wb") as audio_file:
             audio_file.write(data)
-        result = _transcribe_local_sync(temp_path, language or None)
+        from backend.services.speech_to_text import preferred_language
+
+        result = _transcribe_local_sync(
+            temp_path, language or preferred_language() or None
+        )
         text = str(result.get("text", "")).strip()
         if not text:
             raise TranscriptionError("o modelo local não retornou texto")

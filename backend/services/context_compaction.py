@@ -2,13 +2,61 @@
 
 from __future__ import annotations
 
+from collections.abc import Generator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import replace
 
+from backend.services.image_token_cost import DEFAULT_IMAGE_TOKENS, cost_for
 from backend.services.text import text_service
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
-_IMAGE_TOKEN_ESTIMATE = 1_600
+_IMAGE_TOKEN_ESTIMATE = DEFAULT_IMAGE_TOKENS
 _TOOL_RESULT_CONTEXT_LIMIT = 12_000
+
+#: ``asset_id`` dos anexos cujas prévias (páginas de PDF, quadros de vídeo)
+#: seguem ao modelo como imagens neste turno. Só os anexos da mensagem mais
+#: recente do usuário recebem prévias (``media_hydration``); os anteriores
+#: chegam só como texto e não pesam como imagem.
+_PENDING_PREVIEW_ASSETS: ContextVar[frozenset[str]] = ContextVar(
+    "vectora_pending_preview_assets", default=frozenset()
+)
+
+
+def pending_preview_assets(messages: list[VMessage]) -> frozenset[str]:
+    """Anexos da mensagem mais recente do usuário que levam prévias."""
+    for message in reversed(messages):
+        if message.role is MessageRole.USER:
+            return frozenset(
+                block.asset_id
+                for block in message.content
+                if block.kind == "media"
+                and block.asset_id
+                and block.media_preview_asset_ids
+            )
+    return frozenset()
+
+
+#: Tokens por imagem do modelo do turno (aprendidos do uso; ver
+#: ``image_token_cost``). Sem modelo informado vale o padrão.
+_IMAGE_TOKENS: ContextVar[int] = ContextVar(
+    "vectora_image_tokens", default=DEFAULT_IMAGE_TOKENS
+)
+
+
+@contextmanager
+def count_previews_for(
+    messages: list[VMessage], model: str | None = None
+) -> Generator[None]:
+    """Faz a estimativa de tokens contar as prévias que serão enviadas e usar o
+    custo por imagem aprendido para o ``model``."""
+    previews = _PENDING_PREVIEW_ASSETS.set(pending_preview_assets(messages))
+    cost = _IMAGE_TOKENS.set(cost_for(model))
+    try:
+        yield
+    finally:
+        _IMAGE_TOKENS.reset(cost)
+        _PENDING_PREVIEW_ASSETS.reset(previews)
 
 
 def _bound_tool_results(messages: list[VMessage]) -> list[VMessage]:
@@ -24,7 +72,7 @@ def _bound_tool_results(messages: list[VMessage]) -> list[VMessage]:
         remaining = _TOOL_RESULT_CONTEXT_LIMIT
         blocks: list[ContentBlock] = []
         for block in message.content:
-            if block.kind != "text" or not block.text:
+            if not block.is_textual or not block.text:
                 blocks.append(block)
                 continue
             excerpt = block.text[:remaining]
@@ -48,12 +96,19 @@ def _message_tokens(message: VMessage) -> int:
         # O marcador é um token de controle sintético; contar o texto inteiro
         # faria a sinalização expulsar uma unidade tool-call válida do limite.
         return 1
-    text = message.text()
+    text = message.model_text()
     if message.tool_calls:
         text += "\n".join(str(call.args) for call in message.tool_calls)
     image_count = sum(block.kind == "image_url" for block in message.content)
+    pending = _PENDING_PREVIEW_ASSETS.get()
+    if pending:
+        image_count += sum(
+            len(block.media_preview_asset_ids or ())
+            for block in message.content
+            if block.kind == "media" and block.asset_id in pending
+        )
     return max(
-        1, text_service.count_tokens(text) + 4 + image_count * _IMAGE_TOKEN_ESTIMATE
+        1, text_service.count_tokens(text) + 4 + image_count * _IMAGE_TOKENS.get()
     )
 
 

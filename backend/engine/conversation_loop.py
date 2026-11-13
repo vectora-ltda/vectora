@@ -41,6 +41,8 @@ from backend.engine.guardrails import LoopCapConfig, TurnBudget
 from backend.engine.stream_events import (
     ErrorSignal,
     HitlRequested,
+    MediaRoute,
+    MediaRouted,
     MessageBreak,
     MessageChunk,
     TodoItem,
@@ -473,7 +475,7 @@ async def _load_persistent_context_memories(ctx: ToolContext) -> list[MemoryReco
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
     from backend.engine.hitl import ApprovalGate
     from backend.engine.stream_events import EventSink
@@ -714,6 +716,66 @@ async def _workspace_changed_paths(ctx: ToolContext) -> set[str]:
         return set()
 
 
+async def _report_media_routing(
+    messages: list[VMessage],
+    *,
+    model_id: str,
+    downgraded: bool,
+    emit: Callable[[Any], Awaitable[None]],
+    session_store: SessionStore,
+    run_id: str | None,
+    thread_id: str,
+    iteration: int,
+) -> None:
+    """Registra no run e mostra na UI como cada anexo chegou ao modelo."""
+    from backend.llm.media_parts import media_routing_evidence, resolve_native_media
+
+    if not any(block.kind == "media" for m in messages for block in m.content):
+        return
+    entries = media_routing_evidence(
+        messages, await resolve_native_media(model_id), model_id
+    )
+    if not entries:
+        return
+    if downgraded:
+        for entry in entries:
+            if entry["mode"] == "native":
+                entry["mode"] = "text"
+                entry["reason"] = "provider recusou o arquivo; reenviado como texto"
+    with contextlib.suppress(Exception):
+        await emit(
+            MediaRouted(
+                routes=[
+                    MediaRoute(
+                        name=str(entry["name"]),
+                        media_kind=str(entry["media_kind"]),
+                        mime_type=str(entry["mime_type"]),
+                        size_bytes=int(cast("int", entry["size_bytes"])),
+                        mode=str(entry["mode"]),
+                        reason=str(entry["reason"]),
+                        model=model_id,
+                    )
+                    for entry in entries
+                ]
+            )
+        )
+    if run_id and hasattr(session_store, "record_run_evidence"):
+        try:
+            await session_store.record_run_evidence(
+                run_id,
+                evidence={
+                    "kind": "media_routing",
+                    "evidence_id": f"media_routing:{run_id}:{iteration}:{model_id}",
+                    "run_id": run_id,
+                    "thread_id": thread_id,
+                    "model": model_id,
+                    "attachments": entries,
+                },
+            )
+        except Exception:
+            logger.exception("conversation_loop: falha ao registrar envio de anexos")
+
+
 async def run_conversation(  # noqa: PLR0911
     *,
     session_store: SessionStore,
@@ -898,6 +960,7 @@ async def run_conversation(  # noqa: PLR0911
                 "conversation_loop: falha ao carregar checkpoint de retomada"
             )
 
+    media_routed_model: str | None = None
     for _iteracao in range(config.max_iterations):
         raw_history = await session_store.get_history(thread_id)
         if ctx.permission_mode == "plan":
@@ -919,8 +982,16 @@ async def run_conversation(  # noqa: PLR0911
             workspace_id=ctx.workspace_id or None,
             policy_snapshot=policy_snapshot,
             persistent_memory_records=await _load_persistent_context_memories(ctx),
+            model=str(ctx.model) if ctx.model else None,
         )
-        historico = planned_context.messages
+        from backend.services.media_hydration import hydrate_media_blocks
+
+        historico = hydrate_media_blocks(
+            planned_context.messages,
+            user_id=ctx.user_id or "local",
+            workspace_id=ctx.workspace_id or "",
+            thread_id=thread_id,
+        )
         if config.run_id and hasattr(session_store, "record_run_evidence"):
             try:
                 if planned_context.manifest and not manifest_recorded:
@@ -1023,6 +1094,15 @@ async def run_conversation(  # noqa: PLR0911
             # não via `on_event`.
 
         if stream_usage is not None:
+            with contextlib.suppress(Exception):
+                from backend.services.image_token_cost import observe_turn
+
+                observe_turn(
+                    str(ctx.model) if ctx.model else None,
+                    historico,
+                    tools,
+                    stream_usage,
+                )
             if last_usage is None:
                 last_usage = {}
             for key, value in stream_usage.items():
@@ -1030,6 +1110,19 @@ async def run_conversation(  # noqa: PLR0911
         model_id = getattr(chat_client, "last_model_id", None)
         if model_id:
             usage_models.add(str(model_id))
+        routed_model = str(model_id or ctx.model or "")
+        if routed_model and routed_model != media_routed_model:
+            media_routed_model = routed_model
+            await _report_media_routing(
+                historico,
+                model_id=routed_model,
+                downgraded=bool(getattr(chat_client, "last_media_downgraded", False)),
+                emit=emit,
+                session_store=session_store,
+                run_id=config.run_id,
+                thread_id=thread_id,
+                iteration=_iteracao,
+            )
         if stream_usage is not None:
             usage_records.append((str(model_id) if model_id else None, stream_usage))
 
@@ -1051,7 +1144,8 @@ async def run_conversation(  # noqa: PLR0911
             await record_interaction(
                 session_store,
                 run_id=config.run_id,
-                messages=historico,
+                # Sem a mídia reidratada: a gravação guarda só referências.
+                messages=planned_context.messages,
                 response=texto_final,
                 tool_calls=tool_calls,
                 usage=stream_usage,
