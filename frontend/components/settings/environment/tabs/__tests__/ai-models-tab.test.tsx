@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ChatModelSettings,
   LocalSpeechSettings,
+  MediaLimitsSettings,
   SystemOneConfiguration,
   TranscriptionSettings,
 } from "../ai-models-tab";
@@ -385,5 +386,107 @@ describe("LocalSpeechSettings", () => {
     );
     render(<LocalSpeechSettings />);
     expect(await screen.findByRole("status")).toBeInTheDocument();
+  });
+});
+
+describe("MediaLimitsSettings", () => {
+  const payload = {
+    pdf_pages: { value: 20, default: 20, min: 1, max: 500 },
+    video_frames: { value: 12, default: 12, min: 1, max: 300 },
+    max_side: { value: 1280, default: 1280, min: 256, max: 4096 },
+    quality: { value: 80, default: 80, min: 30, max: 95 },
+    max_images: { value: 60, default: 60, min: 8, max: 500 },
+  };
+
+  const stubFetch = (patchResponse?: { ok: boolean; body: unknown }) => {
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "/admin/media-limits" && init?.method === "PATCH") {
+        return Promise.resolve({
+          ok: patchResponse?.ok ?? true,
+          status: patchResponse?.ok === false ? 422 : 200,
+          json: async () => patchResponse?.body ?? payload,
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => payload,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  };
+
+  it("shows the five limits with their current value and range", async () => {
+    stubFetch();
+    render(<MediaLimitsSettings />);
+
+    const pages = await screen.findByLabelText(
+      /PDF pages per attachment|ai_models_media_limits_pdf_pages/,
+    );
+    expect(pages).toHaveValue(20);
+    expect(screen.getAllByRole("spinbutton")).toHaveLength(5);
+  });
+
+  it("sends only the limits that changed", async () => {
+    const fetchMock = stubFetch({
+      ok: true,
+      body: { ...payload, pdf_pages: { ...payload.pdf_pages, value: 40 } },
+    });
+    render(<MediaLimitsSettings />);
+
+    const pages = await screen.findByLabelText(
+      /PDF pages per attachment|ai_models_media_limits_pdf_pages/,
+    );
+    fireEvent.change(pages, { target: { value: "40" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: /Save|ai_models_media_limits_save/ }),
+    );
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith("/admin/media-limits", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pdf_pages: 40 }),
+      }),
+    );
+    expect(await screen.findByRole("status")).toBeInTheDocument();
+    expect(pages).toHaveValue(40);
+  });
+
+  it("shows the backend error when the value is rejected", async () => {
+    stubFetch({
+      ok: false,
+      body: { detail: "pdf_pages deve estar entre 1 e 500" },
+    });
+    render(<MediaLimitsSettings />);
+
+    const pages = await screen.findByLabelText(
+      /PDF pages per attachment|ai_models_media_limits_pdf_pages/,
+    );
+    fireEvent.change(pages, { target: { value: "900" } });
+    fireEvent.click(
+      screen.getByRole("button", { name: /Save|ai_models_media_limits_save/ }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "pdf_pages deve estar entre 1 e 500",
+    );
+  });
+
+  it("explains that only an administrator can change it when it cannot load", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({ ok: false, status: 403, json: async () => ({}) }),
+      ),
+    );
+    render(<MediaLimitsSettings />);
+
+    expect(
+      await screen.findByText(
+        /administrator|ai_models_media_limits_unavailable/,
+      ),
+    ).toBeInTheDocument();
   });
 });

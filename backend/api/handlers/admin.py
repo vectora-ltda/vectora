@@ -769,6 +769,54 @@ async def patch_transcription_settings(
     return stt_settings()
 
 
+class MediaLimitsBody(BaseModel):
+    """Campos ausentes (``None``) não mudam; fora da faixa é recusado."""
+
+    pdf_pages: int | None = None
+    video_frames: int | None = None
+    max_side: int | None = None
+    quality: int | None = None
+    max_images: int | None = None
+
+
+@router.get("/media-limits")
+async def get_media_limits(request: Request) -> dict:
+    """Limites das imagens geradas de PDF e vídeo: valor efetivo, padrão e
+    faixa aceita (``backend/services/media_limits.py``)."""
+    require_admin(_get_user(request))
+    from backend.services.media_limits import limits_settings
+
+    return limits_settings()
+
+
+@router.patch("/media-limits")
+async def patch_media_limits(request: Request, body: MediaLimitsBody) -> dict:
+    """Grava os limites informados e devolve o estado efetivo."""
+    require_admin(_get_user(request))
+    from backend.config.registry import get_field
+    from backend.services.media_limits import (
+        LIMIT_FIELDS,
+        limits_settings,
+        validate_limit,
+    )
+
+    updates: dict[str, str] = {}
+    try:
+        for name, (field_name, _default, _bounds) in LIMIT_FIELDS.items():
+            value = getattr(body, name)
+            if value is not None:
+                updates[field_name] = str(validate_limit(name, value))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    for field_name, value in updates.items():
+        field = get_field(field_name)
+        if field is None:
+            raise HTTPException(status_code=500, detail=f"campo ausente: {field_name}")
+        field.set(value)
+    return limits_settings()
+
+
 class MediaModelsBody(BaseModel):
     """String vazia **limpa** a escolha (volta a valer a env var); `None`
     significa "não mexe nesta chave"."""
