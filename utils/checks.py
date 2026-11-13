@@ -324,9 +324,16 @@ def _strip_issue_links(body: str) -> str:
     )
 
 
+#: Título dos PRs gerados pelo Release Please. O corpo é o CHANGELOG gerado, que
+#: lista os PRs da versão com seus números e nada do que se escreve à mão.
+_RELEASE_PR_TITLE = re.compile(r"^chore\([^)]+\): release \d+\.\d+\.\d+")
+
+
 def pr_metadata_main() -> int:
     """Executa a operação main."""
     title = os.environ.get("PR_TITLE", "")
+    if _RELEASE_PR_TITLE.match(title):
+        return 0
     body = _strip_issue_links(_strip_bot_blocks(os.environ.get("PR_BODY", "") or ""))
 
     violations: list[tuple[str, str]] = []
