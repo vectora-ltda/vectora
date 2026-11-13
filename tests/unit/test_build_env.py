@@ -339,5 +339,5 @@ class TestContratoDoSConstruct:
     def test_release_garante_o_helper_antes_do_build_hibrido(self) -> None:
         text = self._text()
         assert '_fetch_speech  = _node("build-macos-speech"' in text
-        nuitka = re.search(r"_build_nuitka  = _node\((.*?)\n\)", text, re.DOTALL)
-        assert nuitka is not None and "_fetch_speech" in nuitka.group(1)
+        backend = re.search(r"_build_backend = _node\((.*?)\n\)", text, re.DOTALL)
+        assert backend is not None and "_fetch_speech" in backend.group(1)

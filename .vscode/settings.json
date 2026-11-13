@@ -95,7 +95,6 @@
     "**/dist/**": true,
     "**/build/**": true,
     "**/dist-electron/**": true,
-    "**/dist-nuitka/**": true,
     "**/win-unpacked/**": true,
     "**/desktop/dist/**": true,
     "**/chat/dist/**": true,

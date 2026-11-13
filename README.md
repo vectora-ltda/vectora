@@ -67,13 +67,13 @@ Os artefatos do Context Graph e o cache ficam em `.vectora/context-graph/` dentr
 
 ## Pré-requisitos
 
-| Requisito        | Notas                                                                                             |
-| ---------------- | ------------------------------------------------------------------------------------------------- |
-| **Python 3.13**  | Gerenciado pelo [uv](https://docs.astral.sh/uv/) — fixado em 3.13 (Nuitka ainda não suporta 3.14) |
-| **Node.js 26**   | Para o frontend web; versão e pnpm 11.5 são fixados pelo workspace                                |
-| **Chave Cohere** | Embeddings + reranking — [plano gratuito](https://dashboard.cohere.com/api-keys)                  |
-| **Chave Tavily** | Busca web — [plano gratuito](https://app.tavily.com/)                                             |
-| **Provedor LLM** | Google Gemini, OpenAI, Anthropic, Cohere, ou Ollama                                               |
+| Requisito        | Notas                                                                                            |
+| ---------------- | ------------------------------------------------------------------------------------------------ |
+| **Python 3.13**  | Gerenciado pelo [uv](https://docs.astral.sh/uv/) — fixado em 3.13 (`requires-python` do projeto) |
+| **Node.js 26**   | Para o frontend web; versão e pnpm 11.5 são fixados pelo workspace                               |
+| **Chave Cohere** | Embeddings + reranking — [plano gratuito](https://dashboard.cohere.com/api-keys)                 |
+| **Chave Tavily** | Busca web — [plano gratuito](https://app.tavily.com/)                                            |
+| **Provedor LLM** | Google Gemini, OpenAI, Anthropic, Cohere, ou Ollama                                              |
 
 ---
 
@@ -140,7 +140,7 @@ build frontend (Vite)  -->  build híbrido do backend  -->  Electron + electron-
 frontend/dist/               dist/vectora/vectora(.exe)    frontend/dist-electron/
 ```
 
-O "build híbrido" (`build-hybrid.py`, chamado pelo `scons`) compila **só o pacote `backend/`** em C via `Nuitka --mode=package` (gera `backend.pyd`) e depois usa **PyInstaller** para empacotar o launcher + `backend.pyd` + libs Python num único `vectora.exe`. Compilar só o backend (em vez de onefile puro) evita OOM ao compilar dependências gigantes (`google.genai.types`, LanceDB) para C. O pipeline de CI (GitHub Actions) ainda usa Nuitka onefile direto para as builds nativas de release — os dois caminhos convivem hoje.
+O empacotamento do backend (`build-hybrid.py`, chamado pelo `scons`) usa só o **PyInstaller** em modo `--onedir`: ele coleta o launcher, o pacote `backend/` (código e arquivos de dados, inclusive `backend/defaults.env`, onde o release injeta o `VECTORA_APP_SECRET`) e as libs Python em `dist/vectora/`, com os sidecars NATS e FFmpeg/FFprobe (e o helper de fala no macOS). O backend não é compilado em C e o build não exige toolchain C (MSVC, clang ou gcc). O app secret fica no instalador como arquivo legível: não é proteção, quem baixa o instalador consegue lê-lo.
 
 ### Qualidade
 
@@ -157,7 +157,7 @@ scons help              Lista completa com descrições
 
 ### CI/CD
 
-- **GitHub Actions** (`.github/workflows/vectora.yml`) — pipeline única: lint → security scan (bandit + pip-audit) → frontend (oxlint/tsc/vitest) → build verification → testes unit/stress/integration+e2e — sempre, em todo PR contra `master` e em todo push em `master`, sem gate manual. Só o `release-native` (matriz Linux/macOS/Windows, build híbrido Nuitka + electron-builder) continua condicionado, agora numa tag `v*` real ou `workflow_dispatch` manual. `.github/workflows/pr-checks.yml` roda em paralelo em todo PR (labels automáticas + validação do título em Conventional Commits); `.github/workflows/release-please.yml` roda em todo push em `master` e mantém um PR de release acumulado (changelog + versão) — mesclá-lo é o que cria a tag.
+- **GitHub Actions** (`.github/workflows/vectora.yml`) — pipeline única: lint → security scan (bandit + pip-audit) → frontend (oxlint/tsc/vitest) → build verification → testes unit/stress/integration+e2e — sempre, em todo PR contra `master` e em todo push em `master`, sem gate manual. Só o `release-native` (matriz Linux/macOS/Windows, backend empacotado com PyInstaller + electron-builder) continua condicionado, agora numa tag `v*` real ou `workflow_dispatch` manual. `.github/workflows/pr-checks.yml` roda em paralelo em todo PR (labels automáticas + validação do título em Conventional Commits); `.github/workflows/release-please.yml` roda em todo push em `master` e mantém um PR de release acumulado (changelog + versão) — mesclá-lo é o que cria a tag.
 
 ---
 
@@ -301,7 +301,7 @@ O projeto segue TDD (par caminho-feliz + caminho-de-erro no mesmo teste). Contag
 | Cliente MCP         | [MCP](https://modelcontextprotocol.io/) via SDK oficial `mcp` (`ClientSession`) — consome servidores MCP de terceiros |
 | Segurança           | `argon2-cffi` (senhas), `pyjwt`, `pynacl`, `pykeepass` (vault KeePassXC), `slowapi` (rate limit)                      |
 | Interface CLI       | [Rich](https://rich.readthedocs.io/)                                                                                  |
-| Build/Distribuição  | Nuitka (compila o backend em C) + PyInstaller (empacota) + Electron + `electron-builder`                              |
+| Build/Distribuição  | PyInstaller (empacota o backend) + Electron + `electron-builder`                                                      |
 
 ### Frontend
 

@@ -108,7 +108,6 @@ class GatewayClient:
     def __init__(
         self,
         gateway_url: str,
-        app_secret: str,
         local_url: str = "http://localhost:8080",
         token_path: Path = _DEFAULT_TOKEN_PATH,
         secret_path: Path = _DEFAULT_SECRET_PATH,
@@ -118,7 +117,6 @@ class GatewayClient:
         self._http_base = self._gateway_url.replace("wss://", "https://").replace(
             "ws://", "http://"
         )
-        self._app_secret = app_secret
         self._local_url = local_url.rstrip("/")
         self._token_path = token_path
         self._secret_path = secret_path
@@ -173,7 +171,6 @@ class GatewayClient:
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{self._http_base}{_AUTHORIZE_PATH}",
-                    headers={"Authorization": f"Bearer {self._app_secret}"},
                     json={
                         "fingerprint": self._fingerprint,
                         "vectora_token": account_token,
@@ -192,7 +189,6 @@ class GatewayClient:
         async with aiohttp.ClientSession() as session:
             async with session.post(
                 f"{self._http_base}{_REGISTER_PATH}",
-                headers={"Authorization": f"Bearer {self._app_secret}"},
                 json={
                     "fingerprint": self._fingerprint,
                     "vectora_token": account_token,

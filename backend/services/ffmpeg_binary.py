@@ -1,7 +1,7 @@
 """Resolve os binários ``ffmpeg``/``ffprobe`` usados por
 ``backend/tools/media_native.py`` — mesmo padrão de binário adjacente que
 ``backend/scheduling/nats_sidecar.py::_resolve_binary`` já usa pro
-``nats-server``: bundle congelado (Nuitka onefile/PyInstaller) → PATH do
+``nats-server``: bundle congelado (PyInstaller) → PATH do
 sistema → árvore-fonte (``resources/``, baixado por
 ``scons ffmpeg``). Sem override explícito por env var (diferente do NATS)
 porque nenhum empacotador externo — só o próprio build do Vectora —
@@ -31,18 +31,10 @@ def _frozen_bundle_bases() -> list[Path]:
     ``nats_sidecar.py::_frozen_bundle_bases`` usa — onde o build de
     produção pode ter colocado uma pasta ``ffmpeg/`` ao lado do
     executável."""
-    import os
-
     bases: list[Path] = []
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         bases.append(Path(meipass))
-    compiled = getattr(sys, "__compiled__", None)
-    if compiled is not None and hasattr(compiled, "containing_dir"):
-        bases.append(Path(compiled.containing_dir))
-    nuitka_parent = os.environ.get("NUITKA_ONEFILE_PARENT")
-    if nuitka_parent:
-        bases.append(Path(nuitka_parent))
     return bases
 
 

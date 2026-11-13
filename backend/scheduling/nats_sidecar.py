@@ -15,11 +15,9 @@ _chat_static_root`` já usa pro ``frontend/dist``:
 - Electron (``electron-builder`` ``extraResources``): resource fica ao lado
   do app empacotado; o processo Electron passa o caminho explícito via
   ``VECTORA_NATS_BINARY``.
-- Standalone/VPS (``build-hybrid.py``: Nuitka compila o backend, PyInstaller
-  empacota em ``--onedir``): o binário entra via ``--add-binary`` numa pasta
-  ``nats/`` dentro do bundle, achado em runtime por ``sys._MEIPASS`` (onedir/
-  onefile do PyInstaller) ou ``sys.__compiled__.containing_dir``/
-  ``NUITKA_ONEFILE_PARENT`` (onefile do Nuitka puro, sem PyInstaller).
+- Standalone/VPS (``build-hybrid.py``: o PyInstaller empacota em
+  ``--onedir``): o binário entra via ``--add-binary`` numa pasta ``nats/``
+  dentro do bundle, achado em runtime por ``sys._MEIPASS``.
 
 Em dev, ``shutil.which`` resolve uma instalação local (ex.: ``choco install
 nats-server`` / ``brew install nats-server``) ou o resource baixado em
@@ -89,12 +87,6 @@ def _frozen_bundle_bases() -> list[Path]:
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         bases.append(Path(meipass))
-    compiled = getattr(sys, "__compiled__", None)
-    if compiled is not None and hasattr(compiled, "containing_dir"):
-        bases.append(Path(compiled.containing_dir))
-    nuitka_parent = os.environ.get("NUITKA_ONEFILE_PARENT")
-    if nuitka_parent:
-        bases.append(Path(nuitka_parent))
     return bases
 
 
@@ -103,7 +95,7 @@ def _resolve_binary() -> str | None:
 
     Ordem: override explícito (``VECTORA_NATS_BINARY``, apontado pelo Electron
     pro binário empacotado via ``extraResources``) → bundle congelado
-    (PyInstaller/Nuitka onefile, pasta ``nats/`` embutida por
+    (PyInstaller, pasta ``nats/`` embutida por
     ``build-hybrid.py`` — vence o PATH pra nunca rodar uma versão desalinhada
     instalada à parte na máquina) → PATH (dev, ex.: ``choco/brew install
     nats-server``) → árvore-fonte (``resources/``, baixado por

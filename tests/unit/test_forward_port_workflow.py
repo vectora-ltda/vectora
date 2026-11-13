@@ -688,18 +688,13 @@ def test_commitlint_packages_are_installed_with_exact_versions() -> None:
     assert not re.search(r"@commitlint/[a-z-]+(\s|$)", content)
 
 
-def test_release_build_injects_the_gateway_secret_from_github_secrets() -> None:
-    """O segredo do gateway entra no instalador pelo build, vindo do secret do
-    GitHub, e nunca por valor escrito no repositório."""
+def test_release_build_does_not_inject_an_application_secret() -> None:
+    """O instalador não carrega segredo de aplicação: o gateway autentica pelo
+    token de licença da conta, então o workflow não escreve nada no defaults.env."""
     content = (WORKFLOW.parent / "vectora.yml").read_text(encoding="utf-8")
-    release_native = content.split("\n  release-native:\n", 1)[1].split(
-        "\n  linux-package-install:\n", 1
-    )[0]
 
-    assert "VECTORA_APP_SECRET: ${{ secrets.VECTORA_APP_SECRET }}" in release_native
-    assert ">> backend/defaults.env" in release_native
-    inject = release_native.index(">> backend/defaults.env")
-    assert inject < release_native.index("Build hybrid")
+    assert "VECTORA_APP_SECRET" not in content
+    assert ">> backend/defaults.env" not in content
 
 
 def test_gitleaks_runs_on_every_pull_request_with_a_pinned_version() -> None:

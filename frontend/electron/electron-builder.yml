@@ -3,7 +3,7 @@
 # Gera instaladores nativos (Windows NSIS .exe + MSI, macOS .dmg/.zip e Linux
 # AppImage, DEB, RPM, Pacman e Flatpak). A assinatura/notarização é configurada pelo workflow
 # segundo as credenciais disponíveis. Cada instalador empacota a shell Electron
-# + o binário Nuitka como extraResource.
+# + o backend empacotado (PyInstaller) como extraResource.
 #
 # Pre-req:
 # - Win: CSC_LINK + CSC_KEY_PASSWORD (certificado Authenticode confiável).

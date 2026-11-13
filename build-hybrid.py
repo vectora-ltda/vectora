@@ -1,8 +1,13 @@
 #!/usr/bin/env python
-"""Build híbrido: Nuitka compila o pacote backend -> backend.pyd; PyInstaller
-empacota launcher + backend.pyd + libs Python -> vectora.exe.
+"""Build do backend: o PyInstaller empacota o launcher, o pacote `backend` (código
+e arquivos de dados) e as libs Python em `dist/vectora/` (--onedir).
 
-Uso:  python build-hybrid.py [--jobs N]   (NUITKA_JOBS=N também funciona)
+O backend vai como bytecode Python, sem compilação em C. O PyInstaller
+coleta todos os submódulos e os dados de `backend/` (`--collect-submodules` e
+`--collect-data`), o que inclui `backend/defaults.env`. Tudo isso vai legível
+para o instalador, então o build recusa segredos no pacote e em `defaults.env`.
+
+Uso:  python build-hybrid.py
 """
 
 import os
@@ -15,7 +20,8 @@ ROOT = Path(__file__).parent
 VECTORA = ROOT
 SEP = os.pathsep
 
-# Libs que o backend importa e que o PyInstaller NÃO vê (backend.pyd é opaco).
+# Libs coletadas por inteiro (código, dados e binários), porque carregam plugins
+# ou arquivos por descoberta em runtime que a análise estática não enxerga.
 # Confirmar/expandir com o smoke test do .exe.
 COLLECT_ALL = [
     "mcp",
@@ -30,7 +36,7 @@ COLLECT_ALL = [
     "httpx",
     # tiktoken usa um sistema de plugins via namespace package: o registry faz
     # pkgutil.iter_modules(tiktoken_ext.__path__) para descobrir os encoders.
-    # PyInstaller não vê esse import dentro do backend.pyd compilado.
+    # A análise estática do PyInstaller não enxerga essa descoberta.
     "tiktoken",
     "tiktoken_ext",
 ]
@@ -49,6 +55,39 @@ def run(cmd: list, cwd: Path, desc: str, env: dict | None = None) -> None:
     merged = {**os.environ, **(env or {})}
     if subprocess.run(cmd, cwd=str(cwd), env=merged).returncode != 0:  # noqa: S603  # nosec B603
         sys.exit(f"FALHA: {desc}")
+
+
+#: Dados do backend que precisam existir no instalador; sem eles o app sobe e
+#: falha depois (migrations, contratos, assets, configuração padrão).
+_REQUIRED_BACKEND_DATA = (
+    "backend/defaults.env",
+    "backend/storage/migrations/sqlite/schema.sql",
+)
+
+
+def _assert_backend_data_bundled(dist_dir: Path) -> None:
+    """Confere que os dados do backend foram coletados e que o `defaults.env`
+    instalado é idêntico ao do build."""
+    import hashlib
+
+    bundled_root = next(iter(dist_dir.rglob("backend/defaults.env")), None)
+    missing = [rel for rel in _REQUIRED_BACKEND_DATA if not any(dist_dir.rglob(rel))]
+    if missing or bundled_root is None:
+        listed = ", ".join(missing or ["backend/defaults.env"])
+        sys.exit(
+            f"FALHA: dados do backend ausentes em {dist_dir} após o PyInstaller: "
+            f"{listed}. Confira `--collect-data backend`."
+        )
+    if not any(dist_dir.rglob("backend/assets")):
+        sys.exit(f"FALHA: backend/assets não apareceu em {dist_dir}.")
+    source = VECTORA / "backend" / "defaults.env"
+    digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()  # noqa: E731
+    if digest(source) != digest(bundled_root):
+        sys.exit(
+            "FALHA: o defaults.env instalado difere do backend/defaults.env do "
+            "build; a coleta do PyInstaller não copiou o arquivo certo."
+        )
+    print("Dados do backend embutidos (defaults.env idêntico ao do build).")
 
 
 def _add_installed_test_runtime(dist_dir: Path) -> None:
@@ -72,14 +111,13 @@ def _add_installed_test_runtime(dist_dir: Path) -> None:
     print(f"Runtime de teste instalado preparado em {runtime_dir}")
 
 
-# Padrões de arquivo que nunca podem existir dentro de backend/ na
-# hora do build: o Nuitka `--mode=package` embute QUALQUER arquivo não-.py
-# achado dentro do pacote (é assim que backend/defaults.env sobrevive ao
-# empacotamento via importlib.resources — confirmado: nem aparece como
-# arquivo solto no dist/vectora/ gerado, só funciona embutido no .pyd). Um
-# `.env`/chave/credencial esquecido ali vira permanente e invisível dentro do
-# binário entregue a QUALQUER usuário que baixar o instalador — diferente de
-# .env (fora do pacote), que nunca é varrido pelo Nuitka.
+# Padrões de arquivo que nunca podem existir dentro de backend/ na hora do
+# build: o PyInstaller coleta TUDO que está no pacote (`--collect-data backend`)
+# para dentro do instalador, em claro, entregue a QUALQUER usuário que baixar
+# o instalador. Um `.env`/chave/credencial esquecido ali vira público. A única
+# exceção é backend/defaults.env (só valores padrão, sem segredo; ver
+# `_assert_defaults_env_without_secrets`); segredos pessoais ficam num .env
+# fora do pacote, que o PyInstaller nunca varre.
 _FORBIDDEN_BACKEND_FILE_PATTERNS = (
     ".env",
     ".env.*",
@@ -100,53 +138,43 @@ def _assert_no_secrets_inside_backend() -> None:
     if found:
         listed = "\n".join(f"  - {p.relative_to(VECTORA)}" for p in sorted(found))
         sys.exit(
-            "FALHA: arquivo de segredo dentro de backend/ — o Nuitka "
-            "embute isso no binário compilado, entregue a todo mundo que "
-            f"baixar o instalador:\n{listed}\n"
+            "FALHA: arquivo de segredo dentro de backend/ — o PyInstaller "
+            "copia isso, legível, para o instalador entregue a todo mundo que "
+            f"o baixar:\n{listed}\n"
             "Mova pra .env (fora do pacote) ou ~/.vectora/.env antes "
             "de rodar o build."
         )
 
 
+_SECRET_NAME_MARKS = ("SECRET", "TOKEN", "PRIVATE_KEY")
+
+
+def _assert_defaults_env_without_secrets() -> None:
+    """`backend/defaults.env` vai para o instalador sem proteção: nenhuma
+    variável de segredo pode carregar valor ali (o valor nunca é impresso)."""
+    path = VECTORA / "backend" / "defaults.env"
+    if not path.is_file():
+        return
+    offenders: list[str] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, value = line.partition("=")
+        name = name.strip()
+        if value.strip() and any(mark in name.upper() for mark in _SECRET_NAME_MARKS):
+            offenders.append(name)
+    if offenders:
+        sys.exit(
+            "FALHA: backend/defaults.env traz valor em variável de segredo "
+            f"({', '.join(offenders)}); ele vai legível para o instalador. "
+            "Deixe vazio e defina por ambiente."
+        )
+
+
 def main() -> None:
     _assert_no_secrets_inside_backend()
-    jobs = os.environ.get("NUITKA_JOBS", "2")
-    if "--jobs" in sys.argv:
-        jobs = sys.argv[sys.argv.index("--jobs") + 1]
-
-    # No macOS, o binário "gcc" do PATH é na real o clang da Apple (alias
-    # histórico) — sem --clang, o Nuitka detecta "gcc" e passa flags
-    # exclusivas de GNU GCC (-fpartial-inlining, -ftrack-macro-expansion=0,
-    # -fno-var-tracking-assignments) que o clang rejeita, quebrando a
-    # compilação Scons. --clang força o Nuitka a gerar as flags certas.
-    clang_flag = ["--clang"] if sys.platform == "darwin" else []
-
-    # Etapa 1 — Nuitka: pacote backend -> backend.pyd (só backend vira C)
-    run(
-        [
-            "uv",
-            "run",
-            "nuitka",
-            "--mode=package",
-            "--msvc=latest",
-            *clang_flag,
-            f"--jobs={jobs}",
-            f"--output-dir={VECTORA / 'dist-nuitka'}",
-            "--include-module=backend.services.ipc_pipe_win",
-            f"--report={ROOT / 'nuitka-report.xml'}",
-            "backend",
-        ],
-        cwd=VECTORA,
-        desc="Nuitka --mode=package backend -> backend.pyd",
-    )
-    # Nuitka nomeia o módulo de extensão pela convenção do CPython: .pyd no
-    # Windows, .so no Linux e no macOS (extensão importável — .dylib é só
-    # pra bibliotecas compartilhadas comuns, não módulos de import).
-    ext = "pyd" if sys.platform == "win32" else "so"
-    pyd = next((VECTORA / "dist-nuitka").glob(f"backend*.{ext}"), None)
-    if not pyd:
-        sys.exit(f"backend.{ext} não gerado")
-    print(f"OK: {pyd}")
+    _assert_defaults_env_without_secrets()
 
     # nats-server precisa estar em resources/ ANTES do PyInstaller
     # rodar (baixado por `scons nats`/_fetch_nats) — sem ele, o binário
@@ -195,6 +223,11 @@ def main() -> None:
     collect: list[str] = []
     for pkg in COLLECT_ALL:
         collect += ["--collect-all", pkg]
+    # O backend vai como código Python (bytecode), não compilado: coleta todos
+    # os submódulos (inclusive os carregados por importlib e os específicos de
+    # plataforma, como backend.services.ipc_pipe_win) e todos os arquivos de
+    # dados (contratos JSON, migrations SQL, assets e defaults.env).
+    collect += ["--collect-submodules", "backend", "--collect-data", "backend"]
     # --collect-all NÃO copia o dist-info do próprio pacote "vectora" (só
     # código/dados/binários) — sem os metadados, importlib.metadata.version
     # ("vectora") levanta PackageNotFoundError dentro do binário congelado e
@@ -217,7 +250,7 @@ def main() -> None:
     for mod in exclude_modules:
         excludes += ["--exclude-module", mod]
 
-    # Etapa 2 — PyInstaller: launcher + backend.pyd + libs -> vectora.exe
+    # PyInstaller: launcher + pacote backend + libs -> dist/vectora/
     run(
         [
             "uv",
@@ -228,16 +261,14 @@ def main() -> None:
             # --onedir (pasta) em vez de --onefile: os arquivos ficam soltos e
             # SEM compressão, então entre versões as libs/DLLs não-alteradas ficam
             # byte-idênticas → o blockmap do electron-updater baixa só o que mudou
-            # (delta real de poucos MB, não 1.5GB). Não muda a segurança: backend.pyd
-            # continua C, libs continuam Python bytecode.
+            # (delta real de poucos MB, não 1.5GB). O backend e as libs ficam como
+            # bytecode Python.
             "--onedir",
             "--noconfirm",
             "--name=vectora",
             f"--distpath={ROOT / 'dist'}",
             f"--workpath={ROOT / 'build' / 'pyinstaller'}",
             f"--specpath={ROOT / 'build'}",
-            "--add-binary",
-            f"{pyd}{SEP}.",
             "--add-binary",
             f"{nats_binary}{SEP}nats",
             "--add-binary",
@@ -247,25 +278,13 @@ def main() -> None:
             *speech_args,
             "--add-data",
             f"{VECTORA / 'frontend' / 'dist'}{SEP}chat_static",
-            "--add-data",
-            f"{VECTORA / 'backend' / 'assets'}{SEP}backend/assets",
-            "--add-data",
-            # DEST é sempre tratado como diretório pelo PyInstaller -- um SRC
-            # de arquivo único é copiado PARA DENTRO dele com o próprio nome.
-            # Terminar DEST em "schema.sql" cria uma pasta chamada schema.sql
-            # e põe o arquivo dentro dela (.../schema.sql/schema.sql), não o
-            # arquivo em si -- por isso migrations falhava silenciosamente no
-            # binário empacotado (FileNotFoundError engolido, ver
-            # backend/storage/migrations/runner.py). DEST precisa ser o
-            # diretório PAI.
-            f"{VECTORA / 'backend' / 'storage' / 'migrations' / 'sqlite' / 'schema.sql'}{SEP}backend/storage/migrations/sqlite",
             *collect,
             *hidden,
             *excludes,
             str(VECTORA / "launcher.py"),
         ],
         cwd=VECTORA,
-        desc="PyInstaller -> vectora.exe",
+        desc="PyInstaller -> dist/vectora",
         # Suprime SyntaxWarning do pacote `future` (escape sequences inválidas
         # em ficheiros de backports que o PyInstaller importa durante a análise).
         env={"PYTHONWARNINGS": "ignore::SyntaxWarning"},
@@ -293,6 +312,7 @@ def main() -> None:
             f"{dist_dir} após o PyInstaller — as tools de mídia local vão "
             "degradar pro fallback de PATH do sistema em produção."
         )
+    _assert_backend_data_bundled(dist_dir)
     _add_installed_test_runtime(dist_dir)
     total_mb = (
         sum(f.stat().st_size for f in dist_dir.rglob("*") if f.is_file()) / 1048576

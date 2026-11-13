@@ -117,11 +117,9 @@ def _chat_static_root() -> Path | None:
     """Localiza o bundle estático da SPA do chat.
 
     Resolução em ordem:
-      1. PyInstaller onefile — ``sys._MEIPASS/chat_static``.
-      2. Nuitka onefile — ``__compiled__.containing_dir/chat_static``.
-      3. Nuitka onefile — ``$NUITKA_ONEFILE_PARENT/chat_static``.
-      4. Override via env ``VECTORA_CHAT_STATIC``.
-      5. Dev — ``<repo_root>/frontend/dist`` (build Vite).
+      1. PyInstaller — ``sys._MEIPASS/chat_static``.
+      2. Override via env ``VECTORA_CHAT_STATIC``.
+      3. Dev — ``<repo_root>/frontend/dist`` (build Vite).
 
     Retorna ``None`` se nenhuma das localizações tiver um ``index.html``.
     ``VECTORA_SKIP_STATIC=1`` força proxy para o dev server (modo dev).
@@ -134,14 +132,6 @@ def _chat_static_root() -> Path | None:
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
         candidates.append(Path(meipass) / "chat_static")
-
-    compiled = getattr(sys, "__compiled__", None)
-    if compiled is not None and hasattr(compiled, "containing_dir"):
-        candidates.append(Path(compiled.containing_dir) / "chat_static")
-
-    nuitka_parent = os.environ.get("NUITKA_ONEFILE_PARENT")
-    if nuitka_parent:
-        candidates.append(Path(nuitka_parent) / "chat_static")
 
     override = os.environ.get("VECTORA_CHAT_STATIC")
     if override:
@@ -523,20 +513,19 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
         logger.warning("api/server: falha ao iniciar manutenção de storage: %s", exc)
 
     # Gateway client (ex-relay) — WebSocket persistente para receber webhooks
-    # e callbacks OAuth. Só inicia quando GATEWAY_ENABLED=true (padrão);
-    # VECTORA_APP_SECRET vem do build oficial ou do ambiente (settings.py);
-    # sem ele o handshake de /register não autentica e o cliente não sobe.
+    # e callbacks OAuth. Só inicia quando GATEWAY_ENABLED=true (padrão); o
+    # registro autentica com o token de licença Pro (sem ele o cliente fica
+    # em espera até haver conta conectada).
     _gateway_client = None
     try:
         from backend.settings import get_settings as _gs_gateway
 
         _cfg = _gs_gateway()
-        if _cfg.gateway_enabled and _cfg.vectora_app_secret:
+        if _cfg.gateway_enabled:
             from backend.services.gateway import GatewayClient
 
             _gateway_client = GatewayClient(
                 gateway_url=_cfg.gateway_url,
-                app_secret=_cfg.vectora_app_secret,
                 local_url=_gateway_local_url(),
             )
             _gateway_client.start()
@@ -1026,7 +1015,7 @@ def create_app(serve_static: bool = True) -> FastAPI:
         return app
 
     # ── SPA Vite (preferido) ──────────────────────────────────────────────────
-    # Em produção (binário Nuitka) ou após `pnpm --dir chat build`, servimos
+    # Em produção (binário do PyInstaller) ou após `pnpm --dir chat build`, servimos
     # o bundle estático diretamente. O catch-all devolve `index.html` para
     # rotas client-side (TanStack Router resolve no browser).
     chat_static = _chat_static_root()

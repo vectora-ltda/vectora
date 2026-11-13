@@ -53,8 +53,8 @@ defaults:
   run:
     working-directory: .
 env:
-  # 3.13: versão que o uv resolve (cpython-3.13) e a única suportada pelo
-  # Nuitka 4.1.x. 3.14 só vira oficial no Nuitka 4.2.
+  # 3.13: versão que o uv resolve (cpython-3.13) e que o projeto fixa em
+  # requires-python.
   PYTHON_VERSION: "3.13"
   NODE_VERSION: "26"
 
@@ -460,7 +460,7 @@ jobs:
           CHANNEL=$(uv run --no-project --with "pydantic>=2.13.4" python utils/release.py update-channel "${{ steps.version.outputs.value }}")
           echo "value=$CHANNEL" >> "$GITHUB_OUTPUT"
 
-  # ── 6. Native package matrix (Nuitka + Electron installers) ──────────────
+  # ── 6. Native package matrix (PyInstaller + Electron installers) ──────────
   # Pull requests build and verify every native package without production
   # credentials. R2/KV publication and tagging remain release-only and happen
   # after the complete matrix succeeds.
@@ -475,11 +475,6 @@ jobs:
       github.ref == 'refs/heads/master' &&
       needs.release-trigger.outputs.is_release == 'true')
     env:
-      # Nuitka escolhe clang/gcc + ccache no Linux/macOS, MSVC + clcache
-      # (vendorizado dentro do próprio pacote nuitka) no Windows — cada um lê
-      # sua própria env var de diretório de cache.
-      CCACHE_DIR: ${{ github.workspace }}/.ccache
-      CLCACHE_DIR: ${{ github.workspace }}/.ccache
       # Resolvido uma única vez a partir de pyproject.toml, compartilhado com
       # o job de publicação para builds manuais e tags usarem a mesma linha.
       VECTORA_UPDATE_CHANNEL: ${{ needs.release-channel.outputs.channel }}
@@ -507,17 +502,6 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      # O segredo de aplicação do gateway não está no repositório: entra no
-      # defaults.env embutido só neste build. Sem o secret (PR de fork), o
-      # instalador sai com o registro no gateway desligado.
-      - name: Inject the gateway application secret
-        shell: bash
-        env:
-          VECTORA_APP_SECRET: ${{ secrets.VECTORA_APP_SECRET }}
-        run: |
-          if [ -n "$VECTORA_APP_SECRET" ]; then
-            printf '\nVECTORA_APP_SECRET=%s\n' "$VECTORA_APP_SECRET" >> backend/defaults.env
-          fi
       # Windows ARM64 runs the backend under Windows' x64 emulation because
       # PyArrow has no win_arm64 wheel; Electron and the installer remain ARM64-native.
       - uses: ./.github/actions/setup-uv
@@ -543,23 +527,11 @@ jobs:
         run: |
           pnpm install --frozen-lockfile
           pnpm build
-      - name: Install ccache (Linux/macOS)
-        # Windows não entra aqui: o Nuitka usa clcache (vendorizado dentro
-        # do próprio pacote nuitka) no MSVC, não o binário ccache.
-        if: runner.os != 'Windows'
-        shell: bash
-        # O ccache é uma fórmula oficial do Homebrew; não há tap de terceiros
-        # para confiar, então a variável de bypass deprecada não é necessária.
-        run: |
-          case "${{ runner.os }}" in
-            Linux) sudo apt-get update -qq && sudo apt-get install -y ccache ;;
-            macOS) brew install ccache ;;
-          esac
       - name: Install Linux package build dependencies
         if: matrix.target == 'linux'
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y ccache flatpak flatpak-builder fuse3 libarchive-tools
+          sudo apt-get install -y flatpak flatpak-builder fuse3 libarchive-tools
           image="ghcr.io/canonical/snapcraft:8_core22"
           compat_dir="${RUNNER_TEMP:?RUNNER_TEMP must be set}/snapcraft-compat"
           docker pull "$image"
@@ -579,16 +551,6 @@ jobs:
           chmod +x "$compat_dir/snapcraft"
           echo "$compat_dir" >> "${GITHUB_PATH:?GITHUB_PATH must be set}"
           flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
-      - name: Cache ccache (Nuitka C compilation)
-        uses: actions/cache@v6
-        with:
-          path: ${{ github.workspace }}/.ccache
-          # Chave por SO/arch + hash do backend: cache miss só quando o
-          # backend muda de verdade; restore-keys garante reuso parcial
-          # (objetos não afetados pela mudança) mesmo em cache miss.
-          key: ccache-${{ matrix.target }}-${{ matrix.arch }}-${{ hashFiles('backend/**') }}
-          restore-keys: |
-            ccache-${{ matrix.target }}-${{ matrix.arch }}-
       - name: Cache nats-server binary
         uses: actions/cache@v6
         with:
@@ -627,17 +589,12 @@ jobs:
         working-directory: .
         run: uv run scons macos-speech
         shell: bash
-      - name: Build hybrid (Nuitka backend.pyd + PyInstaller onedir)
-        # Mesmo pipeline que `scons release` roda localmente
-        # (build-hybrid.py, na raiz do monorepo — não em vectora/): Nuitka
-        # --mode=package compila só o pacote backend pra backend.pyd, depois
-        # PyInstaller empacota launcher.py + backend.pyd + libs em
-        # dist/vectora/ (onedir). working-directory sobrescreve o default
-        # do job (que é "vectora") porque o script fica um nível acima.
+      - name: Build backend (PyInstaller onedir)
+        # Mesmo pipeline que `scons release` roda localmente (build-hybrid.py,
+        # na raiz do repositório): o PyInstaller empacota launcher.py, o pacote
+        # backend (código e dados, inclusive o defaults.env) e as libs em dist/vectora/ (onedir).
         working-directory: .
-        # build-hybrid.py espera "--jobs N" como dois argv separados
-        # (sys.argv.index("--jobs")+1) — "--jobs=4" não bate no parser.
-        run: python build-hybrid.py --jobs 4
+        run: python build-hybrid.py
         shell: bash
       - name: Smoke test (license bypass)
         env:
@@ -647,8 +604,8 @@ jobs:
         shell: bash
       - name: Smoke test (server actually boots inside the frozen binary)
         # --version só confirma que o processo abre e fecha; isto sobe o
-        # backend de verdade (`vectora web`, dentro do binário Nuitka+
-        # PyInstaller, não source interpretado) e confirma que /health
+        # backend de verdade (`vectora web`, dentro do binário do PyInstaller,
+        # não source interpretado) e confirma que /health
         # responde -- rotas montadas, settings carregadas, storage ok.
         working-directory: .
         run: uv run scons smoke

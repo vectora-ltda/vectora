@@ -10,7 +10,7 @@ inputs:
     required: false
     default: "0.12.1"
   python-version:
-    description: "Versão do Python (deve casar com requires-python / Nuitka)."
+    description: "Versão do Python (deve casar com requires-python)."
     required: true
   architecture:
     description: "Arquitetura do Python; pode ser x64 em runners Windows ARM64 sob emulação."
