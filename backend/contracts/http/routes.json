@@ -2349,6 +2349,13 @@
     "methods": [
       "GET"
     ],
+    "name": "get_workspace_hooks_workspaces__workspace_id__hooks_get",
+    "path": "/workspaces/{workspace_id}/hooks"
+  },
+  {
+    "methods": [
+      "GET"
+    ],
     "name": "search_memory_unified_workspaces__workspace_id__memory_search_get",
     "path": "/workspaces/{workspace_id}/memory/search"
   },

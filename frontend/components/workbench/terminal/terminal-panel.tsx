@@ -6,6 +6,7 @@
  * backend (identificado por terminal_id).
  */
 
+import { WorkspaceHooksPanel } from "@/components/workbench/settings/workspace-hooks-panel";
 import {
   Loader2,
   Plug,
@@ -337,14 +338,17 @@ export function TerminalSettings({ workspaceId }: WorkbenchSettingsContext) {
   }
 
   return (
-    <SandboxSettingsForm
-      workspaceId={workspaceId}
-      diagnostic={status?.diagnostic ?? null}
-      open
-      inline
-      onOpenChange={() => undefined}
-      onInitDone={refetch}
-    />
+    <>
+      <SandboxSettingsForm
+        workspaceId={workspaceId}
+        diagnostic={status?.diagnostic ?? null}
+        open
+        inline
+        onOpenChange={() => undefined}
+        onInitDone={refetch}
+      />
+      <WorkspaceHooksPanel workspaceId={workspaceId} />
+    </>
   );
 }
 

@@ -4142,6 +4142,51 @@
         "title": "HistoryMessage",
         "type": "object"
       },
+      "HookRuleInfo": {
+        "description": "Regra ``[[hooks.rules]]`` do ``vectora.toml``, como o usuário a revisa.",
+        "properties": {
+          "command": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Command",
+            "type": "array"
+          },
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "mode": {
+            "title": "Mode",
+            "type": "string"
+          },
+          "timeout_s": {
+            "title": "Timeout S",
+            "type": "number"
+          },
+          "tools": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Tools",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "event",
+          "mode",
+          "timeout_s",
+          "command"
+        ],
+        "title": "HookRuleInfo",
+        "type": "object"
+      },
       "HuggingFaceDownloadRequest": {
         "properties": {
           "filename": {
@@ -10139,6 +10184,33 @@
           "options"
         ],
         "title": "VscodeOptionsResponse",
+        "type": "object"
+      },
+      "WorkspaceHooksResponse": {
+        "description": "Regras de hook do workspace e o estado da aprovação.",
+        "properties": {
+          "approval": {
+            "title": "Approval",
+            "type": "string"
+          },
+          "rules": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/HookRuleInfo"
+            },
+            "title": "Rules",
+            "type": "array"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_id",
+          "approval"
+        ],
+        "title": "WorkspaceHooksResponse",
         "type": "object"
       },
       "WorkspaceInfo": {
@@ -27149,6 +27221,49 @@
           }
         },
         "summary": "Git Unstage",
+        "tags": [
+          "workspaces-view"
+        ]
+      }
+    },
+    "/workspaces/{workspace_id}/hooks": {
+      "get": {
+        "description": "Lista as regras de hook do workspace para revisão antes da aprovação.",
+        "operationId": "get_workspace_hooks_workspaces__workspace_id__hooks_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceHooksResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Workspace Hooks",
         "tags": [
           "workspaces-view"
         ]
