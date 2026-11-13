@@ -273,7 +273,9 @@ class WorkspaceRegistry:
         return ws is not None and ws.trusted
 
     def approve_hooks(self, workspace_id: str, user_id: str | None = None) -> bool:
-        """Aprova a execução de ``[hooks].post_file_write`` deste workspace.
+        """Aprova a execução dos hooks deste workspace.
+
+        Vale para ``[hooks].post_file_write`` e ``[[hooks.rules]]``.
 
         Confiar na pasta (``trust``) não implica isso — hooks executam comando
         de shell arbitrário definido em ``vectora.toml``, que pode vir de um
