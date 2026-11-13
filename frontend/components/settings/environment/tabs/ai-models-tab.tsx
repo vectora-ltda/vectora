@@ -6,7 +6,7 @@ import {
   FallbacksTab,
   ImageFallbackModelSection,
 } from "../../preferencias/tabs/fallbacks-tab";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   hydrateDecisionModelPreferences,
   useSettingsStore,
@@ -634,11 +634,11 @@ export function LocalSpeechSettings() {
   const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
   const [errorText, setErrorText] = useState("");
 
-  const apply = (value: LocalSpeechSettingsData) => {
+  const apply = useCallback((value: LocalSpeechSettingsData) => {
     setData(value);
     setSystemCommand(value.system_command ?? "");
     setSystemModel(value.system_model ?? "");
-  };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -658,7 +658,7 @@ export function LocalSpeechSettings() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [apply]);
 
   const save = async (
     body: Parameters<typeof patchLocalSpeech>[0],
@@ -857,14 +857,14 @@ export function MediaLimitsSettings() {
   const [status, setStatus] = useState<"idle" | "saved" | "error">("idle");
   const [errorText, setErrorText] = useState("");
 
-  const apply = (value: MediaLimitsData) => {
+  const apply = useCallback((value: MediaLimitsData) => {
     setData(value);
     setDraft(
       Object.fromEntries(
         MEDIA_LIMIT_FIELDS.map(([name]) => [name, String(value[name].value)]),
       ),
     );
-  };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -884,7 +884,7 @@ export function MediaLimitsSettings() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [apply]);
 
   const save = async (): Promise<void> => {
     if (!data) return;
