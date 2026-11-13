@@ -2234,6 +2234,22 @@ async def _execute_single_call(
         blocked_by_hook = await _pre_tool_hooks(tool_call, ctx)
         if blocked_by_hook is not None:
             return blocked_by_hook
+        # O hook pode demorar: confere a autorização de novo antes de despachar.
+        allowed, deny_reason = await asyncio.to_thread(
+            _apply_pre_execute, tool_call, ctx, policy_snapshot
+        )
+        if not allowed:
+            return VMessage(
+                role=MessageRole.TOOL,
+                content=[
+                    ContentBlock(
+                        kind="text", text=f"Error: policy_denied: {deny_reason}"
+                    )
+                ],
+                tool_call_id=tool_call.id,
+                name=tool_call.name,
+                is_error=True,
+            )
         texto = await spec.ainvoke(
             tool_call.args,
             call_context,

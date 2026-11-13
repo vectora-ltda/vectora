@@ -166,3 +166,18 @@ async def test_main_sem_allow_tcp_ports_repassa_tupla_vazia(monkeypatch, tmp_pat
 
     args, _kwargs = landlock_call.call_args
     assert args[2] == ()
+
+
+@pytest.mark.asyncio
+async def test_exec_com_env_substitui_o_ambiente_herdado(monkeypatch):
+    proc = MagicMock()
+    proc.communicate = AsyncMock(return_value=(b"", b""))
+    proc.returncode = 0
+    spawn = AsyncMock(return_value=proc)
+    monkeypatch.setattr(worker.asyncio, "create_subprocess_exec", spawn)
+
+    await worker.handle_request(
+        {"op": "exec", "id": 9, "command": ["true"], "env": {"PATH": "/usr/bin"}}
+    )
+
+    assert spawn.call_args.kwargs["env"] == {"PATH": "/usr/bin"}

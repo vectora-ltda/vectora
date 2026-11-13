@@ -31,6 +31,7 @@ import fnmatch
 import json
 import logging
 import os
+import signal
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -157,6 +158,15 @@ def parse_decision(stdout: str) -> tuple[Literal["allow", "deny"], str]:
     return decision, _clip(reason, MAX_REASON_CHARS) if isinstance(reason, str) else ""
 
 
+def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
+    """Encerra o processo do hook e seus descendentes (grupo próprio no POSIX)."""
+    with contextlib.suppress(ProcessLookupError, OSError):
+        if os.name == "posix":
+            os.killpg(process.pid, signal.SIGKILL)
+        else:
+            process.kill()
+
+
 async def _run_command(
     rule: HookRule, payload: str, root: Path, *, sandboxed: bool, workspace_id: str
 ) -> tuple[int, str]:
@@ -176,6 +186,7 @@ async def _run_command(
                 timeout_s=rule.timeout_s,
                 command=list(rule.command),
                 stdin=payload,
+                env=_hook_environment(rule),
             )
         except RuntimeError as exc:
             if "não respondeu" in str(exc):
@@ -192,17 +203,21 @@ async def _run_command(
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.DEVNULL,
+        # Grupo de processos próprio: o timeout e o cancelamento encerram o
+        # hook e tudo o que ele iniciou, não só o processo direto.
+        start_new_session=os.name == "posix",
     )
     try:
         stdout_bytes, _ = await asyncio.wait_for(
             process.communicate(payload.encode("utf-8")), timeout=rule.timeout_s
         )
     except (TimeoutError, asyncio.CancelledError):
-        with contextlib.suppress(ProcessLookupError, OSError):
-            process.kill()
+        _kill_process_tree(process)
         with contextlib.suppress(Exception):
             await process.wait()
         raise
+    # Mesmo com saída normal, não deixa descendentes soltos no workspace.
+    _kill_process_tree(process)
     return process.returncode or 0, stdout_bytes[:MAX_OUTPUT_BYTES].decode(
         "utf-8", errors="replace"
     )

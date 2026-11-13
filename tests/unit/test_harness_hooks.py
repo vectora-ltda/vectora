@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
 from pathlib import Path
@@ -182,6 +183,46 @@ async def test_timeout_bloqueia_e_mata_o_processo(tmp_path: Path) -> None:
     assert outcome.outcome == "timeout"
     assert outcome.blocked is True
     assert outcome.duration_ms < 5_000
+
+
+async def test_timeout_encerra_tambem_os_processos_filhos(tmp_path: Path) -> None:
+    marker = tmp_path / "filho-rodou"
+    body = (
+        "import subprocess, sys, time\n"
+        "subprocess.Popen([sys.executable, '-c', "
+        f"\"import time, pathlib; time.sleep(1); pathlib.Path({str(marker)!r}).write_text('x')\"])\n"
+        "time.sleep(30)\n"
+    )
+    outcome = await _run(_rule(_script(tmp_path, body), timeout_s=0.5), tmp_path)
+    assert outcome.outcome == "timeout"
+    await asyncio.sleep(1.6)
+    assert not marker.exists()
+
+
+async def test_hook_no_sandbox_recebe_ambiente_minimo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "segredo-do-backend")
+    captured: dict[str, Any] = {}
+
+    class FakeWorker:
+        async def request(self, op: str, **kwargs: Any) -> dict[str, Any]:
+            captured.update(kwargs)
+            return {"stdout": "", "exit_code": 0}
+
+    async def get_or_spawn(*_args: Any, **_kwargs: Any) -> FakeWorker:
+        return FakeWorker()
+
+    from backend.sandbox.workspace_jail import jail_manager
+
+    monkeypatch.setattr(jail_manager, "get_or_spawn", get_or_spawn)
+    rule = _rule(["true"])
+    code, _ = await hooks._run_command(
+        rule, "{}", tmp_path, sandboxed=True, workspace_id="w1"
+    )
+    assert code == 0
+    assert "OPENAI_API_KEY" not in captured["env"]
+    assert captured["env"]["VECTORA_HOOK_ID"] == rule.id
 
 
 async def test_hook_informativo_nunca_bloqueia(tmp_path: Path) -> None:
@@ -455,6 +496,38 @@ async def test_pre_tool_bloqueante_impede_a_tool_e_registra_evidencia(
     assert evidence[0]["blocked"] is True
     assert "args" not in json.dumps(evidence)
     assert drain_hook_outcomes(ctx) == []
+
+
+async def test_autorizacao_revogada_durante_o_hook_impede_a_tool(
+    tmp_path: Path, workspace: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from backend.engine import tool_batch
+
+    allow = tmp_path / "allow.py"
+    allow.write_text("import sys; sys.stdin.read()", encoding="utf-8")
+    _workspace(tmp_path, _toml_rule("ok", "pre_tool", allow))
+    calls: list[int] = []
+
+    def authorize(*_args: Any, **_kwargs: Any) -> tuple[bool, str]:
+        calls.append(1)
+        # A primeira checagem passa; a revogação chega enquanto o hook roda.
+        return (True, "") if len(calls) == 1 else (False, "policy_revoked")
+
+    monkeypatch.setattr(tool_batch, "_apply_pre_execute", authorize)
+    executed: list[bool] = []
+
+    async def handler() -> str:
+        executed.append(True)
+        return "executou"
+
+    result = await execute_tool_batch(
+        [ToolCall(id="c1", name="probe", args={})],
+        tool_registry=_registry(handler),
+        ctx=_ctx(),
+    )
+    assert executed == []
+    assert "policy_denied: policy_revoked" in result[0].text()
+    assert len(calls) == 2
 
 
 async def test_pre_tool_que_permite_deixa_a_tool_rodar(
