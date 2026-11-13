@@ -49,6 +49,14 @@
       "GET",
       "PATCH"
     ],
+    "name": "get_media_limits_admin_media_limits_get",
+    "path": "/admin/media-limits"
+  },
+  {
+    "methods": [
+      "GET",
+      "PATCH"
+    ],
     "name": "get_media_models_admin_media_models_get",
     "path": "/admin/media-models"
   },
@@ -156,6 +164,14 @@
     ],
     "name": "toggle_tool_admin_tools__tool_name__toggle_post",
     "path": "/admin/tools/{tool_name}/toggle"
+  },
+  {
+    "methods": [
+      "GET",
+      "PATCH"
+    ],
+    "name": "get_transcription_settings_admin_transcription_get",
+    "path": "/admin/transcription"
   },
   {
     "methods": [
@@ -1560,6 +1576,13 @@
     ],
     "name": "get_provider_usage_usage_providers_get",
     "path": "/usage/providers"
+  },
+  {
+    "methods": [
+      "POST"
+    ],
+    "name": "cancel_run_vectora_chat_v1_ChatService_CancelRun_post",
+    "path": "/vectora.chat.v1.ChatService/CancelRun"
   },
   {
     "methods": [

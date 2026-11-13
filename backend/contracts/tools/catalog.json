@@ -835,7 +835,7 @@
   {
     "category": "browser",
     "description": "Reinicia o dev server (para se estiver rodando, depois inicia de",
-    "destructive": false,
+    "destructive": true,
     "name": "browser_restart",
     "render_hint": "json",
     "schema": {
@@ -912,10 +912,10 @@
   },
   {
     "category": "browser",
-    "description": "Tira um screenshot da página atual do browser (base64 PNG, data URL).",
+    "description": "Tira um screenshot da página atual do browser e mostra a imagem ao modelo.",
     "destructive": false,
     "name": "browser_screenshot",
-    "render_hint": "image",
+    "render_hint": "image_preview",
     "schema": {
       "properties": {},
       "title": "browser_screenshotArgs",
@@ -1044,7 +1044,7 @@
   {
     "category": "browser",
     "description": "Inicia o dev server do workspace ativo (mesmo efeito que o usuário",
-    "destructive": false,
+    "destructive": true,
     "name": "browser_start",
     "render_hint": "json",
     "schema": {
@@ -4670,6 +4670,63 @@
   },
   {
     "category": "media",
+    "description": "Converte páginas de um PDF do workspace em imagens e mostra ao modelo.",
+    "destructive": false,
+    "name": "pdf_to_images",
+    "render_hint": "image_preview",
+    "schema": {
+      "properties": {
+        "first_page": {
+          "default": 1,
+          "description": "Primeira página a converter (começa em 1).",
+          "title": "First Page",
+          "type": "integer"
+        },
+        "image_format": {
+          "default": "jpeg",
+          "description": "\"jpeg\" (menor) ou \"png\" (sem perdas, melhor para texto).",
+          "title": "Image Format",
+          "type": "string"
+        },
+        "last_page": {
+          "default": 0,
+          "description": "Última página (inclusive); 0 vai até o limite de páginas.",
+          "title": "Last Page",
+          "type": "integer"
+        },
+        "max_pages": {
+          "default": 0,
+          "description": "Máximo de páginas nesta chamada; 0 usa o padrão do app.",
+          "title": "Max Pages",
+          "type": "integer"
+        },
+        "max_side": {
+          "default": 0,
+          "description": "Lado maior da imagem em pixels (256 a 4096); 0 usa o padrão.",
+          "title": "Max Side",
+          "type": "integer"
+        },
+        "path": {
+          "description": "Caminho do PDF dentro do workspace.",
+          "title": "Path",
+          "type": "string"
+        },
+        "quality": {
+          "default": 0,
+          "description": "Qualidade JPEG de 30 a 95; 0 usa o padrão.",
+          "title": "Quality",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "pdf_to_imagesArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "media",
     "description": "Inspeciona um arquivo de mídia LOCAL (vídeo/áudio) via ffprobe — sem",
     "destructive": false,
     "name": "probe_media",
@@ -5539,6 +5596,69 @@
         "skill_id"
       ],
       "title": "verify_skillArgs",
+      "type": "object"
+    }
+  },
+  {
+    "category": "media",
+    "description": "Extrai quadros de um vídeo do workspace como imagens e mostra ao modelo.",
+    "destructive": false,
+    "name": "video_to_frames",
+    "render_hint": "image_preview",
+    "schema": {
+      "properties": {
+        "end_ms": {
+          "default": 0,
+          "description": "Fim do trecho em milissegundos (0 = fim do vídeo).",
+          "title": "End Ms",
+          "type": "integer"
+        },
+        "image_format": {
+          "default": "jpeg",
+          "description": "\"jpeg\" (menor) ou \"png\" (sem perdas).",
+          "title": "Image Format",
+          "type": "string"
+        },
+        "interval_ms": {
+          "default": 0,
+          "description": "Milissegundos entre quadros (ex.: 1000 = 1 quadro por",
+          "title": "Interval Ms",
+          "type": "integer"
+        },
+        "max_frames": {
+          "default": 0,
+          "description": "Máximo de quadros nesta chamada; 0 usa o padrão do app.",
+          "title": "Max Frames",
+          "type": "integer"
+        },
+        "max_side": {
+          "default": 0,
+          "description": "Lado maior da imagem em pixels (256 a 4096); 0 usa o padrão.",
+          "title": "Max Side",
+          "type": "integer"
+        },
+        "path": {
+          "description": "Caminho do vídeo dentro do workspace.",
+          "title": "Path",
+          "type": "string"
+        },
+        "quality": {
+          "default": 0,
+          "description": "Qualidade JPEG de 30 a 95; 0 usa o padrão.",
+          "title": "Quality",
+          "type": "integer"
+        },
+        "start_ms": {
+          "default": 0,
+          "description": "Início do trecho em milissegundos (0 = começo).",
+          "title": "Start Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "title": "video_to_framesArgs",
       "type": "object"
     }
   },

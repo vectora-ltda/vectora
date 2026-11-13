@@ -443,7 +443,7 @@
             "type": "integer"
           },
           "cost_cents": {
-            "default": 0,
+            "default": 0.0,
             "title": "Cost Cents",
             "type": "number"
           },
@@ -609,7 +609,7 @@
           "byte_size": {
             "default": 0,
             "description": "Tamanho do payload em bytes.",
-            "minimum": 0,
+            "minimum": 0.0,
             "title": "Byte Size",
             "type": "integer"
           },
@@ -668,7 +668,7 @@
         "type": "object"
       },
       "Attachment": {
-        "description": "Arquivo anexado a uma mensagem pelo usuário.\n\n``base64_data`` armazena o conteúdo em base64 puro (sem prefixo data URL).\nO frontend usa ``fileToBase64()`` que já remove o prefixo ``data:...;base64,``.",
+        "description": "Arquivo anexado a uma mensagem pelo usuário.\n\n``base64_data`` armazena o conteúdo em base64 puro (sem prefixo data URL).\nQualquer tipo de arquivo é aceito; o limite de tamanho depende do tipo\ndetectado pelos bytes (imagem, áudio, vídeo, documento, texto ou\narquivo genérico).",
         "properties": {
           "base64_data": {
             "title": "Base64 Data",
@@ -696,13 +696,16 @@
         "type": "object"
       },
       "AttachmentKind": {
-        "description": "Tipo semântico do attachment — determina como o backend o injeta na mensagem.",
+        "description": "Tipo do anexo declarado pelo cliente.\n\nÉ só uma dica: o backend reclassifica pelos bytes\n(``backend/services/media_types.py``) e o tipo efetivo decide como o\nanexo chega ao modelo.",
         "enum": [
           "image",
           "pdf",
+          "document",
           "code",
           "text",
-          "audio"
+          "audio",
+          "video",
+          "file"
         ],
         "title": "AttachmentKind",
         "type": "string"
@@ -1052,6 +1055,21 @@
         "title": "BulkTaskResult",
         "type": "object"
       },
+      "CancelRunRequest": {
+        "properties": {
+          "thread_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Thread Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "thread_id"
+        ],
+        "title": "CancelRunRequest",
+        "type": "object"
+      },
       "CatalogSkillInstallRequest": {
         "description": "Referência a uma skill publicada no catálogo agregado.",
         "properties": {
@@ -1138,7 +1156,7 @@
           "context_max_tokens": {
             "anyOf": [
               {
-                "minimum": 1,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -2768,8 +2786,8 @@
           "context_size": {
             "anyOf": [
               {
-                "maximum": 1000000,
-                "minimum": 1,
+                "maximum": 1000000.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -2804,8 +2822,8 @@
           "context_size": {
             "anyOf": [
               {
-                "maximum": 1000000,
-                "minimum": 1,
+                "maximum": 1000000.0,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -3579,8 +3597,8 @@
             "type": "string"
           },
           "progress": {
-            "maximum": 100,
-            "minimum": 0,
+            "maximum": 100.0,
+            "minimum": 0.0,
             "title": "Progress",
             "type": "integer"
           },
@@ -5345,6 +5363,68 @@
         "title": "McpServer",
         "type": "object"
       },
+      "MediaLimitsBody": {
+        "description": "Campos ausentes (``None``) não mudam; fora da faixa é recusado.",
+        "properties": {
+          "max_images": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Images"
+          },
+          "max_side": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Side"
+          },
+          "pdf_pages": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Pages"
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality"
+          },
+          "video_frames": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video Frames"
+          }
+        },
+        "title": "MediaLimitsBody",
+        "type": "object"
+      },
       "MediaModelsBody": {
         "description": "String vazia **limpa** a escolha (volta a valer a env var); `None`\nsignifica \"não mexe nesta chave\".",
         "properties": {
@@ -7019,7 +7099,7 @@
           "context_max_tokens": {
             "anyOf": [
               {
-                "minimum": 1,
+                "minimum": 1.0,
                 "type": "integer"
               },
               {
@@ -7726,7 +7806,7 @@
             "type": "array"
           },
           "total": {
-            "minimum": 0,
+            "minimum": 0.0,
             "title": "Total",
             "type": "integer"
           }
@@ -8467,17 +8547,28 @@
       "TestApiKeyBody": {
         "properties": {
           "api_key": {
-            "title": "Api Key",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Api Key"
           },
           "provider": {
             "title": "Provider",
             "type": "string"
+          },
+          "use_env": {
+            "default": false,
+            "title": "Use Env",
+            "type": "boolean"
           }
         },
         "required": [
-          "provider",
-          "api_key"
+          "provider"
         ],
         "title": "TestApiKeyBody",
         "type": "object"
@@ -8940,6 +9031,57 @@
           "diagnostic"
         ],
         "title": "TranscriptionReadinessResponse",
+        "type": "object"
+      },
+      "TranscriptionSettingsBody": {
+        "description": "Campos ausentes (``None``) não mudam; string vazia limpa a escolha.",
+        "properties": {
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "system_command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "System Command"
+          },
+          "system_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "System Model"
+          }
+        },
+        "title": "TranscriptionSettingsBody",
         "type": "object"
       },
       "TreeEntry": {
@@ -9545,8 +9687,8 @@
           "confidence_threshold_hitl": {
             "anyOf": [
               {
-                "maximum": 1,
-                "minimum": 0,
+                "maximum": 1.0,
+                "minimum": 0.0,
                 "type": "number"
               },
               {
@@ -9674,8 +9816,8 @@
           "risk_assessment_timeout_s": {
             "anyOf": [
               {
-                "exclusiveMinimum": 0,
-                "maximum": 120,
+                "exclusiveMinimum": 0.0,
+                "maximum": 120.0,
                 "type": "number"
               },
               {
@@ -10815,7 +10957,7 @@
         ]
       },
       "post": {
-        "description": "Gera um link de convite de signup com token expirável.\n\nConvidar membro adicional (2º+ usuário) é feature de time — exige plano\nPro. O primeiro usuário (root) não passa por aqui: nasce direto no\nsignup inicial (``backend/services/auth.py::signup``), sempre livre.",
+        "description": "Gera um convite para outra conta na instância local.",
         "operationId": "create_invite_admin_invites_post",
         "requestBody": {
           "content": {
@@ -10897,6 +11039,72 @@
           }
         },
         "summary": "Revoke Invite",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/media-limits": {
+      "get": {
+        "description": "Limites das imagens geradas de PDF e vídeo: valor efetivo, padrão e\nfaixa aceita (``backend/services/media_limits.py``).",
+        "operationId": "get_media_limits_admin_media_limits_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Media Limits Admin Media Limits Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Media Limits",
+        "tags": [
+          "admin"
+        ]
+      },
+      "patch": {
+        "description": "Grava os limites informados e devolve o estado efetivo.",
+        "operationId": "patch_media_limits_admin_media_limits_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MediaLimitsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Patch Media Limits Admin Media Limits Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Media Limits",
         "tags": [
           "admin"
         ]
@@ -11676,6 +11884,72 @@
           }
         },
         "summary": "Toggle Tool",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/admin/transcription": {
+      "get": {
+        "description": "Configuração da transcrição local de áudio e vídeo: modelo e idioma do\nfaster-whisper embutido, whisper do sistema, e quais motores existem\nnesta máquina (``backend/services/speech_to_text.py``).",
+        "operationId": "get_transcription_settings_admin_transcription_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Transcription Settings Admin Transcription Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Transcription Settings",
+        "tags": [
+          "admin"
+        ]
+      },
+      "patch": {
+        "description": "Grava a configuração da transcrição local e devolve o estado efetivo.",
+        "operationId": "patch_transcription_settings_admin_transcription_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TranscriptionSettingsBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Patch Transcription Settings Admin Transcription Patch",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Patch Transcription Settings",
         "tags": [
           "admin"
         ]
@@ -14329,7 +14603,7 @@
     },
     "/license/validate-token": {
       "post": {
-        "description": "Valida um VECTORA_TOKEN ad-hoc, antes de existir qualquer conta.\n\nUsado pelo wizard de onboarding pra checar o token Pro no passo VPS\nANTES do signup de verdade acontecer. Só permitido no primeiro acesso\n(instância ainda sem nenhum usuário) — mesma guarda de\n``/auth/setup-local``. Se válido e ``tier == \"pro\"``, persiste (o\n``/auth/signup`` seguinte já herda o token configurado); se inválido ou\nFree, não persiste em disco (só fica no ambiente do processo atual).",
+        "description": "Valida um VECTORA_TOKEN ad-hoc, antes de existir qualquer conta.\n\nUsado no primeiro acesso para conectar uma conta antes da configuração\nda instância. Aceita qualquer tier válido: hospedar a própria instância\nnão depende da assinatura Pro.",
         "operationId": "license_validate_token_license_validate_token_post",
         "requestBody": {
           "content": {
@@ -17351,7 +17625,7 @@
     },
     "/provider-routing/llamacpp/runtime/test": {
       "post": {
-        "description": "Executa apenas ``--version`` no binário indicado pelo usuário.",
+        "description": "Testa ``--version`` apenas em um runtime gerenciado pelo Vectora.",
         "operationId": "check_llamacpp_runtime_provider_routing_llamacpp_runtime_test_post",
         "parameters": [
           {
@@ -21644,6 +21918,56 @@
         "tags": [
           "usage"
         ]
+      }
+    },
+    "/vectora.chat.v1.ChatService/CancelRun": {
+      "post": {
+        "description": "Cancel an active run after verifying ownership of its conversation.",
+        "operationId": "cancel_run_vectora_chat_v1_ChatService_CancelRun_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "boolean"
+                      }
+                    ]
+                  },
+                  "title": "Response Cancel Run Vectora Chat V1 Chatservice Cancelrun Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Run"
       }
     },
     "/vectora.chat.v1.ChatService/GetTools": {
