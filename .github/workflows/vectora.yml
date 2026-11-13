@@ -589,6 +589,27 @@ jobs:
         working-directory: .
         run: uv run scons macos-speech
         shell: bash
+      - name: Speech helper check (macOS)
+        # Exercita o helper compilado: gera uma fala com `say`, consulta a
+        # autorização e, se o runner a concede, confere a transcrição. Sem
+        # autorização, só registra um aviso (o runner não tem como aprová-la).
+        if: runner.os == 'macOS'
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          helper="$PWD/resources/vectora-speech"
+          audio="$RUNNER_TEMP/speech.aiff"
+          say -o "$audio" "the secret code is blue seven"
+          run_limited() { perl -e 'alarm shift; exec @ARGV' 240 "$@"; }
+          run_limited "$helper" check --locale en-US | tee "$RUNNER_TEMP/speech-check.json"
+          authorized=$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1])).get("authorized", False)).lower())' "$RUNNER_TEMP/speech-check.json")
+          if [ "$authorized" != "true" ]; then
+            echo "::notice::Reconhecimento de fala não autorizado neste runner; a transcrição real não foi exercitada."
+            exit 0
+          fi
+          run_limited "$helper" transcribe "$audio" --locale en-US | tee "$RUNNER_TEMP/speech-out.json"
+          python3 -c 'import json,sys; text=json.load(open(sys.argv[1])).get("text",""); assert "blue" in text.lower(), text' "$RUNNER_TEMP/speech-out.json"
       - name: Build backend (PyInstaller onedir)
         # Mesmo pipeline que `scons release` roda localmente (build-hybrid.py,
         # na raiz do repositório): o PyInstaller empacota launcher.py, o pacote
