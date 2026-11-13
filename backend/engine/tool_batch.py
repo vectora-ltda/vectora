@@ -191,6 +191,64 @@ def _apply_post_execute(texto: str) -> str:
     return texto
 
 
+async def _pre_tool_hooks(tool_call: ToolCall, ctx: ToolContext) -> VMessage | None:
+    """Roda os hooks ``pre_tool`` do workspace; devolve o erro de tool se algum
+    hook bloqueante impediu a chamada."""
+    from backend.engine.hooks import block_message, blocking_outcome, run_hooks
+
+    outcomes = await run_hooks(
+        "pre_tool",
+        ctx=ctx,
+        tool_name=tool_call.name,
+        tool_args=tool_call.args,
+        redact=_redact_secrets,
+    )
+    _record_hook_outcomes(ctx, outcomes)
+    blocked = blocking_outcome(outcomes)
+    if blocked is None:
+        return None
+    return VMessage(
+        role=MessageRole.TOOL,
+        content=[ContentBlock(kind="text", text=block_message(blocked))],
+        tool_call_id=tool_call.id,
+        name=tool_call.name,
+        is_error=True,
+    )
+
+
+async def _post_tool_hooks(
+    tool_call: ToolCall, ctx: ToolContext, texto: str, is_error: bool
+) -> tuple[str, bool]:
+    """Roda os hooks ``post_tool``; um hook bloqueante retém o resultado."""
+    from backend.engine.hooks import block_message, blocking_outcome, run_hooks
+
+    outcomes = await run_hooks(
+        "post_tool",
+        ctx=ctx,
+        tool_name=tool_call.name,
+        tool_args=tool_call.args,
+        result=texto,
+        redact=_redact_secrets,
+    )
+    _record_hook_outcomes(ctx, outcomes)
+    blocked = blocking_outcome(outcomes)
+    if blocked is None:
+        return texto, is_error
+    return block_message(blocked), True
+
+
+def _record_hook_outcomes(ctx: ToolContext, outcomes: list[Any]) -> None:
+    """Acumula os desfechos no contexto; o loop os grava como evidência do run."""
+    if outcomes:
+        ctx._extra.setdefault("hook_outcomes", []).extend(outcomes)
+
+
+def drain_hook_outcomes(ctx: ToolContext) -> list[dict[str, Any]]:
+    """Retira e devolve, como evidências, os desfechos de hooks acumulados."""
+    pending = ctx._extra.pop("hook_outcomes", [])
+    return [item.evidence() for item in pending]
+
+
 async def _authorize_call(
     tool_call: ToolCall, ctx: ToolContext, policy_snapshot: PolicySnapshot | None
 ) -> tuple[bool, str]:
@@ -294,6 +352,9 @@ async def _run_one(
                 name=tool_call.name,
                 is_error=True,
             )
+        blocked_by_hook = await _pre_tool_hooks(tool_call, ctx)
+        if blocked_by_hook is not None:
+            return blocked_by_hook
         texto = await spec.ainvoke(
             tool_call.args,
             call_context,
@@ -303,6 +364,7 @@ async def _run_one(
             texto,
             structured=_has_structured_result(spec),
         )
+        texto, is_error = await _post_tool_hooks(tool_call, ctx, texto, is_error)
         from backend.services.tool_usage import record_tool_usage
 
         await record_tool_usage(

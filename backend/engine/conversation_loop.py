@@ -57,6 +57,9 @@ from backend.engine.tool_batch import (
     _apply_pre_execute,
     _has_structured_result,
     _is_tool_error,
+    _post_tool_hooks,
+    _pre_tool_hooks,
+    drain_hook_outcomes,
     execute_tool_batch,
 )
 from backend.persistence.native.agent_run import AgentRunMetrics
@@ -1833,6 +1836,10 @@ async def run_conversation(  # noqa: PLR0911
             on_tool_started=_record_tool_started,
             policy_snapshot=policy_snapshot,
         )
+        for hook_evidence in drain_hook_outcomes(ctx):
+            await _safe_record_run_evidence(
+                session_store, config.run_id, evidence=hook_evidence
+            )
         for resultado in resultados:
             parent_id = await session_store.append_message(
                 thread_id, resultado, parent_message_id=parent_id
@@ -2224,12 +2231,16 @@ async def _execute_single_call(
         )
         if spec.extras.category == "media":
             call_context = await apply_media_billing_source(call_context)
+        blocked_by_hook = await _pre_tool_hooks(tool_call, ctx)
+        if blocked_by_hook is not None:
+            return blocked_by_hook
         texto = await spec.ainvoke(
             tool_call.args,
             call_context,
         )
         texto = _apply_post_execute(texto)
         is_error = _is_tool_error(texto, structured=_has_structured_result(spec))
+        texto, is_error = await _post_tool_hooks(tool_call, ctx, texto, is_error)
         from backend.services.tool_usage import record_tool_usage
 
         await record_tool_usage(
@@ -2536,6 +2547,11 @@ async def resume_conversation(
                     tabs=spec.extras.invalidates, tool_name=resultado.name or ""
                 )
             )
+
+    for hook_evidence in drain_hook_outcomes(ctx):
+        await _safe_record_run_evidence(
+            session_store, resume_run_id, evidence=hook_evidence
+        )
 
     record_decision = getattr(session_store, "record_approval_decision", None)
     if record_decision is not None:
