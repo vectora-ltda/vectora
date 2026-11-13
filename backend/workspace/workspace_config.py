@@ -67,7 +67,7 @@ name = "{name}"
 #
 # [[hooks.rules]]                            # hook do harness (exige aprovação do workspace)
 # id = "bloqueia-rm"
-# event = "pre_tool"                         # "pre_tool" | "post_tool"
+# event = "pre_tool"                         # "pre_tool" | "post_tool" | "pre_response"
 # tools = ["run_command"]                    # padrões fnmatch; vazio vale para todas
 # command = ["python", ".vectora/hooks/check.py"]  # lista de argumentos, sem shell
 # mode = "blocking"                          # "blocking" | "informative"
