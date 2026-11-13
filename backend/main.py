@@ -288,6 +288,22 @@ def _build_parser() -> argparse.ArgumentParser:
         child.add_argument("--model", default="")
         child.add_argument("--thread-id", default="cli")
 
+    hooks_p = sub.add_parser("hooks", help="Lista e testa os hooks do workspace")
+    hooks_p.set_defaults(command="hooks")
+    hooks_sub = hooks_p.add_subparsers(dest="action", required=True)
+    hooks_sub.add_parser("list", help="lista as regras de [[hooks.rules]]")
+    hooks_test = hooks_sub.add_parser(
+        "test", help="executa uma regra com um contexto sintético (dry-run)"
+    )
+    hooks_test.add_argument("rule_id")
+    hooks_test.add_argument("--tool", default="run_command")
+    hooks_test.add_argument("--args", default="{}", help="argumentos da tool (JSON)")
+    hooks_test.add_argument("--result", default="", help="resultado (post_tool)")
+    hooks_test.add_argument("--response", default="", help="resposta (pre_response)")
+    for child in hooks_sub.choices.values():
+        child.add_argument("--workspace", default=".")
+        child.add_argument("--output", choices=("human", "json"), default="human")
+
     # ── start — backend + SPA (fullstack/headless) ─────────────────────────────
     start_p = sub.add_parser(
         "start",
@@ -898,6 +914,13 @@ def _run_media_command(args: argparse.Namespace) -> None:
     run_media(args)
 
 
+def _run_hooks_command(args: argparse.Namespace) -> None:
+    """Executa ``vectora hooks``."""
+    from backend.cli.hooks import run_hooks
+
+    run_hooks(args)
+
+
 def _run_auth_command(args: argparse.Namespace) -> None:
     """Executa a operação run auth command."""
     from backend.auth import (
@@ -947,6 +970,7 @@ _COMMAND_HANDLERS: dict[str, Any] = {
     "mcp": _run_marketplace_command,
     "skills": _run_marketplace_command,
     "media": _run_media_command,
+    "hooks": _run_hooks_command,
     "eval": _run_eval_command,
 }
 
