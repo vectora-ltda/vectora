@@ -10196,6 +10196,11 @@
             "title": "Hooks Approved",
             "type": "boolean"
           },
+          "hooks_rules_pending": {
+            "default": false,
+            "title": "Hooks Rules Pending",
+            "type": "boolean"
+          },
           "id": {
             "title": "Id",
             "type": "string"

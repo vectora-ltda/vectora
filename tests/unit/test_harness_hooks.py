@@ -21,7 +21,12 @@ from backend.engine.tool_batch import (
 from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, ToolRegistry, ToolSpec
 from backend.vtypes.message import ToolCall
-from backend.workspace.workspace_config import HookRule, HooksSection
+from backend.workspace.workspace_config import (
+    HookRule,
+    HooksSection,
+    hook_rules_digest,
+    load_workspace_config,
+)
 
 PY = json.dumps(sys.executable)
 
@@ -46,10 +51,8 @@ def _ctx() -> ToolContext:
     return ToolContext(user_id="u1", thread_id="t1")
 
 
-async def _run(
-    rule: HookRule, tmp_path: Path, **overrides: object
-) -> hooks.HookOutcome:
-    params: dict[str, object] = {
+async def _run(rule: HookRule, tmp_path: Path, **overrides: Any) -> hooks.HookOutcome:
+    params: dict[str, Any] = {
         "ctx": _ctx(),
         "tool_name": "run_command",
         "tool_args": {"command": "ls"},
@@ -61,7 +64,7 @@ async def _run(
         "redact": _redact_secrets,
         **overrides,
     }
-    return await hooks.run_hook(rule, **params)  # type: ignore[arg-type]
+    return await hooks.run_hook(rule, **params)
 
 
 # --------------------------------------------------------------------------
@@ -292,15 +295,84 @@ async def test_resultado_muito_grande_e_truncado_no_payload(tmp_path: Path) -> N
 # --------------------------------------------------------------------------
 
 
+_ACTIVE: dict[str, SimpleNamespace] = {}
+
+
+def _digest_of(tmp_path: Path) -> str | None:
+    config = load_workspace_config(tmp_path)
+    if config is None or not config.hooks.rules:
+        return None
+    return hook_rules_digest(config.hooks.rules)
+
+
 def _workspace(tmp_path: Path, rules: str) -> None:
+    """Grava o ``vectora.toml`` e aprova as regras como o registry faria."""
     (tmp_path / "vectora.toml").write_text(rules, encoding="utf-8")
+    state = _ACTIVE.get("ws")
+    if state is not None:
+        state.hooks_rules_digest = _digest_of(tmp_path)
 
 
 @pytest.fixture
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
-    state = SimpleNamespace(cwd=str(tmp_path), hooks_approved=True, id="w1")
+    state = SimpleNamespace(
+        cwd=str(tmp_path), hooks_approved=True, hooks_rules_digest=None, id="w1"
+    )
+    _ACTIVE["ws"] = state
     monkeypatch.setattr(hooks, "_workspace_for", lambda _ctx: state)
     return state
+
+
+async def test_regra_alterada_depois_da_aprovacao_nao_executa(
+    tmp_path: Path, workspace: SimpleNamespace
+) -> None:
+    allow = tmp_path / "allow.py"
+    allow.write_text("import sys; sys.stdin.read()", encoding="utf-8")
+    marker = tmp_path / "ran"
+    spy = tmp_path / "spy.py"
+    spy.write_text(
+        f"import pathlib; pathlib.Path({str(marker)!r}).write_text('x')",
+        encoding="utf-8",
+    )
+    _workspace(tmp_path, _toml_rule("guarda", "pre_tool", allow))
+    # Alteração posterior à aprovação: o digest aprovado não bate mais.
+    (tmp_path / "vectora.toml").write_text(
+        _toml_rule("guarda", "pre_tool", spy), encoding="utf-8"
+    )
+    outcomes = await hooks.run_hooks(
+        "pre_tool", ctx=_ctx(), tool_name="x", tool_args={}, redact=str
+    )
+    assert [item.outcome for item in outcomes] == ["skipped_not_approved"]
+    assert "mudaram" in outcomes[0].reason
+    assert not outcomes[0].blocked
+    assert not marker.exists()
+
+
+async def test_aprovacao_sem_digest_nao_cobre_as_regras(
+    tmp_path: Path, workspace: SimpleNamespace
+) -> None:
+    allow = tmp_path / "allow.py"
+    allow.write_text("import sys; sys.stdin.read()", encoding="utf-8")
+    _workspace(tmp_path, _toml_rule("guarda", "pre_tool", allow))
+    workspace.hooks_rules_digest = None  # aprovação anterior ao digest
+    outcomes = await hooks.run_hooks(
+        "pre_tool", ctx=_ctx(), tool_name="x", tool_args={}, redact=str
+    )
+    assert [item.outcome for item in outcomes] == ["skipped_not_approved"]
+
+
+def test_digest_muda_com_qualquer_campo_da_regra() -> None:
+    base = HookRule(id="a", event="pre_tool", command=["x"])
+    same = HookRule(id="a", event="pre_tool", command=["x"])
+    assert hook_rules_digest([base]) == hook_rules_digest([same])
+    for other in (
+        HookRule(id="a", event="pre_tool", command=["y"]),
+        HookRule(id="a", event="post_tool", command=["x"]),
+        HookRule(id="a", event="pre_tool", command=["x"], mode="informative"),
+        HookRule(id="a", event="pre_tool", command=["x"], tools=["run_*"]),
+        HookRule(id="a", event="pre_tool", command=["x"], timeout_s=1),
+    ):
+        assert hook_rules_digest([base]) != hook_rules_digest([other])
 
 
 def _toml_rule(rule_id: str, event: str, script: Path, extra: str = "") -> str:

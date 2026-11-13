@@ -266,6 +266,7 @@ async def run_hook(
     sandboxed: bool,
     workspace_id: str,
     redact: Callable[[str], str],
+    not_approved_reason: str = "hooks do workspace ainda não foram aprovados",
 ) -> HookOutcome:
     """Executa uma regra e devolve o desfecho; nunca levanta (exceto cancelamento)."""
     started = time.monotonic()
@@ -282,10 +283,7 @@ async def run_hook(
             rule, payload, root=root, sandboxed=sandboxed, workspace_id=workspace_id
         )
     else:
-        kind, reason = (
-            "skipped_not_approved",
-            "hooks do workspace ainda não foram aprovados",
-        )
+        kind, reason = "skipped_not_approved", not_approved_reason
     # Só um hook bloqueante que não deu `allowed` impede a ação; um hook que
     # nunca rodou por falta de aprovação não bloqueia nada.
     blocked = rule.mode == "blocking" and kind not in (
@@ -347,9 +345,18 @@ async def run_hooks(
         return []
 
     from backend.sandbox.policy import parse_policy
+    from backend.workspace.workspace_config import hook_rules_digest
 
     sandboxed = parse_policy(root / "vectora.toml").enabled
-    approved = bool(getattr(workspace, "hooks_approved", False))
+    granted = bool(getattr(workspace, "hooks_approved", False))
+    approved = granted and getattr(
+        workspace, "hooks_rules_digest", None
+    ) == hook_rules_digest(config.hooks.rules)
+    not_approved_reason = (
+        "as regras de hook mudaram desde a aprovação do workspace"
+        if granted and getattr(workspace, "hooks_rules_digest", None)
+        else "hooks do workspace ainda não foram aprovados"
+    )
     workspace_id = str(getattr(workspace, "id", root))
     outcomes: list[HookOutcome] = []
     for rule in rules:
@@ -364,6 +371,7 @@ async def run_hooks(
             sandboxed=sandboxed,
             workspace_id=workspace_id,
             redact=redact,
+            not_approved_reason=not_approved_reason,
         )
         outcomes.append(item)
         logger.info(

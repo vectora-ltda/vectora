@@ -272,6 +272,19 @@ class WorkspaceRegistry:
         ws = self._workspaces.get(workspace_id)
         return ws is not None and ws.trusted
 
+    @staticmethod
+    def _current_rules_digest(cwd: str) -> str | None:
+        """Digest das regras ``[[hooks.rules]]`` atuais; ``None`` sem regras."""
+        from backend.workspace.workspace_config import (
+            hook_rules_digest,
+            load_workspace_config,
+        )
+
+        config = load_workspace_config(cwd)
+        if config is None or not config.hooks.rules:
+            return None
+        return hook_rules_digest(config.hooks.rules)
+
     def approve_hooks(self, workspace_id: str, user_id: str | None = None) -> bool:
         """Aprova a execução dos hooks deste workspace.
 
@@ -288,6 +301,7 @@ class WorkspaceRegistry:
         ws.hooks_approved = True
         ws.hooks_approved_at = datetime.now(UTC).isoformat()
         ws.hooks_approved_by = user_id
+        ws.hooks_rules_digest = self._current_rules_digest(ws.cwd)
         self._save()
         logger.info("Hooks aprovados: %s (%s) by=%s", ws.name, workspace_id, user_id)
         return True
