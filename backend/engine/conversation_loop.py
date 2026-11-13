@@ -982,6 +982,7 @@ async def run_conversation(  # noqa: PLR0911
             workspace_id=ctx.workspace_id or None,
             policy_snapshot=policy_snapshot,
             persistent_memory_records=await _load_persistent_context_memories(ctx),
+            model=str(ctx.model) if ctx.model else None,
         )
         from backend.services.media_hydration import hydrate_media_blocks
 
@@ -1093,6 +1094,15 @@ async def run_conversation(  # noqa: PLR0911
             # não via `on_event`.
 
         if stream_usage is not None:
+            with contextlib.suppress(Exception):
+                from backend.services.image_token_cost import observe_turn
+
+                observe_turn(
+                    str(ctx.model) if ctx.model else None,
+                    historico,
+                    tools,
+                    stream_usage,
+                )
             if last_usage is None:
                 last_usage = {}
             for key, value in stream_usage.items():
