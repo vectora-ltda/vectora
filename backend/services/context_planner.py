@@ -661,13 +661,15 @@ def plan_context(
     workspace_id: str | None = None,
     policy_snapshot: PolicySnapshot | None = None,
     persistent_memory_records: Sequence[MemoryRecord] | None = None,
+    model: str | None = None,
 ) -> PlannedContext:
     """Função conveniente para planejar o contexto de um turno.
 
     A estimativa de tokens conta as imagens geradas de PDF e vídeo que seguem
     ao modelo neste turno, para o orçamento não estourar depois da hidratação.
+    Com ``model``, cada imagem pesa o custo aprendido para ele.
     """
-    with count_previews_for(messages):
+    with count_previews_for(messages, model):
         return _DEFAULT_PLANNER.plan_context(
             messages,
             max_tokens=max_tokens,
