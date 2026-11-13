@@ -65,6 +65,26 @@ class WorkspaceInfo(BaseModel):
     codespace_name: str | None = None
 
 
+class HookRuleInfo(BaseModel):
+    """Regra ``[[hooks.rules]]`` do ``vectora.toml``, como o usuário a revisa."""
+
+    id: str
+    event: str
+    mode: str
+    tools: list[str] = []
+    timeout_s: float
+    command: list[str]
+
+
+class WorkspaceHooksResponse(BaseModel):
+    """Regras de hook do workspace e o estado da aprovação."""
+
+    workspace_id: str
+    #: ``no_rules`` | ``pending`` (nunca aprovadas ou alteradas) | ``approved``.
+    approval: str
+    rules: list[HookRuleInfo] = []
+
+
 class ListWorkspacesResponse(BaseModel):
     workspaces: list[WorkspaceInfo]
     active_id: str | None = None
@@ -1008,6 +1028,49 @@ async def set_active_workspace_rest(
 @view_router.post("/trust", response_model=StatusResponse)
 async def trust_workspace_rest(request: Request, body: TrustRequest) -> StatusResponse:
     return await trust_workspace(request, body)
+
+
+@view_router.get("/{workspace_id}/hooks", response_model=WorkspaceHooksResponse)
+async def get_workspace_hooks(
+    request: Request, workspace_id: str
+) -> WorkspaceHooksResponse:
+    """Lista as regras de hook do workspace para revisão antes da aprovação."""
+    import asyncio
+
+    from backend.workspace.workspace import workspace_registry
+    from backend.workspace.workspace_config import (
+        hook_rules_pending,
+        load_workspace_config,
+    )
+
+    require_workspace_access(workspace_id, request)
+    ws = workspace_registry.get(workspace_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="Workspace não encontrado.")
+    config = await asyncio.to_thread(load_workspace_config, ws.cwd)
+    rules = list(config.hooks.rules) if config is not None else []
+    if not rules:
+        return WorkspaceHooksResponse(workspace_id=ws.id, approval="no_rules")
+    pending = hook_rules_pending(
+        ws.cwd,
+        approved=bool(getattr(ws, "hooks_approved", False)),
+        approved_digest=getattr(ws, "hooks_rules_digest", None),
+    )
+    return WorkspaceHooksResponse(
+        workspace_id=ws.id,
+        approval="pending" if pending else "approved",
+        rules=[
+            HookRuleInfo(
+                id=rule.id,
+                event=rule.event,
+                mode=rule.mode,
+                tools=list(rule.tools),
+                timeout_s=rule.timeout_s,
+                command=list(rule.command),
+            )
+            for rule in rules
+        ],
+    )
 
 
 @view_router.post("/approve-hooks", response_model=StatusResponse)
