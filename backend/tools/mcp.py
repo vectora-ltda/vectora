@@ -17,6 +17,8 @@ quando foram atribuídos explicitamente no campo `env` da conexão
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import json
 import logging
 import os
@@ -33,6 +35,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.types import Tool as MCPTool
 
 from backend.settings import settings
+from backend.tools.context import ToolContext
 from backend.tools.registry import ToolExtras, vtool
 
 logger = logging.getLogger(__name__)
@@ -184,9 +187,15 @@ class VectoraMCPClient:
         """Nome da tool -> nome do servidor configurado que a expõe."""
         return {name: server for name, (server, _) in self._tools_by_name.items()}
 
-    async def call_tool(self, tool_name: str, arguments: dict[str, Any]) -> str:
+    async def call_tool(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        ctx: ToolContext | None = None,
+    ) -> str:
         """Invoca `tool_name` no servidor que a expõe. Levanta `KeyError` se
-        a tool não é conhecida — o chamador (`call_mcp_tool`) trata."""
+        a tool não é conhecida — o chamador (`call_mcp_tool`) trata. Com
+        ``ctx``, imagens do resultado são salvas e anexadas para o modelo."""
         server_name, _ = self._tools_by_name[tool_name]
         session = self._sessions[server_name]
         t0 = time.perf_counter()
@@ -202,7 +211,7 @@ class VectoraMCPClient:
             "mcp_external_tool_done",
             extra={"tool": tool_name, "elapsed_s": round(time.perf_counter() - t0, 3)},
         )
-        return _render_call_result(result)
+        return _render_call_result(result, ctx)
 
     async def aclose(self) -> None:
         """Fecha as sessões/subprocessos abertos — best-effort, nunca propaga.
@@ -225,20 +234,86 @@ class VectoraMCPClient:
             self._connected = False
 
 
-def _render_call_result(result: Any) -> str:
-    """Concatena os blocos de conteúdo de um `CallToolResult` em texto —
-    mesmo shape de string que `call_mcp_tool` sempre devolveu."""
+def _render_call_result(result: Any, ctx: ToolContext | None = None) -> str:
+    """Converte um `CallToolResult` em texto para o modelo.
+
+    Texto é concatenado como antes. Imagens (`ImageContent`) são salvas como
+    asset da sessão e anexadas ao resultado para o modelo (mesmo caminho dos
+    screenshots); o base64 nunca entra no texto. Áudio e recursos binários
+    viram uma nota curta.
+    """
     parts: list[str] = []
-    for block in getattr(result, "content", []) or []:
+    images: list[dict[str, Any]] = []
+    urls: list[str] = []
+    for index, block in enumerate(getattr(result, "content", []) or []):
+        kind = getattr(block, "type", None)
         text = getattr(block, "text", None)
         if text is not None:
             parts.append(text)
-        else:
-            parts.append(str(block))
+            continue
+        if kind == "image":
+            saved = _save_mcp_image(block, ctx, index)
+            if saved is None:
+                parts.append(
+                    f"[imagem retornada pela tool ({getattr(block, 'mimeType', '')}) "
+                    "não pôde ser salva]"
+                )
+            else:
+                images.append(saved["model_image"])
+                urls.append(saved["url"])
+                parts.append(f"[imagem anexada: {saved['model_image']['name']}]")
+            continue
+        if kind == "audio":
+            parts.append(
+                f"[áudio retornado pela tool ({getattr(block, 'mimeType', '')}) "
+                "não enviado ao modelo]"
+            )
+            continue
+        if kind == "resource":
+            resource = getattr(block, "resource", None)
+            resource_text = getattr(resource, "text", None)
+            parts.append(
+                resource_text
+                if resource_text is not None
+                else f"[recurso binário: {getattr(resource, 'uri', '')}]"
+            )
+            continue
+        if kind == "resource_link":
+            parts.append(f"[recurso: {getattr(block, 'uri', '')}]")
+            continue
+        parts.append(str(block))
     rendered = "\n".join(parts) if parts else str(result)
     if getattr(result, "isError", False):
         return f"Erro da tool MCP: {rendered}"
-    return rendered
+    if not images:
+        return rendered
+    from backend.services.tool_media import MODEL_IMAGE_KEY, MODEL_IMAGES_KEY
+
+    return json.dumps(
+        {
+            "text": rendered,
+            "url": urls[0],
+            "urls": urls,
+            MODEL_IMAGE_KEY: images[0],
+            MODEL_IMAGES_KEY: images,
+        },
+        ensure_ascii=False,
+    )
+
+
+def _save_mcp_image(
+    block: Any, ctx: ToolContext | None, index: int
+) -> dict[str, Any] | None:
+    """Decodifica e salva uma `ImageContent` do MCP como asset da sessão."""
+    if ctx is None or not ctx.thread_id:
+        return None
+    try:
+        payload = base64.b64decode(getattr(block, "data", "") or "", validate=True)
+    except (ValueError, binascii.Error):
+        return None
+    from backend.services.tool_media import save_tool_image
+
+    return save_tool_image(ctx, payload, name=f"mcp-imagem-{index + 1}.png")
 
 
 # ---------------------------------------------------------------------------
@@ -315,7 +390,9 @@ async def _get_mcp_client() -> VectoraMCPClient | None:
         icon="share-2",
     )
 )
-async def call_mcp_tool(tool_name: str, arguments: str) -> str:
+async def call_mcp_tool(
+    tool_name: str, arguments: str, ctx: ToolContext | None = None
+) -> str:
     """Invoca uma ferramenta de outro servidor MCP via Model Context Protocol.
 
     Use para encadear capacidades de servidores MCP externos registrados em
@@ -352,7 +429,7 @@ async def call_mcp_tool(tool_name: str, arguments: str) -> str:
 
     try:
         async with asyncio.timeout(settings.mcp_timeout):
-            return await client.call_tool(tool_name, args_dict)
+            return await client.call_tool(tool_name, args_dict, ctx)
     except TimeoutError:
         logger.warning("call_mcp_tool timeout", extra={"tool": tool_name})
         return f"Erro: tool MCP '{tool_name}' excedeu {settings.mcp_timeout}s."
