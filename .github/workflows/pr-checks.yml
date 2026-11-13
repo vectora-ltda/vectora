@@ -159,6 +159,33 @@ jobs:
               });
             }
 
+  contracts:
+    name: Contratos (drift)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-uv
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "26"
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 11.5.0
+      - name: Instala as dependências do frontend
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      # Falha quando backend/contracts ou frontend/lib/contracts/index.ts não
+      # correspondem ao código: rode `uv run python -m backend.contracts export`.
+      - name: Verifica o drift dos contratos
+        env:
+          GITHUB_BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: uv run python -m backend.contracts check
+
   pre-commit:
     name: Pre-commit (arquivos do PR)
     runs-on: ubuntu-24.04
