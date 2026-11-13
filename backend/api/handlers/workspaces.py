@@ -437,7 +437,9 @@ async def trust_workspace(request: Request, body: TrustRequest) -> StatusRespons
 
 @router.post("/ApproveHooks", response_model=StatusResponse)
 async def approve_hooks(request: Request, body: ApproveHooksRequest) -> StatusResponse:
-    """Aprova a execução de ``[hooks].post_file_write`` deste workspace.
+    """Aprova a execução dos hooks deste workspace.
+
+    Vale para ``[hooks].post_file_write`` e ``[[hooks.rules]]``.
 
     Confiar na pasta (``TrustWorkspace``) autoriza leitura/escrita/terminal —
     hooks são um efeito colateral distinto (comando de shell definido em

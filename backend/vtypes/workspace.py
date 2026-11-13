@@ -47,7 +47,8 @@ class Workspace(BaseModel):
     hooks_approved: bool = Field(
         default=False,
         description="True quando o usuário aprovou explicitamente a execução de "
-        "hooks [hooks].post_file_write deste workspace (vectora.toml). Confiar "
+        "hooks deste workspace ([hooks].post_file_write e [[hooks.rules]] do "
+        "vectora.toml). Confiar "
         "no workspace não implica aprovar hooks — são efeitos colaterais "
         "distintos (write vs. shell arbitrário via config do repositório).",
     )

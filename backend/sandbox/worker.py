@@ -28,12 +28,19 @@ async def handle_request(req: dict[str, Any]) -> dict[str, Any]:
     req_id = req.get("id")
     try:
         if op == "exec":
+            stdin_text = req.get("stdin")
+            # `env` substitui o ambiente herdado do worker (hooks rodam sem as
+            # credenciais do backend); ausente, o comando herda como antes.
             proc = await asyncio.create_subprocess_exec(
                 *req["command"],
+                env=req.get("env"),
+                stdin=asyncio.subprocess.PIPE if stdin_text is not None else None,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
-            stdout_b, stderr_b = await proc.communicate()
+            stdout_b, stderr_b = await proc.communicate(
+                stdin_text.encode("utf-8") if stdin_text is not None else None
+            )
             return {
                 "id": req_id,
                 "stdout": stdout_b.decode("utf-8", errors="replace"),

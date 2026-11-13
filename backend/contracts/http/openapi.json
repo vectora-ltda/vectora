@@ -22595,7 +22595,7 @@
     },
     "/vectora.workspace.v1.WorkspaceService/ApproveHooks": {
       "post": {
-        "description": "Aprova a execução de ``[hooks].post_file_write`` deste workspace.\n\nConfiar na pasta (``TrustWorkspace``) autoriza leitura/escrita/terminal —\nhooks são um efeito colateral distinto (comando de shell definido em\n``vectora.toml``, que pode vir de um repositório clonado) e exigem\naprovação própria antes da 1ª execução.",
+        "description": "Aprova a execução dos hooks deste workspace.\n\nVale para ``[hooks].post_file_write`` e ``[[hooks.rules]]``.\n\nConfiar na pasta (``TrustWorkspace``) autoriza leitura/escrita/terminal —\nhooks são um efeito colateral distinto (comando de shell definido em\n``vectora.toml``, que pode vir de um repositório clonado) e exigem\naprovação própria antes da 1ª execução.",
         "operationId": "approve_hooks_vectora_workspace_v1_WorkspaceService_ApproveHooks_post",
         "requestBody": {
           "content": {
