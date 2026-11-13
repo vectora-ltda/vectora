@@ -374,9 +374,14 @@ class ErrorEvent(BaseModel):
 
 
 class DoneEvent(BaseModel):
+    """Evento terminal do stream: o run acabou, com o desfecho."""
+
     thread_id: str
     run_id: str = ""
     message_id: int | None = None
+    #: ``stop`` | ``cancelled`` | ``error`` | ``interrupted`` | ``max_iterations``
+    #: | ``loop_cap_exceeded``; vazio em clientes antigos.
+    stopped_reason: str = ""
 
 
 class MessageBreakEvent(BaseModel):

@@ -20,7 +20,13 @@
       "type": "object"
     },
     "DoneEvent": {
+      "description": "Evento terminal do stream: o run acabou, com o desfecho.",
       "properties": {
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
         "message_id": {
           "anyOf": [
             {
@@ -36,6 +42,17 @@
         "run_id": {
           "default": "",
           "title": "Run Id",
+          "type": "string"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
+        "stopped_reason": {
+          "default": "",
+          "title": "Stopped Reason",
           "type": "string"
         },
         "thread_id": {
@@ -62,9 +79,20 @@
           "title": "Code",
           "type": "string"
         },
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
         "message": {
           "title": "Message",
           "type": "string"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
         },
         "type": {
           "const": "error",
@@ -96,6 +124,11 @@
         "diff_preview": {
           "default": "",
           "title": "Diff Preview",
+          "type": "string"
+        },
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
           "type": "string"
         },
         "expires_at": {
@@ -152,6 +185,12 @@
           ],
           "default": null,
           "title": "Run Id"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
         },
         "tool_name": {
           "title": "Tool Name",
@@ -229,12 +268,23 @@
     "MediaRoutedEvent": {
       "description": "Emitido quando o turno envia anexos ao modelo.\n\nDiz, para cada anexo que não é imagem, se o modelo recebeu o arquivo ou\na forma textual (texto extraído, transcrição ou referência).",
       "properties": {
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
         "routes": {
           "items": {
             "$ref": "#/$defs/MediaRouteItem"
           },
           "title": "Routes",
           "type": "array"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
         },
         "type": {
           "const": "media_routed",
@@ -252,6 +302,17 @@
     "MessageBreakEvent": {
       "description": "Sinaliza quebra de bolha: o agente começou a emitir tokens de um nó diferente.\n\nO frontend cria uma nova mensagem do assistente ao receber este evento.",
       "properties": {
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
         "type": {
           "const": "message_break",
           "title": "Type",
@@ -267,9 +328,20 @@
     "ModelSwitchedEvent": {
       "description": "Provider trocado automaticamente por quota esgotada (fallback).\n\nO frontend mostra um toast e atualiza o model selector para o novo modelo.\nCampos ``from_model``/``to_model`` no formato ``\"provider:model\"``.",
       "properties": {
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
         "from_model": {
           "title": "From Model",
           "type": "string"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
         },
         "to_model": {
           "title": "To Model",
@@ -296,6 +368,11 @@
           "title": "Duration Ms",
           "type": "integer"
         },
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
         "node": {
           "title": "Node",
           "type": "string"
@@ -304,6 +381,12 @@
           "default": "",
           "title": "Node Label",
           "type": "string"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
         },
         "status": {
           "enum": [
@@ -370,6 +453,17 @@
           "title": "Citations",
           "type": "array"
         },
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
         "type": {
           "const": "rag_citations",
           "title": "Type",
@@ -390,6 +484,11 @@
           "title": "Allow Free Text",
           "type": "boolean"
         },
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
         "expires_at": {
           "default": "",
           "title": "Expires At",
@@ -409,6 +508,12 @@
         "question_id": {
           "title": "Question Id",
           "type": "string"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
         },
         "thread_id": {
           "title": "Thread Id",
@@ -444,10 +549,21 @@
           "title": "Description",
           "type": "string"
         },
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
         "is_delta": {
           "default": false,
           "title": "Is Delta",
           "type": "boolean"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
         },
         "status": {
           "default": "running",
@@ -479,9 +595,20 @@
     "TerminalLineEvent": {
       "description": "Linha de output emitida em tempo real pela tool ``terminal``.\n\nDiferente de ``ToolResultEvent`` (saída completa só ao fim da tool),\neste evento chega incrementalmente enquanto o comando ainda roda —\no frontend anexa cada linha a um bloco de output ao vivo, associado\nà ``tool_call_id`` da chamada de ``terminal`` em andamento.",
       "properties": {
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
         "line": {
           "title": "Line",
           "type": "string"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
         },
         "type": {
           "const": "terminal_line",
@@ -499,6 +626,11 @@
     "ThreadEvent": {
       "description": "Identifies the thread, workspace and run behind a new stream.",
       "properties": {
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
         "run_id": {
           "anyOf": [
             {
@@ -510,6 +642,12 @@
           ],
           "default": null,
           "title": "Run Id"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
         },
         "thread_id": {
           "title": "Thread Id",
@@ -584,6 +722,17 @@
     "TodosUpdatedEvent": {
       "description": "Emitido quando ``write_todos`` atualiza a checklist de tarefas.\n\n``write_todos`` substitui a lista inteira a cada chamada (não é\nincremental) — o payload aqui reflete o snapshot completo mais recente,\nnão um delta. Alimenta a seção \"Tasks\" do Plan tab em tempo real.",
       "properties": {
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
         "todos": {
           "items": {
             "$ref": "#/$defs/TodoItem"
@@ -610,10 +759,21 @@
           "title": "Content",
           "type": "string"
         },
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
         "node": {
           "default": "",
           "title": "Node",
           "type": "string"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
         },
         "type": {
           "const": "token",
@@ -647,6 +807,17 @@
           ],
           "default": null,
           "title": "Elapsed Ms"
+        },
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
         },
         "tool_call_id": {
           "default": "",
@@ -746,6 +917,11 @@
           "title": "Destructive",
           "type": "boolean"
         },
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
         "icon": {
           "default": "tool",
           "title": "Icon",
@@ -755,6 +931,12 @@
           "default": "json",
           "title": "Render Hint",
           "type": "string"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
         },
         "tool_call_id": {
           "title": "Tool Call Id",
@@ -804,10 +986,21 @@
           "title": "Content Json",
           "type": "string"
         },
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
         "is_error": {
           "default": false,
           "title": "Is Error",
           "type": "boolean"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
         },
         "tool_call_id": {
           "title": "Tool Call Id",
@@ -866,6 +1059,11 @@
     "TurnFilesChangedEvent": {
       "description": "Publishes the current or finalized edited files for a run.",
       "properties": {
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
         "files": {
           "items": {
             "$ref": "#/$defs/TurnFileChange"
@@ -877,6 +1075,12 @@
           "default": "",
           "title": "Run Id",
           "type": "string"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
         },
         "status": {
           "default": "finalized",
@@ -901,6 +1105,11 @@
     },
     "UIMetricsEvent": {
       "properties": {
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
         "last_node": {
           "default": "",
           "title": "Last Node",
@@ -919,6 +1128,12 @@
         "rag_misses": {
           "default": 0,
           "title": "Rag Misses",
+          "type": "integer"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
           "type": "integer"
         },
         "tool_calls": {
@@ -944,6 +1159,17 @@
     "WorkbenchInvalidateEvent": {
       "description": "Notifica o frontend para recarregar abas específicas do workbench.\n\nEmitido automaticamente ao fim de tool calls que modificam o workspace.\n``tabs`` lista quais abas devem ser revalidadas: ``\"files\"``, ``\"git\"``,\n``\"plan\"``, ``\"background\"``.",
       "properties": {
+        "event_id": {
+          "description": "Identidade do evento: <run_id>:<seq>.",
+          "title": "Event Id",
+          "type": "string"
+        },
+        "seq": {
+          "description": "Posição do evento no stream do run, a partir de 1.",
+          "minimum": 1,
+          "title": "Seq",
+          "type": "integer"
+        },
         "tabs": {
           "items": {
             "type": "string"

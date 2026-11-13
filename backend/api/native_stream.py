@@ -37,6 +37,7 @@ from backend.api.schemas import (
     TurnFilesChangedEvent,
     encode_event,
 )
+from backend.api.sse_sequence import sequence_stream
 from backend.engine.sse_adapter import to_sse_line
 from backend.engine.stream_events import (
     ErrorSignal,
@@ -866,7 +867,8 @@ def stream_engine_events(
                     thread_id=thread_id,
                     run_id=resolved_run_id,
                     message_id=persisted_message_id,
+                    stopped_reason=stopped_reason,
                 )
             )
 
-    return _gen()
+    return sequence_stream(_gen())

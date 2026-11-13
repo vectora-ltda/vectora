@@ -210,6 +210,19 @@ def export_sse(contracts_dir: Path) -> None:
                 "title": "Type",
                 "type": "string",
             }
+            # Envelope de ordem acrescentado pelo stream (backend/api/
+            # sse_sequence.py); opcional porque nem todo produtor numera.
+            properties["seq"] = {
+                "description": "Posição do evento no stream do run, a partir de 1.",
+                "minimum": 1,
+                "title": "Seq",
+                "type": "integer",
+            }
+            properties["event_id"] = {
+                "description": "Identidade do evento: <run_id>:<seq>.",
+                "title": "Event Id",
+                "type": "string",
+            }
             required = event_def.setdefault("required", [])
             if "type" not in required:
                 required.append("type")
