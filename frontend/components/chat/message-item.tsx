@@ -1,3 +1,4 @@
+import { runOutcomeOf } from "@/lib/chat/run-outcome";
 import {
   Copy,
   Check,
@@ -405,6 +406,7 @@ export const MessageItem = memo(
     onOpenEditedFile,
   }: MessageItemProps) {
     const uiLang = useSettingsStore((s) => s.language);
+    const outcome = runOutcomeOf(message.stoppedReason);
     const { resolvedTheme } = useTheme();
     const isDark = resolvedTheme !== "light";
     const [isEditing, setIsEditing] = useState(false);
@@ -1105,6 +1107,17 @@ export const MessageItem = memo(
                           </TooltipTrigger>
                           <TooltipContent>{m.chat_retry()}</TooltipContent>
                         </Tooltip>
+                      )}
+
+                      {!message.isThinking && !message.isError && outcome && (
+                        <span
+                          role="status"
+                          className="mr-1 text-[11px] text-muted-foreground"
+                        >
+                          {outcome === "cancelled"
+                            ? m.chat_outcome_cancelled()
+                            : m.chat_outcome_limit()}
+                        </span>
                       )}
 
                       {!message.isThinking && !message.isError && (

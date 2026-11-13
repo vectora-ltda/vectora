@@ -564,14 +564,17 @@ export function useStreamHandler({
           }
           if (event.type === "done") {
             resolvedRunId = event.run_id || undefined;
-            if (typeof event.message_id === "number") {
-              setMessages((prev) =>
-                updateMessageInList(prev, activeId, (message) => ({
-                  ...message,
-                  persistedMessageId: event.message_id ?? undefined,
-                })),
-              );
-            }
+            setMessages((prev) =>
+              updateMessageInList(prev, activeId, (message) => ({
+                ...message,
+                ...(typeof event.message_id === "number" && {
+                  persistedMessageId: event.message_id,
+                }),
+                ...(event.stopped_reason && {
+                  stoppedReason: event.stopped_reason,
+                }),
+              })),
+            );
             streamCompletedNormally = true;
             break;
           }
@@ -825,14 +828,17 @@ export function useStreamHandler({
           }
           if (event.type === "done") {
             resolvedRunId = event.run_id || resolvedRunId;
-            if (typeof event.message_id === "number") {
-              setMessages((prev) =>
-                updateMessageInList(prev, assistantMessageId, (message) => ({
-                  ...message,
-                  persistedMessageId: event.message_id ?? undefined,
-                })),
-              );
-            }
+            setMessages((prev) =>
+              updateMessageInList(prev, assistantMessageId, (message) => ({
+                ...message,
+                ...(typeof event.message_id === "number" && {
+                  persistedMessageId: event.message_id,
+                }),
+                ...(event.stopped_reason && {
+                  stoppedReason: event.stopped_reason,
+                }),
+              })),
+            );
             streamCompletedNormally = true;
             break;
           }
