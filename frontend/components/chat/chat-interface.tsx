@@ -102,6 +102,11 @@ interface ChatInterfaceProps {
   onOpenEditedFile?: (file: EditedFile) => void;
 }
 
+/** Anexos não enviados da thread (rascunho restaurado ao remontar). */
+function fileDraftOf(threadId: string): ImageAttachment[] {
+  return useChatInputStore.getState().getFileDraft(threadId);
+}
+
 interface QueuedMessage {
   content: string;
   files: ImageAttachment[];
@@ -341,9 +346,34 @@ export function ChatInterface({
     handleDragLeave,
     removeFile,
     clearFiles,
+    replaceFiles,
     setUploadError,
     processFiles,
-  } = useFileUpload({ disableImageUploads: false });
+  } = useFileUpload({
+    disableImageUploads: false,
+    // Remontar a conversa (ou voltar a ela) restaura os anexos não enviados.
+    initialFiles: fileDraftOf(threadId),
+  });
+
+  // Anexos não enviados por thread: gravados a cada mudança e trocados junto
+  // com o rascunho quando a thread muda (sem remount). `filesOwnerRef` diz de
+  // qual thread são os anexos em tela. O efeito de gravar vem ANTES do de
+  // trocar: no render em que a thread muda, os anexos em tela ainda são da
+  // anterior e não podem ser gravados sob a nova.
+  const filesOwnerRef = useRef(threadId);
+  const attachedFilesRef = useRef(attachedFiles);
+  useEffect(() => {
+    attachedFilesRef.current = attachedFiles;
+    if (filesOwnerRef.current !== threadId) return;
+    useChatInputStore.getState().setFileDraft(threadId, attachedFiles);
+  }, [attachedFiles, threadId]);
+  useEffect(() => {
+    if (filesOwnerRef.current === threadId) return;
+    const store = useChatInputStore.getState();
+    store.setFileDraft(filesOwnerRef.current, attachedFilesRef.current);
+    filesOwnerRef.current = threadId;
+    replaceFiles(store.getFileDraft(threadId));
+  }, [threadId, replaceFiles]);
 
   // Message queue for sending while AI is responding
   const queueRef = useRef(createSendQueue<QueuedMessage>());

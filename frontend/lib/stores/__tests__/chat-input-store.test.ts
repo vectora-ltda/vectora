@@ -7,7 +7,12 @@ import { describe, expect, it, beforeEach } from "vitest";
 import { useChatInputStore } from "../chat-input-store";
 
 beforeEach(() => {
-  useChatInputStore.setState({ draft: null, mention: null, drafts: {} });
+  useChatInputStore.setState({
+    draft: null,
+    mention: null,
+    drafts: {},
+    fileDrafts: {},
+  });
   if (typeof localStorage !== "undefined") localStorage.clear();
 });
 
@@ -154,5 +159,29 @@ describe("chat-input-store — rascunhos por thread", () => {
     s.setDraft("t1", "");
     expect("t1" in useChatInputStore.getState().drafts).toBe(false);
     expect(useChatInputStore.getState().getDraft("t2")).toBe("B");
+  });
+});
+
+const file = (id: string) => ({
+  id,
+  mimeType: "image/png",
+  name: `${id}.png`,
+});
+
+describe("useChatInputStore — anexos por thread", () => {
+  it("guarda e devolve os anexos de cada thread separadamente", () => {
+    const { setFileDraft, getFileDraft } = useChatInputStore.getState();
+    setFileDraft("t1", [file("a"), file("b")]);
+    setFileDraft("t2", [file("c")]);
+    expect(getFileDraft("t1").map((f) => f.id)).toEqual(["a", "b"]);
+    expect(getFileDraft("t2").map((f) => f.id)).toEqual(["c"]);
+    expect(getFileDraft("outra")).toEqual([]);
+  });
+
+  it("lista vazia remove a entrada e não acumula anexos vazios", () => {
+    const { setFileDraft } = useChatInputStore.getState();
+    setFileDraft("t1", [file("a")]);
+    setFileDraft("t1", []);
+    expect("t1" in useChatInputStore.getState().fileDrafts).toBe(false);
   });
 });

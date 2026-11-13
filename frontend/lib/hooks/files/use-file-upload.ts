@@ -31,6 +31,8 @@ export interface UseFileUploadReturn {
   handleDragLeave: (event: React.DragEvent) => void;
   removeFile: (fileId: string) => void;
   clearFiles: () => void;
+  /** Troca a lista inteira (restaura os anexos de outra thread). */
+  replaceFiles: (files: ImageAttachment[]) => void;
   setUploadError: (error: string | null) => void;
   /** Processa um conjunto arbitrário de Files (drag/drop, paste, virtual). */
   processFiles: (files: File[]) => Promise<void>;
@@ -38,6 +40,8 @@ export interface UseFileUploadReturn {
 
 interface UseFileUploadOptions {
   disableImageUploads?: boolean;
+  /** Anexos com que o hook começa (rascunho restaurado ao remontar). */
+  initialFiles?: ImageAttachment[];
 }
 
 const isImageFile = (file: File): boolean =>
@@ -69,7 +73,9 @@ const isImageFile = (file: File): boolean =>
 export function useFileUpload(
   options: UseFileUploadOptions = {},
 ): UseFileUploadReturn {
-  const [attachedFiles, setAttachedFiles] = useState<ImageAttachment[]>([]);
+  const [attachedFiles, setAttachedFiles] = useState<ImageAttachment[]>(
+    () => options.initialFiles ?? [],
+  );
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const disableImageUploads = options.disableImageUploads ?? false;
@@ -228,6 +234,11 @@ export function useFileUpload(
     setUploadError(null);
   }, []);
 
+  const replaceFiles = useCallback((files: ImageAttachment[]) => {
+    setAttachedFiles(files);
+    setUploadError(null);
+  }, []);
+
   return {
     attachedFiles,
     uploadError,
@@ -239,6 +250,7 @@ export function useFileUpload(
     handleDragLeave,
     removeFile,
     clearFiles,
+    replaceFiles,
     setUploadError,
     processFiles,
   };
