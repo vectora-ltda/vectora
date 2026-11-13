@@ -7196,6 +7196,28 @@
         "title": "ResumeRunRequest",
         "type": "object"
       },
+      "ResumeStreamRequest": {
+        "description": "Retoma o stream de um run a partir do último evento recebido.",
+        "properties": {
+          "last_event_id": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Last Event Id",
+            "type": "string"
+          },
+          "thread_id": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Thread Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "thread_id"
+        ],
+        "title": "ResumeStreamRequest",
+        "type": "object"
+      },
       "RevertCommitRequest": {
         "properties": {
           "no_commit": {
@@ -22101,6 +22123,43 @@
           }
         },
         "summary": "Resume Chat"
+      }
+    },
+    "/vectora.chat.v1.ChatService/ResumeStream": {
+      "post": {
+        "description": "Entrega os eventos de um run depois do cursor informado e acompanha o run.\n\nResponde 404 quando o log do run não está mais disponível (servidor\nreiniciado, run antigo ou cursor fora do que foi guardado); o cliente então\nreconcilia com o histórico persistido.",
+        "operationId": "resume_stream_vectora_chat_v1_ChatService_ResumeStream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResumeStreamRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Resume Stream"
       }
     },
     "/vectora.chat.v1.ChatService/StreamChat": {

@@ -161,6 +161,7 @@ describe("ChatInterface — fila do composer", () => {
     vi.useFakeTimers();
     h.streams = [];
     h.messages = [];
+    h.setMessages.mockReset();
     h.processStream = vi.fn(
       (...args: unknown[]) =>
         new Promise<StreamResult>((resolve) => {
@@ -246,5 +247,115 @@ describe("ChatInterface — fila do composer", () => {
     });
     await flush();
     expect(queue()).toEqual([]);
+  });
+
+  it("interromper o envio marca o item como cancelado e a fila segue para o próximo", async () => {
+    render(<ChatInterface threadId="thread-q" />);
+    await flush();
+
+    await submit("primeira");
+    await submit("vai cancelar");
+    await submit("depois");
+    await act(async () => {
+      h.streams[0].resolve({
+        assistantContent: "ok",
+        requestReachedBackend: true,
+      });
+    });
+    await flush();
+    expect(queue()).toEqual(["vai cancelar:sending", "depois:waiting"]);
+
+    // O usuário para o envio antes de a requisição chegar ao servidor.
+    await act(async () => {
+      await h.chatInputProps.onStop();
+    });
+    await act(async () => {
+      h.streams[1].resolve({
+        assistantContent: "",
+        requestReachedBackend: false,
+      });
+    });
+    await flush();
+
+    expect(queue()[0]).toBe("vai cancelar:cancelled");
+    // O cancelado não bloqueia: o seguinte já está em envio.
+    expect(h.processStream).toHaveBeenCalledTimes(3);
+    expect(h.processStream.mock.calls[2][0]).toBe("depois");
+    expect(queue()).toEqual(["vai cancelar:cancelled", "depois:sending"]);
+
+    // Reenviar o cancelado reaproveita o mesmo turn_id.
+    const turnId = h.streams[1].args[4];
+    await act(async () => {
+      h.streams[2].resolve({
+        assistantContent: "ok",
+        requestReachedBackend: true,
+      });
+    });
+    await flush();
+    const [item] = h.chatInputProps.queuedMessages as { id: string }[];
+    await act(async () => {
+      h.chatInputProps.onRetryQueued(item.id);
+    });
+    await flush();
+    expect(h.streams[3].args[4]).toBe(turnId);
+  });
+
+  it("envio direto que não chega ao servidor devolve texto ao composer e tira a mensagem do chat", async () => {
+    let chatState: { id: string }[] = [];
+    h.setMessages.mockImplementation((update: unknown) => {
+      chatState =
+        typeof update === "function"
+          ? (update as (prev: unknown[]) => { id: string }[])(chatState)
+          : (update as { id: string }[]);
+    });
+    render(<ChatInterface threadId="thread-q" />);
+    await flush();
+
+    await act(async () => {
+      h.chatInputProps.onInputChange("não vai chegar");
+    });
+    await act(async () => {
+      void h.chatInputProps.onSend();
+    });
+    await flush();
+    expect(h.processStream).toHaveBeenCalledTimes(1);
+    expect(chatState).toHaveLength(1);
+
+    await act(async () => {
+      h.streams[0].resolve({
+        assistantContent: "",
+        requestReachedBackend: false,
+      });
+    });
+    await flush();
+
+    expect(h.chatInputProps.input).toBe("não vai chegar");
+    // O envio falho não deixa a mensagem nem a bolha de erro no chat.
+    expect(chatState).toEqual([]);
+  });
+
+  it("não sobrescreve o que o usuário já digitou enquanto o envio falhava", async () => {
+    render(<ChatInterface threadId="thread-q" />);
+    await flush();
+
+    await act(async () => {
+      h.chatInputProps.onInputChange("primeira");
+    });
+    await act(async () => {
+      void h.chatInputProps.onSend();
+    });
+    await flush();
+    await act(async () => {
+      h.chatInputProps.onInputChange("já estou digitando outra");
+    });
+    await act(async () => {
+      h.streams[0].resolve({
+        assistantContent: "",
+        requestReachedBackend: false,
+      });
+    });
+    await flush();
+
+    expect(h.chatInputProps.input).toBe("já estou digitando outra");
   });
 });

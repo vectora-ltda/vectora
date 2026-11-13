@@ -405,3 +405,65 @@ async def test_record_turn_checkpoint_nonexistent_directory_returns_silently(
 
     # Deve retornar sem levantar — best-effort
     await _record_turn_checkpoint("ws-2", "thread-2", {"run_id": "r2"})
+
+
+@pytest.mark.asyncio
+async def test_resume_stream_recebe_o_que_o_cliente_perdeu_ao_cair(_no_nats_sidecar):
+    store = MagicMock()
+    store.get_session = AsyncMock(return_value=object())
+    store.start_run = AsyncMock()
+    store.upsert_agent_run = AsyncMock()
+    store.update_run = AsyncMock()
+    store.update_agent_run_status = AsyncMock()
+    store.get_message_id_by_turn_id = AsyncMock(return_value=None)
+    store.get_branch_head_id = AsyncMock(return_value=None)
+    store.append_message = AsyncMock()
+    with patch(
+        "backend.services.agent_factory.get_session_store",
+        new=AsyncMock(return_value=store),
+    ):
+        await _resume_stream_scenario()
+
+
+async def _resume_stream_scenario():
+    """Cliente cai depois do 1º token; o run termina sem ele e a retomada pelo
+    cursor entrega o restante, com o evento terminal."""
+    from backend.api.sse_sequence import get_run_log
+
+    release = asyncio.Event()
+
+    async def run(on_event):
+        await on_event(MessageChunk(content="um", node="model"))
+        await release.wait()
+        await on_event(MessageChunk(content="dois", node="model"))
+        await on_event(MessageChunk(content="tres", node="model"))
+        return "stop"
+
+    request = MagicMock()
+    request.is_disconnected = AsyncMock(side_effect=[False, True, True, True])
+    tasks_before = asyncio.all_tasks()
+    received = [
+        _parse(s)
+        async for s in stream_engine_events(
+            run, thread_id="tid-resume", http_request=request, run_id="run-resume"
+        )
+    ]
+    last_seen = [e for e in received if e["type"] == "token"][-1]
+    assert last_seen["content"] == "um"
+
+    log = get_run_log("run-resume")
+    assert log is not None and log.thread_id == "tid-resume"
+    assert log.finished is False  # o run continua sem o cliente
+
+    release.set()
+    for task in asyncio.all_tasks() - tasks_before:
+        with contextlib.suppress(Exception):
+            await asyncio.wait_for(asyncio.shield(task), timeout=2)
+
+    assert log.finished is True
+    replayed = [_parse(s) async for s in log.replay(last_seen["seq"])]
+    assert [e["content"] for e in replayed if e["type"] == "token"] == ["dois", "tres"]
+    assert replayed[-1]["type"] == "done"
+    assert [e["seq"] for e in replayed] == list(
+        range(last_seen["seq"] + 1, last_seen["seq"] + 1 + len(replayed))
+    )

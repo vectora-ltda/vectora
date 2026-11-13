@@ -16,11 +16,14 @@
 "use client";
 
 import { createSequenceGuard } from "@/lib/api/stream-sequence";
+import { withResume } from "@/lib/api/resumable-stream";
 import { useCallback, useRef } from "react";
 import type { Message, ToolCall, ImageAttachment } from "../../types";
 import {
   streamChat,
   resumeChat,
+  resumeStream,
+  StreamResumeUnavailableError,
   getHistory,
   getLatestTurnFiles,
   getLatestTurnFilesSnapshot,
@@ -183,6 +186,17 @@ function announceSSEDropped(err: unknown): void {
   if (isNetworkError(err)) {
     useNetworkStore.getState().setSSEStatus("reconnecting");
   }
+}
+
+/** Retomada por cursor depois de uma queda de conexão (ver resumable-stream). */
+function resumeOptions(threadId: string, signal?: AbortSignal) {
+  return {
+    open: (lastEventId: string, resumeSignal?: AbortSignal) =>
+      resumeStream(threadId, lastEventId, resumeSignal),
+    isUnavailable: (error: unknown) =>
+      error instanceof StreamResumeUnavailableError,
+    signal,
+  };
 }
 
 /**
@@ -440,20 +454,23 @@ export function useStreamHandler({
       markStreamStarted(threadId);
 
       try {
-        const events = streamChat(
-          {
-            thread_id: threadId,
-            content: userContent,
-            config,
-            // ID estável do turno: o backend deduplica por ele, então repetir
-            // o envio (retry da fila) não duplica a mensagem do usuário.
-            ...(turnId && { turn_id: turnId }),
-            ...(attachments && attachments.length > 0 && { attachments }),
-          },
-          abort.signal,
-          () => {
-            requestAccepted = true;
-          },
+        const events = withResume(
+          streamChat(
+            {
+              thread_id: threadId,
+              content: userContent,
+              config,
+              // ID estável do turno: o backend deduplica por ele, então repetir
+              // o envio (retry da fila) não duplica a mensagem do usuário.
+              ...(turnId && { turn_id: turnId }),
+              ...(attachments && attachments.length > 0 && { attachments }),
+            },
+            abort.signal,
+            () => {
+              requestAccepted = true;
+            },
+          ),
+          resumeOptions(threadId, abort.signal),
         );
 
         const sequence = createSequenceGuard();
@@ -762,7 +779,10 @@ export function useStreamHandler({
       markStreamStarted(threadId);
 
       try {
-        const events = resumeChat(request, abortRef.current?.signal);
+        const events = withResume(
+          resumeChat(request, abortRef.current?.signal),
+          resumeOptions(threadId, abortRef.current?.signal),
+        );
 
         const sequence = createSequenceGuard();
         for await (const event of events) {

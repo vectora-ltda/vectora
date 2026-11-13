@@ -87,6 +87,15 @@ class CancelRunRequest(BaseModel):
     thread_id: str = Field(min_length=1, max_length=200)
 
 
+class ResumeStreamRequest(BaseModel):
+    """Retoma o stream de um run a partir do último evento recebido."""
+
+    thread_id: str = Field(min_length=1, max_length=200)
+    #: Cursor ``<run_id>:<seq>`` do último evento recebido; o header
+    #: ``Last-Event-ID`` tem o mesmo formato e vale quando o campo vem vazio.
+    last_event_id: str = Field(default="", max_length=300)
+
+
 class _SessionStore(Protocol):
     async def get_session(
         self, thread_id: str, *, user_id: str | None = None
@@ -1251,6 +1260,57 @@ async def cancel_run(
 
     cancelled = cancel_active_runs(request.thread_id)
     return {"cancelled": cancelled > 0, "cancelled_runs": cancelled}
+
+
+@router.post("/vectora.chat.v1.ChatService/ResumeStream")
+async def resume_stream(
+    request: ResumeStreamRequest, http_request: Request
+) -> StreamingResponse:
+    """Entrega os eventos de um run depois do cursor informado e acompanha o run.
+
+    Responde 404 quando o log do run não está mais disponível (servidor
+    reiniciado, run antigo ou cursor fora do que foi guardado); o cliente então
+    reconcilia com o histórico persistido.
+    """
+    from fastapi import HTTPException
+
+    from backend.api.handlers.threads import _assert_owns_thread
+    from backend.api.sse_sequence import (
+        ReplayUnavailableError,
+        get_run_log,
+        parse_event_id,
+    )
+
+    await _assert_owns_thread(request.thread_id, http_request, require_existing=True)
+    cursor = parse_event_id(
+        request.last_event_id or http_request.headers.get("last-event-id", "")
+    )
+    if cursor is None:
+        raise HTTPException(status_code=400, detail="last_event_id inválido")
+    run_id, after_seq = cursor
+    log = get_run_log(run_id)
+    if log is None or (log.thread_id and log.thread_id != request.thread_id):
+        raise HTTPException(status_code=404, detail="run_log_unavailable")
+
+    replay = log.replay(after_seq)
+    try:
+        first = await anext(replay)
+    except StopAsyncIteration:
+        first = None
+    except ReplayUnavailableError as exc:
+        raise HTTPException(status_code=404, detail="run_log_unavailable") from exc
+
+    async def _lines() -> AsyncGenerator[str]:
+        if first is not None:
+            yield first
+        async for line in replay:
+            yield line
+
+    return StreamingResponse(
+        _lines(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ---------------------------------------------------------------------------

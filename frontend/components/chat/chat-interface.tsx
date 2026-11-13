@@ -362,6 +362,13 @@ export function ChatInterface({
   // anterior e não podem ser gravados sob a nova.
   const filesOwnerRef = useRef(threadId);
   const attachedFilesRef = useRef(attachedFiles);
+  // Texto atual do composer e bolha de resposta do último envio, lidos ao
+  // restaurar o rascunho de um envio que falhou antes de chegar ao servidor.
+  const composerInputRef = useRef(uiState.input);
+  const lastAssistantIdRef = useRef("");
+  useEffect(() => {
+    composerInputRef.current = uiState.input;
+  }, [uiState.input]);
   useEffect(() => {
     attachedFilesRef.current = attachedFiles;
     if (filesOwnerRef.current !== threadId) return;
@@ -847,6 +854,7 @@ export function ChatInterface({
 
       try {
         const assistantMessageId = generateMessageId();
+        lastAssistantIdRef.current = assistantMessageId;
         const streamStart = Date.now();
         const { assistantContent, requestReachedBackend } = await processStream(
           content,
@@ -1010,6 +1018,7 @@ export function ChatInterface({
     );
 
     if (outcome === "sent") queueRef.current.succeed(nextItem.id);
+    else if (shouldInterruptRef.current) queueRef.current.cancel(nextItem.id);
     else queueRef.current.fail(nextItem.id);
     syncQueueDisplay();
     isProcessingQueueRef.current = false;
@@ -1216,7 +1225,26 @@ export function ChatInterface({
       onThreadUpdate(threadId, optimisticTitle, "", undefined, 1);
     }
 
-    await processMessage(currentInput, currentFiles, userMessage);
+    const outcome = await processMessage(
+      currentInput,
+      currentFiles,
+      userMessage,
+    );
+
+    // A requisição não chegou ao servidor: devolve texto e anexos ao
+    // composer (se ele continua vazio) em vez de deixá-los só no balão de
+    // erro, e tira do chat a mensagem que nunca foi enviada.
+    if (outcome === "failed") {
+      const failedAssistantId = lastAssistantIdRef.current;
+      setMessages((prev) =>
+        prev.filter(
+          (message) =>
+            message.id !== userMessage.id && message.id !== failedAssistantId,
+        ),
+      );
+      if (!composerInputRef.current.trim()) setInput(rawInput);
+      if (attachedFilesRef.current.length === 0) replaceFiles(currentFiles);
+    }
 
     // Check if anything was queued while processing
     if (queueRef.current.next()) {
@@ -1234,6 +1262,7 @@ export function ChatInterface({
     threadId,
     setInput,
     clearFiles,
+    replaceFiles,
     processMessage,
     processQueue,
     resolveAtMentions,
