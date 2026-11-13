@@ -337,6 +337,9 @@ async def _run_one(
         )
         if spec.extras.category == "media":
             call_context = await apply_media_billing_source(call_context)
+        blocked_by_hook = await _pre_tool_hooks(tool_call, ctx)
+        if blocked_by_hook is not None:
+            return blocked_by_hook
         # Hooks and billing can await external work. Revalidate authorization
         # after those waits, immediately before dispatching the handler.
         allowed, deny_reason = await _authorize_call(tool_call, ctx, policy_snapshot)
@@ -352,9 +355,6 @@ async def _run_one(
                 name=tool_call.name,
                 is_error=True,
             )
-        blocked_by_hook = await _pre_tool_hooks(tool_call, ctx)
-        if blocked_by_hook is not None:
-            return blocked_by_hook
         texto = await spec.ainvoke(
             tool_call.args,
             call_context,
