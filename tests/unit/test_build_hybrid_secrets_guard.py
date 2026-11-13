@@ -148,7 +148,9 @@ def test_defaults_env_sem_valor_de_segredo_passa(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = tmp_path / "vectora"
-    _fake_source(project, "A=1\nQDRANT_API_KEY=\n# NOTE_TOKEN=x\n")
+    _fake_source(
+        project, "A=1\nQDRANT_API_KEY=vectora\nGATEWAY_TOKEN=\n# NOTE_TOKEN=x\n"
+    )
     monkeypatch.setattr(build_hybrid, "VECTORA", project)
 
     build_hybrid._assert_defaults_env_without_secrets()

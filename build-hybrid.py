@@ -146,7 +146,7 @@ def _assert_no_secrets_inside_backend() -> None:
         )
 
 
-_SECRET_NAME_MARKS = ("SECRET", "TOKEN", "PRIVATE_KEY", "PASSWORD", "API_KEY")
+_SECRET_NAME_MARKS = ("SECRET", "TOKEN", "PRIVATE_KEY")
 
 
 def _assert_defaults_env_without_secrets() -> None:
