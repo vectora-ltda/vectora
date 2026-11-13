@@ -920,7 +920,14 @@ async def run_conversation(  # noqa: PLR0911
             policy_snapshot=policy_snapshot,
             persistent_memory_records=await _load_persistent_context_memories(ctx),
         )
-        historico = planned_context.messages
+        from backend.services.media_hydration import hydrate_media_blocks
+
+        historico = hydrate_media_blocks(
+            planned_context.messages,
+            user_id=ctx.user_id or "local",
+            workspace_id=ctx.workspace_id or "",
+            thread_id=thread_id,
+        )
         if config.run_id and hasattr(session_store, "record_run_evidence"):
             try:
                 if planned_context.manifest and not manifest_recorded:
@@ -1051,7 +1058,8 @@ async def run_conversation(  # noqa: PLR0911
             await record_interaction(
                 session_store,
                 run_id=config.run_id,
-                messages=historico,
+                # Sem a mídia reidratada: a gravação guarda só referências.
+                messages=planned_context.messages,
                 response=texto_final,
                 tool_calls=tool_calls,
                 usage=stream_usage,
