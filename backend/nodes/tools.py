@@ -313,6 +313,7 @@ extract_frame = _bridge("extract_frame")
 extract_audio = _bridge("extract_audio")
 transcribe_local = _bridge("transcribe_local")
 pdf_to_images = _bridge("pdf_to_images")
+video_to_frames = _bridge("video_to_frames")
 write_todos = _bridge("write_todos")
 ask_structured_question = _bridge("ask_structured_question")
 systemone_list_patterns = _bridge("systemone_list_patterns")
@@ -714,6 +715,7 @@ for _t in [
     extract_audio,
     transcribe_local,
     pdf_to_images,
+    video_to_frames,
     # Casa conectada (Home Assistant)
     ha_list_entities,
     ha_get_state,

@@ -344,8 +344,48 @@ async def transcribe_local(ctx: ToolContext, path: str, language: str = "") -> s
     return json.dumps(result, ensure_ascii=False)
 
 
-#: Teto de páginas que a ferramenta converte por chamada.
-_PDF_TO_IMAGES_MAX_PAGES = 8
+def _ctx_image_result(
+    ctx: ToolContext,
+    images: list[tuple[str, bytes]],
+    extra: dict[str, object],
+    list_key: str,
+    item_key: str,
+    values: list[object],
+) -> str:
+    """Salva as imagens como assets da sessão e monta o JSON do resultado.
+
+    ``images`` são ``(nome, bytes)``; ``values[i]`` é o valor de ``item_key``
+    (página ou instante) da imagem ``i``. O resultado leva ``url`` para a
+    interface e ``model_images`` para o modelo ver as imagens.
+    """
+    from backend.services.tool_media import (
+        MODEL_IMAGE_KEY,
+        MODEL_IMAGES_KEY,
+        save_tool_image,
+    )
+
+    entries: list[dict[str, object]] = []
+    refs: list[dict[str, object]] = []
+    for (name, data), value in zip(images, values, strict=True):
+        saved = save_tool_image(ctx, data, name=name)
+        if saved is None:
+            continue
+        entries.append({item_key: value, "url": saved["url"]})
+        refs.append(saved[MODEL_IMAGE_KEY])
+    if not refs:
+        return json.dumps(
+            {"error": "não foi possível salvar as imagens"}, ensure_ascii=False
+        )
+    return json.dumps(
+        {
+            **extra,
+            list_key: entries,
+            "url": entries[0]["url"],
+            MODEL_IMAGE_KEY: refs[0],
+            MODEL_IMAGES_KEY: refs,
+        },
+        ensure_ascii=False,
+    )
 
 
 @vtool(
@@ -357,72 +397,189 @@ _PDF_TO_IMAGES_MAX_PAGES = 8
     )
 )
 async def pdf_to_images(
-    ctx: ToolContext, path: str, first_page: int = 1, max_pages: int = 4
+    ctx: ToolContext,
+    path: str,
+    first_page: int = 1,
+    last_page: int = 0,
+    max_pages: int = 0,
+    max_side: int = 0,
+    quality: int = 0,
+    image_format: str = "jpeg",
 ) -> str:
     """Converte páginas de um PDF do workspace em imagens e mostra ao modelo.
 
     100% local (pypdfium2), sem provider. Use para ler PDF escaneado, tabelas,
     gráficos ou layout que o texto extraído perde. As imagens são salvas na
     mídia da sessão e anexadas ao resultado quando o modelo aceita imagens.
+    Valores 0 usam a configuração do app (`media_pdf_max_pages`,
+    `media_image_max_side`, `media_image_quality`).
 
     Args:
         path: Caminho do PDF dentro do workspace.
         first_page: Primeira página a converter (começa em 1).
-        max_pages: Quantas páginas converter (máximo 8 por chamada).
+        last_page: Última página (inclusive); 0 vai até o limite de páginas.
+        max_pages: Máximo de páginas nesta chamada; 0 usa o padrão do app.
+        max_side: Lado maior da imagem em pixels (256 a 4096); 0 usa o padrão.
+            Aumente para ler texto pequeno, diminua para economizar tokens.
+        quality: Qualidade JPEG de 30 a 95; 0 usa o padrão.
+        image_format: "jpeg" (menor) ou "png" (sem perdas, melhor para texto).
 
     Returns:
-        JSON com `pages` (número e url de cada página) e `total_pages`, ou
-        `error`.
+        JSON com `pages` (número e url de cada página), `total_pages` e
+        `returned`, ou `error`.
     """
+    from backend.services.media_limits import media_limits
+    from backend.services.media_previews import (
+        image_options,
+        pdf_page_count,
+        render_pdf_pages,
+    )
+
     resolved, err = _resolve_media_path(path, ctx)
     if resolved is None:
         return err
+    limits = media_limits()
     first = max(1, int(first_page))
-    count = max(1, min(int(max_pages), _PDF_TO_IMAGES_MAX_PAGES))
-    try:
-        import pypdfium2 as pdfium
-
-        payload = await asyncio.to_thread(resolved.read_bytes)
-        document = pdfium.PdfDocument(payload)
-        total = len(document)
-        document.close()
-    except Exception as exc:
-        return json.dumps({"error": f"PDF inválido: {exc}"}, ensure_ascii=False)
+    cap = min(int(max_pages) if max_pages > 0 else limits.pdf_pages, limits.max_images)
+    payload = await asyncio.to_thread(resolved.read_bytes)
+    total = await asyncio.to_thread(pdf_page_count, payload)
+    if total == 0:
+        return json.dumps({"error": "PDF inválido ou vazio"}, ensure_ascii=False)
     if first > total:
         return json.dumps(
             {"error": f"o PDF tem {total} páginas", "total_pages": total},
             ensure_ascii=False,
         )
-
-    from backend.services.media_previews import render_pdf_pages
-    from backend.services.tool_media import (
-        MODEL_IMAGE_KEY,
-        MODEL_IMAGES_KEY,
-        save_tool_image,
+    last = min(int(last_page), total) if last_page > 0 else total
+    count = max(0, min(cap, last - first + 1))
+    options = image_options(max_side or None, quality or None, image_format)
+    pages = await asyncio.to_thread(
+        render_pdf_pages, payload, count, first_page=first, options=options
     )
-
-    pages = await asyncio.to_thread(render_pdf_pages, payload, first + count - 1)
-    selected = pages[first - 1 :]
-    saved_pages: list[dict[str, object]] = []
-    images: list[dict[str, object]] = []
-    for offset, image in enumerate(selected):
-        number = first + offset
-        saved = save_tool_image(ctx, image, name=f"{resolved.stem}-p{number}.jpg")
-        if saved is None:
-            continue
-        saved_pages.append({"page": number, "url": saved["url"]})
-        images.append(saved[MODEL_IMAGE_KEY])
-    if not images:
-        return json.dumps(
-            {"error": "não foi possível salvar as páginas"}, ensure_ascii=False
-        )
-    return json.dumps(
+    numbers = [first + offset for offset in range(len(pages))]
+    return _ctx_image_result(
+        ctx,
+        [
+            (f"{resolved.stem}-p{number}.{options.extension}", data)
+            for number, data in zip(numbers, pages, strict=True)
+        ],
         {
             "total_pages": total,
-            "pages": saved_pages,
-            "url": saved_pages[0]["url"],
-            MODEL_IMAGE_KEY: images[0],
-            MODEL_IMAGES_KEY: images,
+            "returned": len(pages),
+            "next_page": numbers[-1] + 1 if numbers and numbers[-1] < total else None,
         },
-        ensure_ascii=False,
+        "pages",
+        "page",
+        list(numbers),
+    )
+
+
+@vtool(
+    extras=ToolExtras(
+        render_hint="image_preview",
+        category="media",
+        destructive=False,
+        icon="film",
+    )
+)
+async def video_to_frames(
+    ctx: ToolContext,
+    path: str,
+    start_ms: int = 0,
+    end_ms: int = 0,
+    interval_ms: int = 0,
+    max_frames: int = 0,
+    max_side: int = 0,
+    quality: int = 0,
+    image_format: str = "jpeg",
+) -> str:
+    """Extrai quadros de um vídeo do workspace como imagens e mostra ao modelo.
+
+    100% local (ffmpeg embutido), sem provider. Sem `interval_ms`, os quadros
+    são espaçados de forma uniforme no trecho; com `interval_ms`, há um quadro
+    a cada intervalo. Para analisar um momento, use `start_ms` e `end_ms`.
+    Valores 0 usam a configuração do app (`media_video_max_frames`,
+    `media_image_max_side`, `media_image_quality`).
+
+    Args:
+        path: Caminho do vídeo dentro do workspace.
+        start_ms: Início do trecho em milissegundos (0 = começo).
+        end_ms: Fim do trecho em milissegundos (0 = fim do vídeo).
+        interval_ms: Milissegundos entre quadros (ex.: 1000 = 1 quadro por
+            segundo); 0 distribui `max_frames` quadros uniformemente.
+        max_frames: Máximo de quadros nesta chamada; 0 usa o padrão do app.
+        max_side: Lado maior da imagem em pixels (256 a 4096); 0 usa o padrão.
+        quality: Qualidade JPEG de 30 a 95; 0 usa o padrão.
+        image_format: "jpeg" (menor) ou "png" (sem perdas).
+
+    Returns:
+        JSON com `frames` (instante em ms e url de cada quadro),
+        `duration_ms`, `returned` e `truncated` (true se o intervalo pedido
+        geraria mais quadros que o limite), ou `error`.
+    """
+    from backend.services.media_limits import media_limits
+    from backend.services.media_previews import (
+        extract_video_frames,
+        frame_timestamps,
+        image_options,
+        video_duration_s,
+    )
+
+    resolved, err = _resolve_media_path(path, ctx)
+    if resolved is None:
+        return err
+    limits = media_limits()
+    cap = min(
+        int(max_frames) if max_frames > 0 else limits.video_frames, limits.max_images
+    )
+    duration = await video_duration_s(resolved)
+    if not duration:
+        return json.dumps(
+            {"error": "não foi possível ler a duração do vídeo"}, ensure_ascii=False
+        )
+    wanted = frame_timestamps(
+        duration,
+        count=10_000,
+        start_ms=int(start_ms),
+        end_ms=int(end_ms),
+        interval_ms=int(interval_ms),
+    )
+    if interval_ms <= 0:
+        wanted = wanted[:cap]
+    truncated = interval_ms > 0 and len(wanted) > cap
+    options = image_options(max_side or None, quality or None, image_format)
+    frames = await extract_video_frames(
+        resolved,
+        cap,
+        start_ms=int(start_ms),
+        end_ms=int(end_ms),
+        interval_ms=int(interval_ms),
+        options=options,
+    )
+    if not frames:
+        return json.dumps(
+            {
+                "error": "nenhum quadro extraído; confira o trecho pedido",
+                "duration_ms": int(duration * 1000),
+            },
+            ensure_ascii=False,
+        )
+    moments = [round(moment * 1000) for moment, _image in frames]
+    return _ctx_image_result(
+        ctx,
+        [
+            (f"{resolved.stem}-{moment}ms.{options.extension}", image)
+            for moment, (_t, image) in zip(moments, frames, strict=True)
+        ],
+        {
+            "duration_ms": int(duration * 1000),
+            "returned": len(frames),
+            "truncated": truncated,
+            "next_start_ms": (moments[-1] + max(int(interval_ms), 1))
+            if truncated
+            else None,
+        },
+        "frames",
+        "time_ms",
+        list(moments),
     )
