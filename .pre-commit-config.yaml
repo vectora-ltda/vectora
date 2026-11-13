@@ -190,6 +190,20 @@ repos:
         files: ^(backend|tests)/.*\.py$
 
   # ==========================================
+  # Contratos HTTP/SSE/tools — regenerados a partir do código
+  # ==========================================
+  # Reexporta `backend/contracts/` e `frontend/lib/contracts/index.ts`. Se algo
+  # mudar, o hook falha e deixa os arquivos atualizados para o `git add`.
+  - repo: local
+    hooks:
+      - id: contracts
+        name: Regenera os contratos (backend/contracts)
+        entry: uv run --no-sync python -m backend.contracts export
+        language: system
+        files: ^backend/.*\.py$
+        pass_filenames: false
+
+  # ==========================================
   # JS/TS Lint — oxlint (Rust, OXC toolchain)
   # ==========================================
   # ~50–100x mais rapido que ESLint; config em chat/.oxlintrc.json.
