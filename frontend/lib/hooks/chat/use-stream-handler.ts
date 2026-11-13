@@ -944,6 +944,26 @@ async function handleEvent(
       // drift de contrato por engano).
       break;
 
+    case "media_routed": {
+      // Anota na mensagem do usuário que originou o turno como cada anexo
+      // chegou ao modelo (arquivo ou texto).
+      setMessages((prev) => {
+        const assistantIndex = prev.findIndex(
+          (msg) => msg.id === assistantMessageId,
+        );
+        const searchEnd = assistantIndex === -1 ? prev.length : assistantIndex;
+        for (let index = searchEnd - 1; index >= 0; index -= 1) {
+          if (prev[index].role === "user") {
+            const next = [...prev];
+            next[index] = { ...prev[index], mediaRoutes: event.routes };
+            return next;
+          }
+        }
+        return prev;
+      });
+      break;
+    }
+
     case "tool_call": {
       let args: Record<string, unknown> = {};
       try {

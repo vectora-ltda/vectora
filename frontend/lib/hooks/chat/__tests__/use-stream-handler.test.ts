@@ -541,6 +541,40 @@ describe("useStreamHandler.processStream", () => {
     );
   });
 
+  it("media_routed anota na mensagem do usuário como cada anexo foi enviado", async () => {
+    messages = [
+      { id: "u1", role: "user", content: "resuma", timestamp: new Date() },
+      { id: "a1", role: "assistant", content: "", timestamp: new Date() },
+    ];
+    const routes = [
+      {
+        name: "r.pdf",
+        media_kind: "document",
+        mime_type: "application/pdf",
+        size_bytes: 10,
+        mode: "native" as const,
+        reason: "provider aceita o tipo",
+        model: "anthropic:claude",
+      },
+    ];
+    streamChatMock.mockReturnValue(
+      gen([
+        { type: "thread", thread_id: "t1" },
+        { type: "media_routed", routes },
+        { type: "token", content: "ok" },
+        { type: "done", thread_id: "t1" },
+      ]),
+    );
+    const { result } = run();
+    await result.current.processStream("resuma", "a1");
+    expect(messages.find((msg) => msg.id === "u1")?.mediaRoutes).toEqual(
+      routes,
+    );
+    expect(
+      messages.find((msg) => msg.id === "a1")?.mediaRoutes,
+    ).toBeUndefined();
+  });
+
   it("model_switched não interrompe o stream de tokens", async () => {
     streamChatMock.mockReturnValue(
       gen([

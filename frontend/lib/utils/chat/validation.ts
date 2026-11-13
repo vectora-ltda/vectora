@@ -6,6 +6,7 @@
 
 import { generateMessageId } from "./message-helpers";
 import type { ImageAttachment } from "../../types";
+import { maxBytesFor, mediaKindOf } from "./media-kind";
 
 /**
  * Convert a File object to a base64 string.
@@ -46,139 +47,26 @@ export const createImageAttachment = async (
 };
 
 /**
- * Validate if a file is supported and within size limits.
- * Supports images, code files, logs, and text files.
+ * Validate a file before upload.
+ *
+ * Every file type is accepted: the backend classifies it by its bytes and
+ * decides how it reaches the model (native file, extracted text,
+ * transcription or a reference). Only the per-kind size limit is checked
+ * here, mirroring `backend/services/media_types.py`.
  */
 export const validateImageFile = (
   file: File,
 ): { valid: boolean; error?: string } => {
-  // HAR files can be large network captures — allow up to 50MB.
-  // Public CLC does not support HAR analysis; HAR files are ignored before streaming.
-  // Audio files capped at 25MB — matches the OpenAI Whisper API's own limit.
-  // All other file types retain the original 10MB limit.
-  const isHar = file.name.toLowerCase().endsWith(".har");
-  const isAudio =
-    file.type.startsWith("audio/") ||
-    [".mp3", ".wav", ".m4a", ".ogg", ".webm"].some((ext) =>
-      file.name.toLowerCase().endsWith(ext),
-    );
-  const maxSize = isHar
-    ? 50 * 1024 * 1024
-    : isAudio
-      ? 25 * 1024 * 1024
-      : 10 * 1024 * 1024;
-  const maxSizeLabel = isHar ? "50MB" : isAudio ? "25MB" : "10MB";
-  if (file.size > maxSize) {
-    return { valid: false, error: `File must be smaller than ${maxSizeLabel}` };
+  if (file.size === 0) {
+    return { valid: false, error: "File is empty" };
   }
-
-  // Supported mimetypes
-  const supportedMimeTypes = [
-    // Images
-    "image/jpeg",
-    "image/jpg",
-    "image/png",
-    "image/gif",
-    "image/webp",
-    // Audio
-    "audio/mpeg",
-    "audio/mp3",
-    "audio/wav",
-    "audio/x-wav",
-    "audio/mp4",
-    "audio/m4a",
-    "audio/x-m4a",
-    "audio/ogg",
-    "audio/webm",
-    // Text/Code
-    "text/plain",
-    "text/markdown",
-    "text/x-python",
-    "text/x-java",
-    "text/x-c",
-    "text/x-c++",
-    "text/javascript",
-    "text/typescript",
-    "text/html",
-    "text/css",
-    "text/xml",
-    "application/json",
-    "application/javascript",
-    "application/typescript",
-    "application/x-python",
-    "application/x-python-code",
-    "application/x-sh",
-    "text/x-sh",
-    "text/x-log",
-  ];
-
-  // Supported file extensions (fallback if mimetype is not set correctly)
-  const supportedExtensions = [
-    // Images
-    ".jpg",
-    ".jpeg",
-    ".png",
-    ".gif",
-    ".webp",
-    // Code files
-    ".py",
-    ".js",
-    ".ts",
-    ".tsx",
-    ".jsx",
-    ".java",
-    ".cpp",
-    ".c",
-    ".h",
-    ".cs",
-    ".go",
-    ".rs",
-    ".rb",
-    ".php",
-    ".sh",
-    ".bash",
-    // Config/Data files
-    ".yaml",
-    ".yml",
-    ".json",
-    ".xml",
-    ".html",
-    ".css",
-    ".md",
-    // Text/Log files
-    ".txt",
-    ".log",
-    ".sql",
-    ".graphql",
-    // Other languages
-    ".r",
-    ".swift",
-    ".kt",
-    ".scala",
-    // Network/Debug files
-    ".har",
-    // Audio
-    ".mp3",
-    ".wav",
-    ".m4a",
-    ".ogg",
-    ".webm",
-  ];
-
-  const fileName = file.name.toLowerCase();
-  const hasValidExtension = supportedExtensions.some((ext) =>
-    fileName.endsWith(ext),
-  );
-  const hasValidMimetype = supportedMimeTypes.includes(file.type);
-
-  // Accept if either mimetype or extension is valid
-  if (!hasValidMimetype && !hasValidExtension) {
-    const ext = fileName.split(".").pop()?.toLowerCase();
+  const kind = mediaKindOf(file.type, file.name);
+  const maxSize = maxBytesFor(kind, file.name);
+  if (file.size > maxSize) {
     return {
       valid: false,
-      error: `Unsupported file type${ext ? ` (.${ext})` : ""}. Supported: images, code files, logs, configs (see button tooltip for full list)`,
+      error: `File must be smaller than ${Math.round(maxSize / (1024 * 1024))}MB`,
     };
   }
-
   return { valid: true };
 };

@@ -77,7 +77,8 @@ export const ensureMessageExists = (
 /**
  * Convert one `HistoryMessage` (REST history page) into a UI `Message`.
  *
- * Image attachments only carry over when `url` is populated — that's the
+ * Non-image attachments always carry over as file cards. Image attachments
+ * only carry over when `url` is populated — that's the
  * persisted file path (`GET /threads/{id}/attachments/{filename}`), the
  * only thing that survives a backend restart. Attachments without a URL
  * (persistence failed, or messages from before this field existed) drop
@@ -87,11 +88,14 @@ export const historyMessageToMessage = (
   hist: HistoryMessage,
   id: string,
 ): Message => {
+  // Imagens só voltam com URL (é o que sobrevive a restart). Os demais
+  // anexos (documento, áudio, vídeo, arquivo) voltam como cartão com nome,
+  // tipo e tamanho, com link quando o asset existe.
   const images = hist.attachments
-    ?.filter((att) => att.kind === "image" && att.url)
-    .map((att) => ({
-      id: att.url as string,
-      url: att.url as string,
+    ?.filter((att) => att.kind !== "image" || Boolean(att.url))
+    .map((att, index) => ({
+      id: (att.url as string | undefined) ?? `${id}:attachment:${index}`,
+      url: (att.url as string | undefined) ?? "",
       mimeType: att.mimeType,
       name: att.name,
       size: att.size,

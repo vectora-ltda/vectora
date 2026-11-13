@@ -26,10 +26,10 @@ describe("toApiAttachments", () => {
     expect(result.kind).toBe("audio");
   });
 
-  it("deriva kind=code para mimetypes desconhecidos (fallback)", () => {
+  it("deriva kind=file para binários desconhecidos", () => {
     const [result] = toApiAttachments([
       attachment({ mimeType: "application/x-unknown", name: "data.bin" }),
     ]);
-    expect(result.kind).toBe("code");
+    expect(result.kind).toBe("file");
   });
 });
