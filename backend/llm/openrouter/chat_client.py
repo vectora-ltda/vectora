@@ -90,6 +90,9 @@ def _to_openrouter_message(msg: VMessage) -> dict:
         # Obrigatório no formato OpenAI-compatível — sem ele o provider
         # recusa a mensagem de tool com 400.
         saida["tool_call_id"] = msg.tool_call_id or ""
+        # Mensagem de tool só aceita texto; imagens da ferramenta seguem numa
+        # mensagem de usuário logo depois (``_to_openrouter_messages``).
+        saida["content"] = msg.text()
 
     if role == "assistant" and msg.tool_calls:
         saida["tool_calls"] = [
@@ -105,6 +108,41 @@ def _to_openrouter_message(msg: VMessage) -> dict:
         ]
         saida["content"] = msg.text() or None
 
+    return saida
+
+
+def _to_openrouter_messages(messages: list[VMessage]) -> list[dict]:
+    """Traduz o histórico e entrega imagens de ferramentas (screenshots).
+
+    Depois de cada sequência de mensagens de tool, as imagens que elas
+    trouxeram seguem numa mensagem de usuário, o formato que o Chat
+    Completions aceita para imagem.
+    """
+    saida: list[dict] = []
+    pendentes: list[dict] = []
+    for msg in messages:
+        if msg.role != MessageRole.TOOL and pendentes:
+            saida.append({"role": "user", "content": pendentes})
+            pendentes = []
+        saida.append(_to_openrouter_message(msg))
+        if msg.role == MessageRole.TOOL:
+            imagens = [
+                {"type": "image_url", "image_url": {"url": b.image_url}}
+                for b in msg.content
+                if b.kind == "image_url" and b.image_url
+            ]
+            if imagens:
+                pendentes.extend(
+                    [
+                        {
+                            "type": "text",
+                            "text": f"Imagem retornada pela ferramenta {msg.name or ''}:",
+                        },
+                        *imagens,
+                    ]
+                )
+    if pendentes:
+        saida.append({"role": "user", "content": pendentes})
     return saida
 
 
@@ -181,7 +219,7 @@ class OpenRouterChatClient:
         """Executa a operação  payload."""
         corpo: dict[str, Any] = {
             "model": self.model,
-            "messages": [_to_openrouter_message(m) for m in messages],
+            "messages": _to_openrouter_messages(messages),
         }
         if self.compact_system_prompt:
             from backend.llm.prompt_projection import compact_small_model_system_prompt

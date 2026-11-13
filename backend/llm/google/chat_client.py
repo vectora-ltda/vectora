@@ -187,7 +187,14 @@ def _to_google_contents(messages: list[VMessage]) -> tuple[dict | None, list[dic
                                 "name": msg.name or "",
                                 "response": {"result": msg.text()},
                             }
-                        }
+                        },
+                        # Imagens da ferramenta (screenshots) seguem como
+                        # partes inline do mesmo turno.
+                        *(
+                            _google_image_part(b.image_url)
+                            for b in msg.content
+                            if b.kind == "image_url" and b.image_url
+                        ),
                     ],
                 }
             )

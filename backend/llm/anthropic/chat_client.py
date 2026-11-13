@@ -100,6 +100,19 @@ def _to_anthropic_content(content: list[ContentBlock]) -> str | list[dict]:
     return partes
 
 
+def _tool_result_content(msg: VMessage) -> str | list[dict]:
+    """``tool_result`` aceita blocos de imagem junto do texto (screenshots)."""
+    imagens = [
+        _anthropic_image_block(b.image_url)
+        for b in msg.content
+        if b.kind == "image_url" and b.image_url
+    ]
+    if not imagens:
+        return msg.text()
+    texto = msg.text()
+    return [*([{"type": "text", "text": texto}] if texto else []), *imagens]
+
+
 def _assistant_content_blocks(msg: VMessage) -> list[dict]:
     blocos: list[dict] = []
     texto = msg.text()
@@ -135,7 +148,7 @@ def _to_anthropic_messages(messages: list[VMessage]) -> tuple[str | None, list[d
                         {
                             "type": "tool_result",
                             "tool_use_id": msg.tool_call_id or "",
-                            "content": msg.text(),
+                            "content": _tool_result_content(msg),
                             **({"is_error": True} if msg.is_error else {}),
                         }
                     ],

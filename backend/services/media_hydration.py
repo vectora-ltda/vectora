@@ -39,6 +39,22 @@ def _latest_user_index(messages: Sequence[VMessage]) -> int:
     return -1
 
 
+#: Quantas imagens de ferramentas (screenshots) mais recentes seguem ao
+#: modelo; as anteriores viram uma nota curta para não lotar o contexto.
+MAX_RECENT_TOOL_IMAGES = 3
+
+
+def _recent_tool_images(messages: Sequence[VMessage]) -> set[tuple[int, int]]:
+    found: list[tuple[int, int]] = [
+        (index, position)
+        for index, message in enumerate(messages)
+        if message.role == MessageRole.TOOL
+        for position, block in enumerate(message.content)
+        if block.kind == "image_url"
+    ]
+    return set(found[-MAX_RECENT_TOOL_IMAGES:])
+
+
 def hydrate_media_blocks(
     messages: Sequence[VMessage],
     *,
@@ -60,11 +76,15 @@ def hydrate_media_blocks(
       cliente do provider decide entre o arquivo e a forma textual
       (``backend/llm/media_parts.py``). Anexos de mensagens anteriores seguem
       só pela forma textual, sem reenviar o arquivo a cada turno.
+    - Imagens de ferramentas (screenshots): só as
+      ``MAX_RECENT_TOOL_IMAGES`` mais recentes são carregadas; as anteriores
+      viram uma nota curta.
     """
     from backend.llm.media_parts import wants_bytes
 
     read = reader or _default_reader()
     latest_user = _latest_user_index(messages)
+    recent_tool_images = _recent_tool_images(messages)
 
     def _load(block: ContentBlock) -> tuple[object, bytes] | None:
         if not block.asset_id:
@@ -85,6 +105,7 @@ def hydrate_media_blocks(
         load_media = index == latest_user
         if not any(
             (block.kind == "image_url" and not block.image_url)
+            or message.role == MessageRole.TOOL
             or (
                 load_media
                 and block.kind == "media"
@@ -98,7 +119,22 @@ def hydrate_media_blocks(
             hydrated.append(message)
             continue
         blocks: list[ContentBlock] = []
-        for block in message.content:
+        for position, block in enumerate(message.content):
+            if (
+                message.role == MessageRole.TOOL
+                and block.kind == "image_url"
+                and (index, position) not in recent_tool_images
+            ):
+                blocks.append(
+                    ContentBlock(
+                        kind="text",
+                        text=(
+                            "\n[Imagem de ferramenta anterior omitida do contexto: "
+                            f"{block.attachment_name or 'imagem'}]"
+                        ),
+                    )
+                )
+                continue
             if block.kind == "media":
                 if (
                     load_media

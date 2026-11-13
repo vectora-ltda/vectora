@@ -130,6 +130,7 @@ _MEDIA_REJECTION_MARKERS = (
     "media type",
     "unsupported",
     "too large",
+    "image",
 )
 
 

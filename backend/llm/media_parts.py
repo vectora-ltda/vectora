@@ -17,7 +17,7 @@ from collections.abc import Iterable
 from dataclasses import replace
 from typing import Literal
 
-from backend.vtypes.message import ContentBlock, VMessage
+from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 MB = 1024 * 1024
 
@@ -86,34 +86,56 @@ def prepare_content(content: list[ContentBlock], provider: str) -> list[ContentB
     return prepared
 
 
+def _is_tool_image(message: VMessage, block: ContentBlock) -> bool:
+    return (
+        message.role == MessageRole.TOOL
+        and block.kind == "image_url"
+        and bool(block.image_url)
+    )
+
+
 def has_native_media(messages: Iterable[VMessage]) -> bool:
+    """Há anexo enviado como arquivo ou imagem de ferramenta no payload?"""
     return any(
-        block.kind == "media" and block.media_data_url
+        (block.kind == "media" and block.media_data_url)
+        or _is_tool_image(message, block)
         for message in messages
         for block in message.content
     )
 
 
 def downgrade_to_text(messages: list[VMessage]) -> list[VMessage]:
-    """Remove os arquivos inline; os anexos seguem só pela forma textual."""
+    """Remove arquivos inline e imagens de ferramentas.
+
+    Os anexos seguem pela forma textual; imagens de ferramentas viram uma
+    nota com o nome do arquivo salvo.
+    """
     downgraded: list[VMessage] = []
     for message in messages:
         if not any(
-            block.kind == "media" and block.media_data_url for block in message.content
+            (block.kind == "media" and block.media_data_url)
+            or _is_tool_image(message, block)
+            for block in message.content
         ):
             downgraded.append(message)
             continue
-        downgraded.append(
-            replace(
-                message,
-                content=[
-                    replace(block, media_data_url=None)
-                    if block.kind == "media"
-                    else block
-                    for block in message.content
-                ],
-            )
-        )
+        content: list[ContentBlock] = []
+        for block in message.content:
+            if block.kind == "media":
+                content.append(replace(block, media_data_url=None))
+            elif _is_tool_image(message, block):
+                content.append(
+                    ContentBlock(
+                        kind="text",
+                        text=(
+                            "\n[Imagem da ferramenta não enviada ao modelo: "
+                            f"{block.attachment_name or 'imagem'}]"
+                        ),
+                    )
+                )
+            else:
+                content.append(block)
+        downgraded.append(replace(message, content=content))
     return downgraded
 
 
