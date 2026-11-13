@@ -179,6 +179,19 @@ def main() -> None:
             "resources/)."
         )
 
+    # Helper de fala nativo do macOS (framework Speech), compilado por
+    # `scons macos-speech`; resolvido em runtime por
+    # backend.services.speech_to_text (pasta speech/ do bundle).
+    speech_args: list[str] = []
+    if sys.platform == "darwin":
+        speech_binary = VECTORA / "resources" / "vectora-speech"
+        if not speech_binary.is_file():
+            sys.exit(
+                f"{speech_binary} não encontrado. Rode `scons macos-speech` "
+                "antes do build (compila o helper de fala do macOS)."
+            )
+        speech_args = ["--add-binary", f"{speech_binary}{SEP}speech"]
+
     collect: list[str] = []
     for pkg in COLLECT_ALL:
         collect += ["--collect-all", pkg]
@@ -231,6 +244,7 @@ def main() -> None:
             f"{ffmpeg_binary}{SEP}ffmpeg",
             "--add-binary",
             f"{ffprobe_binary}{SEP}ffmpeg",
+            *speech_args,
             "--add-data",
             f"{VECTORA / 'frontend' / 'dist'}{SEP}chat_static",
             "--add-data",

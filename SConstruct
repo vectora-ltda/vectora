@@ -775,6 +775,8 @@ def _action_help(target, source, env):
                            (sidecar de fila/KV com JetStream; precisa de rede)
     scons ffmpeg           baixa ffmpeg+ffprobe pra resources/
                            (backend/tools/media_native.py; precisa de rede)
+    scons macos-speech     compila o helper de fala nativo do macOS
+                           (native/macos-speech, swiftc; só no macOS)
 """)
     sys.stdout.flush()
 
@@ -850,6 +852,46 @@ def _action_fetch_ffmpeg(target, source, env):
         if not filename.endswith(".exe"):
             os.chmod(dest, 0o755)
         print(f">> {filename} instalado em {dest}")
+
+
+def _action_build_macos_speech(target, source, env):
+    """Compila ``native/macos-speech/main.swift`` em ``resources/vectora-speech``.
+
+    Helper de reconhecimento de fala nativo do macOS (framework Speech),
+    usado por ``backend/services/speech_to_text.py``. Em outros sistemas não
+    faz nada. Exige o swiftc das Command Line Tools do Xcode.
+    """
+    import platform as _plat
+    import shutil as _shutil
+    import subprocess as _subprocess
+
+    if _plat.system() != "Darwin":
+        print(">> macos-speech: ignorado fora do macOS")
+        return 0
+    swiftc = _shutil.which("swiftc")
+    if swiftc is None:
+        raise RuntimeError("swiftc não encontrado; instale as Command Line Tools")
+    source_file = os.path.join(VECTORA, "native", "macos-speech", "main.swift")
+    dest_dir = os.path.join(VECTORA, "resources")
+    os.makedirs(dest_dir, exist_ok=True)
+    dest = os.path.join(dest_dir, "vectora-speech")
+    _subprocess.run(  # noqa: S603
+        [
+            swiftc,
+            "-O",
+            "-swift-version",
+            "5",
+            "-framework",
+            "Speech",
+            "-o",
+            dest,
+            source_file,
+        ],
+        check=True,
+    )
+    os.chmod(dest, 0o755)
+    print(f">> vectora-speech compilado em {dest}")
+    return 0
 
 
 def _nats_asset() -> tuple[str, str, str]:
@@ -1021,6 +1063,7 @@ _cmd("lint",          _action_lint)
 _cmd("update",        _action_update)
 _cmd("nats",          _action_fetch_nats)
 _cmd("ffmpeg",        _action_fetch_ffmpeg)
+_cmd("macos-speech",  _action_build_macos_speech)
 _cmd("clean",         _action_clean)
 _cmd("help",          _action_help)
 _cmd("docker",        _action_docker)

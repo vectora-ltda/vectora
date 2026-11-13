@@ -108,7 +108,7 @@ def test_so_as_imagens_de_ferramenta_mais_recentes_sao_carregadas() -> None:
     assert reads == [f"a{i}" for i in range(2, total)]
     assert sent[0].content[1].kind == "text"
     assert "omitida" in (sent[0].content[1].text or "")
-    assert sent[total - 1].content[1].image_url == PNG_URL
+    assert sent[-1].content[1].image_url == PNG_URL
 
 
 def test_downgrade_troca_imagem_de_ferramenta_por_nota() -> None:
