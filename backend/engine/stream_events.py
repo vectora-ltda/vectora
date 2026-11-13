@@ -173,6 +173,24 @@ class ModelSwitched:
 
 
 @dataclass(frozen=True, slots=True)
+class MediaRoute:
+    name: str
+    media_kind: str
+    mime_type: str
+    size_bytes: int
+    mode: str
+    reason: str
+    model: str
+
+
+@dataclass(frozen=True, slots=True)
+class MediaRouted:
+    """Como cada anexo foi enviado ao modelo neste turno."""
+
+    routes: list[MediaRoute]
+
+
+@dataclass(frozen=True, slots=True)
 class UIMetrics:
     last_node: str = ""
     last_node_ms: int = 0
@@ -210,6 +228,7 @@ EngineEvent = (
     | TurnFilesChanged
     | TodosUpdated
     | ModelSwitched
+    | MediaRouted
     | UIMetrics
     | ErrorSignal
     | Done

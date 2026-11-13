@@ -160,8 +160,11 @@ async def test_anexo_media_chega_ao_provider_como_texto_e_nao_aparece_no_texto_d
     sent = hydrate_media_blocks(
         [message], user_id="local", workspace_id="", thread_id="thread-text"
     )
-    assert [block.kind for block in sent[0].content] == ["text", "text"]
-    assert "x = 1" in (sent[0].content[1].text or "")
+    from backend.llm.media_parts import prepare_content
+
+    prepared = prepare_content(sent[0].content, "anthropic")
+    assert [block.kind for block in prepared] == ["text", "text"]
+    assert "x = 1" in (prepared[1].text or "")
 
 
 def test_historico_recarregado_lista_anexos_media() -> None:

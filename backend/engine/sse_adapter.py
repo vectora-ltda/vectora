@@ -16,6 +16,7 @@ from backend.engine.stream_events import (
     EngineEvent,
     ErrorSignal,
     HitlRequested,
+    MediaRouted,
     MessageBreak,
     MessageChunk,
     ModelSwitched,
@@ -137,6 +138,21 @@ def _to_payload(event: EngineEvent) -> schemas.StreamChatEventPayload:  # noqa: 
             todos=[
                 schemas.TodoItem(content=t.content, status=t.status)
                 for t in event.todos
+            ]
+        )
+    if isinstance(event, MediaRouted):
+        return schemas.MediaRoutedEvent(
+            routes=[
+                schemas.MediaRouteItem(
+                    name=route.name,
+                    media_kind=route.media_kind,
+                    mime_type=route.mime_type,
+                    size_bytes=route.size_bytes,
+                    mode="native" if route.mode == "native" else "text",
+                    reason=route.reason,
+                    model=route.model,
+                )
+                for route in event.routes
             ]
         )
     if isinstance(event, ModelSwitched):

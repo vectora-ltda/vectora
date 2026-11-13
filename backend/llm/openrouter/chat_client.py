@@ -25,6 +25,7 @@ import json
 from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING, Any, TypedDict
 
+from backend.llm.media_parts import prepare_content
 from backend.llm.openrouter.client import OpenRouterClient, OpenRouterResponseError
 from backend.vtypes.contracts import UsageSnapshot
 from backend.vtypes.message import (
@@ -59,6 +60,9 @@ def _to_openrouter_content(content: list[ContentBlock]) -> str | list[dict]:
     `image_url` presente força o formato de lista de partes Chat-Completions
     (`image_url` aninhado) — nunca descarta a imagem só porque `msg.text()`
     só concatena texto."""
+    # Gateways não informam modalidade de arquivo por modelo: anexos que não
+    # são imagem seguem pela forma textual.
+    content = prepare_content(content, "openrouter")
     if not any(b.kind == "image_url" for b in content):
         return "".join(b.text or "" for b in content if b.kind == "text")
     partes: list[dict] = []
