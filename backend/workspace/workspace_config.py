@@ -13,6 +13,8 @@ ignorada pelo git) na primeira vez que uma sessão roda nesse workspace.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import re
@@ -190,6 +192,36 @@ def _resolve_env_placeholders(value: object) -> object:
     if isinstance(value, list):
         return [_resolve_env_placeholders(v) for v in value]
     return value
+
+
+def hook_rules_digest(rules: list[HookRule]) -> str:
+    """Digest SHA-256 das regras de hook, em forma canônica.
+
+    A aprovação do workspace fica presa a este valor: qualquer mudança em
+    comando, evento, ferramentas, modo ou timeout produz outro digest e exige
+    nova aprovação. A ordem das regras conta.
+    """
+    canonical = json.dumps(
+        [rule.model_dump(mode="json") for rule in rules],
+        sort_keys=True,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def hook_rules_pending(
+    cwd: str | Path, *, approved: bool, approved_digest: str | None
+) -> bool:
+    """True quando há ``[[hooks.rules]]`` que ainda não valem para execução.
+
+    Vale tanto para regras nunca aprovadas quanto para regras alteradas depois
+    da aprovação (digest diferente do gravado).
+    """
+    config = load_workspace_config(cwd)
+    if config is None or not config.hooks.rules:
+        return False
+    return not (approved and approved_digest == hook_rules_digest(config.hooks.rules))
 
 
 def load_workspace_config(cwd: str | Path) -> WorkspaceConfig | None:

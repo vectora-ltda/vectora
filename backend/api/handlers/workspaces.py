@@ -52,6 +52,7 @@ class WorkspaceInfo(BaseModel):
     cwd: str
     trusted: bool = False
     hooks_approved: bool = False
+    hooks_rules_pending: bool = False
     is_git_repo: bool = False
     git_remote: str | None = None
     git_current_branch: str | None = None
@@ -275,6 +276,20 @@ async def _enforce_workspace_ownership(workspace_id: str, request: Request) -> N
     require_workspace_access(workspace_id, request)
 
 
+def _hooks_rules_pending(ws: Any) -> bool:
+    """Há ``[[hooks.rules]]`` no ``vectora.toml`` que ainda não foram aprovadas."""
+    from backend.workspace.workspace_config import hook_rules_pending
+
+    try:
+        return hook_rules_pending(
+            ws.cwd,
+            approved=bool(getattr(ws, "hooks_approved", False)),
+            approved_digest=getattr(ws, "hooks_rules_digest", None),
+        )
+    except OSError:
+        return False
+
+
 def _to_info(ws: Any) -> WorkspaceInfo:
     """Converte um ``vectora.types.Workspace`` (duck-typed para evitar import cycle)."""
     return WorkspaceInfo(
@@ -283,6 +298,7 @@ def _to_info(ws: Any) -> WorkspaceInfo:
         cwd=ws.cwd,
         trusted=getattr(ws, "trusted", False),
         hooks_approved=getattr(ws, "hooks_approved", False),
+        hooks_rules_pending=_hooks_rules_pending(ws),
         is_git_repo=getattr(ws, "is_git_repo", False),
         git_remote=getattr(ws, "git_remote", None),
         git_current_branch=getattr(ws, "git_current_branch", None),
