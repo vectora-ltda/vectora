@@ -83,7 +83,7 @@ def test_regra_valida_tem_padroes_seguros() -> None:
     "campos",
     [
         {"id": "Inválido!"},
-        {"event": "pre_response"},
+        {"event": "on_save"},
         {"command": []},
         {"timeout_s": 0.1},
         {"timeout_s": 600},
