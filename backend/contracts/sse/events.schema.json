@@ -178,7 +178,7 @@
       "type": "object"
     },
     "MediaRouteItem": {
-      "description": "Envio de um anexo ao modelo: ``native`` (arquivo) ou ``text``.",
+      "description": "Envio de um anexo ao modelo: ``native`` (arquivo), ``image`` (páginas\nou quadros como imagem) ou ``text``.",
       "properties": {
         "media_kind": {
           "title": "Media Kind",
@@ -191,6 +191,7 @@
         "mode": {
           "enum": [
             "native",
+            "image",
             "text"
           ],
           "title": "Mode",

@@ -103,6 +103,7 @@ dependencies = [
     # transcrição remota continua disponível e a readiness local reporta a dependência ausente.
     # macOS Intel não é um alvo suportado e também não possui as wheels locais necessárias.
     "faster-whisper>=1.2.1 ; (sys_platform != 'darwin' or platform_machine != 'x86_64') and (sys_platform != 'win32' or platform_machine != 'ARM64')",
+    "pypdfium2>=5.15.2",
 ]
 
 [project.scripts]

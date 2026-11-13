@@ -21,25 +21,27 @@ from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 MB = 1024 * 1024
 
-MediaMode = Literal["native", "text"]
+MediaMode = Literal["native", "image", "text"]
 
 #: Tipos aceitos nativamente e teto do arquivo inline, por MIME ou família.
 AcceptedMedia = Mapping[str, int]
 
 #: Providers com API própria: o tipo aceito não depende do modelo.
 NATIVE_MEDIA: dict[str, dict[str, int]] = {
-    "anthropic": {"application/pdf": 32 * MB},
+    "anthropic": {"application/pdf": 32 * MB, "image/*": 5 * MB},
     "google_genai": {
         "application/pdf": 20 * MB,
         "audio/*": 20 * MB,
         "video/*": 20 * MB,
+        "image/*": 20 * MB,
     },
-    "openai": {"application/pdf": 32 * MB},
+    "openai": {"application/pdf": 32 * MB, "image/*": 20 * MB},
 }
 
 #: Gateways (OpenRouter, 9router): o catálogo informa, por modelo, as
 #: modalidades de entrada. Cada modalidade libera estes tipos.
 GATEWAY_MEDIA_BY_MODALITY: dict[str, dict[str, int]] = {
+    "image": {"image/*": 20 * MB},
     "file": {"application/pdf": 20 * MB},
     "audio": {"audio/mpeg": 20 * MB, "audio/wav": 20 * MB},
     "video": {"video/*": 20 * MB},
@@ -125,30 +127,50 @@ async def resolve_native_media(model_id: str) -> AcceptedMedia:
 
 
 def route_block(block: ContentBlock, capability: MediaCapability) -> MediaMode:
-    """Modo do bloco ``media`` para o provider ou modelo."""
-    if (
-        block.kind == "media"
-        and block.media_data_url
-        and accepts_native(
-            capability, block.attachment_mime_type or "", block.attachment_size_bytes
-        )
+    """Modo do bloco ``media`` para o provider ou modelo.
+
+    - ``native``: o modelo recebe o arquivo original.
+    - ``image``: o modelo não recebe o arquivo, mas lê imagem; recebe as
+      prévias (páginas do PDF, quadros do vídeo) junto da forma textual.
+    - ``text``: só a forma textual.
+    """
+    if block.kind != "media":
+        return "text"
+    if block.media_data_url and accepts_native(
+        capability, block.attachment_mime_type or "", block.attachment_size_bytes
     ):
         return "native"
+    if block.media_preview_urls and native_limit(capability, "image/jpeg") is not None:
+        return "image"
     return "text"
 
 
 def prepare_content(
     content: list[ContentBlock], capability: MediaCapability
 ) -> list[ContentBlock]:
-    """Mantém nativos os anexos aceitos e converte os demais em texto."""
+    """Arquivos aceitos seguem nativos; com leitura de imagem, as prévias
+    seguem como imagens junto do texto; os demais viram texto."""
     if not any(block.kind == "media" for block in content):
         return content
     prepared: list[ContentBlock] = []
     for block in content:
-        if block.kind != "media" or route_block(block, capability) == "native":
+        if block.kind != "media":
             prepared.append(block)
-        else:
-            prepared.append(ContentBlock(kind="text", text=block.text or ""))
+            continue
+        mode = route_block(block, capability)
+        if mode == "native":
+            prepared.append(block)
+            continue
+        prepared.append(ContentBlock(kind="text", text=block.text or ""))
+        if mode == "image":
+            if block.media_preview_caption:
+                prepared.append(
+                    ContentBlock(kind="text", text=f"\n{block.media_preview_caption}")
+                )
+            prepared.extend(
+                ContentBlock(kind="image_url", image_url=url)
+                for url in block.media_preview_urls or []
+            )
     return prepared
 
 
@@ -163,7 +185,7 @@ def _is_tool_image(message: VMessage, block: ContentBlock) -> bool:
 def has_native_media(messages: Iterable[VMessage]) -> bool:
     """Há anexo enviado como arquivo ou imagem de ferramenta no payload?"""
     return any(
-        (block.kind == "media" and block.media_data_url)
+        (block.kind == "media" and (block.media_data_url or block.media_preview_urls))
         or _is_tool_image(message, block)
         for message in messages
         for block in message.content
@@ -179,7 +201,10 @@ def downgrade_to_text(messages: list[VMessage]) -> list[VMessage]:
     downgraded: list[VMessage] = []
     for message in messages:
         if not any(
-            (block.kind == "media" and block.media_data_url)
+            (
+                block.kind == "media"
+                and (block.media_data_url or block.media_preview_urls)
+            )
             or _is_tool_image(message, block)
             for block in message.content
         ):
@@ -188,7 +213,9 @@ def downgrade_to_text(messages: list[VMessage]) -> list[VMessage]:
         content: list[ContentBlock] = []
         for block in message.content:
             if block.kind == "media":
-                content.append(replace(block, media_data_url=None))
+                content.append(
+                    replace(block, media_data_url=None, media_preview_urls=None)
+                )
             elif _is_tool_image(message, block):
                 content.append(
                     ContentBlock(
@@ -221,15 +248,17 @@ def media_routing_evidence(
             if block.kind != "media":
                 continue
             mode = route_block(block, capability)
-            reason = (
-                "provider aceita o tipo"
-                if mode == "native"
-                else (
-                    "arquivo não carregado para este turno"
-                    if not block.media_data_url
-                    else "provider não aceita o tipo ou o tamanho"
+            if mode == "native":
+                reason = "provider aceita o tipo"
+            elif mode == "image":
+                reason = (
+                    "modelo lê imagem, mas não o arquivo; enviadas "
+                    f"{len(block.media_preview_urls or [])} prévias"
                 )
-            )
+            elif not block.media_data_url:
+                reason = "arquivo não carregado para este turno"
+            else:
+                reason = "provider não aceita o tipo ou o tamanho"
             entries.append(
                 {
                     "name": block.attachment_name or "",

@@ -895,7 +895,9 @@ export const MessageItem = memo(
                           >
                             {route.mode === "native"
                               ? m.chat_media_route_native({ name: route.name })
-                              : m.chat_media_route_text({ name: route.name })}
+                              : route.mode === "image"
+                                ? m.chat_media_route_image({ name: route.name })
+                                : m.chat_media_route_text({ name: route.name })}
                           </li>
                         ))}
                       </ul>

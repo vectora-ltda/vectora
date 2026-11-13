@@ -282,6 +282,7 @@
   "chat_image_lightbox_download": "Baixar imagem",
   "chat_image_lightbox_title": "Visualizar imagem",
   "chat_input_no_vision_warning": "O modelo selecionado não processa imagens — troque de modelo ou remova o anexo antes de enviar.",
+  "chat_media_route_image": "{name}: o modelo recebeu as páginas ou quadros como imagem, com o texto extraído",
   "chat_media_route_native": "{name}: o modelo recebeu o arquivo",
   "chat_media_route_text": "{name}: o modelo recebeu a versão em texto (texto extraído, transcrição ou referência)",
   "chat_messages": "Mensagens",

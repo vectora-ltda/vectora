@@ -55,6 +55,33 @@ def _recent_tool_images(messages: Sequence[VMessage]) -> set[tuple[int, int]]:
     return set(found[-MAX_RECENT_TOOL_IMAGES:])
 
 
+def _hydrate_media(
+    block: ContentBlock,
+    load: Callable[[ContentBlock], tuple[object, bytes] | None],
+) -> ContentBlock:
+    """Carrega o arquivo (quando algum provider o aceita) e as prévias."""
+    from backend.llm.media_parts import wants_bytes
+
+    updated = block
+    if block.media_preview_asset_ids:
+        urls = []
+        for preview_id in block.media_preview_asset_ids:
+            preview = load(replace(block, asset_id=preview_id))
+            if preview is not None:
+                encoded = base64.b64encode(preview[1]).decode("ascii")
+                urls.append(f"data:image/jpeg;base64,{encoded}")
+        updated = replace(updated, media_preview_urls=urls or None)
+    if block.asset_id and wants_bytes(
+        block.attachment_mime_type or "", block.attachment_size_bytes
+    ):
+        loaded = load(block)
+        if loaded is not None:
+            encoded = base64.b64encode(loaded[1]).decode("ascii")
+            mime = block.attachment_mime_type or ""
+            updated = replace(updated, media_data_url=f"data:{mime};base64,{encoded}")
+    return updated
+
+
 def hydrate_media_blocks(
     messages: Sequence[VMessage],
     *,
@@ -106,6 +133,7 @@ def hydrate_media_blocks(
         if not any(
             (block.kind == "image_url" and not block.image_url)
             or message.role == MessageRole.TOOL
+            or (load_media and block.kind == "media" and block.media_preview_asset_ids)
             or (
                 load_media
                 and block.kind == "media"
@@ -136,26 +164,7 @@ def hydrate_media_blocks(
                 )
                 continue
             if block.kind == "media":
-                if (
-                    load_media
-                    and block.asset_id
-                    and wants_bytes(
-                        block.attachment_mime_type or "", block.attachment_size_bytes
-                    )
-                ):
-                    loaded = _load(block)
-                    if loaded is not None:
-                        _asset, payload = loaded
-                        encoded = base64.b64encode(payload).decode("ascii")
-                        mime = block.attachment_mime_type or ""
-                        blocks.append(
-                            replace(
-                                block,
-                                media_data_url=f"data:{mime};base64,{encoded}",
-                            )
-                        )
-                        continue
-                blocks.append(block)
+                blocks.append(_hydrate_media(block, _load) if load_media else block)
                 continue
             if block.kind != "image_url" or block.image_url:
                 blocks.append(block)

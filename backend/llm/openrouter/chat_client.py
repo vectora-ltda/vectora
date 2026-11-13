@@ -260,7 +260,7 @@ class OpenRouterChatClient:
     async def _accepted_media(self, messages: list[VMessage]) -> AcceptedMedia:
         """Tipos aceitos pelo modelo, consultados só quando há arquivo."""
         if not self.media_model_id or not any(
-            block.kind == "media" and block.media_data_url
+            block.kind == "media" and (block.media_data_url or block.media_preview_urls)
             for message in messages
             for block in message.content
         ):
