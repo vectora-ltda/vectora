@@ -10687,7 +10687,7 @@
   "info": {
     "description": "API de chat do Vectora — streaming via SSE, gerenciamento de threads, autodescoberta de ferramentas.",
     "title": "Vectora API",
-    "version": "0.1.24"
+    "version": "1"
   },
   "openapi": "3.1.0",
   "paths": {

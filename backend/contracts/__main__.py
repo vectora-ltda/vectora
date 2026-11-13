@@ -74,6 +74,11 @@ def export_http(contracts_dir: Path) -> None:
     app = create_app(serve_static=False)
     openapi_schema = app.openapi()
     sanitized_openapi = redact_payload(openapi_schema)
+    # `info.version` seguiria a versão do app e mudaria a cada release, gerando
+    # drift sem mudança de contrato; o contrato carrega a própria versão.
+    sanitized_openapi.setdefault("info", {})["version"] = (
+        (_contracts_root() / "VERSION").read_text(encoding="utf-8").strip()
+    )
 
     http_dir = contracts_dir / "http"
     http_dir.mkdir(parents=True, exist_ok=True)
