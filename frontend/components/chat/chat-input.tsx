@@ -585,10 +585,15 @@ export function ChatInput({
 
           {/* Queued Messages */}
           {queuedMessages.length > 0 && (
-            <div className="mb-2 space-y-1.5">
+            <div
+              className="mb-2 max-h-36 space-y-1.5 overflow-y-auto"
+              role="list"
+              aria-live="polite"
+            >
               {queuedMessages.map((msg) => (
                 <div
                   key={msg.id}
+                  role="listitem"
                   className="flex items-center gap-2 px-3 py-2 bg-muted/50 border border-border/50 rounded-lg text-sm"
                 >
                   <div className="flex items-center gap-1.5 text-muted-foreground flex-shrink-0">

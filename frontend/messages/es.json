@@ -324,6 +324,8 @@
   "chat_mode_disable": "Modo Dev — mostrar workbench y workspace",
   "chat_mode_enable": "Modo Chat — ocultar workbench y workspace",
   "chat_model_switched": "Modelo cambiado automáticamente: {from} → {to} (cuota agotada)",
+  "chat_outcome_cancelled": "Interrumpida",
+  "chat_outcome_limit": "Se detuvo en el límite de pasos",
   "chat_partial_response": "Esta respuesta se recuperó parcialmente. La conexión se interrumpió o la generación falló antes de que el asistente terminara de pensar.",
   "chat_rag_label": "RAG",
   "chat_rag_sources": "{count} fuente(s)",

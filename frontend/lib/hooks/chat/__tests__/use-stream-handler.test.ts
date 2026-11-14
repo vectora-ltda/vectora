@@ -1696,3 +1696,33 @@ describe("useStreamHandler — workspace de sessão nova", () => {
     expect(consumeCreateNewWorkspace("t1")).toBe(false);
   });
 });
+
+describe("useStreamHandler.processStream — desfecho do run", () => {
+  it("guarda o stopped_reason do done na mensagem do assistente", async () => {
+    let messages: Message[] = [];
+    const setMessages = (u: Message[] | ((p: Message[]) => Message[])) => {
+      messages = typeof u === "function" ? u(messages) : u;
+    };
+    streamChatMock.mockReturnValue(
+      gen([
+        { type: "thread", thread_id: "t1" },
+        { type: "token", content: "parcial" },
+        {
+          type: "done",
+          thread_id: "t1",
+          run_id: "run-1",
+          stopped_reason: "cancelled",
+        },
+      ]),
+    );
+    const { result } = renderHook(() =>
+      useStreamHandler({ threadId: "t1", setMessages }),
+    );
+
+    await result.current.processStream("oi", "a1");
+
+    expect(messages.find((msg) => msg.id === "a1")?.stoppedReason).toBe(
+      "cancelled",
+    );
+  });
+});

@@ -27,6 +27,8 @@ export interface Message {
   id: string;
   /** ID numérico persistido; nunca usar o ID visual para cursores de leitura. */
   persistedMessageId?: number;
+  /** Como o run terminou (`stopped_reason` do evento `done`). */
+  stoppedReason?: string;
   role: "user" | "assistant";
   content: string;
   timestamp: Date;
