@@ -5,6 +5,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { GripHorizontal, XIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { m } from "@/lib/paraglide/messages";
 import { useDialogSizeStore } from "@/lib/stores/dialog-size-store";
 
 interface ResizableDialogContentProps extends React.ComponentProps<
@@ -84,13 +85,13 @@ export function ResizableDialogContent({
         {showCloseButton && (
           <DialogPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4">
             <XIcon />
-            <span className="sr-only">Fechar</span>
+            <span className="sr-only">{m.dialog_close()}</span>
           </DialogPrimitive.Close>
         )}
 
         <div
           role="separator"
-          aria-label="Redimensionar diálogo"
+          aria-label={m.dialog_resize()}
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}

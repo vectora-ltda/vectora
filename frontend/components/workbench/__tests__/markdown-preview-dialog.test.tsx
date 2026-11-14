@@ -110,7 +110,9 @@ describe("MarkdownPreviewDialog", () => {
         content="texto"
       />,
     );
-    const closeBtn = screen.getByText("Close").closest("button") as HTMLElement;
+    const closeBtn = screen
+      .getByText("dialog_close")
+      .closest("button") as HTMLElement;
     await act(async () => {
       closeBtn.click();
     });

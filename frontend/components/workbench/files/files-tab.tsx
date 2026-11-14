@@ -21,6 +21,7 @@ import {
   FolderPlus,
   History,
   Loader2,
+  Maximize2,
   Pencil,
   RefreshCw,
   Search,
@@ -57,6 +58,7 @@ import { fetchFile, apiUpdateFile } from "@/lib/api/fs-files";
 import { VerticalSplit } from "@/components/layout/vertical-split";
 import { getMediaKind, MediaView } from "@/components/workbench/file-viewer";
 import { MarkdownView } from "@/components/workbench/markdown-view";
+import { MarkdownPreviewDialog } from "@/components/workbench/markdown-preview-dialog";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { usePins } from "@/lib/hooks/use-pins";
 import { m } from "@/lib/paraglide/messages";
@@ -76,7 +78,7 @@ import {
   type ShowFileAtRevResponse,
 } from "./files-api";
 import { FileHistoryPanel } from "./file-history-panel";
-import { SearchResultGroup } from "./search-result-group";
+import { SearchResultsList } from "./search-results";
 import { DirNode, type CreatingState } from "./dir-node";
 import { PinnedSection } from "./pinned-section";
 
@@ -217,6 +219,7 @@ export function FilesTab({ threadId, onAddToContext }: FilesTabProps) {
   const [replacing, setReplacing] = useState(false);
   // Linha destacada no viewer quando resultado de busca é aberto.
   const [highlightLine, setHighlightLine] = useState<number | null>(null);
+  const [markdownPreviewOpen, setMarkdownPreviewOpen] = useState(false);
   const highlightRef = useRef<HTMLDivElement>(null);
 
   // Scroll automático para a linha destacada quando o arquivo abre.
@@ -243,18 +246,6 @@ export function FilesTab({ threadId, onAddToContext }: FilesTabProps) {
     }, 350);
     return () => clearTimeout(timer);
   }, [searchQuery, searchMode, wsId]);
-
-  // Agrupa hits por arquivo para exibição.
-  const searchGrouped = useMemo(() => {
-    if (!searchResults) return [];
-    const map = new Map<string, SearchHit[]>();
-    for (const hit of searchResults.hits) {
-      const list = map.get(hit.path) ?? [];
-      list.push(hit);
-      map.set(hit.path, list);
-    }
-    return Array.from(map.entries());
-  }, [searchResults]);
 
   const handleReplaceAll = useCallback(async () => {
     if (!wsId || !searchQuery.trim() || !replaceQuery || !searchResults) return;
@@ -770,26 +761,10 @@ export function FilesTab({ threadId, onAddToContext }: FilesTabProps) {
                 />
               </>
             ) : searchMode ? (
-              <div className="px-1">
-                {searchResults !== null && searchResults.hits.length === 0 && (
-                  <p className="text-[10px] text-muted-foreground text-center py-4">
-                    {m.workbench_files_search_no_results()}
-                  </p>
-                )}
-                {searchGrouped.map(([filePath, hits]) => (
-                  <SearchResultGroup
-                    key={filePath}
-                    filePath={filePath}
-                    hits={hits}
-                    onOpenHit={handleOpenHit}
-                  />
-                ))}
-                {searchResults?.truncated && (
-                  <p className="text-[10px] text-muted-foreground px-2 py-1">
-                    {m.workbench_files_search_truncated()}
-                  </p>
-                )}
-              </div>
+              <SearchResultsList
+                result={searchResults}
+                onOpenHit={handleOpenHit}
+              />
             ) : (
               <>
                 <PinnedSection
@@ -953,7 +928,17 @@ export function FilesTab({ threadId, onAddToContext }: FilesTabProps) {
               ) : openPath?.toLowerCase().match(/\.(md|markdown)$/) &&
                 openContent?.content &&
                 highlightLine === null ? (
-                <MarkdownView content={openContent.content} />
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setMarkdownPreviewOpen(true)}
+                    className="mb-2 flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground"
+                  >
+                    <Maximize2 className="h-3 w-3" aria-hidden="true" />
+                    {m.workbench_preview_md_expand()}
+                  </button>
+                  <MarkdownView content={openContent.content} />
+                </>
               ) : highlightLine !== null ? (
                 // Renderização linha-a-linha com destaque para busca em conteúdo
                 <div className="text-xs font-mono leading-relaxed">
@@ -1116,6 +1101,12 @@ export function FilesTab({ threadId, onAddToContext }: FilesTabProps) {
         variant={deleteConfirm?.permanent ? "destructive" : "default"}
         onConfirm={handleDeleteConfirmed}
         onCancel={() => setDeleteConfirm(null)}
+      />
+      <MarkdownPreviewDialog
+        open={markdownPreviewOpen}
+        onOpenChange={setMarkdownPreviewOpen}
+        filePath={openPath ?? undefined}
+        content={openContent?.content ?? undefined}
       />
     </div>
   );
