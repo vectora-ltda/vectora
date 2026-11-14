@@ -662,6 +662,9 @@ class PagedHistoryResponse(BaseModel):
     # `message_id` da mensagem mais antiga desta página, para pedir a anterior
     # com `before_message_id`; `None` na última página ou sem ID.
     next_cursor: int | None = None
+    # Tarefas (write_todos) da conversa. Só a página mais recente as traz: a
+    # conversa abre por ela, e as anteriores não repetem o que já foi entregue.
+    todos: list[TodoItem] = Field(default_factory=list)
     run_status: Literal["running", "awaiting_approval", "failed", "idle"] = "idle"
     last_seq: int = 0
 

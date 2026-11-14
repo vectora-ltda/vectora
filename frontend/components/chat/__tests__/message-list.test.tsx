@@ -545,3 +545,105 @@ describe("MessageList — comparação e seleção de branches", () => {
     );
   });
 });
+
+// O conteúdo fica `visibility: hidden` até a altura estabilizar, e a consulta por
+// papel ignora o que está oculto; o texto do gatilho é o que se verifica.
+function olderButton(label: string): HTMLButtonElement {
+  const button = screen.getByText(label).closest("button");
+  if (!button) throw new Error(`gatilho "${label}" não é um botão`);
+  return button;
+}
+
+describe("MessageList — mensagens anteriores", () => {
+  it("sem mensagens anteriores não mostra o gatilho", () => {
+    render(<MessageList {...baseProps([msg("m1", "olá")])} threadId="t-old" />);
+
+    expect(screen.queryByTestId("older-messages-sentinel")).toBeNull();
+  });
+
+  it("mostra o gatilho e pede a página anterior ao clicar", () => {
+    const onLoadOlder = vi.fn();
+    render(
+      <MessageList
+        {...baseProps([msg("m1", "olá")])}
+        threadId="t-old"
+        hasOlderMessages
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+
+    fireEvent.click(olderButton("Load earlier messages"));
+
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+  });
+
+  it("durante o carregamento o gatilho fica desabilitado", () => {
+    const onLoadOlder = vi.fn();
+    render(
+      <MessageList
+        {...baseProps([msg("m1", "olá")])}
+        threadId="t-old"
+        hasOlderMessages
+        isLoadingOlder
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+
+    const button = olderButton("Loading earlier messages…");
+    expect(button).toBeDisabled();
+    fireEvent.click(button);
+    expect(onLoadOlder).not.toHaveBeenCalled();
+  });
+
+  it("depois de uma falha oferece tentar de novo", () => {
+    const onLoadOlder = vi.fn();
+    render(
+      <MessageList
+        {...baseProps([msg("m1", "olá")])}
+        threadId="t-old"
+        hasOlderMessages
+        loadOlderFailed
+        onLoadOlder={onLoadOlder}
+      />,
+    );
+
+    fireEvent.click(olderButton("Could not load. Try again"));
+
+    expect(onLoadOlder).toHaveBeenCalledTimes(1);
+  });
+
+  it("ao inserir as anteriores no início mantém a posição de leitura", () => {
+    let scrollHeight = 1000;
+    const spy = vi
+      .spyOn(HTMLElement.prototype, "scrollHeight", "get")
+      .mockImplementation(() => scrollHeight);
+    const props = baseProps([msg("m3", "c"), msg("m4", "d")]);
+    const { rerender, container } = render(
+      <MessageList {...props} threadId="t-prepend" hasOlderMessages />,
+    );
+    const scroller = container.querySelector(
+      '[data-testid="message-list-content"]',
+    )?.parentElement as HTMLElement;
+    scroller.scrollTop = 120;
+    // Uma renderização sem mudança registra as medidas de antes.
+    rerender(<MessageList {...props} threadId="t-prepend" hasOlderMessages />);
+
+    scrollHeight = 1600; // as duas anteriores somam 600px acima do que se lia
+    rerender(
+      <MessageList
+        {...props}
+        messages={[
+          msg("m1", "a"),
+          msg("m2", "b"),
+          msg("m3", "c"),
+          msg("m4", "d"),
+        ]}
+        threadId="t-prepend"
+        hasOlderMessages
+      />,
+    );
+
+    expect(scroller.scrollTop).toBe(720);
+    spy.mockRestore();
+  });
+});

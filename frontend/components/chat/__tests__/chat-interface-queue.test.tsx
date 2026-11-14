@@ -57,6 +57,11 @@ vi.mock("@/lib/queries/threads", () => ({
 vi.mock("@/lib/api/vectora-client", async (importOriginal) => ({
   ...(await importOriginal<object>()),
   getHistory: vi.fn().mockResolvedValue({ messages: [] }),
+  getLatestHistory: vi.fn().mockResolvedValue({
+    messages: [],
+    has_more: false,
+    total_count: 0,
+  }),
   getThread: vi.fn().mockResolvedValue({ workspace_id: null }),
   markThreadRead: vi
     .fn()
@@ -71,6 +76,13 @@ vi.mock("@/lib/hooks/auth", () => ({ useUserId: () => "user-1" }));
 vi.mock("@/lib/hooks/chat", async () => {
   const actual = await vi.importActual<any>("@/lib/hooks/chat/use-chat-state");
   return {
+    useOlderMessages: () => ({
+      hasMore: false,
+      isLoadingOlder: false,
+      olderMessages: [],
+      loadFailed: false,
+      loadOlder: async () => {},
+    }),
     useStreamHandler: () => ({
       processStream: h.processStream,
       ...h.streamApi,

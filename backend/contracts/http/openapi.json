@@ -6290,6 +6290,13 @@
             "title": "Run Status",
             "type": "string"
           },
+          "todos": {
+            "items": {
+              "$ref": "#/components/schemas/TodoItem"
+            },
+            "title": "Todos",
+            "type": "array"
+          },
           "total_count": {
             "title": "Total Count",
             "type": "integer"

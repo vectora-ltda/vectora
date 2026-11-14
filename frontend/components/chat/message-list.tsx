@@ -10,7 +10,15 @@
  * M5: Passa onRetry para cada MessageItem (botão de retry em erros).
  */
 
-import { memo, useMemo, useEffect, useRef, useState, useCallback } from "react";
+import {
+  memo,
+  useMemo,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useCallback,
+} from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { EditedFile, Message } from "@/lib/types";
 import { m } from "@/lib/paraglide/messages";
@@ -29,6 +37,9 @@ const messageCatalog = m as typeof m & {
   message_list_aria?: () => string;
   chat_messages?: () => string;
   scroll_back_to_bottom?: () => string;
+  chat_load_older_messages?: () => string;
+  chat_loading_older_messages?: () => string;
+  chat_load_older_messages_retry?: () => string;
   chat_branch_comparison_segments?: (args: {
     common: string;
     active: string;
@@ -40,6 +51,12 @@ messageCatalog.message_list_aria ??= (() =>
   "Message list") as typeof m.message_list_aria;
 messageCatalog.scroll_back_to_bottom ??= (() =>
   "Back to bottom") as typeof m.scroll_back_to_bottom;
+messageCatalog.chat_load_older_messages ??= (() =>
+  "Load earlier messages") as typeof m.chat_load_older_messages;
+messageCatalog.chat_loading_older_messages ??= (() =>
+  "Loading earlier messages…") as typeof m.chat_loading_older_messages;
+messageCatalog.chat_load_older_messages_retry ??= (() =>
+  "Could not load. Try again") as typeof m.chat_load_older_messages_retry;
 function formatComparisonSegments(args: {
   common: string;
   active: string;
@@ -107,6 +124,15 @@ interface MessageListProps {
   /** IDE sidebar: passa para MessageItem ocultar avatar e compactar. */
   compact?: boolean;
   onOpenEditedFile?: (file: EditedFile) => void;
+  /** Há mensagens anteriores às carregadas: mostra o gatilho no topo. */
+  hasOlderMessages?: boolean;
+  isLoadingOlder?: boolean;
+  /** A última tentativa de carregar as anteriores falhou. */
+  loadOlderFailed?: boolean;
+  /** Pede a página anterior (também acionado ao rolar até o gatilho). */
+  onLoadOlder?: () => void;
+  /** Elemento observado para carregar as anteriores ao chegar ao topo. */
+  olderSentinelRef?: React.RefObject<HTMLDivElement | null>;
 }
 
 function ConversationBranchBar({ threadId }: { threadId?: string }) {
@@ -248,6 +274,11 @@ export const MessageList = memo(function MessageList({
   workspaceId,
   compact = false,
   onOpenEditedFile,
+  hasOlderMessages = false,
+  isLoadingOlder = false,
+  loadOlderFailed = false,
+  onLoadOlder,
+  olderSentinelRef,
 }: MessageListProps) {
   // Scroll container
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -292,6 +323,9 @@ export const MessageList = memo(function MessageList({
   const virtualizer = useVirtualizer({
     count: shouldVirtualize ? messages.length : 0,
     getScrollElement: () => scrollRef.current,
+    // Chave por mensagem: ao inserir as anteriores no início, as alturas já
+    // medidas continuam valendo para as mesmas mensagens.
+    getItemKey: (index) => messages[index]?.id ?? index,
     estimateSize: () => ESTIMATE_SIZE_PX,
     overscan: 4,
     // measureElement usa ResizeObserver — mede alturas reais (incluindo streaming)
@@ -355,6 +389,51 @@ export const MessageList = memo(function MessageList({
   // M3 — Auto-scroll ao trocar de thread ou load inicial
   // ──────────────────────────────────────────────────────────────────────────
 
+  // Mensagens anteriores inseridas no início: a posição de leitura fica onde
+  // estava (a altura acrescentada empurra o conteúdo para baixo) e a lista não
+  // é tratada como troca de thread, que rolaria até o fim.
+  const prependedRef = useRef(false);
+  // O auto-scroll de streaming também precisa saber: sem isto trataria as
+  // anteriores como mensagem nova e puxaria a leitura para o fim.
+  const prependedForStreamRef = useRef(false);
+  // Altura da lista antes da última mudança: a diferença para a de agora é o
+  // que as mensagens inseridas acima acrescentaram.
+  const metricsRef = useRef({ scrollHeight: 0 });
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const previousFirst = firstMessageIdRef.current;
+    const currentFirst = messages[0]?.id;
+    const addedCount =
+      previousFirst !== null && previousFirst !== currentFirst
+        ? messages.findIndex((message) => message.id === previousFirst)
+        : -1;
+    if (addedCount > 0) {
+      prependedRef.current = true;
+      prependedForStreamRef.current = true;
+      firstMessageIdRef.current = currentFirst ?? null;
+      if (shouldVirtualize) {
+        virtualizer.scrollToIndex(addedCount, { align: "start" });
+      } else {
+        el.scrollTop += el.scrollHeight - metricsRef.current.scrollHeight;
+      }
+    }
+    metricsRef.current.scrollHeight = el.scrollHeight;
+  }, [messages, shouldVirtualize, virtualizer]);
+
+  // A altura também muda sem nova renderização (imagens, markdown sendo
+  // medido): sem acompanhá-la a diferença acima sairia errada.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => {
+      metricsRef.current.scrollHeight = el.scrollHeight;
+    });
+    const content = el.firstElementChild;
+    if (content) observer.observe(content);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     if (!scrollRef.current || messages.length === 0) return;
 
@@ -363,6 +442,12 @@ export const MessageList = memo(function MessageList({
     const threadChanged =
       firstMessageIdRef.current !== null &&
       firstMessageIdRef.current !== currentFirstMessageId;
+
+    if (prependedRef.current) {
+      prependedRef.current = false;
+      lastMessageCountRef.current = messages.length;
+      return;
+    }
 
     if (isInitialLoad || threadChanged) {
       const scrollContainer = scrollRef.current;
@@ -453,6 +538,12 @@ export const MessageList = memo(function MessageList({
 
     const lastMessage = messages[messages.length - 1];
     const currentContent = lastMessage?.content || "";
+    if (prependedForStreamRef.current) {
+      prependedForStreamRef.current = false;
+      lastMessageCountRef.current = messages.length;
+      lastContentRef.current = currentContent;
+      return;
+    }
     const isNewMessage = messages.length > lastMessageCountRef.current;
     const isStreaming =
       currentContent !== lastContentRef.current && !isNewMessage;
@@ -623,6 +714,26 @@ export const MessageList = memo(function MessageList({
             data-testid="message-list-content"
             style={{ visibility: isScrollSettling ? "hidden" : "visible" }}
           >
+            {hasOlderMessages && (
+              <div
+                ref={olderSentinelRef}
+                data-testid="older-messages-sentinel"
+                className="flex justify-center py-3"
+              >
+                <button
+                  type="button"
+                  onClick={onLoadOlder}
+                  disabled={isLoadingOlder}
+                  className="rounded-md px-3 py-1 text-xs text-muted-foreground hover:text-foreground hover:underline focus-visible:outline focus-visible:outline-2 disabled:opacity-60"
+                >
+                  {isLoadingOlder
+                    ? messageCatalog.chat_loading_older_messages()
+                    : loadOlderFailed
+                      ? messageCatalog.chat_load_older_messages_retry()
+                      : messageCatalog.chat_load_older_messages()}
+                </button>
+              </div>
+            )}
             {shouldVirtualize ? (
               // M1 — Renderização virtualizada (> 50 mensagens)
               <div
