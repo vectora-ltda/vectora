@@ -2039,6 +2039,13 @@
     "methods": [
       "GET"
     ],
+    "name": "get_export_workspaces__workspace_id__context_graph_export__export_format__get",
+    "path": "/workspaces/{workspace_id}/context-graph/export/{export_format}"
+  },
+  {
+    "methods": [
+      "GET"
+    ],
     "name": "get_html_workspaces__workspace_id__context_graph_html_get",
     "path": "/workspaces/{workspace_id}/context-graph/html"
   },

@@ -20,10 +20,10 @@ import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
@@ -485,3 +485,122 @@ async def post_affected(
 
     answer = affected_summary(data, body.node_query, depth=body.depth)
     return GraphQueryResponse(answer=answer, nodes=[], edges=[])
+
+
+@router.get("/export/{export_format}")
+def get_export(
+    request: Request,
+    workspace_id: str,
+    export_format: Literal["graphml", "cypher", "canvas"],
+) -> FileResponse:
+    """Gera um arquivo de exportação temporário a partir do grafo autorizado."""
+    import shutil
+    import tempfile
+
+    import networkx as nx
+
+    from backend.context_graph import export as graph_export
+
+    _user_id(request)
+    supported = {
+        "graphml": ("graph.graphml", "application/graphml+xml"),
+        "cypher": ("graph.cypher", "text/plain; charset=utf-8"),
+        "canvas": ("graph.canvas", "application/json"),
+    }
+    if export_format not in supported:
+        raise HTTPException(status_code=422, detail="Formato de exportação inválido")
+    graph_dir = _require_graph_dir(workspace_id)
+    graph_file = graph_dir / "graph.json"
+    if not graph_file.is_file():
+        raise HTTPException(status_code=404, detail="Grafo não encontrado")
+    from backend.context_graph.security import check_graph_file_size_cap
+
+    try:
+        check_graph_file_size_cap(graph_file)
+    except ValueError as exc:
+        raise HTTPException(status_code=413, detail="Grafo excede o limite") from exc
+    data = _require_graph_json(workspace_id)
+    nodes = data.get("nodes", [])
+    links = data.get("links", data.get("edges", []))
+    if not isinstance(nodes, list) or not isinstance(links, list):
+        raise HTTPException(status_code=422, detail="Estrutura do grafo inválida")
+    if len(nodes) > 100_000 or len(links) > 500_000:
+        raise HTTPException(
+            status_code=413, detail="Grafo excede o limite de exportação"
+        )
+
+    graph_data = {**data, "links": links}
+    try:
+        graph = nx.node_link_graph(graph_data, edges="links")
+    except TypeError:
+        graph = nx.node_link_graph(graph_data)
+    communities: dict[int, list[str]] = {}
+    community_labels: dict[int, str] = {}
+    for node_id, attrs in graph.nodes(data=True):
+        cid = attrs.get("community")
+        if cid is not None:
+            try:
+                cid = int(cid)
+            except (TypeError, ValueError):
+                continue
+            communities.setdefault(cid, []).append(str(node_id))
+            if attrs.get("community_name"):
+                community_labels[cid] = str(attrs["community_name"])
+
+    filename, media_type = supported[export_format]
+    temp_dir = Path(tempfile.mkdtemp(prefix="vectora-context-graph-export-"))
+    output = temp_dir / filename
+    try:
+        if export_format == "graphml":
+            # GraphML só aceita atributos escalares; preserve estruturas como JSON.
+            for key, value in list(graph.graph.items()):
+                if value is None:
+                    graph.graph[key] = ""
+                elif not isinstance(value, (str, int, float, bool)):
+                    graph.graph[key] = json.dumps(
+                        value, ensure_ascii=False, default=str
+                    )
+            for _, attrs in graph.nodes(data=True):
+                for key, value in list(attrs.items()):
+                    if value is None:
+                        attrs[key] = ""
+                    elif not isinstance(value, (str, int, float, bool)):
+                        attrs[key] = json.dumps(value, ensure_ascii=False, default=str)
+            for _, _, attrs in graph.edges(data=True):
+                for key, value in list(attrs.items()):
+                    if value is None:
+                        attrs[key] = ""
+                    elif not isinstance(value, (str, int, float, bool)):
+                        attrs[key] = json.dumps(value, ensure_ascii=False, default=str)
+            graph_export.to_graphml(graph, communities, str(output))
+        elif export_format == "cypher":
+            graph_export.to_cypher(graph, str(output))
+        else:
+            graph_export.to_canvas(
+                graph, communities, str(output), community_labels=community_labels
+            )
+        if not output.is_file():
+            raise RuntimeError("O exportador não produziu um arquivo")
+    except ImportError as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=501, detail=f"Dependência de exportação indisponível: {exc}"
+        ) from exc
+    except Exception as exc:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        logger.exception(
+            "context-graph: falha ao exportar",
+            extra={"format": export_format},
+        )
+        raise HTTPException(
+            status_code=500, detail="Falha ao gerar exportação"
+        ) from exc
+
+    from starlette.background import BackgroundTask
+
+    return FileResponse(
+        output,
+        media_type=media_type,
+        filename=filename,
+        background=BackgroundTask(lambda: shutil.rmtree(temp_dir, ignore_errors=True)),
+    )

@@ -807,3 +807,80 @@ class TestCheckWorkspaceAccess:
 
         with patch("backend.workspace.workspace.workspace_registry", registry):
             _check_workspace_access(req, "ws-1")  # não levanta
+
+
+class TestGraphExport:
+    @pytest.mark.parametrize("export_format", ["graphml", "cypher", "canvas"])
+    def test_exports_workspace_graph_to_download(self, tmp_path, export_format):
+        from backend.api.handlers.context_graph import get_export
+
+        graph_dir = _write_graph(
+            tmp_path,
+            {
+                "directed": True,
+                "nodes": [
+                    {
+                        "id": "module:a",
+                        "label": "A",
+                        "file_type": "python",
+                        "community": 0,
+                        "community_name": "Core",
+                    },
+                    {"id": "module:b", "label": "B", "community": 0},
+                ],
+                "links": [
+                    {"source": "module:a", "target": "module:b", "relation": "calls"}
+                ],
+            },
+        )
+        registry, _ = _make_registry(tmp_path)
+        with patch("backend.workspace.workspace.workspace_registry", registry):
+            response = get_export(_fake_request(), "ws1", export_format)
+
+        try:
+            output = Path(response.path).read_bytes()
+            assert output
+            assert response.headers["content-disposition"].endswith(
+                f'filename="graph.{export_format}"'
+            )
+            if export_format == "graphml":
+                assert b"<graphml" in output
+            elif export_format == "cypher":
+                assert b"MERGE" in output
+            elif export_format == "canvas":
+                exported = json.loads(output)
+                assert exported["nodes"]
+        finally:
+            if response.background is not None:
+                import asyncio
+
+                asyncio.run(response.background())
+        assert not Path(response.path).exists()
+
+    def test_rejects_unknown_export_format(self):
+        from typing import Literal, cast
+
+        from fastapi import HTTPException
+
+        from backend.api.handlers.context_graph import get_export
+
+        with pytest.raises(HTTPException) as exc:
+            get_export(
+                _fake_request(),
+                "ws1",
+                cast("Literal['graphml', 'cypher', 'canvas']", "neo4j"),
+            )
+        assert exc.value.status_code == 422
+
+    def test_export_requires_existing_graph(self, tmp_path):
+        from fastapi import HTTPException
+
+        from backend.api.handlers.context_graph import get_export
+
+        registry, _ = _make_registry(tmp_path)
+        with (
+            patch("backend.workspace.workspace.workspace_registry", registry),
+            pytest.raises(HTTPException) as exc,
+        ):
+            get_export(_fake_request(), "ws1", "cypher")
+        assert exc.value.status_code == 404

@@ -1,7 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2, RefreshCw, X, Settings2, Waypoints } from "lucide-react";
+import {
+  Download,
+  Loader2,
+  RefreshCw,
+  X,
+  Settings2,
+  Waypoints,
+} from "lucide-react";
 
 import { useContextGraph } from "@/lib/hooks/use-context-graph";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
@@ -43,9 +50,15 @@ export function ContextGraphTab({
     queryAffected,
     fetchGraphData,
     pathBetween,
+    exportGraph,
   } = useContextGraph(workspaceId);
   const [showReport, setShowReport] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [exportFormat, setExportFormat] = useState<
+    "graphml" | "cypher" | "canvas"
+  >("graphml");
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState(false);
   const fileTypes = useContextGraphSettingsStore((s) => s.fileTypes);
   const graphMode = useContextGraphSettingsStore((s) => s.mode);
 
@@ -60,6 +73,24 @@ export function ContextGraphTab({
 
   function handleQuestion(q: string) {
     onSendPrompt?.(q);
+  }
+
+  async function handleExport() {
+    setExporting(true);
+    setExportError(false);
+    try {
+      const blob = await exportGraph(exportFormat);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `context-graph.${exportFormat}`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setExportError(true);
+    } finally {
+      setExporting(false);
+    }
   }
 
   const godNodeMatches = report?.match(
@@ -122,6 +153,32 @@ export function ContextGraphTab({
           )}
         </button>
 
+        {isBuilt && (
+          <>
+            <select
+              aria-label={m.graph_export_format()}
+              value={exportFormat}
+              onChange={(event) =>
+                setExportFormat(event.target.value as typeof exportFormat)
+              }
+              className="h-6 rounded border border-border bg-background px-1.5 text-xs text-muted-foreground"
+            >
+              <option value="graphml">{m.graph_export_graphml()}</option>
+              <option value="cypher">{m.graph_export_cypher()}</option>
+              <option value="canvas">{m.graph_export_canvas()}</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => void handleExport()}
+              disabled={exporting}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded border border-border text-muted-foreground hover:text-foreground disabled:opacity-50"
+            >
+              <Download className="h-3 w-3" />
+              {exporting ? m.graph_exporting() : m.graph_export_button()}
+            </button>
+          </>
+        )}
+
         {/* Configurações do grafo: tipos de arquivo + modo. */}
         <button
           onClick={() => setShowSettings((v) => !v)}
@@ -135,6 +192,12 @@ export function ContextGraphTab({
           <Settings2 className="h-3.5 w-3.5" />
         </button>
       </div>
+
+      {exportError && (
+        <p role="alert" className="px-3 py-1 text-xs text-destructive">
+          {m.graph_export_failed()}
+        </p>
+      )}
 
       <WorkbenchSettingsSurface
         descriptor={contextGraphSettings}
