@@ -2,6 +2,7 @@
 
 import { memo, useRef, useState } from "react";
 import { Pin, Trash2 } from "lucide-react";
+import { ShareThreadDialog } from "./share-thread-dialog";
 import type { Thread } from "@/lib/hooks/threads";
 import { queryClient } from "../../src/router";
 import { getHistory, listThreads } from "@/lib/api/vectora-client";
@@ -46,6 +47,7 @@ export const ThreadItem = memo(function ThreadItem({
   const [isEditing, setIsEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(title);
   const [actionsOpen, setActionsOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressClick = useRef(false);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
@@ -123,6 +125,7 @@ export const ThreadItem = memo(function ThreadItem({
           ]
         : []),
       { label: m.sidebar_ctx_rename(), onSelect: startEditing },
+      { label: m.sidebar_ctx_share(), onSelect: () => setShareOpen(true) },
       {
         label: thread.pinned ? m.sidebar_ctx_unpin() : m.sidebar_ctx_pin(),
         onSelect: () => onTogglePin(thread.thread_id, !thread.pinned),
@@ -257,6 +260,16 @@ export const ThreadItem = memo(function ThreadItem({
               type="button"
               className="rounded-md p-3 text-left hover:bg-muted"
               onClick={() => {
+                setShareOpen(true);
+                setActionsOpen(false);
+              }}
+            >
+              {m.sidebar_ctx_share()}
+            </button>
+            <button
+              type="button"
+              className="rounded-md p-3 text-left hover:bg-muted"
+              onClick={() => {
                 onTogglePin(thread.thread_id, !thread.pinned);
                 setActionsOpen(false);
               }}
@@ -278,6 +291,13 @@ export const ThreadItem = memo(function ThreadItem({
           </div>
         </SheetContent>
       </Sheet>
+      {shareOpen && (
+        <ShareThreadDialog
+          threadId={thread.thread_id}
+          open
+          onOpenChange={setShareOpen}
+        />
+      )}
     </div>
   );
 });
