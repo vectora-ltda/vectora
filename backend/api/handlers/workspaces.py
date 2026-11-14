@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from backend.rbac.safe_roots import SafeRootRegistry
+    from backend.sandbox.policy import SandboxPolicy
 
 router = APIRouter(prefix="/vectora.workspace.v1.WorkspaceService", tags=["workspaces"])
 
@@ -1222,9 +1223,26 @@ def _resolve_inside(workspace_id: str, rel_path: str) -> Path | None:
     return resolve_within_workspace(str(candidate), base)
 
 
+class IsolationDimensionModel(BaseModel):
+    name: str
+    state: Literal["effective", "partial", "off", "unknown"]
+    detail: str = ""
+
+
+class IsolationReportModel(BaseModel):
+    """O que o isolamento realmente garante, dimensão por dimensão."""
+
+    level: Literal["effective", "partial", "soft", "off"]
+    #: `True` quando o estado vem de um worker em execução; senão, do que este
+    #: host consegue aplicar.
+    live: bool
+    dimensions: list[IsolationDimensionModel] = Field(default_factory=list)
+
+
 class SandboxStatusResponse(BaseModel):
     enabled: bool
     diagnostic: str | None = None
+    isolation: IsolationReportModel | None = None
     # Chaves do `[sandbox]` do `vectora.toml` que pediam mais acesso e foram
     # ignoradas: só a política do usuário amplia, o repositório só restringe.
     ignored_repo_keys: list[str] = Field(default_factory=list)
@@ -1251,7 +1269,11 @@ async def workspace_sandbox_status(workspace_id: str) -> SandboxStatusResponse:
     policy = resolve_policy(Path(ws.cwd))
     ignored = list(policy.ignored_repo_keys)
     if policy.enabled:
-        return SandboxStatusResponse(enabled=True, ignored_repo_keys=ignored)
+        return SandboxStatusResponse(
+            enabled=True,
+            isolation=await _isolation_payload(workspace_id, policy),
+            ignored_repo_keys=ignored,
+        )
 
     toml_path = Path(ws.cwd) / "vectora.toml"
     if not toml_path.is_file():
@@ -1393,7 +1415,107 @@ async def update_workspace_sandbox_policy(
         registry_hosts=body.registry_hosts,
     )
     await asyncio.to_thread(write_trusted_policy, root, policy)
+    from backend.sandbox import audit
+    from backend.sandbox.policy import policy_digest
+
+    audit.record(
+        workspace_id,
+        "policy_changed",
+        {"policy_digest": policy_digest(policy), "network": policy.network},
+    )
     return await asyncio.to_thread(_sandbox_policy_payload, root)
+
+
+async def _isolation_payload(
+    workspace_id: str, policy: SandboxPolicy
+) -> IsolationReportModel:
+    from backend.sandbox.isolation import isolation_report
+    from backend.sandbox.workspace_jail import jail_manager
+
+    worker = jail_manager.worker_for(workspace_id)
+    status = await worker.isolation_status() if worker is not None else None
+    report = isolation_report(
+        policy,
+        worker_status=status,
+        worker_enforced=worker.isolation_enforced if worker is not None else None,
+    )
+    return IsolationReportModel(
+        level=report.level,
+        live=report.live,
+        dimensions=[
+            IsolationDimensionModel(name=d.name, state=d.state, detail=d.detail)
+            for d in report.dimensions
+        ],
+    )
+
+
+class SandboxAuditEvent(BaseModel):
+    seq: int
+    ts: str
+    event: str
+    data: dict[str, Any] = Field(default_factory=dict)
+
+
+class SandboxAuditResponse(BaseModel):
+    """Os eventos mais recentes do workspace e se a cadeia de hashes fecha."""
+
+    events: list[SandboxAuditEvent]
+    chain_ok: bool
+    records: int
+    broken_at: int | None = None
+
+
+@workspace_scoped_router.get("/sandbox/audit", response_model=SandboxAuditResponse)
+async def workspace_sandbox_audit(
+    workspace_id: str, limit: int = 100
+) -> SandboxAuditResponse:
+    """Decisões do sandbox deste workspace (início do jail, recusas, saídas de
+    rede permitidas e bloqueadas), do mais novo ao mais antigo."""
+    from backend.sandbox.audit import audit_log
+    from backend.workspace.workspace import workspace_registry
+
+    if workspace_registry.get(workspace_id) is None:
+        raise HTTPException(status_code=404, detail="Workspace não encontrado.")
+    bounded = max(1, min(limit, 500))
+    records = await asyncio.to_thread(
+        audit_log.read, workspace_id=workspace_id, limit=bounded
+    )
+    verdict = await asyncio.to_thread(audit_log.verify)
+    return SandboxAuditResponse(
+        events=[
+            SandboxAuditEvent(
+                seq=int(record["seq"]),
+                ts=str(record["ts"]),
+                event=str(record["event"]),
+                data=dict(record.get("data") or {}),
+            )
+            for record in records
+        ],
+        chain_ok=verdict.ok,
+        records=verdict.records,
+        broken_at=verdict.broken_at,
+    )
+
+
+class SandboxDryRunResponse(BaseModel):
+    argv: list[str]
+
+
+@workspace_scoped_router.get("/sandbox/dry-run", response_model=SandboxDryRunResponse)
+async def workspace_sandbox_dry_run(workspace_id: str) -> SandboxDryRunResponse:
+    """O comando do jail que seria usado, sem executar nada; valores de
+    variáveis vindas do host aparecem ocultos."""
+    from backend.sandbox.dry_run import preview_bwrap_command
+    from backend.sandbox.policy import resolve_policy
+    from backend.workspace.workspace import workspace_registry
+
+    ws = workspace_registry.get(workspace_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="Workspace não encontrado.")
+    policy = await asyncio.to_thread(resolve_policy, Path(ws.cwd))
+    return SandboxDryRunResponse(
+        argv=await asyncio.to_thread(preview_bwrap_command, policy, ws.cwd)
+    )
 
 
 class SandboxInitResponse(BaseModel):

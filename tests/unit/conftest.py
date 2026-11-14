@@ -92,3 +92,8 @@ def _politica_do_sandbox_isolada(monkeypatch, tmp_path_factory):
     monkeypatch.setenv(
         "VECTORA_SANDBOX_POLICY_DIR", str(tmp_path_factory.mktemp("sandbox-policies"))
     )
+    # A auditoria do sandbox também nunca escreve no `~/.vectora` de quem roda.
+    monkeypatch.setenv(
+        "VECTORA_SANDBOX_AUDIT_FILE",
+        str(tmp_path_factory.mktemp("sandbox-audit") / "audit.jsonl"),
+    )

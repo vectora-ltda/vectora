@@ -22,6 +22,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import PureWindowsPath
 from typing import Any
 
+from backend.sandbox import audit
 from backend.sandbox.dry_run import build_bwrap_command, python_runtime_paths
 from backend.sandbox.egress_proxy import egress_registry
 from backend.sandbox.linux import build_seccomp_filter
@@ -29,6 +30,7 @@ from backend.sandbox.policy import (
     SandboxPolicy,
     detect_wsl2,
     effective_network,
+    policy_digest,
 )
 from backend.sandbox.windows import (
     assign_job_object_kill_on_close,
@@ -257,6 +259,9 @@ class WorkspaceJailManager:
                 logger.warning("sandbox: falha ao compilar filtro seccomp — ignorando")
                 bpf = None
             if bpf is None and policy.require_full_isolation:
+                audit.record(
+                    workspace_id, "worker_refused", {"reason": "seccomp_unavailable"}
+                )
                 raise WorkerSpawnError(
                     "isolamento completo exigido, mas o filtro seccomp não pôde "
                     "ser carregado (instale o libseccomp) — o jail não foi iniciado."
@@ -315,11 +320,27 @@ class WorkspaceJailManager:
             ]
             if missing:
                 await worker.close()
+                audit.record(
+                    workspace_id,
+                    "worker_refused",
+                    {"reason": "isolation_incomplete", "missing": missing},
+                )
                 raise WorkerSpawnError(
                     "isolamento completo exigido, mas o worker não aplicou: "
                     + ", ".join(missing)
                     + " — o jail foi encerrado."
                 )
+        status = await worker.isolation_status() if soft_env is None else {}
+        audit.record(
+            workspace_id,
+            "worker_started",
+            {
+                "policy_digest": policy_digest(policy),
+                "network": effective_network(policy),
+                "enforced": worker.isolation_enforced,
+                "isolation": status,
+            },
+        )
         return worker
 
     @staticmethod
@@ -369,10 +390,24 @@ class WorkspaceJailManager:
         )
         return ["wsl.exe", "-d", distro, "--", *bwrap_argv]
 
-    def has_effective_isolation(self, workspace_id: str) -> bool:
-        """Only a live worker started under native isolation can relax HITL."""
+    def worker_for(self, workspace_id: str) -> JailedWorker | None:
+        """O worker vivo do workspace, sem criar um."""
+        worker = self._workers.get(workspace_id)
+        return worker if worker is not None and worker.is_alive() else None
+
+    def has_effective_isolation(
+        self, workspace_id: str, *, needs_network_control: bool = False
+    ) -> bool:
+        """Only a live worker started under native isolation can relax HITL.
+
+        `needs_network_control`: para ferramentas que executam código arbitrário
+        (terminal), o isolamento só vale se a rede também está sob controle (sem
+        rede ou filtrada), não aberta."""
         worker = self._workers.get(workspace_id)
         isolated = bool(worker and worker.is_alive() and worker.isolation_enforced)
+        if isolated and needs_network_control and worker is not None:
+            policy = worker.policy
+            isolated = policy is not None and effective_network(policy) != "open"
         if isolated:
             # Once HITL relies on native isolation, expiry/restart cannot silently
             # replace the worker with a soft process before the tool dispatch.

@@ -4693,6 +4693,67 @@
         "title": "InviteValidationResponse",
         "type": "object"
       },
+      "IsolationDimensionModel": {
+        "properties": {
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "effective",
+              "partial",
+              "off",
+              "unknown"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "state"
+        ],
+        "title": "IsolationDimensionModel",
+        "type": "object"
+      },
+      "IsolationReportModel": {
+        "description": "O que o isolamento realmente garante, dimensão por dimensão.",
+        "properties": {
+          "dimensions": {
+            "items": {
+              "$ref": "#/components/schemas/IsolationDimensionModel"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "level": {
+            "enum": [
+              "effective",
+              "partial",
+              "soft",
+              "off"
+            ],
+            "title": "Level",
+            "type": "string"
+          },
+          "live": {
+            "title": "Live",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "level",
+          "live"
+        ],
+        "title": "IsolationReportModel",
+        "type": "object"
+      },
       "JourneyFact": {
         "properties": {
           "content": {
@@ -7704,6 +7765,88 @@
         "title": "SafeRootInfo",
         "type": "object"
       },
+      "SandboxAuditEvent": {
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          },
+          "event": {
+            "title": "Event",
+            "type": "string"
+          },
+          "seq": {
+            "title": "Seq",
+            "type": "integer"
+          },
+          "ts": {
+            "title": "Ts",
+            "type": "string"
+          }
+        },
+        "required": [
+          "seq",
+          "ts",
+          "event"
+        ],
+        "title": "SandboxAuditEvent",
+        "type": "object"
+      },
+      "SandboxAuditResponse": {
+        "description": "Os eventos mais recentes do workspace e se a cadeia de hashes fecha.",
+        "properties": {
+          "broken_at": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Broken At"
+          },
+          "chain_ok": {
+            "title": "Chain Ok",
+            "type": "boolean"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/SandboxAuditEvent"
+            },
+            "title": "Events",
+            "type": "array"
+          },
+          "records": {
+            "title": "Records",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "events",
+          "chain_ok",
+          "records"
+        ],
+        "title": "SandboxAuditResponse",
+        "type": "object"
+      },
+      "SandboxDryRunResponse": {
+        "properties": {
+          "argv": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Argv",
+            "type": "array"
+          }
+        },
+        "required": [
+          "argv"
+        ],
+        "title": "SandboxDryRunResponse",
+        "type": "object"
+      },
       "SandboxInitResponse": {
         "properties": {
           "ok": {
@@ -7937,6 +8080,16 @@
             },
             "title": "Ignored Repo Keys",
             "type": "array"
+          },
+          "isolation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IsolationReportModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -28607,6 +28760,102 @@
           }
         },
         "summary": "Rag Job Status",
+        "tags": [
+          "workspaces-view"
+        ]
+      }
+    },
+    "/workspaces/{workspace_id}/sandbox/audit": {
+      "get": {
+        "description": "Decisões do sandbox deste workspace (início do jail, recusas, saídas de\nrede permitidas e bloqueadas), do mais novo ao mais antigo.",
+        "operationId": "workspace_sandbox_audit_workspaces__workspace_id__sandbox_audit_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxAuditResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Workspace Sandbox Audit",
+        "tags": [
+          "workspaces-view"
+        ]
+      }
+    },
+    "/workspaces/{workspace_id}/sandbox/dry-run": {
+      "get": {
+        "description": "O comando do jail que seria usado, sem executar nada; valores de\nvariáveis vindas do host aparecem ocultos.",
+        "operationId": "workspace_sandbox_dry_run_workspaces__workspace_id__sandbox_dry_run_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxDryRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Workspace Sandbox Dry Run",
         "tags": [
           "workspaces-view"
         ]

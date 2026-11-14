@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -201,6 +202,9 @@ class TestShouldRequireApproval:
         monkeypatch.setattr(
             "backend.engine.hitl._workspace_is_jailed", lambda _wsid: True
         )
+        monkeypatch.setattr(
+            "backend.engine.hitl._jail_controls_network", lambda _wsid: True
+        )
         ctx = _ctx(permission_mode="ask", workspace_id="ws-1")
         assert should_require_approval("terminal", ctx, {}, []) is False
         assert should_require_approval("file_write", ctx, {}, []) is False
@@ -216,9 +220,30 @@ class TestShouldRequireApproval:
         monkeypatch.setattr(
             "backend.engine.hitl._workspace_is_jailed", lambda _wsid: jailed
         )
+        monkeypatch.setattr(
+            "backend.engine.hitl._jail_controls_network", lambda _wsid: True
+        )
         ctx = _ctx(permission_mode="plan", workspace_id="ws-1")
         assert should_require_approval(tool, ctx, {}, []) is not jailed
         assert should_require_approval("install_learned_skill", ctx, {}, []) is True
+
+    def test_terminal_em_jail_com_rede_aberta_continua_pedindo_aprovacao(
+        self, monkeypatch
+    ):
+        """Jail vivo, mas com a rede do host aberta: o terminal executa código
+        arbitrário e poderia exfiltrar, então a pausa não é dispensada."""
+        monkeypatch.setattr(
+            "backend.engine.hitl._workspace_is_jailed", lambda _wsid: True
+        )
+        monkeypatch.setattr(
+            "backend.engine.hitl._jail_controls_network", lambda _wsid: False
+        )
+        ctx = _ctx(permission_mode="ask", workspace_id="ws-1")
+
+        assert should_require_approval("terminal", ctx, {}, []) is True
+        # Escrever arquivos não depende da rede: segue dispensado.
+        assert should_require_approval("file_write", ctx, {}, []) is False
+        assert should_require_approval("file_edit", ctx, {}, []) is False
 
     def test_workspace_nao_jailed_continua_pedindo_aprovacao(self, monkeypatch):
         """Verifica o comportamento de workspace nao jailed continua pedindo aprovacao."""
@@ -416,16 +441,56 @@ def test_plan_sandbox_exemption_requires_a_live_isolated_worker(
     monkeypatch.setattr(
         workspace_registry, "get", lambda _wid: SimpleNamespace(cwd=str(tmp_path))
     )
+    from backend.sandbox.policy import SandboxPolicy
+
     worker = JailedWorker(
         workspace_id="ws-soft",
         proc=MagicMock(returncode=None if alive else 1),
         isolation_enforced=isolated,
+        policy=SandboxPolicy(enabled=True),
     )
     monkeypatch.setattr(jail_manager, "_workers", {"ws-soft": worker})
     monkeypatch.setattr(jail_manager, "_isolation_required", set())
     ctx = _ctx(permission_mode="plan", workspace_id="ws-soft")
     assert should_require_approval(tool, ctx, {}, []) is expected
     assert should_require_approval("git_push", ctx, {}, []) is True
+
+
+@pytest.mark.parametrize(
+    ("network", "terminal_pauses"),
+    [("filtered", False), ("off", False), ("open", True)],
+)
+def test_terminal_so_dispensa_aprovacao_com_a_rede_do_jail_sob_controle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    network: Literal["off", "filtered", "open"],
+    terminal_pauses: bool,
+) -> None:
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    from backend.sandbox.policy import SandboxPolicy
+    from backend.sandbox.workspace_jail import JailedWorker, jail_manager
+    from backend.workspace.workspace import workspace_registry
+
+    (tmp_path / "vectora.toml").write_text(
+        "[sandbox]\nenabled=true\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        workspace_registry, "get", lambda _wid: SimpleNamespace(cwd=str(tmp_path))
+    )
+    worker = JailedWorker(
+        workspace_id="ws-net",
+        proc=MagicMock(returncode=None),
+        isolation_enforced=True,
+        policy=SandboxPolicy(enabled=True, network=network),
+    )
+    monkeypatch.setattr(jail_manager, "_workers", {"ws-net": worker})
+    monkeypatch.setattr(jail_manager, "_isolation_required", set())
+    ctx = _ctx(permission_mode="plan", workspace_id="ws-net")
+
+    assert should_require_approval("terminal", ctx, {}, []) is terminal_pauses
+    assert should_require_approval("file_write", ctx, {}, []) is False
 
 
 def test_worker_startup_does_not_change_policy_snapshot_identity(

@@ -389,3 +389,39 @@ def build_bwrap_command(
         ]
     argv += ["--", *command]
     return argv
+
+
+#: Variáveis do jail cujo valor pode aparecer numa prévia; as demais (as que o
+#: usuário passou em `env_pass`) têm o valor ocultado.
+_PREVIEW_VISIBLE_ENV = frozenset(
+    {"PATH", "HOME", "LANG", "TERM", "TZ", "PYTHONPATH", "NO_PROXY", "no_proxy"}
+)
+
+
+def preview_bwrap_command(policy: SandboxPolicy, workspace_dir: str) -> list[str]:
+    """O comando do `bwrap` que o jail do workspace usaria, para mostrar ao
+    usuário antes de executar nada. Valores de variáveis que vieram do host
+    (`env_pass`) aparecem como `<oculto>`."""
+    filtered = effective_network(policy) == "filtered"
+    argv = build_bwrap_command(
+        policy,
+        workspace_dir,
+        ["<comando>"],
+        runtime_ro_paths=python_runtime_paths(),
+        egress_dir="<pasta-do-proxy-de-saida>" if filtered else None,
+    )
+    shown: list[str] = []
+    index = 0
+    while index < len(argv):
+        item = argv[index]
+        if item == "--setenv" and index + 2 < len(argv):
+            name, value = argv[index + 1], argv[index + 2]
+            visible = name in _PREVIEW_VISIBLE_ENV or name.startswith(
+                ("VECTORA_SANDBOX_", "HTTP", "http", "ALL_")
+            )
+            shown += [item, name, value if visible else "<oculto>"]
+            index += 3
+            continue
+        shown.append(item)
+        index += 1
+    return shown

@@ -21,6 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from backend.sandbox import audit
 from backend.sandbox.policy import (
     SandboxPolicy,
     effective_allow_hosts,
@@ -67,6 +68,7 @@ class EgressProxy:
         on_decision: Callable[[EgressDecision], None] | None = None,
     ) -> None:
         self._egress = _egress_policy_for(policy, workspace_id)
+        self._workspace_id = workspace_id
         self._on_decision = on_decision
         self._server: asyncio.AbstractServer | None = None
         self._directory: str | None = None
@@ -108,6 +110,11 @@ class EgressProxy:
         )
         decision = EgressDecision(host, port, allowed, reason, time.time())
         self.decisions.append(decision)
+        audit.record(
+            self._workspace_id or "",
+            "egress",
+            {"host": host, "port": port, "allowed": allowed, "reason": reason},
+        )
         if self._on_decision is not None:
             try:
                 self._on_decision(decision)
