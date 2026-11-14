@@ -2242,12 +2242,22 @@ async def get_thread_history_paginated(
     request: Request,
     limit: int = MESSAGES_CAP,
     offset: int = 0,
+    before_message_id: int | None = None,
 ) -> PagedHistoryResponse:
     """Histórico paginado de mensagens de uma thread.
 
     Retorna as ``limit`` mensagens mais recentes (excluindo as ``offset`` mais
     recentes), em ordem cronológica. ``has_more=True`` quando existem mensagens
     mais antigas além das retornadas.
+
+    Com ``before_message_id`` a página é a janela que termina logo antes dessa
+    mensagem, e ``offset`` é ignorado: o cursor é a identidade da mensagem, então
+    mensagens novas chegando no fim da conversa entre duas páginas não
+    deslocam a janela (o que repetiria ou pularia mensagens com ``offset``).
+    ``next_cursor`` é o ``message_id`` da mensagem mais antiga da página, ou
+    ``None`` quando não há mais páginas ou essa mensagem não tem ID (aí o
+    cliente volta a usar ``offset``). Um cursor que não existe mais (mensagem
+    removida por rewind) responde 409, e o cliente recarrega do fim.
     """
     # Validate ownership when a native session is already present, but do not
     # require that row before reconciliation.  ``get_thread`` below remains
@@ -2291,7 +2301,21 @@ async def get_thread_history_paginated(
 
     # Fatia: pega as [effective_limit] mensagens anteriores às [offset] mais recentes
     # Índice do fim da janela (a partir do final da lista)
-    end = total - offset
+    if before_message_id is not None:
+        end = next(
+            (
+                index
+                for index, entry in enumerate(pairs)
+                if entry.message_id == before_message_id
+            ),
+            -1,
+        )
+        if end < 0:
+            raise HTTPException(
+                status_code=409, detail="Cursor de histórico não existe mais"
+            )
+    else:
+        end = total - offset
     start = max(0, end - effective_limit)
     page = pairs[start:end]
 
@@ -2319,7 +2343,7 @@ async def get_thread_history_paginated(
         for entry in page
     ]
 
-    if offset == 0:
+    if offset == 0 and before_message_id is None:
         try:
             from backend.persistence.kv import get_kv
 
@@ -2349,6 +2373,7 @@ async def get_thread_history_paginated(
         messages=messages,
         has_more=has_more,
         total_count=total,
+        next_cursor=page[0].message_id if has_more and page else None,
         run_status=summary.status if summary else "idle",
         last_seq=safe_last_seq,
     )

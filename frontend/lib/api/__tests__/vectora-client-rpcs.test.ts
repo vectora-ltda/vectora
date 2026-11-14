@@ -185,6 +185,29 @@ describe("getHistoryPage — GET com querystring", () => {
     expect(url).toContain("offset=100");
   });
 
+  it("before_message_id só vai na URL quando há cursor", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ messages: [], has_more: false, total_count: 0 }),
+    );
+    await getHistoryPage("t1", 50, 0);
+    await getHistoryPage("t1", 50, 0, 41);
+
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain(
+      "before_message_id",
+    );
+    expect(String(fetchMock.mock.calls[1][0])).toContain(
+      "before_message_id=41",
+    );
+  });
+
+  it("409 vira HistoryCursorGoneError", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: "x" }, 409));
+
+    await expect(getHistoryPage("t1", 50, 0, 41)).rejects.toMatchObject({
+      name: "HistoryCursorGoneError",
+    });
+  });
+
   it("erro/borda: id com caractere especial é encodado na URL", async () => {
     // Sem encode, um id com `/` ou `?` montaria outra rota ou viraria query.
     fetchMock.mockResolvedValueOnce(

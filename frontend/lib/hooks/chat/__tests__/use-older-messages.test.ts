@@ -101,6 +101,7 @@ describe("useOlderMessages", () => {
       "thread1",
       50,
       expect.any(Number),
+      undefined,
     );
     expect(result.current.hasMore).toBe(false);
   });
@@ -158,5 +159,94 @@ describe("useOlderMessages", () => {
 
     // Deve ter chamado apenas uma vez
     expect(mockGetHistoryPage).toHaveBeenCalledTimes(1);
+  });
+});
+
+const intersect = async () => {
+  const observers = MockIntersectionObserver.instances;
+  await act(async () => {
+    observers[observers.length - 1]?.triggerIntersect(true);
+  });
+};
+
+describe("useOlderMessages — cursor por message_id", () => {
+  const sentinelRef = { current: {} as Element };
+
+  it("a primeira página usa o offset e as seguintes usam o cursor devolvido", async () => {
+    mockGetHistoryPage
+      .mockResolvedValueOnce({
+        messages: [{ role: "human", content: "a" }],
+        has_more: true,
+        total_count: 100,
+        next_cursor: 41,
+      })
+      .mockResolvedValueOnce({
+        messages: [{ role: "human", content: "b" }],
+        has_more: false,
+        total_count: 100,
+        next_cursor: null,
+      });
+    renderHook(() => useOlderMessages("t1", sentinelRef, 5, true));
+
+    await intersect();
+    await intersect();
+
+    expect(mockGetHistoryPage).toHaveBeenNthCalledWith(
+      1,
+      "t1",
+      50,
+      5,
+      undefined,
+    );
+    expect(mockGetHistoryPage).toHaveBeenNthCalledWith(2, "t1", 50, 6, 41);
+  });
+
+  it("cursor removido no servidor refaz a página por offset", async () => {
+    const { HistoryCursorGoneError } = await import("@/lib/api/history-cursor");
+    mockGetHistoryPage
+      .mockResolvedValueOnce({
+        messages: [{ role: "human", content: "a" }],
+        has_more: true,
+        total_count: 100,
+        next_cursor: 41,
+      })
+      .mockRejectedValueOnce(new HistoryCursorGoneError())
+      .mockResolvedValueOnce({
+        messages: [{ role: "human", content: "b" }],
+        has_more: false,
+        total_count: 100,
+        next_cursor: null,
+      });
+    const { result } = renderHook(() =>
+      useOlderMessages("t1", sentinelRef, 5, true),
+    );
+
+    await intersect();
+    await intersect();
+
+    expect(mockGetHistoryPage).toHaveBeenNthCalledWith(3, "t1", 50, 6);
+    expect(result.current.olderMessages.map((m) => m.content)).toEqual([
+      "b",
+      "a",
+    ]);
+  });
+
+  it("o cursor de uma thread não vale para outra", async () => {
+    mockGetHistoryPage.mockResolvedValue({
+      messages: [{ role: "human", content: "a" }],
+      has_more: true,
+      total_count: 100,
+      next_cursor: 41,
+    });
+    const { rerender } = renderHook(
+      ({ id }) => useOlderMessages(id, sentinelRef, 5, true),
+      { initialProps: { id: "t1" } },
+    );
+    await intersect();
+
+    rerender({ id: "t2" });
+    await intersect();
+
+    expect(mockGetHistoryPage).toHaveBeenLastCalledWith("t2", 50, 5, undefined);
   });
 });

@@ -659,6 +659,9 @@ class PagedHistoryResponse(BaseModel):
     messages: list[HistoryMessage]
     has_more: bool
     total_count: int
+    # `message_id` da mensagem mais antiga desta página, para pedir a anterior
+    # com `before_message_id`; `None` na última página ou sem ID.
+    next_cursor: int | None = None
     run_status: Literal["running", "awaiting_approval", "failed", "idle"] = "idle"
     last_seq: int = 0
 
