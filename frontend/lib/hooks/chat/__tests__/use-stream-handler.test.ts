@@ -40,6 +40,7 @@ vi.mock("@/lib/api/vectora-client", () => ({
 }));
 
 import { useStreamHandler, streamErrorMessage } from "../use-stream-handler";
+import { useSettingsStore } from "@/lib/stores/settings-store";
 
 function gen(events: StreamEvent[]): AsyncGenerator<StreamEvent> {
   return (async function* () {
@@ -62,6 +63,7 @@ describe("useStreamHandler.processStream", () => {
     getHistoryMock.mockReset();
     resumeStreamMock.mockReset();
     window.localStorage.clear();
+    useSettingsStore.getState().setContextCompactionEnabled(true);
   });
 
   function run() {
@@ -123,6 +125,33 @@ describe("useStreamHandler.processStream", () => {
     expect(out.assistantContent).toBe("Olá, mundo");
     expect(out.runId).toBe("run-1");
     expect(messages.find((msg) => msg.id === "a1")?.content).toBe("Olá, mundo");
+  });
+
+  it("a compactação automática do histórico segue a preferência do usuário em cada envio", async () => {
+    streamChatMock.mockImplementation(() =>
+      gen([
+        { type: "thread", thread_id: "t1" },
+        { type: "done", thread_id: "t1", run_id: "run-1" },
+      ]),
+    );
+    const { result } = run();
+    const sentConfig = () => {
+      const lastCall = streamChatMock.mock.calls.at(-1) ?? [];
+      return (
+        lastCall[0] as { config: { context_compaction_enabled?: boolean } }
+      ).config;
+    };
+
+    await result.current.processStream("oi", "a1");
+    expect(sentConfig().context_compaction_enabled).toBe(true);
+
+    useSettingsStore.getState().setContextCompactionEnabled(false);
+    await result.current.processStream("oi", "a2");
+    expect(sentConfig().context_compaction_enabled).toBe(false);
+
+    useSettingsStore.getState().setContextCompactionEnabled(true);
+    await result.current.processStream("oi", "a3");
+    expect(sentConfig().context_compaction_enabled).toBe(true);
   });
 
   it("turnId informado vai como turn_id da requisição; ausente deixa o cliente gerar", async () => {

@@ -154,7 +154,6 @@
   "backend/secrets/keepass.py::method::unlock",
   "backend/services/agent_factory.py::function::_agents_md_paths",
   "backend/services/connect/discord.py::function::on_message",
-  "backend/services/context_compaction.py::function::compact_messages",
   "backend/services/context_manifest.py::method::is_valid_for",
   "backend/services/debug_dump.py::function::create_qa_report",
   "backend/services/egress_policy.py::function::validate_backend_egress_support",

@@ -131,6 +131,32 @@ function FontSelect({
   );
 }
 
+/** Liga ou desliga a compactação automática do histórico (vai em cada envio). */
+function ContextCompactionSection() {
+  const enabled = useSettingsStore((s) => s.contextCompactionEnabled);
+  const setEnabled = useSettingsStore((s) => s.setContextCompactionEnabled);
+  return (
+    <div className="space-y-3">
+      <Label>{m.prefs_context_compaction_section()}</Label>
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <Label htmlFor="context-compaction-toggle" className="cursor-pointer">
+            {m.prefs_context_compaction_toggle()}
+          </Label>
+          <p className="text-xs text-muted-foreground">
+            {m.prefs_context_compaction_hint()}
+          </p>
+        </div>
+        <Switch
+          id="context-compaction-toggle"
+          checked={enabled}
+          onCheckedChange={setEnabled}
+        />
+      </div>
+    </div>
+  );
+}
+
 /** Toggle de auto-update (Electron) + botão de checagem manual — a checagem
  * manual funciona independente do toggle (dispara `checkForUpdates()` sob
  * demanda mesmo com o automático desligado). Invisível no navegador/modo
@@ -772,6 +798,9 @@ export function PreferenciasTab() {
           </div>
         ))}
       </div>
+
+      {/* Compactação automática do histórico */}
+      <ContextCompactionSection />
 
       {/* Auto-update (só desktop) */}
       <AutoUpdateSection
