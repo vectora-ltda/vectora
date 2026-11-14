@@ -62,6 +62,9 @@ name = "{name}"
 # default_model = "claude-sonnet-4-6"
 # auto_commit = false                        # commit automático após file_write/file_edit
 
+# [git]
+# repo = "services/api"                      # repositório que o Git workbench mostra (caminho relativo)
+
 # [hooks]
 # post_file_write = ["ruff format {{file}}"]  # {{file}} = path absoluto do arquivo editado
 #
@@ -162,6 +165,16 @@ class HooksSection(BaseModel):
         return valid
 
 
+class GitSection(BaseModel):
+    """``[git]`` — qual repositório do workspace o Git workbench mostra e opera.
+
+    ``repo`` é um caminho relativo à raiz do workspace; vazio é o padrão (a raiz
+    ou o repositório que a contém). Lido e gravado por ``git_repos``.
+    """
+
+    repo: str = ""
+
+
 class ComputerUseSection(BaseModel):
     """Controle de mouse/teclado da tela do desktop — opt-in explícito.
 
@@ -181,6 +194,7 @@ class WorkspaceConfig(BaseModel):
     rag: RagSection = RagSection()
     agent: AgentSection = AgentSection()
     hooks: HooksSection = HooksSection()
+    git: GitSection = GitSection()
     computer_use: ComputerUseSection = ComputerUseSection()
 
 

@@ -7,6 +7,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import {
+  fetchGitRepos,
+  selectGitRepo,
   fetchGitStatus,
   fetchBranches,
   apiCheckout,
@@ -396,5 +398,51 @@ describe("api — stash/conflitos/worktrees/PR", () => {
         }),
       }),
     );
+  });
+});
+
+describe("repositórios do workspace", () => {
+  it("fetchGitRepos busca a lista no workspace certo", async () => {
+    const body = {
+      repos: [{ path: "", name: "r", kind: "root" }],
+      selected: "",
+    };
+    fetchMock.mockResolvedValueOnce(jsonResponse(body));
+
+    expect(await fetchGitRepos("ws/1")).toEqual(body);
+    expect(fetchMock.mock.calls[0][0]).toBe("/workspaces/ws%2F1/git/repos");
+  });
+
+  it("fetchGitRepos devolve null quando a resposta falha", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, false, 500));
+
+    expect(await fetchGitRepos("ws")).toBeNull();
+  });
+
+  it("selectGitRepo envia PUT com o caminho e devolve a lista atualizada", async () => {
+    const body = { repos: [], selected: "services/api" };
+    fetchMock.mockResolvedValueOnce(jsonResponse(body));
+
+    expect(await selectGitRepo("ws", "services/api")).toEqual(body);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/workspaces/ws/git/repo");
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual({ repo: "services/api" });
+  });
+
+  it("selectGitRepo lança com a mensagem do servidor quando recusa", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ detail: "Confie nesta pasta." }, false, 403),
+    );
+
+    await expect(selectGitRepo("ws", "a")).rejects.toThrow(
+      "Confie nesta pasta.",
+    );
+  });
+
+  it("selectGitRepo lança o status quando a resposta de erro não traz mensagem", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, false, 500));
+
+    await expect(selectGitRepo("ws", "a")).rejects.toThrow("HTTP 500");
   });
 });

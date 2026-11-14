@@ -3714,6 +3714,55 @@
         "title": "GitReorderRequest",
         "type": "object"
       },
+      "GitRepoItem": {
+        "description": "Um repositório dentro do workspace; ``path`` é relativo à raiz (vazio: o padrão).",
+        "properties": {
+          "kind": {
+            "enum": [
+              "root",
+              "repo",
+              "submodule",
+              "worktree"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "name",
+          "kind"
+        ],
+        "title": "GitRepoItem",
+        "type": "object"
+      },
+      "GitReposResponse": {
+        "properties": {
+          "repos": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/GitRepoItem"
+            },
+            "title": "Repos",
+            "type": "array"
+          },
+          "selected": {
+            "default": "",
+            "title": "Selected",
+            "type": "string"
+          }
+        },
+        "title": "GitReposResponse",
+        "type": "object"
+      },
       "GitSquashRequest": {
         "properties": {
           "base_ref": {
@@ -7740,6 +7789,17 @@
           "head_message_id"
         ],
         "title": "SelectConversationBranchRequest",
+        "type": "object"
+      },
+      "SelectGitRepoRequest": {
+        "properties": {
+          "repo": {
+            "default": "",
+            "title": "Repo",
+            "type": "string"
+          }
+        },
+        "title": "SelectGitRepoRequest",
         "type": "object"
       },
       "SetActiveRequest": {
@@ -27181,6 +27241,102 @@
           }
         },
         "summary": "Git Reorder Inline",
+        "tags": [
+          "workspaces-view"
+        ]
+      }
+    },
+    "/workspaces/{workspace_id}/git/repo": {
+      "put": {
+        "description": "Escolhe o repositório do workspace que o Git workbench mostra e opera.\n\nGrava ``[git] repo`` no ``vectora.toml`` do workspace. Exige workspace\nconfiado (é uma escrita no projeto) e um caminho que seja um repositório\ndentro do workspace; vazio volta ao padrão.",
+        "operationId": "select_git_repo_workspaces__workspace_id__git_repo_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectGitRepoRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitReposResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Select Git Repo",
+        "tags": [
+          "workspaces-view"
+        ]
+      }
+    },
+    "/workspaces/{workspace_id}/git/repos": {
+      "get": {
+        "description": "Repositórios dentro do workspace (raiz, aninhados, submódulos, worktrees).",
+        "operationId": "git_repos_workspaces__workspace_id__git_repos_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitReposResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Git Repos",
         "tags": [
           "workspaces-view"
         ]

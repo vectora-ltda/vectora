@@ -37,6 +37,7 @@ import {
   type GitStatus,
   type PullRequest,
 } from "./api";
+import { GitRepoSelector } from "./git-repo-selector";
 import { GitToolbar } from "./git-toolbar";
 import { ChangesView } from "./changes-view";
 import { HistoryView, type GitCommitDetailsState } from "./history-view";
@@ -199,6 +200,8 @@ export function GitTab({
   const [status, setStatus] = useState<GitStatus | null>(null);
   const [branches, setBranches] = useState<GitBranches | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  // Repositório escolhido no seletor: as visões remontam ao trocá-lo.
+  const [repoKey, setRepoKey] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Diff summary via SWR (mesmo padrão do antigo DiffTab).
@@ -288,6 +291,16 @@ export function GitTab({
     setRefreshKey((k) => k + 1);
   }, [wsId, invalidateGit]);
 
+  const handleRepoSelected = useCallback(
+    (selected: string) => {
+      setRepoKey(selected);
+      setStatus(null);
+      setBranches(null);
+      handleChanged();
+    },
+    [handleChanged],
+  );
+
   const handleOpenPR = useCallback((head: string) => {
     setPrHead(head);
     setPrOpen(true);
@@ -307,17 +320,21 @@ export function GitTab({
   }
   if (!summary.is_git_repo) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-2 p-4 text-center">
-        <GitBranch className="w-6 h-6 text-muted-foreground" />
-        <p className="text-xs text-muted-foreground">
-          {m.workbench_diff_not_git()}
-        </p>
+      <div className="h-full flex flex-col overflow-hidden">
+        <GitRepoSelector workspaceId={wsId} onSelected={handleRepoSelected} />
+        <div className="flex-1 flex flex-col items-center justify-center gap-2 p-4 text-center">
+          <GitBranch className="w-6 h-6 text-muted-foreground" />
+          <p className="text-xs text-muted-foreground">
+            {m.workbench_diff_not_git()}
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="h-full min-w-0 flex flex-col overflow-hidden">
+      <GitRepoSelector workspaceId={wsId} onSelected={handleRepoSelected} />
       <GitToolbar
         workspaceId={wsId}
         status={status}
@@ -421,6 +438,7 @@ export function GitTab({
       <div className="flex-1 min-h-0">
         {compareOpen ? (
           <CompareView
+            key={`${wsId}:${repoKey}`}
             workspaceId={wsId}
             branches={branches?.branches ?? []}
             current={status?.branch || branches?.current || ""}
@@ -430,12 +448,14 @@ export function GitTab({
           />
         ) : view === "changes" ? (
           <ChangesView
+            key={`${wsId}:${repoKey}`}
             workspaceId={wsId}
             summary={summary}
             onOpenSettings={() => setSettingsOpen(true)}
           />
         ) : (
           <HistoryView
+            key={`${wsId}:${repoKey}`}
             workspaceId={wsId}
             onChanged={handleChanged}
             onOpenCommitDetails={onOpenCommitDetails}

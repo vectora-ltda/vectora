@@ -90,6 +90,57 @@ export async function fetchGitStatus(
   return res.json() as Promise<GitStatus>;
 }
 
+// ── Repositórios do workspace ───────────────────────────────────────────────
+
+type GitRepoKind = "root" | "repo" | "submodule" | "worktree";
+
+export interface GitRepo {
+  /** Relativo à raiz do workspace; vazio é o padrão (a raiz ou o que a contém). */
+  path: string;
+  name: string;
+  kind: GitRepoKind;
+}
+
+export interface GitRepos {
+  repos: GitRepo[];
+  /** Caminho do repositório em uso; vazio é o padrão. */
+  selected: string;
+}
+
+/** Repositórios dentro do workspace; `null` se a busca falhou. */
+export async function fetchGitRepos(
+  workspaceId: string,
+): Promise<GitRepos | null> {
+  const res = await fetch(`${base(workspaceId)}/git/repos`);
+  if (!res.ok) return null;
+  return res.json() as Promise<GitRepos>;
+}
+
+/**
+ * Escolhe o repositório que o painel Git mostra (grava `[git] repo` no
+ * `vectora.toml`). Lança com a mensagem do servidor quando recusa (workspace não
+ * confiado, caminho que não é repositório).
+ */
+export async function selectGitRepo(
+  workspaceId: string,
+  repo: string,
+): Promise<GitRepos> {
+  const res = await fetch(`${base(workspaceId)}/git/repo`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ repo }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as {
+      detail?: unknown;
+    } | null;
+    throw new Error(
+      typeof body?.detail === "string" ? body.detail : `HTTP ${res.status}`,
+    );
+  }
+  return res.json() as Promise<GitRepos>;
+}
+
 export interface GitBranches {
   current: string;
   branches: string[];
@@ -398,7 +449,7 @@ export async function apiCreateWorktree(
   return res.ok;
 }
 
-// ── Pull requests (gh) ────────────────────────────────────────────────────
+// ── Pedidos de mesclagem (gh) ─────────────────────────────────────────────
 
 export interface PullRequest {
   number: number;
