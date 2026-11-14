@@ -217,3 +217,40 @@ async def test_rede_do_repositorio_que_amplia_aparece_como_ignorada(
 
     assert resp.network == "filtered"
     assert "network" in resp.ignored_repo_keys
+
+
+@pytest.mark.asyncio
+async def test_put_grava_os_limites_de_recursos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _register(monkeypatch, tmp_path)
+
+    resp = await update_workspace_sandbox_policy(
+        "ws-1",
+        SandboxPolicyBody(max_file_mb=100, memory_limit_mb=2048, tmp_size_mb=256),
+    )
+    lida = await workspace_sandbox_policy("ws-1")
+
+    assert (resp.max_file_mb, resp.memory_limit_mb, resp.tmp_size_mb) == (
+        100,
+        2048,
+        256,
+    )
+    assert (lida.max_file_mb, lida.memory_limit_mb, lida.tmp_size_mb) == (
+        100,
+        2048,
+        256,
+    )
+
+
+def test_limites_fora_da_faixa_sao_recusados_pelo_contrato() -> None:
+    from pydantic import ValidationError
+
+    for corpo in (
+        {"max_file_mb": 0},
+        {"memory_limit_mb": 10},
+        {"tmp_size_mb": 1},
+        {"tmp_size_mb": 1_000_000},
+    ):
+        with pytest.raises(ValidationError):
+            SandboxPolicyBody.model_validate(corpo)

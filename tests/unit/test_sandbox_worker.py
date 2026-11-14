@@ -110,25 +110,49 @@ async def test_main_aplica_rlimits_antes_do_loop_le_env_lockdown(monkeypatch):
     # bwrap conforme policy.lockdown) e aplica o perfil de rlimits certo
     # antes de entrar no loop RPC.
     monkeypatch.setenv("VECTORA_SANDBOX_LOCKDOWN", "1")
+    monkeypatch.delenv("VECTORA_SANDBOX_MAX_FILE_MB", raising=False)
+    monkeypatch.delenv("VECTORA_SANDBOX_MEMORY_MB", raising=False)
     applied = MagicMock()
     monkeypatch.setattr(worker, "apply_rlimits", applied)
     _stub_event_loop(monkeypatch)
 
     await worker.main()
 
-    applied.assert_called_once_with(lockdown=True)
+    applied.assert_called_once_with(
+        lockdown=True, max_file_mb=None, memory_limit_mb=None
+    )
 
 
 @pytest.mark.asyncio
 async def test_main_sem_env_lockdown_usa_perfil_normal(monkeypatch):
     monkeypatch.delenv("VECTORA_SANDBOX_LOCKDOWN", raising=False)
+    monkeypatch.delenv("VECTORA_SANDBOX_MAX_FILE_MB", raising=False)
+    monkeypatch.delenv("VECTORA_SANDBOX_MEMORY_MB", raising=False)
     applied = MagicMock()
     monkeypatch.setattr(worker, "apply_rlimits", applied)
     _stub_event_loop(monkeypatch)
 
     await worker.main()
 
-    applied.assert_called_once_with(lockdown=False)
+    applied.assert_called_once_with(
+        lockdown=False, max_file_mb=None, memory_limit_mb=None
+    )
+
+
+@pytest.mark.asyncio
+async def test_main_repassa_os_limites_de_arquivo_e_memoria_do_ambiente(monkeypatch):
+    monkeypatch.delenv("VECTORA_SANDBOX_LOCKDOWN", raising=False)
+    monkeypatch.setenv("VECTORA_SANDBOX_MAX_FILE_MB", "128")
+    monkeypatch.setenv("VECTORA_SANDBOX_MEMORY_MB", "2048")
+    applied = MagicMock()
+    monkeypatch.setattr(worker, "apply_rlimits", applied)
+    _stub_event_loop(monkeypatch)
+
+    await worker.main()
+
+    applied.assert_called_once_with(
+        lockdown=False, max_file_mb=128, memory_limit_mb=2048
+    )
 
 
 @pytest.mark.asyncio

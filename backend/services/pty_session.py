@@ -15,6 +15,7 @@ import contextlib
 import logging
 import os
 import platform
+import sys
 import threading
 import time
 from collections import deque
@@ -155,7 +156,17 @@ class PtySession:
                 )
             from backend.sandbox.dry_run import build_bwrap_command
 
-            cmd = build_bwrap_command(policy, cwd, cmd, egress_dir=egress_dir)
+            # Endurecido por dentro (rlimits, no_new_privs, Landlock) e, por
+            # fora, com o filtro seccomp: o mesmo conjunto do worker.
+            cmd = [
+                sys.executable,
+                "-m",
+                "backend.sandbox.jail_exec",
+                "--",
+                *build_bwrap_command(
+                    policy, cwd, cmd, egress_dir=egress_dir, harden=True
+                ),
+            ]
 
         # pywinpty aceita lista ou string; ptyprocess espera argv (lista).
         try:

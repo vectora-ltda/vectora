@@ -271,3 +271,82 @@ def test_aviso_de_chaves_ignoradas_aparece_uma_vez_por_workspace(tmp_path, caplo
 
     avisos = [r for r in caplog.records if "tenta ampliar" in r.getMessage()]
     assert len(avisos) == 1
+
+
+# ── limites de recursos ─────────────────────────────────────────────────────
+
+
+def test_limites_padrao():
+    policy = SandboxPolicy(enabled=True)
+
+    assert (policy.max_file_mb, policy.memory_limit_mb, policy.tmp_size_mb) == (
+        4096,
+        None,
+        1024,
+    )
+
+
+def test_parse_le_os_limites(tmp_path):
+    arquivo = tmp_path / "p.toml"
+    arquivo.write_text(
+        "[sandbox]\nmax_file_mb = 100\nmemory_limit_mb = 2048\ntmp_size_mb = 256\n"
+    )
+
+    policy = policy_module.parse_policy(arquivo)
+
+    assert (policy.max_file_mb, policy.memory_limit_mb, policy.tmp_size_mb) == (
+        100,
+        2048,
+        256,
+    )
+
+
+@pytest.mark.parametrize(
+    "linha",
+    [
+        "max_file_mb = 0",
+        "max_file_mb = -1",
+        'tmp_size_mb = "1g"',
+        "memory_limit_mb = true",
+    ],
+)
+def test_limite_invalido_falha_fechado(tmp_path, linha):
+    arquivo = tmp_path / "p.toml"
+    arquivo.write_text(f"[sandbox]\n{linha}\n")
+
+    assert policy_module.parse_policy(arquivo).lockdown is True
+
+
+def test_repositorio_so_pode_baixar_os_limites(tmp_path):
+    trusted_policy_path(tmp_path).write_text(
+        "[sandbox]\nmax_file_mb = 1000\ntmp_size_mb = 500\nmemory_limit_mb = 4000\n"
+    )
+    (tmp_path / "vectora.toml").write_text(
+        "[sandbox]\nmax_file_mb = 200\ntmp_size_mb = 2000\nmemory_limit_mb = 8000\n"
+    )
+
+    policy = resolve_policy(tmp_path)
+
+    assert policy.max_file_mb == 200  # mais estrito: vale
+    assert policy.tmp_size_mb == 500  # mais frouxo: ignorado
+    assert policy.memory_limit_mb == 4000
+    assert set(policy.ignored_repo_keys) == {"tmp_size_mb", "memory_limit_mb"}
+
+
+def test_repositorio_pode_impor_limite_de_memoria_quando_o_usuario_nao_tem(tmp_path):
+    (tmp_path / "vectora.toml").write_text("[sandbox]\nmemory_limit_mb = 1024\n")
+
+    policy = resolve_policy(tmp_path)
+
+    assert policy.memory_limit_mb == 1024
+    assert policy.ignored_repo_keys == ()
+
+
+def test_limites_vao_e_voltam_pelo_toml(tmp_path):
+    original = SandboxPolicy(
+        enabled=True, max_file_mb=50, memory_limit_mb=512, tmp_size_mb=64
+    )
+
+    path = write_trusted_policy(tmp_path, original)
+
+    assert policy_module.parse_policy(path) == original

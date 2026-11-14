@@ -110,6 +110,7 @@ def test_build_connection_stdio():
         "args": ["--a"],
         "env_vars": [],
         "env": {},
+        "allow_hosts": [],
     }
 
 

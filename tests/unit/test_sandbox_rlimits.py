@@ -80,3 +80,67 @@ def test_todos_os_tres_limites_sao_configurados(monkeypatch, lockdown):
     rlimits.apply_rlimits(lockdown=lockdown)
 
     assert fake.setrlimit.call_count == 3
+
+
+# ── tamanho de arquivo e memória ────────────────────────────────────────────
+
+
+def _aplicar_em_subprocesso(**limites):
+    """Aplica os limites num processo filho e devolve o que ele enxerga depois."""
+    import json
+    import subprocess
+    import sys
+    import textwrap
+
+    codigo = textwrap.dedent(
+        f"""
+        import json, resource
+        from backend.sandbox.rlimits import apply_rlimits
+        apply_rlimits(False, **{limites!r})
+        print(json.dumps({{
+            "fsize": resource.getrlimit(resource.RLIMIT_FSIZE)[0],
+            "as": resource.getrlimit(resource.RLIMIT_AS)[0],
+        }}))
+        """
+    )
+    saida = subprocess.run(  # noqa: S603
+        [sys.executable, "-c", codigo], capture_output=True, text=True, check=True
+    )
+    return json.loads(saida.stdout)
+
+
+def test_max_file_mb_limita_o_tamanho_de_cada_arquivo():
+    limites = _aplicar_em_subprocesso(max_file_mb=64)
+
+    assert limites["fsize"] == 64 * 1024 * 1024
+
+
+def test_memory_limit_mb_limita_o_espaco_de_enderecamento():
+    limites = _aplicar_em_subprocesso(memory_limit_mb=2048)
+
+    assert limites["as"] == 2048 * 1024 * 1024
+
+
+def test_sem_declarar_nao_limita_arquivo_nem_memoria():
+    import resource
+
+    limites = _aplicar_em_subprocesso()
+
+    assert limites["fsize"] == resource.RLIM_INFINITY
+    assert limites["as"] == resource.RLIM_INFINITY
+
+
+def test_limits_from_environment_le_so_inteiros_positivos(monkeypatch):
+    from backend.sandbox.rlimits import limits_from_environment
+
+    monkeypatch.setenv("VECTORA_SANDBOX_MAX_FILE_MB", "512")
+    monkeypatch.setenv("VECTORA_SANDBOX_MEMORY_MB", "0")
+    assert limits_from_environment() == (512, None)
+
+    monkeypatch.setenv("VECTORA_SANDBOX_MAX_FILE_MB", "-3")
+    monkeypatch.setenv("VECTORA_SANDBOX_MEMORY_MB", "abc")
+    assert limits_from_environment() == (None, None)
+
+    monkeypatch.delenv("VECTORA_SANDBOX_MAX_FILE_MB")
+    monkeypatch.delenv("VECTORA_SANDBOX_MEMORY_MB")
+    assert limits_from_environment() == (None, None)

@@ -87,18 +87,28 @@ def _safe_subprocess_env(
 
 
 def stdio_sandbox_available(launcher: str | None = None) -> bool:
-    """Reports whether the persistent stdio sandbox adapter is configured.
+    """Reports whether a protocol-aware stdio sandbox is available.
 
     ``run_sandboxed`` is a one-shot command runner and cannot safely wrap the
-    bidirectional MCP protocol. Until a protocol-aware launcher is installed,
-    unverified stdio servers fail closed instead of silently running on host.
+    bidirectional MCP protocol. A server runs isolated either through the
+    configured external launcher or through the built-in jail (``bwrap``);
+    with neither, unverified stdio servers fail closed instead of silently
+    running on the host.
     """
     candidate = launcher or os.environ.get("VECTORA_MCP_STDIO_SANDBOX_LAUNCHER", "")
-    return bool(
+    external = bool(
         os.environ.get("VECTORA_MCP_STDIO_SANDBOX", "").lower() == "1"
         and candidate
         and shutil.which(candidate)
     )
+    return external or builtin_stdio_sandbox_available()
+
+
+def builtin_stdio_sandbox_available() -> bool:
+    """O jail embutido (bwrap, Linux) está disponível para servidores stdio."""
+    from backend.sandbox.mcp_launcher import jail_available
+
+    return jail_available()
 
 
 class VectoraMCPClient:
@@ -111,6 +121,8 @@ class VectoraMCPClient:
         self._sessions: dict[str, ClientSession] = {}
         self._tools_by_name: dict[str, tuple[str, MCPTool]] = {}
         self._connected = False
+        #: Servidores iniciados no jail embutido (para encerrar o proxy de saída).
+        self._jails: list[Any] = []
 
     async def connect(
         self, connections: dict[str, dict[str, Any]], *, strict: bool = False
@@ -162,7 +174,19 @@ class VectoraMCPClient:
             command = cfg["command"]
             args = list(cfg.get("args") or [])
             if cfg.get("require_sandbox"):
-                command, args = launcher, [command, *args]
+                if launcher and shutil.which(launcher):
+                    command, args = launcher, [command, *args]
+                else:
+                    from backend.sandbox import mcp_launcher
+
+                    jailed = await mcp_launcher.build_jailed_launch(
+                        server_name,
+                        command,
+                        args,
+                        allow_hosts=tuple(cfg.get("allow_hosts") or ()),
+                    )
+                    self._jails.append(jailed)
+                    command, args = jailed.command, jailed.args
             params = StdioServerParameters(
                 command=command,
                 args=args,
@@ -232,6 +256,14 @@ class VectoraMCPClient:
         except Exception:
             logger.debug("mcp: erro no teardown do client (best-effort, ignorado)")
         finally:
+            from backend.sandbox import mcp_launcher
+
+            for jailed in self._jails:
+                try:
+                    await mcp_launcher.release(jailed)
+                except Exception:
+                    logger.debug("mcp: erro ao encerrar o proxy de saída do jail")
+            self._jails.clear()
             self._sessions.clear()
             self._tools_by_name.clear()
             self._connected = False

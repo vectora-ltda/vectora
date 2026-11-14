@@ -77,6 +77,9 @@ vi.mock("@/lib/paraglide/messages", () => {
             sandbox_network_off: "Sem rede",
             sandbox_network_open: "Aberta",
             sandbox_field_enabled: "Sandbox ligado",
+            sandbox_field_max_file: "Maior arquivo (MB)",
+            sandbox_field_memory: "Memória (MB)",
+            sandbox_field_tmp_size: "Tamanho do tmp (MB)",
             sandbox_no_workspace: "Abra um workspace",
             sandbox_error: "Erro ao carregar",
             sandbox_loading: "Carregando",
@@ -129,6 +132,9 @@ const policy = (overrides: Partial<SandboxPolicy> = {}): SandboxPolicy => ({
   network: "filtered",
   allow_hosts: ["api.exemplo.com"],
   registry_hosts: true,
+  max_file_mb: 4096,
+  memory_limit_mb: null,
+  tmp_size_mb: 1024,
   ignored_repo_keys: [],
   user_policy: true,
   ...overrides,
@@ -277,6 +283,43 @@ describe("SandboxTab", () => {
     // O que a tela não edita segue como o servidor devolveu.
     expect(body.mask).toEqual([".env"]);
     expect(await screen.findByText("Política salva.")).toBeTruthy();
+  });
+
+  it("salva os limites de recursos, com a memória vazia como sem limite", async () => {
+    renderTab();
+    const arquivo = (await screen.findByLabelText(
+      "Maior arquivo (MB)",
+    )) as HTMLInputElement;
+    expect(arquivo.value).toBe("4096");
+    expect(
+      (screen.getByLabelText("Memória (MB)") as HTMLInputElement).value,
+    ).toBe("");
+
+    fireEvent.change(arquivo, { target: { value: "200" } });
+    fireEvent.change(screen.getByLabelText("Tamanho do tmp (MB)"), {
+      target: { value: "64" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar política" }));
+
+    await waitFor(() => expect(api.putSandboxPolicy).toHaveBeenCalledTimes(1));
+    const body = api.putSandboxPolicy.mock.calls[0][1];
+    expect(body.max_file_mb).toBe(200);
+    expect(body.tmp_size_mb).toBe(64);
+    expect(body.memory_limit_mb).toBeNull();
+  });
+
+  it("envia o limite de memória quando preenchido", async () => {
+    api.getSandboxPolicy.mockResolvedValue(policy({ memory_limit_mb: 2048 }));
+    renderTab();
+    const memoria = (await screen.findByLabelText(
+      "Memória (MB)",
+    )) as HTMLInputElement;
+    expect(memoria.value).toBe("2048");
+
+    fireEvent.click(screen.getByRole("button", { name: "Salvar política" }));
+
+    await waitFor(() => expect(api.putSandboxPolicy).toHaveBeenCalled());
+    expect(api.putSandboxPolicy.mock.calls[0][1].memory_limit_mb).toBe(2048);
   });
 
   it("mostra o motivo quando o servidor recusa a política", async () => {

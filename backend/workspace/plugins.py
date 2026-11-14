@@ -14,7 +14,7 @@ import logging
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, create_model
+from pydantic import BaseModel, create_model, field_validator
 
 from backend.context_graph.security import validate_url
 from backend.rbac import tool_policy
@@ -150,8 +150,24 @@ class McpServer(BaseModel):
     env_vars: list[str] = []
     # Valores explicitamente atribuídos pelo usuário para este servidor.
     env: dict[str, str] = {}
+    # Destinos de rede (`host` ou `*.dominio`) que o servidor stdio isolado pode
+    # alcançar, além dos registries de pacotes. Só vale no jail do sandbox.
+    allow_hosts: list[str] = []
     trust: extension_trust.TrustRecord = extension_trust.TrustRecord()
     trust_confirmed: bool = False
+
+    @field_validator("allow_hosts")
+    @classmethod
+    def _valid_allow_hosts(cls, hosts: list[str]) -> list[str]:
+        from backend.sandbox.policy import HOST_PATTERN
+
+        invalid = [host for host in hosts if not HOST_PATTERN.fullmatch(host)]
+        if invalid:
+            raise ValueError(
+                f"destino inválido em allow_hosts: {', '.join(invalid)} "
+                "(use dominio.com ou *.dominio.com)"
+            )
+        return hosts
 
 
 # ---------------------------------------------------------------------------
@@ -296,6 +312,7 @@ def build_connection(server: McpServer) -> dict:
             "args": list(server.args),
             "env_vars": list(server.env_vars),
             "env": dict(server.env),
+            "allow_hosts": list(server.allow_hosts),
         }
     if server.transport == "sse":
         validate_url(server.url)

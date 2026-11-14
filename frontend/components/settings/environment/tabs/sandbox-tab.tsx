@@ -69,6 +69,9 @@ interface Draft {
   gitWritable: boolean;
   lockdown: boolean;
   requireFull: boolean;
+  maxFileMb: string;
+  memoryMb: string;
+  tmpSizeMb: string;
 }
 
 function toDraft(policy: SandboxPolicy): Draft {
@@ -83,6 +86,10 @@ function toDraft(policy: SandboxPolicy): Draft {
     gitWritable: policy.git_writable,
     lockdown: policy.lockdown,
     requireFull: policy.require_full_isolation,
+    maxFileMb: String(policy.max_file_mb),
+    memoryMb:
+      policy.memory_limit_mb === null ? "" : String(policy.memory_limit_mb),
+    tmpSizeMb: String(policy.tmp_size_mb),
   };
 }
 
@@ -101,6 +108,10 @@ function toInput(draft: Draft, current: SandboxPolicy): SandboxPolicyInput {
     network: draft.network,
     allow_hosts: lines(draft.allowHosts),
     registry_hosts: draft.registryHosts,
+    max_file_mb: Number(draft.maxFileMb) || current.max_file_mb,
+    memory_limit_mb:
+      draft.memoryMb.trim() === "" ? null : Number(draft.memoryMb),
+    tmp_size_mb: Number(draft.tmpSizeMb) || current.tmp_size_mb,
   };
 }
 
@@ -387,6 +398,26 @@ export function SandboxTab() {
               onChange={(e) => set("envPass", e.target.value)}
             />
           </label>
+
+          {(
+            [
+              ["maxFileMb", m.sandbox_field_max_file()],
+              ["memoryMb", m.sandbox_field_memory()],
+              ["tmpSizeMb", m.sandbox_field_tmp_size()],
+            ] as const
+          ).map(([field, label]) => (
+            <label key={field} className="block text-sm">
+              <span className="mb-1 block font-medium">{label}</span>
+              <input
+                type="number"
+                min={1}
+                inputMode="numeric"
+                className="w-full rounded-md border border-border bg-background p-2 text-sm"
+                value={draft[field]}
+                onChange={(e) => set(field, e.target.value)}
+              />
+            </label>
+          ))}
 
           <label className="flex items-center gap-2 text-sm">
             <input

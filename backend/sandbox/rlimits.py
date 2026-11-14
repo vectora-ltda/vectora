@@ -8,6 +8,7 @@ em qualquer outro SO (o worker em si só roda em Linux/WSL2 hoje)."""
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -23,11 +24,34 @@ NORMAL_PROFILE = RlimitProfile(nproc=4096, nofile=65536)
 LOCKDOWN_PROFILE = RlimitProfile(nproc=1024, nofile=4096)
 
 
-def apply_rlimits(lockdown: bool) -> None:
+MB = 1024 * 1024
+
+
+def limits_from_environment() -> tuple[int | None, int | None]:
+    """`(max_file_mb, memory_limit_mb)` que o `bwrap` passou ao jail pelas
+    variáveis `VECTORA_SANDBOX_MAX_FILE_MB` e `VECTORA_SANDBOX_MEMORY_MB`."""
+
+    def read(name: str) -> int | None:
+        value = os.environ.get(name, "")
+        return int(value) if value.isdigit() and int(value) > 0 else None
+
+    return read("VECTORA_SANDBOX_MAX_FILE_MB"), read("VECTORA_SANDBOX_MEMORY_MB")
+
+
+def apply_rlimits(
+    lockdown: bool,
+    *,
+    max_file_mb: int | None = None,
+    memory_limit_mb: int | None = None,
+) -> None:
     """Aplica `RLIMIT_NPROC`/`RLIMIT_NOFILE`/`RLIMIT_CORE=0` no processo
     atual (herdado por qualquer filho exec'd depois) — nunca levanta:
     plataforma sem `resource` (Windows) ou sem permissão pra baixar um
-    limite já reduzido degrada com aviso, não quebra o worker."""
+    limite já reduzido degrada com aviso, não quebra o worker.
+
+    `max_file_mb` limita o tamanho de cada arquivo gravado (`RLIMIT_FSIZE`) e
+    `memory_limit_mb` o espaço de endereçamento (`RLIMIT_AS`, só quando
+    declarado: runtimes como o V8 reservam muito endereço virtual)."""
     try:
         import resource
     except ImportError:
@@ -37,11 +61,16 @@ def apply_rlimits(lockdown: bool) -> None:
         return
 
     profile = LOCKDOWN_PROFILE if lockdown else NORMAL_PROFILE
-    for limit_name, value in (
+    limits: list[tuple[str, int]] = [
         ("RLIMIT_NPROC", profile.nproc),
         ("RLIMIT_NOFILE", profile.nofile),
         ("RLIMIT_CORE", 0),
-    ):
+    ]
+    if max_file_mb:
+        limits.append(("RLIMIT_FSIZE", max_file_mb * MB))
+    if memory_limit_mb:
+        limits.append(("RLIMIT_AS", memory_limit_mb * MB))
+    for limit_name, value in limits:
         limit = getattr(resource, limit_name, None)
         if limit is None:
             continue

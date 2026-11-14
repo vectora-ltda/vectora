@@ -5,6 +5,7 @@ do usuário compartilha a MESMA política jailada (bwrap) que `terminal`/
 
 from __future__ import annotations
 
+import sys
 from unittest.mock import MagicMock
 
 import pytest
@@ -70,8 +71,12 @@ def test_policy_habilitada_backend_local_com_bwrap_disponivel_envolve_argv(
     )
 
     cmd = _fake_backend.call_args[0][0]
-    assert cmd[0] == "bwrap"
+    # O lançador do host põe o filtro seccomp no `bwrap`; por dentro, o jail é
+    # endurecido (rlimits, no_new_privs e Landlock) antes do shell.
+    assert cmd[:4] == [sys.executable, "-m", "backend.sandbox.jail_exec", "--"]
+    assert cmd[4] == "bwrap"
     assert str(tmp_path) in cmd
+    assert "--harden" in cmd
 
 
 def test_policy_habilitada_sem_bwrap_no_sistema_falha_com_mensagem_clara(

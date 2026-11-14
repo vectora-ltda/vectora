@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import tomllib
@@ -59,10 +60,22 @@ class SandboxPolicy:
     #: Inclui os registries de pacotes (pip, npm, cargo, go, maven, composer e
     #: GitHub) na lista do modo `filtered`.
     registry_hosts: bool = True
+    #: Maior arquivo que o jail pode gravar (MB, `RLIMIT_FSIZE`).
+    max_file_mb: int = 4096
+    #: Teto de memória por processo (MB, `RLIMIT_AS`); `None` não limita.
+    memory_limit_mb: int | None = None
+    #: Tamanho máximo dos tmpfs do jail (`/tmp` e `$HOME`), em MB.
+    tmp_size_mb: int = 1024
     #: Chaves do `[sandbox]` do repositório que tentaram ampliar o acesso e
     #: foram ignoradas (só a configuração do usuário amplia).
     ignored_repo_keys: tuple[str, ...] = ()
 
+
+#: Destino permitido: `dominio.com` ou `*.dominio.com` (sem esquema, porta nem caminho).
+HOST_PATTERN = re.compile(
+    r"(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+",
+    re.IGNORECASE,
+)
 
 NETWORK_MODES: tuple[str, ...] = ("off", "filtered", "open")
 
@@ -139,6 +152,17 @@ def _list_field(
     return tuple(convert(item) for item in value)
 
 
+def _positive_int(section: dict[str, Any], key: str, default: int) -> int:
+    """Inteiro positivo do `[sandbox]`; booleano, texto ou valor não positivo
+    é tipo errado (falha fechada)."""
+    if key not in section:
+        return default
+    value = section[key]
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise TypeError(f"[sandbox].{key} deve ser um inteiro positivo")
+    return value
+
+
 def _network_field(section: dict[str, Any]) -> NetworkMode:
     value = section.get("network", "filtered")
     if value not in NETWORK_MODES:
@@ -195,6 +219,13 @@ def parse_policy(vectora_toml_path: Path) -> SandboxPolicy:
             network=_network_field(section),
             allow_hosts=_list_field(section, "allow_hosts", str),
             registry_hosts=bool(section.get("registry_hosts", True)),
+            max_file_mb=_positive_int(section, "max_file_mb", 4096),
+            memory_limit_mb=(
+                _positive_int(section, "memory_limit_mb", 0) or None
+                if "memory_limit_mb" in section
+                else None
+            ),
+            tmp_size_mb=_positive_int(section, "tmp_size_mb", 1024),
             git_writable=bool(section.get("git_writable", False)),
             require_full_isolation=bool(section.get("require_full_isolation", False)),
         )
@@ -260,9 +291,11 @@ def policy_to_toml(policy: SandboxPolicy) -> str:
         "network",
         "allow_hosts",
         "registry_hosts",
+        "max_file_mb",
+        "tmp_size_mb",
     )
     lines.extend(f"{name} = {_toml_value(getattr(policy, name))}" for name in fixed)
-    optional = ("docker_image", "remote_host", "ssh_key_id")
+    optional = ("docker_image", "remote_host", "ssh_key_id", "memory_limit_mb")
     lines.extend(
         f"{name} = {_toml_value(getattr(policy, name))}"
         for name in optional
@@ -308,6 +341,19 @@ def _read_repo_section(path: Path) -> dict[str, Any] | Any | None:
 def _narrowed(base: tuple[Any, ...], requested: tuple[Any, ...]) -> tuple[Any, ...]:
     """Só o que a política do usuário já permite e o repositório manteve."""
     return tuple(item for item in base if item in requested)
+
+
+def _looser_memory(repo: int | None, base: int | None) -> bool:
+    """O limite do repositório deixa passar mais memória que o do usuário."""
+    if base is None:
+        return False
+    return repo is None or repo > base
+
+
+def _stricter_memory(base: int | None, repo: int | None) -> int | None:
+    if base is None:
+        return repo
+    return base if repo is None else min(base, repo)
 
 
 _NETWORK_RANK = {"off": 0, "filtered": 1, "open": 2}
@@ -370,6 +416,14 @@ def resolve_policy(root: Path) -> SandboxPolicy:
         ignored.append("allow_hosts")
     if "registry_hosts" in section and repo.registry_hosts and not base.registry_hosts:
         ignored.append("registry_hosts")
+    if "max_file_mb" in section and repo.max_file_mb > base.max_file_mb:
+        ignored.append("max_file_mb")
+    if "tmp_size_mb" in section and repo.tmp_size_mb > base.tmp_size_mb:
+        ignored.append("tmp_size_mb")
+    if "memory_limit_mb" in section and _looser_memory(
+        repo.memory_limit_mb, base.memory_limit_mb
+    ):
+        ignored.append("memory_limit_mb")
     if "no_gpu" in section and not repo.no_gpu and base.no_gpu:
         ignored.append("no_gpu")
     if "lockdown" in section and not repo.lockdown and base.lockdown:
@@ -421,6 +475,17 @@ def resolve_policy(root: Path) -> SandboxPolicy:
             base.registry_hosts and repo.registry_hosts
             if "registry_hosts" in section
             else base.registry_hosts
+        ),
+        max_file_mb=min(base.max_file_mb, repo.max_file_mb)
+        if "max_file_mb" in section
+        else base.max_file_mb,
+        tmp_size_mb=min(base.tmp_size_mb, repo.tmp_size_mb)
+        if "tmp_size_mb" in section
+        else base.tmp_size_mb,
+        memory_limit_mb=(
+            _stricter_memory(base.memory_limit_mb, repo.memory_limit_mb)
+            if "memory_limit_mb" in section
+            else base.memory_limit_mb
         ),
         ignored_repo_keys=tuple(ignored),
     )
