@@ -181,6 +181,22 @@ export function useContextGraph(workspaceId: string | null | undefined) {
     }
   }, [workspaceId]);
 
+  const exportGraph = useCallback(
+    async (format: "graphml" | "cypher" | "canvas"): Promise<Blob> => {
+      if (!workspaceId) throw new Error("Workspace indisponível");
+      const res = await fetch(`${base(workspaceId)}/export/${format}`);
+      if (!res.ok) {
+        const detail = await res.json().catch(() => null);
+        throw new Error(
+          (detail as { detail?: string } | null)?.detail ??
+            `Falha na exportação (${res.status})`,
+        );
+      }
+      return res.blob();
+    },
+    [workspaceId],
+  );
+
   const explainNode = useCallback(
     async (nodeId: string, depth = 1): Promise<GraphQueryResult | null> => {
       if (!workspaceId) return null;
@@ -278,6 +294,7 @@ export function useContextGraph(workspaceId: string | null | undefined) {
     fetchStatus,
     getHtmlUrl,
     fetchGraphData,
+    exportGraph,
     explainNode,
     queryGraph,
     pathBetween,

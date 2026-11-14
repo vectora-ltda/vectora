@@ -45,6 +45,7 @@ const mockFetchStatus = vi.fn();
 const mockFetchGraphData = vi.fn(() =>
   Promise.resolve({ nodes: [], links: [] }),
 );
+const mockExportGraph = vi.fn(() => Promise.resolve(new Blob(["graph"])));
 const mockPathBetween = vi.fn(() =>
   Promise.resolve({ answer: "", nodes: [], edges: [] }),
 );
@@ -88,6 +89,7 @@ function setup(
     getHtmlUrl: mockGetHtmlUrl,
     fetchStatus: mockFetchStatus,
     fetchGraphData: mockFetchGraphData,
+    exportGraph: mockExportGraph,
     pathBetween: mockPathBetween,
     ...overrides,
   });
@@ -115,6 +117,43 @@ import {
 // ── testes ───────────────────────────────────────────────────────────────────
 
 describe("ContextGraphTab", () => {
+  describe("exportação", () => {
+    it("baixa o formato selecionado quando o grafo está pronto", async () => {
+      setup({ status: { status: "done", node_count: 2 } });
+      const createUrl = vi
+        .spyOn(URL, "createObjectURL")
+        .mockReturnValue("blob:graph");
+      const revokeUrl = vi
+        .spyOn(URL, "revokeObjectURL")
+        .mockImplementation(() => {});
+      const click = vi
+        .spyOn(HTMLAnchorElement.prototype, "click")
+        .mockImplementation(() => {});
+      render(<ContextGraphTab threadId="t1" />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("graph_export_button"));
+      });
+
+      expect(mockExportGraph).toHaveBeenCalledWith("graphml");
+      expect(click).toHaveBeenCalledOnce();
+      expect(createUrl).toHaveBeenCalledOnce();
+      expect(revokeUrl).toHaveBeenCalledWith("blob:graph");
+    });
+
+    it("mostra erro quando a exportação falha", async () => {
+      setup({ status: { status: "done", node_count: 2 } });
+      mockExportGraph.mockRejectedValueOnce(new Error("falha"));
+      render(<ContextGraphTab threadId="t1" />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("graph_export_button"));
+      });
+
+      expect(screen.getByRole("alert").textContent).toBe("graph_export_failed");
+    });
+  });
+
   describe("estado not_built", () => {
     it("exibe mensagem graph_not_built", () => {
       setup();
