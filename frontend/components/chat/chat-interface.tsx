@@ -52,6 +52,11 @@ import {
   type ModelOption,
 } from "@/lib/config/deployment-config";
 import { parseSlashCommand } from "@/lib/constants/slash-commands";
+import {
+  deliverLocalNotification,
+  notificationKey,
+  notifyOnce,
+} from "@/lib/notifications/notify-once";
 import { detectAtMention } from "@/components/chat/features/at-mention-menu";
 
 /** Idioma da UI → código BCP-47 do reconhecimento de voz. */
@@ -882,17 +887,19 @@ export function ChatInterface({
 
         // Notificação OS quando resposta chega com aba oculta e >15s
         const streamDuration = Date.now() - streamStart;
+        // A chave liga o alerta à thread e ao turno: reenvio da fila ou
+        // retomada do stream com o mesmo turno não alertam de novo.
         if (
           streamDuration > 15_000 &&
           document.visibilityState === "hidden" &&
-          typeof Notification !== "undefined" &&
-          Notification.permission === "granted" &&
           assistantContent
         ) {
-          void new Notification("Vectora", {
-            body: "Resposta pronta — clique para ver.",
-            icon: "/vectora.svg",
-          });
+          notifyOnce(notificationKey(threadId, userMessage.id, "done"), () =>
+            deliverLocalNotification(
+              "Vectora",
+              "Resposta pronta — clique para ver.",
+            ),
+          );
         }
         // Badge de título: (1) quando aba oculta
         if (document.visibilityState === "hidden" && assistantContent) {
