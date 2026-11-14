@@ -31,6 +31,7 @@ from __future__ import annotations
 import fnmatch
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import HTTPException
@@ -64,6 +65,54 @@ def require_min_role(user: Any, min_role: str) -> None:
             status_code=403,
             detail=f"Requer role '{min_role}' ou superior.",
         )
+
+
+def can_access_thread(user: Any, thread_owner_id: str | None) -> bool:
+    """True se o usuário pode ler/escrever na thread.
+
+    - root e admin: qualquer thread
+    - member/viewer: apenas threads próprias
+    """
+    if user is None:
+        return False
+    if has_min_role(user, "admin"):
+        return True
+    return thread_owner_id is None or thread_owner_id == user.id
+
+
+def can_delete_thread(user: Any, thread_owner_id: str | None) -> bool:
+    """True se o usuário pode deletar a thread."""
+    if user is None:
+        return False
+    if has_min_role(user, "admin"):
+        return True
+    return thread_owner_id == user.id
+
+
+def can_run_terminal(user: Any, workspace_owner_id: str | None) -> bool:
+    """True se o usuário pode executar comandos de terminal no workspace.
+
+    - root/admin: qualquer workspace
+    - member: apenas workspace próprio
+    - viewer: nunca
+    """
+    if user is None:
+        return False
+    if has_min_role(user, "admin"):
+        return True
+    if user.role == "member":
+        return workspace_owner_id is None or workspace_owner_id == user.id
+    return False
+
+
+def can_read_audit(user: Any) -> bool:
+    """True se o usuário pode ver o audit log completo."""
+    return has_min_role(user, "admin")
+
+
+def can_manage_users(user: Any) -> bool:
+    """True se o usuário pode criar/deletar/modificar outros usuários."""
+    return has_min_role(user, "root")
 
 
 # ---------------------------------------------------------------------------
@@ -174,6 +223,10 @@ class FilesystemPermission:
     def is_allowed(self, path: str, op: FsOp) -> bool:
         """Atalho: True se ``check()`` retornar ``"allow"``."""
         return self.check(path, op) == "allow"
+
+    def requires_interrupt(self, path: str, op: FsOp) -> bool:
+        """True se a operação precisa de aprovação do usuário."""
+        return self.check(path, op) == "interrupt"
 
 
 # ---------------------------------------------------------------------------

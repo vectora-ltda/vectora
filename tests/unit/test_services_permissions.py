@@ -117,9 +117,66 @@ class TestRequireMinRole:
 # ---------------------------------------------------------------------------
 
 
+class TestCanAccessThread:
+    def test_root_accesses_any_thread(self):
+        from backend.rbac.permissions import can_access_thread
+
+        root = make_user("root", "root-id")
+        assert can_access_thread(root, "other-user-id") is True
+
+    def test_admin_accesses_any_thread(self):
+        from backend.rbac.permissions import can_access_thread
+
+        admin = make_user("admin", "admin-id")
+        assert can_access_thread(admin, "other-user-id") is True
+
+    def test_member_accesses_own_thread(self):
+        from backend.rbac.permissions import can_access_thread
+
+        member = make_user("member", "member-id")
+        assert can_access_thread(member, "member-id") is True
+
+    def test_member_cannot_access_other_thread(self):
+        from backend.rbac.permissions import can_access_thread
+
+        member = make_user("member", "member-id")
+        assert can_access_thread(member, "other-id") is False
+
+    def test_member_accesses_unowned_thread(self):
+        from backend.rbac.permissions import can_access_thread
+
+        member = make_user("member", "member-id")
+        assert can_access_thread(member, None) is True
+
+    def test_none_user_returns_false(self):
+        from backend.rbac.permissions import can_access_thread
+
+        assert can_access_thread(None, "any-id") is False
+
+
 # ---------------------------------------------------------------------------
 # can_delete_thread
 # ---------------------------------------------------------------------------
+
+
+class TestCanDeleteThread:
+    def test_admin_deletes_any(self):
+        from backend.rbac.permissions import can_delete_thread
+
+        admin = make_user("admin", "a")
+        assert can_delete_thread(admin, "other") is True
+
+    def test_member_deletes_own(self):
+        from backend.rbac.permissions import can_delete_thread
+
+        member = make_user("member", "m")
+        assert can_delete_thread(member, "m") is True
+
+    def test_member_cannot_delete_other(self):
+        from backend.rbac.permissions import can_delete_thread
+
+        member = make_user("member", "m")
+        assert can_delete_thread(member, "other") is False
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +184,76 @@ class TestRequireMinRole:
 # ---------------------------------------------------------------------------
 
 
+class TestCanRunTerminal:
+    def test_root_runs_anywhere(self):
+        from backend.rbac.permissions import can_run_terminal
+
+        root = make_user("root", "r")
+        assert can_run_terminal(root, "any-workspace") is True
+
+    def test_admin_runs_anywhere(self):
+        from backend.rbac.permissions import can_run_terminal
+
+        admin = make_user("admin", "a")
+        assert can_run_terminal(admin, "other-workspace") is True
+
+    def test_member_runs_own_workspace(self):
+        from backend.rbac.permissions import can_run_terminal
+
+        member = make_user("member", "m")
+        assert can_run_terminal(member, "m") is True
+
+    def test_member_cannot_run_other_workspace(self):
+        from backend.rbac.permissions import can_run_terminal
+
+        member = make_user("member", "m")
+        assert can_run_terminal(member, "other") is False
+
+    def test_viewer_never_runs_terminal(self):
+        from backend.rbac.permissions import can_run_terminal
+
+        viewer = make_user("viewer", "v")
+        assert can_run_terminal(viewer, "v") is False
+        assert can_run_terminal(viewer, "other") is False
+
+    def test_none_user_returns_false(self):
+        from backend.rbac.permissions import can_run_terminal
+
+        assert can_run_terminal(None, "ws") is False
+
+
 # ---------------------------------------------------------------------------
 # can_read_audit / can_manage_users
 # ---------------------------------------------------------------------------
+
+
+class TestAuditAndUserManagement:
+    @pytest.mark.parametrize(
+        ("role", "expected"),
+        [
+            ("root", True),
+            ("admin", True),
+            ("member", False),
+            ("viewer", False),
+        ],
+    )
+    def test_can_read_audit(self, role, expected):
+        from backend.rbac.permissions import can_read_audit
+
+        user = make_user(role)
+        assert can_read_audit(user) == expected
+
+    @pytest.mark.parametrize(
+        ("role", "expected"),
+        [
+            ("root", True),
+            ("admin", False),
+            ("member", False),
+            ("viewer", False),
+        ],
+    )
+    def test_can_manage_users(self, role, expected):
+        from backend.rbac.permissions import can_manage_users
+
+        user = make_user(role)
+        assert can_manage_users(user) == expected

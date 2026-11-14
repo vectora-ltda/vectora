@@ -98,3 +98,21 @@ class TestListServiceTokens:
     @pytest.mark.asyncio
     async def test_banco_vazio_retorna_lista_vazia_sem_erro(self, db):
         assert await token_auth.list_service_tokens(db) == []
+
+
+class TestHasScope:
+    def test_escopo_explicito_e_coringa(self):
+        t = token_auth.ServiceToken(
+            id="1", name="x", scopes=["webhook:trigger"], created_at="now"
+        )
+        assert token_auth.has_scope(t, "webhook:trigger") is True
+
+        admin = token_auth.ServiceToken(
+            id="2", name="x", scopes=["*"], created_at="now"
+        )
+        assert token_auth.has_scope(admin, "qualquer:coisa") is True
+
+    def test_escopo_ausente_e_negado(self):
+        """Erro/borda: token sem o escopo pedido (nem coringa) é negado."""
+        t = token_auth.ServiceToken(id="1", name="x", scopes=["read"], created_at="now")
+        assert token_auth.has_scope(t, "write") is False
