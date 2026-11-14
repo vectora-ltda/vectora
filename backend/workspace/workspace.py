@@ -274,16 +274,14 @@ class WorkspaceRegistry:
 
     @staticmethod
     def _current_rules_digest(cwd: str) -> str | None:
-        """Digest das regras ``[[hooks.rules]]`` atuais; ``None`` sem regras."""
+        """Digest dos hooks atuais (regras e ``post_file_write``); ``None`` sem hooks."""
         from backend.workspace.workspace_config import (
-            hook_rules_digest,
+            hooks_digest,
             load_workspace_config,
         )
 
         config = load_workspace_config(cwd)
-        if config is None or not config.hooks.rules:
-            return None
-        return hook_rules_digest(config.hooks.rules)
+        return None if config is None else hooks_digest(config.hooks)
 
     def approve_hooks(self, workspace_id: str, user_id: str | None = None) -> bool:
         """Aprova a execução dos hooks deste workspace.

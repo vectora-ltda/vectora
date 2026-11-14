@@ -37,6 +37,7 @@ import json
 import logging
 import os
 import signal
+import subprocess  # nosec B404
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -180,12 +181,22 @@ def parse_decision(stdout: str) -> tuple[Literal["allow", "deny"], str]:
 
 
 def _kill_process_tree(process: asyncio.subprocess.Process) -> None:
-    """Encerra o processo do hook e seus descendentes (grupo próprio no POSIX)."""
+    """Encerra o processo do hook e seus descendentes.
+
+    No POSIX o hook roda em grupo de processos próprio e o grupo inteiro recebe
+    SIGKILL; no Windows ``taskkill /T`` percorre a árvore a partir do PID.
+    """
     with contextlib.suppress(ProcessLookupError, OSError):
         if os.name == "posix":
             os.killpg(process.pid, signal.SIGKILL)
-        else:
-            process.kill()
+            return
+        subprocess.run(  # nosec B603, B607  # noqa: S603
+            ["taskkill", "/T", "/F", "/PID", str(process.pid)],  # noqa: S607
+            capture_output=True,
+            check=False,
+            timeout=5,
+        )
+        process.kill()
 
 
 async def _run_command(
@@ -366,13 +377,15 @@ async def run_hooks(
         return []
 
     from backend.sandbox.policy import parse_policy
-    from backend.workspace.workspace_config import hook_rules_digest
+    from backend.workspace.workspace_config import hooks_approval_valid
 
     sandboxed = parse_policy(root / "vectora.toml").enabled
     granted = bool(getattr(workspace, "hooks_approved", False))
-    approved = granted and getattr(
-        workspace, "hooks_rules_digest", None
-    ) == hook_rules_digest(config.hooks.rules)
+    approved = hooks_approval_valid(
+        config.hooks,
+        approved=granted,
+        approved_digest=getattr(workspace, "hooks_rules_digest", None),
+    )
     not_approved_reason = (
         "as regras de hook mudaram desde a aprovação do workspace"
         if granted and getattr(workspace, "hooks_rules_digest", None)

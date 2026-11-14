@@ -44,6 +44,9 @@ runs:
         version: ${{ inputs.uv-version }}
         enable-cache: true
         cache-dependency-glob: "${{ inputs.working-directory }}/uv.lock"
+        # Um sufixo por job evita que jobs paralelos tentem reservar a mesma
+        # chave de cache e emitam o aviso "Unable to reserve cache".
+        cache-suffix: ${{ github.job }}
 
     - name: Sync dependencies
       if: ${{ inputs.sync == 'true' }}

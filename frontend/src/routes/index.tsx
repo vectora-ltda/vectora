@@ -56,9 +56,13 @@ function HomeScreen() {
   const [leaving, setLeaving] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
 
-  useEffect(() => {
+  // Fecha a sidebar móvel ao sair do viewport estreito. Ajustar o estado durante
+  // a renderização evita o render em cascata de um efeito.
+  const [wasNarrowViewport, setWasNarrowViewport] = useState(isNarrowViewport);
+  if (wasNarrowViewport !== isNarrowViewport) {
+    setWasNarrowViewport(isNarrowViewport);
     if (!isNarrowViewport) setIsMobileSidebarOpen(false);
-  }, [isNarrowViewport]);
+  }
 
   /** Anima a sidebar encolhendo e navega após a animação terminar. */
   const go = (fn: () => void) => {

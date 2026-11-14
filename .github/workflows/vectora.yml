@@ -127,7 +127,7 @@ jobs:
         run: pnpm i18n:compile
       - name: Lint (oxlint)
         working-directory: frontend
-        run: pnpm exec oxlint
+        run: pnpm exec oxlint --deny-warnings
       - name: Lint i18n (no hardcoded UI strings)
         working-directory: frontend
         env:
