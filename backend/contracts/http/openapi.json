@@ -1875,7 +1875,8 @@
         "title": "CreateFsNodeRequest",
         "type": "object"
       },
-      "CreateInviteRequest": {
+      "CreateInviteBody": {
+        "description": "Corpo de `POST /admin/invites`.\n\nHerda os campos e a validação de `CreateInviteRequest`; o nome é o que o\ncontrato HTTP publicado já usa, e trocá-lo seria uma quebra de compatibilidade.",
         "properties": {
           "email": {
             "anyOf": [
@@ -1901,7 +1902,7 @@
             "type": "integer"
           }
         },
-        "title": "CreateInviteRequest",
+        "title": "CreateInviteBody",
         "type": "object"
       },
       "CreateInviteResponse": {
@@ -11292,7 +11293,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateInviteRequest"
+                "$ref": "#/components/schemas/CreateInviteBody"
               }
             }
           },
