@@ -61,6 +61,16 @@ export function mimeTypeOf(fileName: string): string {
   return MIME_BY_EXTENSION[extension] ?? "";
 }
 
+/**
+ * A raiz de uma unidade do Windows chega como `C:"`: o menu de contexto passa
+ * `"C:\\"` e a barra final escapa a aspa na hora de dividir os argumentos. Devolve
+ * `C:\\`; qualquer outro argumento volta igual.
+ */
+export function fixDriveRootArgument(argument: string): string {
+  const match = /^([A-Za-z]):"$/.exec(argument);
+  return match ? `${match[1]}:\\` : argument;
+}
+
 interface PathsFromArgvOptions {
   /** Diretório de trabalho de quem chamou (segunda instância); base de caminhos relativos. */
   cwd?: string;
@@ -81,7 +91,8 @@ export function pathsFromArgv(
 ): string[] {
   const skip = options.defaultApp ? 2 : 1;
   const found: string[] = [];
-  for (const raw of argv.slice(skip)) {
+  for (const rawArgument of argv.slice(skip)) {
+    const raw = fixDriveRootArgument(rawArgument);
     if (!raw || raw.startsWith("-")) continue;
     let candidate = raw;
     if (/^file:\/\//i.test(raw)) {

@@ -360,6 +360,15 @@ mac:
   # O helper de fala nativo (resources/vectora-core/speech/vectora-speech)
   # usa o framework Speech; o macOS mostra este texto ao pedir permissão.
   extendInfo:
+    # Pastas: o Finder oferece "Abrir com Vectora" e a pasta solta sobre o ícone do
+    # Dock chega ao app como caminho (`open-file`). O electron-builder soma este tipo
+    # aos gerados por `fileAssociations`; Alternate mantém o Vectora como opção.
+    CFBundleDocumentTypes:
+      - CFBundleTypeName: Folder
+        CFBundleTypeRole: Viewer
+        LSHandlerRank: Alternate
+        LSItemContentTypes:
+          - public.folder
     NSSpeechRecognitionUsageDescription: "O Vectora transcreve áudios e vídeos anexados no próprio Mac quando você usa o reconhecimento de fala do sistema."
 
 dmg:

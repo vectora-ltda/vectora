@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   MAX_OPEN_FILE_BYTES,
   createOpenPathsDispatcher,
+  fixDriveRootArgument,
   mimeTypeOf,
   pathsFromArgv,
   readOpenedPath,
@@ -202,5 +203,18 @@ describe("createOpenPathsDispatcher", () => {
 
     expect(sent).toEqual([]);
     expect(await dispatcher.take()).toEqual([]);
+  });
+});
+
+describe("fixDriveRootArgument", () => {
+  it("devolve a barra final que o Windows escapou na raiz de uma unidade", () => {
+    expect(fixDriveRootArgument('C:"')).toBe("C:\\");
+    expect(fixDriveRootArgument('d:"')).toBe("d:\\");
+  });
+
+  it("não mexe em nenhum outro argumento", () => {
+    for (const argument of ["C:\\Users\\u", "/home/u", 'C:"x', "--flag", ""]) {
+      expect(fixDriveRootArgument(argument)).toBe(argument);
+    }
   });
 });

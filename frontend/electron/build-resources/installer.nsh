@@ -3,8 +3,10 @@
 ; ManifestDPIAware true: marca o stub como DPI-aware — sem isso o Windows
 ; escala a janela em telas HiDPI e o texto fica borrado.
 ;
-; customInstall: cria vectora.cmd wrapper + adiciona $INSTDIR ao PATH do usuário.
-; customUnInstall: remove vectora.cmd.
+; customInstall: cria vectora.cmd wrapper + adiciona $INSTDIR ao PATH do usuário +
+; registra "Open with Vectora" no menu de contexto de pastas (por usuário, HKCU,
+; como o instalador: perMachine false).
+; customUnInstall: remove vectora.cmd e o menu de contexto.
 
 !macro customHeader
   ManifestDPIAware true
@@ -36,6 +38,15 @@
     WriteRegStr HKCU "Environment" "Path" "$1;$INSTDIR"
   path_done:
   SendMessage ${HWND_BROADCAST} ${WM_WININICHANGE} 0 "STR:Environment" /TIMEOUT=5000
+
+  ; Menu de contexto de pastas: clicar numa pasta (%1) ou no fundo de uma pasta
+  ; aberta no Explorer (%V) abre o caminho no Vectora, que o cria como workspace.
+  WriteRegStr HKCU "Software\Classes\Directory\shell\Vectora" "" "Open with Vectora"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\Vectora" "Icon" "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+  WriteRegStr HKCU "Software\Classes\Directory\shell\Vectora\command" "" '"$INSTDIR\${APP_EXECUTABLE_FILENAME}" "%1"'
+  WriteRegStr HKCU "Software\Classes\Directory\Background\shell\Vectora" "" "Open with Vectora"
+  WriteRegStr HKCU "Software\Classes\Directory\Background\shell\Vectora" "Icon" "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+  WriteRegStr HKCU "Software\Classes\Directory\Background\shell\Vectora\command" "" '"$INSTDIR\${APP_EXECUTABLE_FILENAME}" "%V"'
 !macroend
 
 !macro customUnInstall
@@ -47,4 +58,7 @@
   Pop $0
   Sleep 1000
   Delete "$INSTDIR\vectora.cmd"
+
+  DeleteRegKey HKCU "Software\Classes\Directory\shell\Vectora"
+  DeleteRegKey HKCU "Software\Classes\Directory\Background\shell\Vectora"
 !macroend

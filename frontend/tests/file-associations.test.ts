@@ -19,6 +19,8 @@ interface FileAssociation {
 
 interface BuilderConfig {
   fileAssociations?: FileAssociation[];
+  mac?: { extendInfo?: { CFBundleDocumentTypes?: Record<string, unknown>[] } };
+  nsis?: { perMachine?: boolean };
   protocols?: { schemes: string[] }[];
   linux?: { mimeTypes?: string[] };
 }
@@ -82,5 +84,45 @@ describe("fileAssociations do electron-builder", () => {
       "vectora",
     );
     expect(config.linux?.mimeTypes).toContain("inode/directory");
+  });
+});
+
+describe("menu de contexto de pastas", () => {
+  it("no macOS, o Vectora é visualizador alternativo de public.folder", () => {
+    const folder = config.mac?.extendInfo?.CFBundleDocumentTypes?.find(
+      (entry) =>
+        (entry.LSItemContentTypes as string[] | undefined)?.includes(
+          "public.folder",
+        ),
+    );
+
+    expect(folder).toMatchObject({
+      CFBundleTypeRole: "Viewer",
+      LSHandlerRank: "Alternate",
+    });
+  });
+
+  const installer = readFileSync(
+    path.resolve(__dirname, "../electron/build-resources/installer.nsh"),
+    "utf8",
+  );
+
+  it("no Windows, o instalador registra o menu na pasta e no fundo da pasta, por usuário", () => {
+    expect(config.nsis?.perMachine).toBe(false);
+    expect(installer).toContain(
+      'WriteRegStr HKCU "Software\\Classes\\Directory\\shell\\Vectora\\command" "" \'"$INSTDIR\\${APP_EXECUTABLE_FILENAME}" "%1"\'',
+    );
+    expect(installer).toContain(
+      'WriteRegStr HKCU "Software\\Classes\\Directory\\Background\\shell\\Vectora\\command" "" \'"$INSTDIR\\${APP_EXECUTABLE_FILENAME}" "%V"\'',
+    );
+  });
+
+  it("o desinstalador remove as duas chaves", () => {
+    expect(installer).toContain(
+      'DeleteRegKey HKCU "Software\\Classes\\Directory\\shell\\Vectora"',
+    );
+    expect(installer).toContain(
+      'DeleteRegKey HKCU "Software\\Classes\\Directory\\Background\\shell\\Vectora"',
+    );
   });
 });
