@@ -21,6 +21,11 @@ def _isolated(_no_thread_persistence):
     pass
 
 
+def _sem_envelope(event: dict) -> dict:
+    """O evento sem o envelope de ordem (``seq`` e ``event_id``) do stream."""
+    return {k: v for k, v in event.items() if k not in {"seq", "event_id"}}
+
+
 def _parse(sse: str) -> dict:
     """Decodifica uma linha SSE ``data: {...}\\n\\n`` em dict."""
     assert sse.startswith("data: ")
@@ -158,7 +163,8 @@ async def test_tokens_are_incremental_not_buffered():
     assert first["type"] == "thread"
 
     tok1 = _parse(await gen.__anext__())
-    assert tok1 == {"type": "token", "content": "um", "node": "model"}
+    assert _sem_envelope(tok1) == {"type": "token", "content": "um", "node": "model"}
+    assert tok1["seq"] == 2
 
     tok2 = _parse(await gen.__anext__())
     assert tok2["content"] == "dois"
@@ -181,7 +187,9 @@ async def test_empty_chunk_still_emits_token_event():
     run = _token_run([""])
     out = [_parse(s) async for s in stream_engine_events(run, thread_id="tid")]
     tokens = [e for e in out if e["type"] == "token"]
-    assert tokens == [{"type": "token", "content": "", "node": "model"}]
+    assert [_sem_envelope(token) for token in tokens] == [
+        {"type": "token", "content": "", "node": "model"}
+    ]
 
 
 @pytest.mark.asyncio
