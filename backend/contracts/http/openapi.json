@@ -1716,6 +1716,36 @@
         "title": "ConversationBranchesResponse",
         "type": "object"
       },
+      "CountThreadsRequest": {
+        "description": "Mesmos filtros de `ListThreadsRequest`; devolve quantas threads listaria.",
+        "properties": {
+          "include_empty": {
+            "default": false,
+            "title": "Include Empty",
+            "type": "boolean"
+          },
+          "mode": {
+            "default": "",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "title": "CountThreadsRequest",
+        "type": "object"
+      },
+      "CountThreadsResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "count"
+        ],
+        "title": "CountThreadsResponse",
+        "type": "object"
+      },
       "CreateAgentProfileRequest": {
         "properties": {
           "budget_cents": {
@@ -4737,6 +4767,16 @@
       },
       "ListThreadsRequest": {
         "properties": {
+          "cursor": {
+            "default": "",
+            "title": "Cursor",
+            "type": "string"
+          },
+          "include_empty": {
+            "default": false,
+            "title": "Include Empty",
+            "type": "boolean"
+          },
           "limit": {
             "default": 50,
             "title": "Limit",
@@ -4753,12 +4793,22 @@
       },
       "ListThreadsResponse": {
         "properties": {
+          "next_cursor": {
+            "default": "",
+            "title": "Next Cursor",
+            "type": "string"
+          },
           "threads": {
             "items": {
               "$ref": "#/components/schemas/Thread"
             },
             "title": "Threads",
             "type": "array"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
           }
         },
         "required": [
@@ -8687,6 +8737,11 @@
           "created_at": {
             "title": "Created At",
             "type": "string"
+          },
+          "empty": {
+            "default": false,
+            "title": "Empty",
+            "type": "boolean"
           },
           "id": {
             "title": "Id",
@@ -22279,6 +22334,45 @@
         "summary": "Transcription Readiness"
       }
     },
+    "/vectora.chat.v1.ThreadService/CountThreads": {
+      "post": {
+        "description": "Conta as threads que ``ListThreads`` listaria com os mesmos filtros.",
+        "operationId": "count_threads_vectora_chat_v1_ThreadService_CountThreads_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CountThreadsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CountThreadsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Count Threads"
+      }
+    },
     "/vectora.chat.v1.ThreadService/CreateThread": {
       "post": {
         "description": "Cria uma nova thread e a associa ao workspace escolhido pelo usuário.\n\nQuando `workspace_id` vem vazio, a thread nasce sem workspace — o\nbackend cria e atribui o workspace dedicado da sessão\n(`~/Documents/vectora/<thread_id>`) na primeira mensagem, em\n`chat.py::_resolve_workspace_id`.",
@@ -22517,7 +22611,7 @@
     },
     "/vectora.chat.v1.ThreadService/ListThreads": {
       "post": {
-        "description": "Lista threads visíveis ao usuário, excluindo sessões internas.",
+        "description": "Lista threads visíveis ao usuário, excluindo sessões internas.\n\nThreads sem mensagem só entram com ``include_empty``. ``total`` é o número\nde threads do filtro inteiro e ``next_cursor`` aponta a página seguinte\n(vazio na última), estável mesmo que a lista mude entre as chamadas.",
         "operationId": "list_threads_vectora_chat_v1_ThreadService_ListThreads_post",
         "requestBody": {
           "content": {

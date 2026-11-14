@@ -1630,6 +1630,13 @@
     "methods": [
       "POST"
     ],
+    "name": "count_threads_vectora_chat_v1_ThreadService_CountThreads_post",
+    "path": "/vectora.chat.v1.ThreadService/CountThreads"
+  },
+  {
+    "methods": [
+      "POST"
+    ],
     "name": "create_thread_vectora_chat_v1_ThreadService_CreateThread_post",
     "path": "/vectora.chat.v1.ThreadService/CreateThread"
   },
