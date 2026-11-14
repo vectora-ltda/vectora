@@ -1264,6 +1264,12 @@ async def workspace_sandbox_status(workspace_id: str) -> SandboxStatusResponse:
     )
 
 
+_HOST_PATTERN = re.compile(
+    r"(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+",
+    re.IGNORECASE,
+)
+
+
 class SandboxPolicyBody(BaseModel):
     """O que o usuário define para o sandbox do workspace (fora do repositório)."""
 
@@ -1277,6 +1283,10 @@ class SandboxPolicyBody(BaseModel):
     env_pass: list[str] = Field(default_factory=list)
     git_writable: bool = False
     require_full_isolation: bool = False
+    #: `off`, `filtered` (só os destinos permitidos) ou `open`.
+    network: Literal["off", "filtered", "open"] = "filtered"
+    allow_hosts: list[str] = Field(default_factory=list)
+    registry_hosts: bool = True
 
 
 class SandboxPolicyResponse(SandboxPolicyBody):
@@ -1303,6 +1313,9 @@ def _sandbox_policy_payload(root: Path) -> SandboxPolicyResponse:
         env_pass=list(policy.env_pass),
         git_writable=policy.git_writable,
         require_full_isolation=policy.require_full_isolation,
+        network=policy.network,
+        allow_hosts=list(policy.allow_hosts),
+        registry_hosts=policy.registry_hosts,
         ignored_repo_keys=list(policy.ignored_repo_keys),
         user_policy=trusted_policy_path(root).is_file(),
     )
@@ -1358,6 +1371,11 @@ async def update_workspace_sandbox_policy(
         raise HTTPException(
             status_code=400, detail="Nome de variável de ambiente inválido."
         )
+    if any(not _HOST_PATTERN.fullmatch(host) for host in body.allow_hosts):
+        raise HTTPException(
+            status_code=400,
+            detail="Destino inválido: use `dominio.com` ou `*.dominio.com`.",
+        )
     root = Path(ws.cwd)
     policy = SandboxPolicy(
         enabled=body.enabled,
@@ -1370,6 +1388,9 @@ async def update_workspace_sandbox_policy(
         env_pass=tuple(body.env_pass),
         git_writable=body.git_writable,
         require_full_isolation=body.require_full_isolation,
+        network=body.network,
+        allow_hosts=tuple(body.allow_hosts),
+        registry_hosts=body.registry_hosts,
     )
     await asyncio.to_thread(write_trusted_policy, root, policy)
     return await asyncio.to_thread(_sandbox_policy_payload, root)

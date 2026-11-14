@@ -7720,6 +7720,13 @@
       "SandboxPolicyBody": {
         "description": "O que o usuário define para o sandbox do workspace (fora do repositório).",
         "properties": {
+          "allow_hosts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allow Hosts",
+            "type": "array"
+          },
           "allow_tcp_ports": {
             "items": {
               "type": "integer"
@@ -7763,9 +7770,24 @@
             ],
             "title": "Mask"
           },
+          "network": {
+            "default": "filtered",
+            "enum": [
+              "off",
+              "filtered",
+              "open"
+            ],
+            "title": "Network",
+            "type": "string"
+          },
           "no_gpu": {
             "default": true,
             "title": "No Gpu",
+            "type": "boolean"
+          },
+          "registry_hosts": {
+            "default": true,
+            "title": "Registry Hosts",
             "type": "boolean"
           },
           "require_full_isolation": {
@@ -7794,6 +7816,13 @@
       "SandboxPolicyResponse": {
         "description": "Política efetiva (a do usuário com as restrições do repositório).",
         "properties": {
+          "allow_hosts": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Allow Hosts",
+            "type": "array"
+          },
           "allow_tcp_ports": {
             "items": {
               "type": "integer"
@@ -7837,9 +7866,24 @@
             "title": "Mask",
             "type": "array"
           },
+          "network": {
+            "default": "filtered",
+            "enum": [
+              "off",
+              "filtered",
+              "open"
+            ],
+            "title": "Network",
+            "type": "string"
+          },
           "no_gpu": {
             "default": true,
             "title": "No Gpu",
+            "type": "boolean"
+          },
+          "registry_hosts": {
+            "default": true,
+            "title": "Registry Hosts",
             "type": "boolean"
           },
           "require_full_isolation": {

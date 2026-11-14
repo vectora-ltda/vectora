@@ -19,11 +19,14 @@ import sys
 import tomllib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_MASK = (".env", "**/*.pem", "**/.ssh/**", "**/.aws/**")
+
+
+NetworkMode = Literal["off", "filtered", "open"]
 
 
 @dataclass(frozen=True)
@@ -48,9 +51,52 @@ class SandboxPolicy:
     git_writable: bool = False
     #: Recusa iniciar o jail quando seccomp ou Landlock não puderem ser aplicados.
     require_full_isolation: bool = False
+    #: Rede do jail: `off` (sem rede), `filtered` (só os destinos permitidos, por
+    #: um proxy fora do jail) ou `open` (rede do host, sem filtro).
+    network: NetworkMode = "filtered"
+    #: Destinos extras (`host` ou `*.dominio`) liberados no modo `filtered`.
+    allow_hosts: tuple[str, ...] = ()
+    #: Inclui os registries de pacotes (pip, npm, cargo, go, maven, composer e
+    #: GitHub) na lista do modo `filtered`.
+    registry_hosts: bool = True
     #: Chaves do `[sandbox]` do repositório que tentaram ampliar o acesso e
     #: foram ignoradas (só a configuração do usuário amplia).
     ignored_repo_keys: tuple[str, ...] = ()
+
+
+NETWORK_MODES: tuple[str, ...] = ("off", "filtered", "open")
+
+#: Registries de dependências liberados por padrão no modo `filtered`, para que
+#: `pip install`, `npm install` e `cargo build` funcionem sem configuração.
+REGISTRY_HOSTS: tuple[str, ...] = (
+    "pypi.org",
+    "files.pythonhosted.org",
+    "registry.npmjs.org",
+    "registry.yarnpkg.com",
+    "crates.io",
+    "static.crates.io",
+    "index.crates.io",
+    "proxy.golang.org",
+    "sum.golang.org",
+    "repo1.maven.org",
+    "repo.maven.apache.org",
+    "repo.clojars.org",
+    "repo.packagist.org",
+    "github.com",
+    "codeload.github.com",
+    "objects.githubusercontent.com",
+)
+
+
+def effective_network(policy: SandboxPolicy) -> str:
+    """Modo de rede que vale: o lockdown sempre corta a rede."""
+    return "off" if policy.lockdown else policy.network
+
+
+def effective_allow_hosts(policy: SandboxPolicy) -> tuple[str, ...]:
+    """Destinos liberados no modo `filtered`: registries (se ligados) e extras."""
+    base = REGISTRY_HOSTS if policy.registry_hosts else ()
+    return tuple(dict.fromkeys((*base, *policy.allow_hosts)))
 
 
 DISABLED_POLICY = SandboxPolicy(enabled=False)
@@ -91,6 +137,13 @@ def _list_field(
     if not isinstance(value, list):
         raise TypeError(f"[sandbox].{key} deve ser uma lista")
     return tuple(convert(item) for item in value)
+
+
+def _network_field(section: dict[str, Any]) -> NetworkMode:
+    value = section.get("network", "filtered")
+    if value not in NETWORK_MODES:
+        raise ValueError(f"[sandbox].network deve ser um de {NETWORK_MODES}")
+    return cast("NetworkMode", value)
 
 
 def parse_policy(vectora_toml_path: Path) -> SandboxPolicy:
@@ -139,6 +192,9 @@ def parse_policy(vectora_toml_path: Path) -> SandboxPolicy:
                 str(section["ssh_key_id"]) if "ssh_key_id" in section else None
             ),
             env_pass=_list_field(section, "env_pass", str),
+            network=_network_field(section),
+            allow_hosts=_list_field(section, "allow_hosts", str),
+            registry_hosts=bool(section.get("registry_hosts", True)),
             git_writable=bool(section.get("git_writable", False)),
             require_full_isolation=bool(section.get("require_full_isolation", False)),
         )
@@ -201,6 +257,9 @@ def policy_to_toml(policy: SandboxPolicy) -> str:
         "env_pass",
         "git_writable",
         "require_full_isolation",
+        "network",
+        "allow_hosts",
+        "registry_hosts",
     )
     lines.extend(f"{name} = {_toml_value(getattr(policy, name))}" for name in fixed)
     optional = ("docker_image", "remote_host", "ssh_key_id")
@@ -244,6 +303,8 @@ def _narrowed(base: tuple[Any, ...], requested: tuple[Any, ...]) -> tuple[Any, .
     """Só o que a política do usuário já permite e o repositório manteve."""
     return tuple(item for item in base if item in requested)
 
+
+_NETWORK_RANK = {"off": 0, "filtered": 1, "open": 2}
 
 _logged_ignored: set[tuple[str, tuple[str, ...]]] = set()
 
@@ -294,6 +355,15 @@ def resolve_policy(root: Path) -> SandboxPolicy:
     )
     if "git_writable" in section and repo.git_writable and not base.git_writable:
         ignored.append("git_writable")
+    if (
+        "network" in section
+        and _NETWORK_RANK[repo.network] > _NETWORK_RANK[base.network]
+    ):
+        ignored.append("network")
+    if "allow_hosts" in section and set(repo.allow_hosts) - set(base.allow_hosts):
+        ignored.append("allow_hosts")
+    if "registry_hosts" in section and repo.registry_hosts and not base.registry_hosts:
+        ignored.append("registry_hosts")
     if "no_gpu" in section and not repo.no_gpu and base.no_gpu:
         ignored.append("no_gpu")
     if "lockdown" in section and not repo.lockdown and base.lockdown:
@@ -332,6 +402,19 @@ def resolve_policy(root: Path) -> SandboxPolicy:
             base.git_writable and repo.git_writable
             if "git_writable" in section
             else base.git_writable
+        ),
+        network=min(base.network, repo.network, key=_NETWORK_RANK.__getitem__)
+        if "network" in section
+        else base.network,
+        allow_hosts=(
+            _narrowed(base.allow_hosts, repo.allow_hosts)
+            if "allow_hosts" in section
+            else base.allow_hosts
+        ),
+        registry_hosts=(
+            base.registry_hosts and repo.registry_hosts
+            if "registry_hosts" in section
+            else base.registry_hosts
         ),
         ignored_repo_keys=tuple(ignored),
     )
