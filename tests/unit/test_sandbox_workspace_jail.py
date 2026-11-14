@@ -94,7 +94,11 @@ async def test_request_writes_json_line_and_parses_response(tmp_path, monkeypatc
 
     assert result == {"id": 1, "stdout": "ok\n", "stderr": "", "exit_code": 0}
     sent = json.loads(proc.stdin.write.call_args[0][0].decode("utf-8"))
-    assert sent == {"op": "exec", "id": 1, "command": ["echo", "ok"]}
+    # O id é sequencial por worker: a consulta de estado feita ao subir o jail
+    # (para a auditoria) já usou o primeiro.
+    assert sent["op"] == "exec"
+    assert sent["command"] == ["echo", "ok"]
+    assert isinstance(sent["id"], int)
 
 
 @pytest.mark.asyncio

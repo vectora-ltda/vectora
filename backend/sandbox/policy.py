@@ -271,6 +271,12 @@ def policy_to_toml(policy: SandboxPolicy) -> str:
     return "\n".join(lines) + "\n"
 
 
+def policy_digest(policy: SandboxPolicy) -> str:
+    """Impressão digital da política efetiva (ignora as chaves só informativas)."""
+    text = policy_to_toml(replace(policy, ignored_repo_keys=()))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
 def write_trusted_policy(root: Path, policy: SandboxPolicy) -> Path:
     """Grava a política do usuário para o workspace, de forma atômica."""
     path = trusted_policy_path(root)

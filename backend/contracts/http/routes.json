@@ -2447,6 +2447,20 @@
   },
   {
     "methods": [
+      "GET"
+    ],
+    "name": "workspace_sandbox_audit_workspaces__workspace_id__sandbox_audit_get",
+    "path": "/workspaces/{workspace_id}/sandbox/audit"
+  },
+  {
+    "methods": [
+      "GET"
+    ],
+    "name": "workspace_sandbox_dry_run_workspaces__workspace_id__sandbox_dry_run_get",
+    "path": "/workspaces/{workspace_id}/sandbox/dry-run"
+  },
+  {
+    "methods": [
       "POST"
     ],
     "name": "workspace_sandbox_init_workspaces__workspace_id__sandbox_init_post",

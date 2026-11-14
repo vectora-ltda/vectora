@@ -136,6 +136,20 @@ def _workspace_sandbox_enabled(workspace_id: str) -> bool:
         return False
 
 
+#: Tools que executam código arbitrário: o jail só as dispensa de aprovação se a
+#: rede também está sob controle, não aberta.
+_NEEDS_NETWORK_CONTROL: frozenset[str] = frozenset({"terminal", "terminal_tool"})
+
+
+def _jail_controls_network(workspace_id: str) -> bool:
+    """O worker vivo do workspace roda sem rede aberta (sem rede ou filtrada)."""
+    from backend.sandbox.workspace_jail import jail_manager
+
+    return jail_manager.has_effective_isolation(
+        workspace_id, needs_network_control=True
+    )
+
+
 def _workspace_is_jailed(workspace_id: str) -> bool:
     """Require both an enabled policy and a live worker with native isolation."""
     if not _workspace_sandbox_enabled(workspace_id):
@@ -350,7 +364,14 @@ def should_require_approval(  # noqa: PLR0911
             reason="mcp_tool_invocation",
         )
         return True
-    if tool_name in _JAILED_BYPASS_TOOLS and _workspace_is_jailed(ctx.workspace_id):
+    if (
+        tool_name in _JAILED_BYPASS_TOOLS
+        and _workspace_is_jailed(ctx.workspace_id)
+        and (
+            tool_name not in _NEEDS_NETWORK_CONTROL
+            or _jail_controls_network(ctx.workspace_id)
+        )
+    ):
         _log_decision(
             tool_name,
             ctx,

@@ -2499,6 +2499,7 @@ async def test_plan_sandbox_write_does_not_authorize_push_and_human_approval_sur
 
     monkeypatch.setattr(TOOL_REGISTRY, "_tools", {})
     monkeypatch.setattr("backend.engine.hitl._workspace_is_jailed", lambda _wid: True)
+    monkeypatch.setattr("backend.engine.hitl._jail_controls_network", lambda _wid: True)
     effects: list[str] = []
 
     @vtool(extras=ToolExtras(destructive=True))

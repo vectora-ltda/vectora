@@ -31,6 +31,7 @@ export type SettingsCategoryId =
   | "skills"
   | "tool_policy"
   | "hitl_allowlist"
+  | "sandbox"
   | "workbenches"
   | "admin_users"
   | "admin_tools"

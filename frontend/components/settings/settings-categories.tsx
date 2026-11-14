@@ -93,6 +93,13 @@ const ToolPolicyPanel = lazyWithRetry(
     })),
   "settings-tool-policy-tab",
 );
+const SandboxTab = lazyWithRetry(
+  () =>
+    import("./environment/tabs/sandbox-tab").then((mod) => ({
+      default: mod.SandboxTab,
+    })),
+  "settings-sandbox-tab",
+);
 const WorkbenchesSettings = lazyWithRetry(
   () =>
     import("../workbench/settings/workbenches-settings-category").then(
@@ -274,6 +281,12 @@ export function buildSettingsCategoryGroups({
       group: "ambiente",
       label: m.settings_category_hitl_allowlist(),
       Component: HitlAllowlistPanel,
+    },
+    {
+      id: "sandbox",
+      group: "ambiente",
+      label: m.settings_category_sandbox(),
+      Component: SandboxTab,
     },
     {
       id: "workbenches",

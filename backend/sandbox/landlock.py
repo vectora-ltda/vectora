@@ -100,6 +100,24 @@ class _NetPortAttr(ctypes.Structure):
     ]
 
 
+#: `LANDLOCK_CREATE_RULESET_VERSION`: devolve a versão da ABI em vez de criar.
+_CREATE_RULESET_VERSION = 1 << 0
+
+
+def landlock_abi_version() -> int:
+    """Versão da ABI do Landlock neste kernel (0 sem suporte). Só pergunta, não
+    restringe nada, então pode ser chamado de fora do jail."""
+    numbers = _syscall_numbers()
+    if numbers is None:
+        return 0
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        version = libc.syscall(numbers[0], None, 0, _CREATE_RULESET_VERSION)
+    except OSError:
+        return 0
+    return max(0, int(version))
+
+
 def set_no_new_privs() -> bool:
     """`PR_SET_NO_NEW_PRIVS`: nenhum filho (setuid, capabilities de arquivo)
     ganha privilégio depois do `exec`. Independe do Landlock; `True` se aplicado."""
