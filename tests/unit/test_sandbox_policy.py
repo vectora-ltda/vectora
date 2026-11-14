@@ -181,7 +181,7 @@ def test_rw_e_ro_paths_vazios_explicitos_nao_quebram(tmp_path):
 
 
 def test_mask_customizado_substitui_default_por_completo(tmp_path):
-    # Borda: mask fornecido não faz merge com _DEFAULT_MASK, substitui.
+    # Borda: mask fornecido não faz merge com DEFAULT_MASK, substitui.
     toml_path = tmp_path / "vectora.toml"
     toml_path.write_text('[sandbox]\nmask = ["**/*.key"]\n', encoding="utf-8")
 

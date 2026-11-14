@@ -1225,6 +1225,9 @@ def _resolve_inside(workspace_id: str, rel_path: str) -> Path | None:
 class SandboxStatusResponse(BaseModel):
     enabled: bool
     diagnostic: str | None = None
+    # Chaves do `[sandbox]` do `vectora.toml` que pediam mais acesso e foram
+    # ignoradas: só a política do usuário amplia, o repositório só restringe.
+    ignored_repo_keys: list[str] = Field(default_factory=list)
 
 
 @workspace_scoped_router.get("/sandbox/status", response_model=SandboxStatusResponse)
@@ -1239,15 +1242,16 @@ async def workspace_sandbox_status(workspace_id: str) -> SandboxStatusResponse:
     habilitado) — código curto explicando a causa real (ver
     `backend/sandbox/policy.py::wsl2_diagnostic`), pro frontend virar um
     aviso acionável em vez de só "sem sandbox"."""
-    from backend.sandbox.policy import detect_wsl2, parse_policy, wsl2_diagnostic
+    from backend.sandbox.policy import detect_wsl2, resolve_policy, wsl2_diagnostic
     from backend.workspace.workspace import workspace_registry
 
     ws = workspace_registry.get(workspace_id)
     if ws is None:
         return SandboxStatusResponse(enabled=False, diagnostic="no_workspace")
-    policy = parse_policy(Path(ws.cwd) / "vectora.toml")
+    policy = resolve_policy(Path(ws.cwd))
+    ignored = list(policy.ignored_repo_keys)
     if policy.enabled:
-        return SandboxStatusResponse(enabled=True)
+        return SandboxStatusResponse(enabled=True, ignored_repo_keys=ignored)
 
     toml_path = Path(ws.cwd) / "vectora.toml"
     if not toml_path.is_file():
@@ -1255,7 +1259,120 @@ async def workspace_sandbox_status(workspace_id: str) -> SandboxStatusResponse:
         diagnostic = "no_vectora_toml" if distro else await wsl2_diagnostic()
     else:
         diagnostic = "sandbox_disabled_in_config"
-    return SandboxStatusResponse(enabled=False, diagnostic=diagnostic)
+    return SandboxStatusResponse(
+        enabled=False, diagnostic=diagnostic, ignored_repo_keys=ignored
+    )
+
+
+class SandboxPolicyBody(BaseModel):
+    """O que o usuário define para o sandbox do workspace (fora do repositório)."""
+
+    enabled: bool = True
+    rw_paths: list[str] = Field(default_factory=list)
+    ro_paths: list[str] = Field(default_factory=list)
+    mask: list[str] | None = None
+    no_gpu: bool = True
+    lockdown: bool = False
+    allow_tcp_ports: list[int] = Field(default_factory=list)
+    env_pass: list[str] = Field(default_factory=list)
+    git_writable: bool = False
+    require_full_isolation: bool = False
+
+
+class SandboxPolicyResponse(SandboxPolicyBody):
+    """Política efetiva (a do usuário com as restrições do repositório)."""
+
+    mask: list[str] = Field(default_factory=list)
+    ignored_repo_keys: list[str] = Field(default_factory=list)
+    #: `True` quando existe uma política do usuário gravada para o workspace.
+    user_policy: bool = False
+
+
+def _sandbox_policy_payload(root: Path) -> SandboxPolicyResponse:
+    from backend.sandbox.policy import resolve_policy, trusted_policy_path
+
+    policy = resolve_policy(root)
+    return SandboxPolicyResponse(
+        enabled=policy.enabled,
+        rw_paths=list(policy.rw_paths),
+        ro_paths=list(policy.ro_paths),
+        mask=list(policy.mask),
+        no_gpu=policy.no_gpu,
+        lockdown=policy.lockdown,
+        allow_tcp_ports=list(policy.allow_tcp_ports),
+        env_pass=list(policy.env_pass),
+        git_writable=policy.git_writable,
+        require_full_isolation=policy.require_full_isolation,
+        ignored_repo_keys=list(policy.ignored_repo_keys),
+        user_policy=trusted_policy_path(root).is_file(),
+    )
+
+
+@workspace_scoped_router.get("/sandbox/policy", response_model=SandboxPolicyResponse)
+async def workspace_sandbox_policy(workspace_id: str) -> SandboxPolicyResponse:
+    """Política efetiva do sandbox: a do usuário com o que o `vectora.toml` do
+    repositório restringe, e as chaves do repositório que foram ignoradas."""
+    from backend.workspace.workspace import workspace_registry
+
+    ws = workspace_registry.get(workspace_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="Workspace não encontrado.")
+    return await asyncio.to_thread(_sandbox_policy_payload, Path(ws.cwd))
+
+
+@workspace_scoped_router.put("/sandbox/policy", response_model=SandboxPolicyResponse)
+async def update_workspace_sandbox_policy(
+    workspace_id: str, body: SandboxPolicyBody
+) -> SandboxPolicyResponse:
+    """Grava a política do sandbox do usuário para o workspace.
+
+    Fica fora do repositório (em ``~/.vectora``): é a única fonte que amplia o
+    acesso do jail. Exige workspace confiado, caminhos absolutos e portas
+    válidas. Um worker já aberto é recriado na próxima ação."""
+    from backend.sandbox.policy import (
+        DEFAULT_MASK,
+        SandboxPolicy,
+        write_trusted_policy,
+    )
+    from backend.workspace.workspace import workspace_registry
+
+    ws = workspace_registry.get(workspace_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="Workspace não encontrado.")
+    if not ws.trusted:
+        raise HTTPException(
+            status_code=403,
+            detail="Confie nesta pasta para alterar a política do sandbox.",
+        )
+    relative = [
+        p for p in (*body.rw_paths, *body.ro_paths) if not Path(p).is_absolute()
+    ]
+    if relative:
+        raise HTTPException(
+            status_code=400,
+            detail="Os caminhos do sandbox precisam ser absolutos.",
+        )
+    if any(not 1 <= port <= 65535 for port in body.allow_tcp_ports):
+        raise HTTPException(status_code=400, detail="Porta TCP inválida.")
+    if any(not name.isidentifier() for name in body.env_pass):
+        raise HTTPException(
+            status_code=400, detail="Nome de variável de ambiente inválido."
+        )
+    root = Path(ws.cwd)
+    policy = SandboxPolicy(
+        enabled=body.enabled,
+        rw_paths=tuple(body.rw_paths),
+        ro_paths=tuple(body.ro_paths),
+        mask=tuple(body.mask) if body.mask is not None else DEFAULT_MASK,
+        no_gpu=body.no_gpu,
+        lockdown=body.lockdown,
+        allow_tcp_ports=tuple(body.allow_tcp_ports),
+        env_pass=tuple(body.env_pass),
+        git_writable=body.git_writable,
+        require_full_isolation=body.require_full_isolation,
+    )
+    await asyncio.to_thread(write_trusted_policy, root, policy)
+    return await asyncio.to_thread(_sandbox_policy_payload, root)
 
 
 class SandboxInitResponse(BaseModel):

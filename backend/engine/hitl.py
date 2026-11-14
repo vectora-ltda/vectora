@@ -125,12 +125,12 @@ def _workspace_sandbox_enabled(workspace_id: str) -> bool:
     try:
         from pathlib import Path
 
-        from backend.sandbox.policy import parse_policy
+        from backend.sandbox.policy import resolve_policy
         from backend.workspace.workspace import workspace_registry
 
         ws = workspace_registry.get(workspace_id)
         cwd = getattr(ws, "cwd", None)
-        return bool(cwd and parse_policy(Path(cwd) / "vectora.toml").enabled)
+        return bool(cwd and resolve_policy(Path(cwd)).enabled)
     except Exception:
         logger.debug("hitl: failed to read sandbox policy for %s", workspace_id)
         return False

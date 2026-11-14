@@ -7717,6 +7717,159 @@
         "title": "SandboxInitResponse",
         "type": "object"
       },
+      "SandboxPolicyBody": {
+        "description": "O que o usuário define para o sandbox do workspace (fora do repositório).",
+        "properties": {
+          "allow_tcp_ports": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Allow Tcp Ports",
+            "type": "array"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "env_pass": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Env Pass",
+            "type": "array"
+          },
+          "git_writable": {
+            "default": false,
+            "title": "Git Writable",
+            "type": "boolean"
+          },
+          "lockdown": {
+            "default": false,
+            "title": "Lockdown",
+            "type": "boolean"
+          },
+          "mask": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mask"
+          },
+          "no_gpu": {
+            "default": true,
+            "title": "No Gpu",
+            "type": "boolean"
+          },
+          "require_full_isolation": {
+            "default": false,
+            "title": "Require Full Isolation",
+            "type": "boolean"
+          },
+          "ro_paths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ro Paths",
+            "type": "array"
+          },
+          "rw_paths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rw Paths",
+            "type": "array"
+          }
+        },
+        "title": "SandboxPolicyBody",
+        "type": "object"
+      },
+      "SandboxPolicyResponse": {
+        "description": "Política efetiva (a do usuário com as restrições do repositório).",
+        "properties": {
+          "allow_tcp_ports": {
+            "items": {
+              "type": "integer"
+            },
+            "title": "Allow Tcp Ports",
+            "type": "array"
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "env_pass": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Env Pass",
+            "type": "array"
+          },
+          "git_writable": {
+            "default": false,
+            "title": "Git Writable",
+            "type": "boolean"
+          },
+          "ignored_repo_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ignored Repo Keys",
+            "type": "array"
+          },
+          "lockdown": {
+            "default": false,
+            "title": "Lockdown",
+            "type": "boolean"
+          },
+          "mask": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Mask",
+            "type": "array"
+          },
+          "no_gpu": {
+            "default": true,
+            "title": "No Gpu",
+            "type": "boolean"
+          },
+          "require_full_isolation": {
+            "default": false,
+            "title": "Require Full Isolation",
+            "type": "boolean"
+          },
+          "ro_paths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ro Paths",
+            "type": "array"
+          },
+          "rw_paths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rw Paths",
+            "type": "array"
+          },
+          "user_policy": {
+            "default": false,
+            "title": "User Policy",
+            "type": "boolean"
+          }
+        },
+        "title": "SandboxPolicyResponse",
+        "type": "object"
+      },
       "SandboxStatusResponse": {
         "properties": {
           "diagnostic": {
@@ -7733,6 +7886,13 @@
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
+          },
+          "ignored_repo_keys": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Ignored Repo Keys",
+            "type": "array"
           }
         },
         "required": [
@@ -28446,6 +28606,100 @@
           }
         },
         "summary": "Workspace Sandbox Init",
+        "tags": [
+          "workspaces-view"
+        ]
+      }
+    },
+    "/workspaces/{workspace_id}/sandbox/policy": {
+      "get": {
+        "description": "Política efetiva do sandbox: a do usuário com o que o `vectora.toml` do\nrepositório restringe, e as chaves do repositório que foram ignoradas.",
+        "operationId": "workspace_sandbox_policy_workspaces__workspace_id__sandbox_policy_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Workspace Sandbox Policy",
+        "tags": [
+          "workspaces-view"
+        ]
+      },
+      "put": {
+        "description": "Grava a política do sandbox do usuário para o workspace.\n\nFica fora do repositório (em ``~/.vectora``): é a única fonte que amplia o\nacesso do jail. Exige workspace confiado, caminhos absolutos e portas\nválidas. Um worker já aberto é recriado na próxima ação.",
+        "operationId": "update_workspace_sandbox_policy_workspaces__workspace_id__sandbox_policy_put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SandboxPolicyBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxPolicyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Workspace Sandbox Policy",
         "tags": [
           "workspaces-view"
         ]

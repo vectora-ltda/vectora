@@ -28,7 +28,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from backend.sandbox.policy import SandboxPolicy, parse_policy
+from backend.sandbox.policy import SandboxPolicy, resolve_policy
 from backend.sandbox.workspace_jail import WorkerSpawnError, jail_manager
 from backend.services.ignore import is_ignored as _is_ignored
 from backend.services.ignore import iter_files as _iter_files
@@ -440,7 +440,7 @@ async def _run_hooks_and_autocommit(path: Path, root: Path, ws: Any) -> str:
                 )
             else:
                 workspace_id = str(getattr(ws, "id", root))
-                policy = parse_policy(root / "vectora.toml")
+                policy = resolve_policy(root)
                 for cmd_template in cfg.hooks.post_file_write:
                     argv = _build_hook_argv(cmd_template, path)
                     if policy.enabled:
@@ -533,7 +533,7 @@ async def file_edit(
         return err
 
     root, ws = _workspace_root(ctx)
-    policy = parse_policy(root / "vectora.toml")
+    policy = resolve_policy(root)
     workspace_id = str(getattr(ws, "id", root))
 
     try:
@@ -634,7 +634,7 @@ async def file_write(file_path: str, content: str, ctx: ToolContext) -> str:
         return err
 
     root, ws = _workspace_root(ctx)
-    policy = parse_policy(root / "vectora.toml")
+    policy = resolve_policy(root)
 
     try:
         path = resolved
@@ -1204,7 +1204,7 @@ async def terminal(
         )
         return output or f"Command executed with exit code {result.exit_code}"
 
-    policy = parse_policy(root / "vectora.toml")
+    policy = resolve_policy(root)
     if policy.enabled:
         # Roteia pelo worker jailado da workspace (backend.sandbox.
         # workspace_jail) em vez do subprocess direto abaixo. Comando

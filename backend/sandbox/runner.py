@@ -18,7 +18,7 @@ from backend.sandbox.docker import run_docker_sandboxed
 from backend.sandbox.linux import SandboxResult, run_local_sandboxed
 from backend.sandbox.macos import run_macos_sandboxed
 from backend.sandbox.modal import run_modal_sandboxed
-from backend.sandbox.policy import SandboxPolicy, parse_policy
+from backend.sandbox.policy import SandboxPolicy, resolve_policy
 from backend.sandbox.singularity import run_singularity_sandboxed
 from backend.sandbox.ssh import run_ssh_sandboxed
 
@@ -84,7 +84,7 @@ async def run_sandboxed(
     `backend` desconhecido em `[sandbox]` falha fechado (nega execução,
     `exit_code=126`) — nunca cai silenciosamente pro modo sem sandbox.
     """
-    policy = parse_policy(Path(workspace_dir) / "vectora.toml")
+    policy = resolve_policy(Path(workspace_dir))
     if not policy.enabled:
         return await _run_unsandboxed(command, workspace_dir, timeout_s)
 

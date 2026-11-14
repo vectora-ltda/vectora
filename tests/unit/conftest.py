@@ -83,3 +83,12 @@ def _git_com_ramo_padrao_master(monkeypatch):
     monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
     monkeypatch.setenv("GIT_CONFIG_KEY_0", "init.defaultBranch")
     monkeypatch.setenv("GIT_CONFIG_VALUE_0", "master")
+
+
+@pytest.fixture(autouse=True)
+def _politica_do_sandbox_isolada(monkeypatch, tmp_path_factory):
+    """A política do usuário (fora do workspace) nunca vem do `~/.vectora` de
+    quem roda os testes: cada teste enxerga uma pasta vazia."""
+    monkeypatch.setenv(
+        "VECTORA_SANDBOX_POLICY_DIR", str(tmp_path_factory.mktemp("sandbox-policies"))
+    )
