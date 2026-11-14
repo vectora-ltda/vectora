@@ -558,7 +558,17 @@ def frontend_lint_main(argv: list[str]) -> int:
     ]
     if not files:
         return 0
-    return run_pnpm(["--dir", "frontend", "exec", "oxlint", "--no-ignore", *files])
+    return run_pnpm(
+        [
+            "--dir",
+            "frontend",
+            "exec",
+            "oxlint",
+            "--deny-warnings",
+            "--no-ignore",
+            *files,
+        ]
+    )
 
 
 def run_pnpm(arguments: list[str]) -> int:
