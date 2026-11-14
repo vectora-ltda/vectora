@@ -190,6 +190,21 @@ class ListThreadsRequest(BaseModel):
     limit: int = 50
     # Filtro opcional por modo de 1ª classe ("chat"/"code"); vazio = todos.
     mode: str = ""
+    # Threads sem mensagem só entram na lista quando pedido.
+    include_empty: bool = False
+    # `next_cursor` da resposta anterior; vazio começa do topo da lista.
+    cursor: str = ""
+
+
+class CountThreadsRequest(BaseModel):
+    """Mesmos filtros de `ListThreadsRequest`; devolve quantas threads listaria."""
+
+    mode: str = ""
+    include_empty: bool = False
+
+
+class CountThreadsResponse(BaseModel):
+    count: int
 
 
 class DeleteThreadRequest(BaseModel):
@@ -599,6 +614,8 @@ class Thread(BaseModel):
     status: Literal["running", "awaiting_approval", "failed", "idle"] = "idle"
     last_seq: int = 0
     read_seq: int = 0
+    # Thread sem nenhuma mensagem ainda (recém-criada).
+    empty: bool = False
 
 
 class HistoryMessage(BaseModel):
@@ -622,6 +639,10 @@ class HistoryMessage(BaseModel):
 
 class ListThreadsResponse(BaseModel):
     threads: list[Thread]
+    # Total de threads do filtro inteiro, não só desta página.
+    total: int = 0
+    # Cursor da página seguinte; vazio na última.
+    next_cursor: str = ""
 
 
 class GetHistoryResponse(BaseModel):

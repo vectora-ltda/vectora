@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   getHistory,
   generateTitle,
+  countThreads,
   listThreads,
   createThread,
   getThreadPins,
@@ -166,6 +167,48 @@ describe("auth no postRpc", () => {
   it("erro não-401 lança com o status", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ detail: "boom" }, 500));
     await expect(listThreads()).rejects.toThrow(/500/);
+  });
+});
+
+const bodyOf = (call: unknown[]) =>
+  JSON.parse((call[1] as RequestInit).body as string);
+
+describe("contrato de threads", () => {
+  it("listThreads sem opções mantém o corpo antigo", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ threads: [] }));
+    await listThreads(30);
+    expect(bodyOf(fetchMock.mock.calls[0])).toEqual({ limit: 30 });
+  });
+
+  it("listThreads envia modo, include_empty e cursor só quando informados", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ threads: [], total: 4, next_cursor: "" }),
+    );
+    const page = await listThreads(10, {
+      mode: "chat",
+      includeEmpty: true,
+      cursor: "abc",
+    });
+    expect(bodyOf(fetchMock.mock.calls[0])).toEqual({
+      limit: 10,
+      mode: "chat",
+      include_empty: true,
+      cursor: "abc",
+    });
+    expect(page.total).toBe(4);
+  });
+
+  it("countThreads usa os mesmos filtros e devolve a contagem", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ count: 7 }));
+    const out = await countThreads({ mode: "code", includeEmpty: true });
+    expect(String(fetchMock.mock.calls[0][0])).toContain(
+      "/vectora.chat.v1.ThreadService/CountThreads",
+    );
+    expect(bodyOf(fetchMock.mock.calls[0])).toEqual({
+      mode: "code",
+      include_empty: true,
+    });
+    expect(out.count).toBe(7);
   });
 });
 

@@ -261,6 +261,8 @@ export interface Thread {
   pinned?: boolean;
   unread_count?: number;
   remote_activity?: { last_active_at: string } | null;
+  /** Thread ainda sem nenhuma mensagem (recém-criada). */
+  empty?: boolean;
 }
 
 export interface ConversationBranch {
@@ -618,8 +620,42 @@ export const transcribeAudio = (
 export const getThread = (thread_id: string): Promise<Thread> =>
   postRpc("/vectora.chat.v1.ThreadService/GetThread", { thread_id });
 
-export const listThreads = (limit = 50): Promise<{ threads: Thread[] }> =>
-  postRpc("/vectora.chat.v1.ThreadService/ListThreads", { limit });
+export interface ListThreadsOptions {
+  /** Filtro por modo de 1ª classe ("chat" ou "code"); vazio lista todos. */
+  mode?: string;
+  /** Inclui threads sem mensagem; por padrão elas não aparecem. */
+  includeEmpty?: boolean;
+  /** `next_cursor` da página anterior; vazio começa do topo. */
+  cursor?: string;
+}
+
+export interface ListThreadsResult {
+  threads: Thread[];
+  /** Total de threads do filtro inteiro, não só desta página. */
+  total?: number;
+  /** Cursor da página seguinte; vazio ou ausente na última. */
+  next_cursor?: string;
+}
+
+export const listThreads = (
+  limit = 50,
+  options: ListThreadsOptions = {},
+): Promise<ListThreadsResult> =>
+  postRpc("/vectora.chat.v1.ThreadService/ListThreads", {
+    limit,
+    ...(options.mode ? { mode: options.mode } : {}),
+    ...(options.includeEmpty ? { include_empty: true } : {}),
+    ...(options.cursor ? { cursor: options.cursor } : {}),
+  });
+
+/** Quantas threads `listThreads` listaria com os mesmos filtros. */
+export const countThreads = (
+  options: Pick<ListThreadsOptions, "mode" | "includeEmpty"> = {},
+): Promise<{ count: number }> =>
+  postRpc("/vectora.chat.v1.ThreadService/CountThreads", {
+    ...(options.mode ? { mode: options.mode } : {}),
+    ...(options.includeEmpty ? { include_empty: true } : {}),
+  });
 
 export const deleteThread = (thread_id: string): Promise<{}> =>
   postRpc("/vectora.chat.v1.ThreadService/DeleteThread", { thread_id });
