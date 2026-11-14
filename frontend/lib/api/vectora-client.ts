@@ -186,6 +186,8 @@ export type StreamEvent =
       thread_id: string;
       run_id?: string;
       message_id?: number | null;
+      /** Como o run terminou: stop, cancelled, error, interrupted, ... */
+      stopped_reason?: string;
     }
   | { type: "message_break" }
   | { type: "workbench_invalidate"; tabs: string[]; tool_name?: string }

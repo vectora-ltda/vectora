@@ -15,6 +15,7 @@
 
 "use client";
 
+import { createSequenceGuard } from "@/lib/api/stream-sequence";
 import { useCallback, useRef } from "react";
 import type { Message, ToolCall, ImageAttachment } from "../../types";
 import {
@@ -450,12 +451,16 @@ export function useStreamHandler({
           },
         );
 
+        const sequence = createSequenceGuard();
         for await (const event of events) {
           // Primeiro evento do stream = conexão SSE de fato estabelecida
           if (!sseConnected) {
             sseConnected = true;
             announceSSEConnected();
           }
+
+          // Repetido, reordenado ou posterior ao terminal: não altera a tela.
+          if (!sequence.accept(event)) continue;
 
           // Interrupção solicitada pelo usuário
           if (shouldInterruptRef?.current) {
@@ -751,12 +756,16 @@ export function useStreamHandler({
       try {
         const events = resumeChat(request, abortRef.current?.signal);
 
+        const sequence = createSequenceGuard();
         for await (const event of events) {
           // Primeiro evento do stream = conexão SSE de fato estabelecida
           if (!sseConnected) {
             sseConnected = true;
             announceSSEConnected();
           }
+
+          // Repetido, reordenado ou posterior ao terminal: não altera a tela.
+          if (!sequence.accept(event)) continue;
 
           if (shouldInterruptRef?.current) {
             abortRef.current?.abort();
