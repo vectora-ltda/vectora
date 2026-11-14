@@ -1565,7 +1565,7 @@ async def workspace_git_diff(workspace_id: str, response: Response) -> DiffSumma
         return DiffSummary(is_git_repo=False, files=[])
 
     try:
-        repo = Repo(ws.cwd, search_parent_directories=True)
+        repo = _open_repo_at(ws.cwd)
     except (InvalidGitRepositoryError, NoSuchPathError):
         return DiffSummary(is_git_repo=False, files=[])
 
@@ -1644,11 +1644,7 @@ async def workspace_git_diff_file(  # noqa: PLR0911
     if ws is None:
         return DiffFileResponse(path=path, hunks=[])
 
-    resolved = _resolve_inside(workspace_id, path)
-    if resolved is None:
-        return DiffFileResponse(path=path, hunks=[])
     try:
-        from git import Repo  # type: ignore[import-not-found]
         from git.exc import (  # type: ignore[import-not-found]
             InvalidGitRepositoryError,
             NoSuchPathError,
@@ -1657,12 +1653,19 @@ async def workspace_git_diff_file(  # noqa: PLR0911
         return DiffFileResponse(path=path, hunks=[])
 
     try:
-        repo = Repo(ws.cwd, search_parent_directories=True)
+        repo = _open_repo_at(ws.cwd)
     except (InvalidGitRepositoryError, NoSuchPathError):
         return DiffFileResponse(path=path, hunks=[])
 
+    # ``path`` é relativo ao repositório em uso, como os caminhos que o resumo do
+    # diff devolve: com um submódulo escolhido, a raiz do workspace não é a dele.
+    from backend.services.security import resolve_within_workspace
+
+    repo_root = Path(repo.working_tree_dir or ws.cwd).resolve()
+    resolved = resolve_within_workspace(str(repo_root / path), repo_root)
+    if resolved is None:
+        return DiffFileResponse(path=path, hunks=[])
     try:
-        repo_root = Path(repo.working_tree_dir or ws.cwd).resolve()
         safe_path = resolved.relative_to(repo_root).as_posix()
     except ValueError:
         return DiffFileResponse(path=path, hunks=[])
@@ -1723,21 +1726,45 @@ class ShowFileAtRevResponse(BaseModel):
     truncated: bool = False
 
 
+def _chosen_repo_dir(cwd: str) -> Path | None:
+    """Pasta do repositório escolhido em ``[git] repo`` do ``vectora.toml``, se válida."""
+    from backend.workspace.git_repos import read_git_repo_setting, resolve_repo_dir
+
+    root = Path(cwd)
+    configured = read_git_repo_setting(root)
+    return resolve_repo_dir(root, configured) if configured else None
+
+
+def _open_repo_at(cwd: str) -> Any:
+    """Abre o repositório que o Git workbench mostra para o workspace em ``cwd``.
+
+    É o escolhido em ``[git] repo`` do ``vectora.toml`` (um repositório dentro do
+    workspace, como um submódulo) e, sem escolha ou se a escolhida deixou de ser um
+    repositório, o da raiz ou o que a contém. Lança como ``Repo`` quando não há
+    repositório.
+    """
+    from git import Repo  # type: ignore[import-not-found]
+
+    chosen = _chosen_repo_dir(cwd)
+    if chosen is not None:
+        return Repo(chosen)
+    return Repo(cwd, search_parent_directories=True)
+
+
 def _open_workspace_repo(workspace_id: str) -> Any | None:
     """Abre o repositório git do workspace ou retorna None.
 
     Retorna None quando o workspace não existe, não é um repositório git ou
-    quando a biblioteca ``gitpython`` não está disponível.
+    quando a biblioteca ``gitpython`` não está disponível. Segue a escolha de
+    repositório gravada no ``vectora.toml`` (ver ``_open_repo_at``).
     """
     try:
-        from git import Repo  # type: ignore[import-not-found]
-
         from backend.workspace.workspace import workspace_registry
 
         ws = workspace_registry.get(workspace_id)
         if ws is None:
             return None
-        return Repo(ws.cwd, search_parent_directories=True)
+        return _open_repo_at(ws.cwd)
     except Exception:
         return None
 
@@ -2414,6 +2441,93 @@ async def git_operations(
     )
 
 
+class GitRepoItem(BaseModel):
+    """Um repositório dentro do workspace; ``path`` é relativo à raiz (vazio: o padrão)."""
+
+    path: str
+    name: str
+    kind: Literal["root", "repo", "submodule", "worktree"]
+
+
+class GitReposResponse(BaseModel):
+    repos: list[GitRepoItem] = []
+    #: Caminho do repositório em uso; vazio é o padrão (a raiz ou o que a contém).
+    selected: str = ""
+
+
+class SelectGitRepoRequest(BaseModel):
+    #: Caminho relativo à raiz do workspace; vazio volta ao padrão.
+    repo: str = ""
+
+
+async def _git_repos_payload(root: Path) -> GitReposResponse:
+    from backend.workspace.git_repos import (
+        discover_repos,
+        read_git_repo_setting,
+        resolve_repo_dir,
+    )
+
+    repos = await asyncio.to_thread(discover_repos, root)
+    configured = read_git_repo_setting(root)
+    in_use = configured if configured and resolve_repo_dir(root, configured) else ""
+    return GitReposResponse(
+        repos=[
+            GitRepoItem(path=entry.path, name=entry.name, kind=entry.kind)
+            for entry in repos
+        ],
+        selected=in_use,
+    )
+
+
+@workspace_scoped_router.get("/git/repos", response_model=GitReposResponse)
+async def git_repos(workspace_id: str) -> GitReposResponse:
+    """Repositórios dentro do workspace (raiz, aninhados, submódulos, worktrees)."""
+    from backend.workspace.workspace import workspace_registry
+
+    ws = workspace_registry.get(workspace_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="Workspace não encontrado.")
+    return await _git_repos_payload(Path(ws.cwd))
+
+
+@workspace_scoped_router.put("/git/repo", response_model=GitReposResponse)
+async def select_git_repo(
+    workspace_id: str, body: SelectGitRepoRequest
+) -> GitReposResponse:
+    """Escolhe o repositório do workspace que o Git workbench mostra e opera.
+
+    Grava ``[git] repo`` no ``vectora.toml`` do workspace. Exige workspace
+    confiado (é uma escrita no projeto) e um caminho que seja um repositório
+    dentro do workspace; vazio volta ao padrão.
+    """
+    from backend.workspace.git_repos import (
+        normalize_repo_path,
+        resolve_repo_dir,
+        write_git_repo_setting,
+    )
+    from backend.workspace.workspace import workspace_registry
+
+    ws = workspace_registry.get(workspace_id)
+    if ws is None:
+        raise HTTPException(status_code=404, detail="Workspace não encontrado.")
+    if not ws.trusted:
+        raise HTTPException(
+            status_code=403,
+            detail="Confie nesta pasta para escolher o repositório do Git.",
+        )
+    root = Path(ws.cwd)
+    normalized = normalize_repo_path(body.repo)
+    if normalized is None or (
+        normalized and resolve_repo_dir(root, normalized) is None
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="O caminho precisa ser um repositório git dentro do workspace.",
+        )
+    await asyncio.to_thread(write_git_repo_setting, root, normalized)
+    return await _git_repos_payload(root)
+
+
 @workspace_scoped_router.get("/git/status", response_model=GitStatusResponse)
 async def git_status(workspace_id: str) -> GitStatusResponse:
     """Estado real do repo: branch, ahead/behind do tracking remoto, clean."""
@@ -2947,7 +3061,10 @@ async def append_gitignore(  # noqa: PLR0911
     parts = normalized.split("/")
     if any(part in {"", ".", ".."} for part in parts):
         return StatusResponse(status="error", message="Caminho inválido.")
-    if resolve_within_workspace(normalized, Path(ws.cwd)) is None:
+    # O .gitignore é o do repositório em uso (a raiz do workspace sem escolha), e a
+    # regra é relativa a ele, como os caminhos do painel Git.
+    base = _chosen_repo_dir(ws.cwd) or Path(ws.cwd)
+    if resolve_within_workspace(normalized, base) is None:
         return StatusResponse(status="error", message="Caminho fora do workspace.")
 
     escaped = "/".join(
@@ -2960,7 +3077,7 @@ async def append_gitignore(  # noqa: PLR0911
     rule = f"/{escaped}/" if body.is_folder else f"/{escaped}"
     try:
         pathspec.PathSpec.from_lines("gitignore", [rule])
-        gitignore = resolve_within_workspace(".gitignore", Path(ws.cwd))
+        gitignore = resolve_within_workspace(".gitignore", base)
         if gitignore is None:
             return StatusResponse(
                 status="error", message="Destino do .gitignore fora do workspace."

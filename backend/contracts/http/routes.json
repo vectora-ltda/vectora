@@ -2312,6 +2312,20 @@
   },
   {
     "methods": [
+      "PUT"
+    ],
+    "name": "select_git_repo_workspaces__workspace_id__git_repo_put",
+    "path": "/workspaces/{workspace_id}/git/repo"
+  },
+  {
+    "methods": [
+      "GET"
+    ],
+    "name": "git_repos_workspaces__workspace_id__git_repos_get",
+    "path": "/workspaces/{workspace_id}/git/repos"
+  },
+  {
+    "methods": [
       "POST"
     ],
     "name": "resolve_conflict_workspaces__workspace_id__git_resolve_conflict_post",
