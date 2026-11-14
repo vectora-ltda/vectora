@@ -91,19 +91,26 @@ vi.mock("@/lib/stores/workspaces-store", () => ({
   }),
 }));
 
-vi.mock("@/lib/stores/chat-input-store", () => ({
-  useChatInputStore: (selector?: (s: any) => any) => {
-    const state = {
-      input: "",
-      setInput: vi.fn(),
-      draft: null,
-      consumeDraft: vi.fn(),
-      mention: null,
-      consumeMention: vi.fn(),
-    };
-    return selector ? selector(state) : state;
-  },
-}));
+vi.mock("@/lib/stores/chat-input-store", () => {
+  const state = {
+    input: "",
+    setInput: vi.fn(),
+    draft: null,
+    consumeDraft: vi.fn(),
+    mention: null,
+    consumeMention: vi.fn(),
+    getDraft: vi.fn(() => ""),
+    clearDraft: vi.fn(),
+    getFileDraft: vi.fn(() => []),
+    setFileDraft: vi.fn(),
+  };
+  return {
+    useChatInputStore: Object.assign(
+      (selector?: (s: any) => any) => (selector ? selector(state) : state),
+      { getState: () => state },
+    ),
+  };
+});
 
 const { mockThreadsStore } = vi.hoisted(() => ({
   mockThreadsStore: Object.assign(() => ({}), {

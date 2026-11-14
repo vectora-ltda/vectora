@@ -15,6 +15,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { ImageAttachment } from "@/lib/types";
 
 interface ChatInputState {
   // ── Injeção cross-component (volátil) ──────────────────────────────────────
@@ -31,7 +32,16 @@ interface ChatInputState {
   getDraft: (threadId: string) => string;
   setDraft: (threadId: string, text: string) => void;
   clearDraft: (threadId: string) => void;
+
+  // ── Anexos por thread (só em memória) ──────────────────────────────────────
+  // Não persistem no localStorage: carregam o conteúdo dos arquivos (base64) e
+  // as URLs de pré-visualização só valem na sessão da página.
+  fileDrafts: Record<string, ImageAttachment[]>;
+  getFileDraft: (threadId: string) => ImageAttachment[];
+  setFileDraft: (threadId: string, files: ImageAttachment[]) => void;
 }
+
+const EMPTY_FILES: ImageAttachment[] = [];
 
 export const useChatInputStore = create<ChatInputState>()(
   persist(
@@ -57,6 +67,19 @@ export const useChatInputStore = create<ChatInputState>()(
           if (s.drafts[threadId] === text) return s;
           return { drafts: { ...s.drafts, [threadId]: text } };
         }),
+      fileDrafts: {},
+      getFileDraft: (threadId) => get().fileDrafts[threadId] ?? EMPTY_FILES,
+      setFileDraft: (threadId, files) =>
+        set((s) => {
+          // Lista vazia remove a entrada (não acumula anexos vazios).
+          if (files.length === 0) {
+            if (!(threadId in s.fileDrafts)) return s;
+            const next = { ...s.fileDrafts };
+            delete next[threadId];
+            return { fileDrafts: next };
+          }
+          return { fileDrafts: { ...s.fileDrafts, [threadId]: files } };
+        }),
       clearDraft: (threadId) =>
         set((s) => {
           if (!(threadId in s.drafts)) return s;
@@ -67,7 +90,8 @@ export const useChatInputStore = create<ChatInputState>()(
     }),
     {
       name: "vectora-chat-drafts",
-      // A injeção (draft/mention) é efêmera — só os rascunhos por thread persistem.
+      // A injeção (draft/mention) e os anexos são efêmeros — só os rascunhos
+      // de texto por thread persistem.
       partialize: (s) => ({ drafts: s.drafts }),
     },
   ),
