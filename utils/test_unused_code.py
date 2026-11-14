@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 import unused_code
 from unused_code import (
+    _status,
     _string_literals_py,
     _string_literals_ts,
     compare_baseline,
@@ -235,3 +236,46 @@ def test_knip_keys_ignora_relatorio_fora_do_formato() -> None:
     assert knip_keys({}) == []
     assert knip_keys({"issues": "x"}) == []
     assert knip_keys({"issues": ["x", {"file": "a", "files": ["b"]}]}) == []
+
+
+def test_warn_publica_anotacao_so_no_github_actions(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    unused_code._warn("achado\nsegunda linha")
+    assert "::warning" not in capsys.readouterr().out
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    unused_code._warn("achado 100%\nsegunda linha")
+    out = capsys.readouterr().out
+    assert "::warning title=Código sem uso::achado 100%25%0Asegunda linha" in out
+
+
+def test_status_so_reprova_no_modo_estrito(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(unused_code, "_STRICT", False)
+    assert _status(3) == 0
+
+    monkeypatch.setattr(unused_code, "_STRICT", True)
+    assert _status(3) == 1
+    assert _status(0) == 0
+
+
+def test_main_trata_o_flag_estrito_e_nao_o_repassa(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    received: list[list[str]] = []
+    monkeypatch.setitem(
+        unused_code._COMMANDS, "routes", lambda args: received.append(list(args)) or 0
+    )
+    monkeypatch.delenv("UNUSED_CODE_STRICT", raising=False)
+
+    unused_code.main(["routes", "--strict"])
+    assert unused_code._STRICT is True
+    unused_code.main(["routes"])
+    assert unused_code._STRICT is False
+
+    assert received == [[], []]
+    monkeypatch.setenv("UNUSED_CODE_STRICT", "1")
+    unused_code.main(["routes"])
+    assert unused_code._STRICT is True
+    monkeypatch.setattr(unused_code, "_STRICT", False)
