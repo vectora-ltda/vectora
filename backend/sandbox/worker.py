@@ -17,10 +17,14 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from backend.sandbox.landlock import apply_landlock
+from backend.sandbox.landlock import apply_landlock, set_no_new_privs
 from backend.sandbox.rlimits import apply_rlimits
 
 logger = logging.getLogger(__name__)
+
+#: O que foi realmente aplicado dentro do jail; devolvido pela op `status` para
+#: o backend decidir se o isolamento é completo ou parcial.
+_state: dict[str, bool] = {"no_new_privs": False, "landlock": False, "rlimits": False}
 
 
 async def handle_request(req: dict[str, Any]) -> dict[str, Any]:
@@ -47,6 +51,8 @@ async def handle_request(req: dict[str, Any]) -> dict[str, Any]:
                 "stderr": stderr_b.decode("utf-8", errors="replace"),
                 "exit_code": proc.returncode or 0,
             }
+        if op == "status":
+            return {"id": req_id, **_state}
         if op == "read_file":
             content = Path(req["path"]).read_text(encoding="utf-8")
             return {"id": req_id, "content": content}
@@ -66,6 +72,8 @@ async def main() -> None:
     # Landlock/seccomp cobrirem esse vetor. Perfil vem de env var setada por
     # `workspace_jail.py` no spawn (`--setenv`, conforme `policy.lockdown`).
     apply_rlimits(lockdown=os.environ.get("VECTORA_SANDBOX_LOCKDOWN") == "1")
+    _state["rlimits"] = True
+    _state["no_new_privs"] = set_no_new_privs()
 
     # Landlock (4.1) — defesa em profundidade complementar aos binds do
     # bwrap. Só roda se o worker foi spawnado via workspace_jail.py (que
@@ -76,12 +84,16 @@ async def main() -> None:
         rw_paths = [
             workspace_dir,
             *json.loads(os.environ.get("VECTORA_SANDBOX_RW_PATHS", "[]")),
+            *json.loads(os.environ.get("VECTORA_SANDBOX_BASE_RW_PATHS", "[]")),
         ]
-        ro_paths = json.loads(os.environ.get("VECTORA_SANDBOX_RO_PATHS", "[]"))
+        ro_paths = [
+            *json.loads(os.environ.get("VECTORA_SANDBOX_RO_PATHS", "[]")),
+            *json.loads(os.environ.get("VECTORA_SANDBOX_BASE_RO_PATHS", "[]")),
+        ]
         allow_tcp_ports = tuple(
             json.loads(os.environ.get("VECTORA_SANDBOX_ALLOW_TCP_PORTS", "[]"))
         )
-        apply_landlock(rw_paths, ro_paths, allow_tcp_ports)
+        _state["landlock"] = apply_landlock(rw_paths, ro_paths, allow_tcp_ports)
 
     loop = asyncio.get_event_loop()
     reader = asyncio.StreamReader()

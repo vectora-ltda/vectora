@@ -104,9 +104,8 @@ def test_worker_home_dedicado_sempre_presente():
 
     idx = argv.index(WORKER_HOME)
     assert argv[idx - 1] == "--tmpfs"
-    assert "--setenv" in argv
-    setenv_idx = argv.index("--setenv")
-    assert argv[setenv_idx + 1 : setenv_idx + 3] == ["HOME", WORKER_HOME]
+    pairs = [argv[i + 1 : i + 3] for i, item in enumerate(argv) if item == "--setenv"]
+    assert ["HOME", WORKER_HOME] in pairs
 
 
 def test_lockdown_seta_env_var_de_rlimits():
@@ -162,8 +161,8 @@ def test_no_mounts_when_policy_has_none_configured():
 
     argv = build_bwrap_command(policy, "/ws", ["true"])
 
-    # 1 --tmpfs: só o $HOME dedicado do worker (nenhum mask de usuário).
-    assert argv.count("--tmpfs") == 1
+    # 2 --tmpfs: o /tmp próprio e o $HOME dedicado do worker (nenhum mask de usuário).
+    assert argv.count("--tmpfs") == 2
     # Apenas o bind do próprio workspace deve existir (nenhum --bind extra).
     assert argv.count("--bind") == 1
 

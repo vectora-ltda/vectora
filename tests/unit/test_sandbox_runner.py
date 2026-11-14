@@ -22,6 +22,7 @@ def _fake_proc(stdout=b"ok\n", stderr=b"", returncode=0):
     return proc
 
 
+@pytest.mark.usefixtures("sem_bwrap_automatico")
 @pytest.mark.asyncio
 async def test_no_vectora_toml_runs_unsandboxed(tmp_path, monkeypatch):
     proc = _fake_proc(stdout=b"hello\n")
@@ -266,6 +267,7 @@ async def test_policy_e_relida_do_disco_a_cada_chamada_nao_e_cacheada(
     assert second_call_argv[0] == "bwrap"
 
 
+@pytest.mark.usefixtures("sem_bwrap_automatico")
 @pytest.mark.asyncio
 async def test_duas_workspaces_com_policies_diferentes_dispatcham_isoladamente(
     tmp_path, monkeypatch

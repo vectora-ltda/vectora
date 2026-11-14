@@ -924,6 +924,7 @@ class TestSandboxStatus:
         assert resp.enabled is True
         assert resp.diagnostic is None
 
+    @pytest.mark.usefixtures("sem_bwrap_automatico")
     @pytest.mark.asyncio
     async def test_enabled_false_without_vectora_toml_e_wsl2_disponivel(
         self, trusted_ws, monkeypatch
@@ -941,6 +942,7 @@ class TestSandboxStatus:
         assert resp.enabled is False
         assert resp.diagnostic == "no_vectora_toml"
 
+    @pytest.mark.usefixtures("sem_bwrap_automatico")
     @pytest.mark.asyncio
     async def test_enabled_false_without_vectora_toml_e_sem_wsl2(
         self, trusted_ws, monkeypatch

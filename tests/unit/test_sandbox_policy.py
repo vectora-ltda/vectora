@@ -20,6 +20,7 @@ from backend.sandbox.policy import (
 )
 
 
+@pytest.mark.usefixtures("sem_bwrap_automatico")
 def test_missing_file_returns_disabled_policy(tmp_path):
     result = parse_policy(tmp_path / "vectora.toml")
 
@@ -403,6 +404,7 @@ class TestAutoEnableSemVectoraToml:
     o cache de `detect_wsl2()` (populado por `warm_wsl2_cache()` no startup
     do backend) já achou uma distro elegível — sem exigir opt-in manual."""
 
+    @pytest.mark.usefixtures("sem_bwrap_automatico")
     def test_cache_unset_mantem_desabilitado(self, tmp_path):
         """Regressão: antes do warmup rodar (cache ainda _UNSET), nunca
         auto-habilita — nunca um falso positivo por checar cedo demais."""
@@ -418,6 +420,7 @@ class TestAutoEnableSemVectoraToml:
         assert result == AUTO_ENABLED_POLICY
         assert result.enabled is True
 
+    @pytest.mark.usefixtures("sem_bwrap_automatico")
     def test_cache_none_mantem_desabilitado(self, tmp_path):
         """Regressão: detecção já rodou mas não achou distro elegível
         (cache=None, distinto de _UNSET) — continua desabilitado."""

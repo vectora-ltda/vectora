@@ -47,3 +47,13 @@ def _no_thread_persistence(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         threads, "_increment_message_count", AsyncMock(return_value=None)
     )
+
+
+@pytest.fixture
+def sem_bwrap_automatico(monkeypatch):
+    """Faz `parse_policy` ignorar o `bwrap` do host: os testes que esperam o
+    sandbox desligado sem `vectora.toml` não podem depender de a máquina de
+    quem roda ter ou não o binário instalado."""
+    import backend.sandbox.policy as policy_module
+
+    monkeypatch.setattr(policy_module, "_native_sandbox_available_sync", lambda: False)
