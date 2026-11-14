@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import PureWindowsPath
 from typing import Any
 
-from backend.sandbox.dry_run import build_bwrap_command
+from backend.sandbox.dry_run import build_bwrap_command, python_runtime_paths
 from backend.sandbox.linux import build_seccomp_filter
 from backend.sandbox.policy import SandboxPolicy, detect_wsl2
 from backend.sandbox.windows import (
@@ -93,6 +93,12 @@ class JailedWorker:
     #: fechado em `close()`/`_kill_now()` pra derrubar a árvore de processos.
     job_handle: int | None = None
     isolation_enforced: bool = False
+    #: O filtro seccomp foi carregado no bwrap (libseccomp disponível).
+    seccomp_applied: bool = False
+    #: Pasta e política com que o worker nasceu: mudou qualquer uma, o worker
+    #: antigo não serve mais (escreveria na pasta errada ou com a regra velha).
+    workspace_dir: str = ""
+    policy: SandboxPolicy | None = None
 
     async def request(
         self, op: str, timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S, **kwargs: Any
@@ -135,6 +141,21 @@ class JailedWorker:
         close_job_handle(self.job_handle)
         self.job_handle = None
 
+    async def isolation_status(self) -> dict[str, bool]:
+        """O que está de fato em vigor no jail: seccomp (carregado pelo bwrap) e
+        Landlock, `no_new_privs` e rlimits (aplicados pelo worker). Falha em
+        perguntar conta como nada aplicado, nunca como completo."""
+        try:
+            resp = await self.request("status", timeout_s=15.0)
+        except Exception:
+            resp = {}
+        return {
+            "seccomp": self.seccomp_applied,
+            "landlock": bool(resp.get("landlock")),
+            "no_new_privs": bool(resp.get("no_new_privs")),
+            "rlimits": bool(resp.get("rlimits")),
+        }
+
     def is_alive(self) -> bool:
         return self.proc.returncode is None
 
@@ -167,7 +188,13 @@ class WorkspaceJailManager:
         async with self._spawn_lock:
             existing = self._workers.get(workspace_id)
             if existing is not None and existing.is_alive():
-                return existing
+                if (
+                    existing.workspace_dir == workspace_dir
+                    and existing.policy == policy
+                ):
+                    return existing
+                await existing.close()
+                self._workers.pop(workspace_id, None)
             worker = await self._spawn(workspace_id, workspace_dir, policy)
             if (
                 workspace_id in self._isolation_required
@@ -206,18 +233,26 @@ class WorkspaceJailManager:
                 policy,
                 workspace_dir,
                 [sys.executable, "-m", "backend.sandbox.worker"],
+                runtime_ro_paths=python_runtime_paths(),
             )
 
         # seccomp (libseccomp) só faz sentido no caminho bwrap (Linux/WSL2);
         # o sandbox soft do Windows não tem libseccomp nem syscall equivalente.
         seccomp_fd: int | None = None
-        if soft_env is None:
+        seccomp_applied = False
+        if soft_env is None and not _is_windows():
             try:
                 bpf = build_seccomp_filter()
             except Exception:
                 logger.warning("sandbox: falha ao compilar filtro seccomp — ignorando")
                 bpf = None
+            if bpf is None and policy.require_full_isolation:
+                raise WorkerSpawnError(
+                    "isolamento completo exigido, mas o filtro seccomp não pôde "
+                    "ser carregado (instale o libseccomp) — o jail não foi iniciado."
+                )
             if bpf is not None:
+                seccomp_applied = True
                 read_fd, write_fd = os.pipe()
                 os.write(write_fd, bpf)
                 os.close(write_fd)
@@ -254,12 +289,28 @@ class WorkspaceJailManager:
         job_handle: int | None = None
         if soft_env is not None and proc.pid:
             job_handle = assign_job_object_kill_on_close(proc.pid)
-        return JailedWorker(
+        worker = JailedWorker(
             workspace_id=workspace_id,
             proc=proc,
             job_handle=job_handle,
             isolation_enforced=soft_env is None and policy.backend == "local",
+            seccomp_applied=seccomp_applied,
+            workspace_dir=workspace_dir,
+            policy=policy,
         )
+        if policy.require_full_isolation and soft_env is None:
+            status = await worker.isolation_status()
+            missing = [
+                name for name in ("landlock", "no_new_privs") if not status.get(name)
+            ]
+            if missing:
+                await worker.close()
+                raise WorkerSpawnError(
+                    "isolamento completo exigido, mas o worker não aplicou: "
+                    + ", ".join(missing)
+                    + " — o jail foi encerrado."
+                )
+        return worker
 
     @staticmethod
     def _soft_worker_env(policy: SandboxPolicy) -> dict[str, str]:

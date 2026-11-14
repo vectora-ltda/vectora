@@ -5,7 +5,9 @@ from __future__ import annotations
 import http.server
 import os
 import socket
+import socketserver
 import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -150,20 +152,29 @@ def test_electron_dev_spawnado_em_modo_attached_conecta_ao_backend_real():
         "_TestHealthHandler", (_HealthHandler,), {"hit_event": hit_event}
     )
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        port = s.getsockname()[1]
-
-    server = http.server.HTTPServer(("127.0.0.1", port), handler_cls)
-    server_thread = threading.Thread(target=server.serve_forever, daemon=True)
-    server_thread.start()
-
-    env = {**os.environ, "VECTORA_EXTERNAL_BACKEND": "1", "VECTORA_PORT": str(port)}
-    # userData próprio: sem isto o `requestSingleInstanceLock()` de main.ts
-    # perde pro Vectora instalado se ele estiver aberto na máquina, e a
-    # instância do teste sai com código 0 sem nunca chegar ao health check —
-    # falha que parece regressão de código mas é só contaminação de ambiente.
     with tempfile.TemporaryDirectory(prefix="vectora-electron-test-") as user_data:
+        # Fora do Windows o Electron fala com o backend pelo socket Unix
+        # `<VECTORA_HOME>/vectora.sock` (e ignora a porta); no Windows, por TCP.
+        env = {**os.environ, "VECTORA_EXTERNAL_BACKEND": "1", "VECTORA_HOME": user_data}
+        if sys.platform == "win32":
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", 0))
+                port = s.getsockname()[1]
+            env["VECTORA_PORT"] = str(port)
+            server: socketserver.BaseServer = http.server.HTTPServer(
+                ("127.0.0.1", port), handler_cls
+            )
+        else:
+            server = socketserver.UnixStreamServer(
+                str(Path(user_data) / "vectora.sock"), handler_cls
+            )
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+
+        # userData próprio: sem isto o `requestSingleInstanceLock()` de main.ts
+        # perde pro Vectora instalado se ele estiver aberto na máquina, e a
+        # instância do teste sai com código 0 sem nunca chegar ao health check —
+        # falha que parece regressão de código mas é só contaminação de ambiente.
         proc = subprocess.Popen(  # noqa: S603  # nosec B603
             [exe, *args, f"--user-data-dir={user_data}"], env=env
         )

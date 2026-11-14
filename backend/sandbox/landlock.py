@@ -100,6 +100,16 @@ class _NetPortAttr(ctypes.Structure):
     ]
 
 
+def set_no_new_privs() -> bool:
+    """`PR_SET_NO_NEW_PRIVS`: nenhum filho (setuid, capabilities de arquivo)
+    ganha privilégio depois do `exec`. Independe do Landlock; `True` se aplicado."""
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        return libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0
+    except OSError:
+        return False
+
+
 def _syscall_numbers() -> tuple[int, int, int] | None:
     return _SYSCALL_NUMBERS.get(platform.machine())
 

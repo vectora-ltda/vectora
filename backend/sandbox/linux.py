@@ -10,27 +10,44 @@ nessas plataformas.
 from __future__ import annotations
 
 import asyncio
+import errno
+import importlib
 import logging
+import os
 from dataclasses import dataclass
+from typing import Any
 
-from backend.sandbox.dry_run import DENIED_SYSCALLS, build_bwrap_command
+from backend.sandbox.dry_run import (
+    CLONE_NAMESPACE_FLAGS,
+    DENIED_SYSCALLS,
+    TIOCSTI,
+    build_bwrap_command,
+)
 from backend.sandbox.policy import SandboxPolicy
 
 logger = logging.getLogger(__name__)
 
 
+def _load_seccomp() -> Any | None:
+    """Módulo do libseccomp: o pacote `pyseccomp` (o que o projeto instala) ou,
+    em sistemas que o trazem pela distro, `seccomp`. `None` se nenhum existe."""
+    for name in ("pyseccomp", "seccomp"):
+        try:
+            return importlib.import_module(name)
+        except ImportError:
+            continue
+    return None
+
+
 def build_seccomp_filter() -> bytes | None:
     """Compila `DENIED_SYSCALLS` num programa BPF via libseccomp — `ALLOW`
-    por default, `KILL` só nas syscalls perigosas da denylist (ptrace,
-    module loading, bpf, unshare, etc). `None` se `pyseccomp`/`libseccomp`
-    não estiver disponível no sistema — caller degrada rodando sem o
-    filtro (namespaces + Landlock do bwrap continuam valendo), nunca
-    quebra a execução por isso."""
-    try:
-        import io
-
-        import seccomp  # ty: ignore[unresolved-import]
-    except ImportError:
+    por default, `KILL` nas syscalls perigosas da denylist, `KILL` em `clone`
+    que cria namespace e `EPERM` em `ioctl(TIOCSTI)`. `None` se o libseccomp não
+    estiver disponível no sistema — o caller marca o isolamento como parcial
+    (namespaces + Landlock do bwrap continuam valendo) e, com
+    `require_full_isolation`, recusa iniciar."""
+    seccomp = _load_seccomp()
+    if seccomp is None:
         logger.warning(
             "sandbox: pyseccomp/libseccomp indisponível — rodando sem filtro "
             "seccomp (namespaces do bwrap continuam ativos)"
@@ -43,9 +60,31 @@ def build_seccomp_filter() -> bytes | None:
             f.add_rule(seccomp.KILL, name)
         except Exception:
             logger.debug("sandbox: syscall %r não existe nesta arch/kernel", name)
-    buf = io.BytesIO()
-    f.export_bpf(buf)
-    return buf.getvalue()
+    try:
+        f.add_rule(
+            seccomp.ERRNO(errno.EPERM), "ioctl", seccomp.Arg(1, seccomp.EQ, TIOCSTI)
+        )
+        for flag in CLONE_NAMESPACE_FLAGS:
+            f.add_rule(
+                seccomp.KILL,
+                "clone",
+                seccomp.Arg(0, seccomp.MASKED_EQ, flag, flag),
+            )
+    except Exception:
+        logger.debug("sandbox: regra condicional de seccomp indisponível")
+    # `export_bpf` precisa de um arquivo de verdade (usa o descritor), não de um
+    # `BytesIO`: um arquivo anônimo em memória serve e não toca o disco.
+    fd = os.memfd_create("vectora-seccomp")
+    try:
+        with os.fdopen(os.dup(fd), "wb") as sink:
+            f.export_bpf(sink)
+        os.lseek(fd, 0, os.SEEK_SET)
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 65536):
+            chunks.append(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
 
 
 @dataclass(frozen=True)

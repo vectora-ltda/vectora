@@ -38,6 +38,12 @@ class SandboxPolicy:
     docker_image: str | None = None
     remote_host: str | None = None
     ssh_key_id: str | None = None
+    #: Nomes de variáveis do host que o jail pode herdar (além do mínimo).
+    env_pass: tuple[str, ...] = ()
+    #: Libera a escrita em `.git/hooks` e `.git/config` dentro do jail.
+    git_writable: bool = False
+    #: Recusa iniciar o jail quando seccomp ou Landlock não puderem ser aplicados.
+    require_full_isolation: bool = False
 
 
 DISABLED_POLICY = SandboxPolicy(enabled=False)
@@ -109,6 +115,9 @@ def parse_policy(vectora_toml_path: Path) -> SandboxPolicy:
             ssh_key_id=(
                 str(section["ssh_key_id"]) if "ssh_key_id" in section else None
             ),
+            env_pass=tuple(str(n) for n in section.get("env_pass", [])),
+            git_writable=bool(section.get("git_writable", False)),
+            require_full_isolation=bool(section.get("require_full_isolation", False)),
         )
     except Exception:
         logger.warning(

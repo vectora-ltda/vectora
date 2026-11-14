@@ -381,25 +381,33 @@ def _install_fake_seccomp_module(monkeypatch) -> list[_FakeSeccompFilter]:
     fake_module = types.SimpleNamespace(
         SyscallFilter=_syscall_filter, ALLOW="ALLOW", KILL="KILL"
     )
+    monkeypatch.setitem(sys.modules, "pyseccomp", fake_module)
     monkeypatch.setitem(sys.modules, "seccomp", fake_module)
     return created
 
 
 def test_seccomp_ausente_degrada_para_none_sem_lancar(monkeypatch):
-    import builtins
+    import sys
 
-    real_import = builtins.__import__
-
-    def _no_seccomp(name, *args, **kwargs):
-        if name == "seccomp":
-            raise ImportError("no module named seccomp")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", _no_seccomp)
+    monkeypatch.setitem(sys.modules, "pyseccomp", None)
+    monkeypatch.setitem(sys.modules, "seccomp", None)
 
     result = sandbox_linux.build_seccomp_filter()
 
     assert result is None
+
+
+def test_seccomp_real_compila_um_programa_bpf_com_as_regras_condicionais():
+    """Com o libseccomp de verdade: o export precisa de um arquivo de verdade
+    (um `BytesIO` não tem descritor) e o filtro inclui `ioctl` e `clone`."""
+    pytest.importorskip("pyseccomp")
+
+    result = sandbox_linux.build_seccomp_filter()
+
+    assert isinstance(result, bytes)
+    # Cada instrução BPF tem 8 bytes; um filtro só com a denylist simples é menor.
+    assert len(result) % 8 == 0
+    assert len(result) > 8 * len(DENIED_SYSCALLS)
 
 
 def test_seccomp_presente_nega_todas_as_denied_syscalls(monkeypatch):
@@ -421,6 +429,7 @@ def test_seccomp_syscall_desconhecida_na_arch_nao_e_fatal(monkeypatch):
     fake_module = types.SimpleNamespace(
         SyscallFilter=_FakeSeccompFilter, ALLOW="ALLOW", KILL="KILL"
     )
+    monkeypatch.setitem(sys.modules, "pyseccomp", fake_module)
     monkeypatch.setitem(sys.modules, "seccomp", fake_module)
     monkeypatch.setattr(
         sandbox_linux,

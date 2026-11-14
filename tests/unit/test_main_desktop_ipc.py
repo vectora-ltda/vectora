@@ -179,6 +179,17 @@ def test_non_desktop_uses_tcp_host() -> None:
             "backend.services.electron_launcher.resolve_electron_launch",
             return_value=None,
         ),
+        # `_run_start` decide o modo pelo sidecar: com um build de dev do
+        # Electron no disco de quem roda o teste, ele liga o transporte
+        # desktop (socket Unix) e `host` nunca chega ao uvicorn.
+        patch(
+            "backend.services.electron_sidecar.should_spawn_electron",
+            return_value=False,
+        ),
+        patch(
+            "backend.services.electron_sidecar.desktop_build_missing",
+            return_value=False,
+        ),
     ):
         from backend.main import _run_start
 
