@@ -792,7 +792,7 @@ class InviteValidationResponse(BaseModel):
 class CreateInviteRequest(BaseModel):
     role: str = "member"
     email: str | None = None
-    ttl_hours: int = 24
+    ttl_hours: int = Field(default=24, ge=1, le=720)
 
 
 class InviteInfo(BaseModel):
@@ -812,6 +812,12 @@ class CreateInviteResponse(BaseModel):
 
 class InviteListResponse(BaseModel):
     invites: list[InviteInfo]
+    total: int = 0
+
+
+class RevokeInviteResponse(BaseModel):
+    status: Literal["revoked"] = "revoked"
+    token_hash: str
 
 
 class SigninRequest(BaseModel):

@@ -26,6 +26,13 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from backend.api.schemas import (
+    CreateInviteRequest,
+    CreateInviteResponse,
+    InviteInfo,
+    InviteListResponse,
+    RevokeInviteResponse,
+)
 from backend.rbac.auth import User
 from backend.settings import settings
 from backend.vtypes.safe_root import SafeRoot
@@ -107,10 +114,12 @@ class ToolToggleBody(BaseModel):
     enabled: bool
 
 
-class CreateInviteBody(BaseModel):
-    role: str = "member"
-    email: str | None = None
-    ttl_hours: int = 24
+class CreateInviteBody(CreateInviteRequest):
+    """Corpo de `POST /admin/invites`.
+
+    Herda os campos e a validação de `CreateInviteRequest`; o nome é o que o
+    contrato HTTP publicado já usa, e trocá-lo seria uma quebra de compatibilidade.
+    """
 
 
 class ToolOverrideBody(BaseModel):
@@ -296,8 +305,15 @@ async def set_user_tools(
 
 
 @router.post("/invites")
-async def create_invite(request: Request, body: CreateInviteBody) -> dict:
-    """Gera um convite para outra conta na instância local."""
+async def create_invite(
+    request: Request, body: CreateInviteBody
+) -> CreateInviteResponse:
+    """Gera um convite para outra conta na instância local.
+
+    O link aponta para `VECTORA_FRONTEND_URL` quando definida (frontend em outro
+    endereço, como no desenvolvimento) e, do contrário, para o endereço em que
+    esta instância foi acessada, que é onde o app é servido.
+    """
     import os
 
     user = _get_user(request)
@@ -322,16 +338,16 @@ async def create_invite(request: Request, body: CreateInviteBody) -> dict:
             email=body.email,
             ttl_hours=body.ttl_hours,
         )
-        frontend = os.environ.get("VECTORA_FRONTEND_URL", "http://localhost:3000")
+        frontend = os.environ.get("VECTORA_FRONTEND_URL") or str(request.base_url)
         url = f"{frontend.rstrip('/')}/auth/signup?invite={token}"
-        return {"token": token, "url": url, "expires_at": expires_at}
+        return CreateInviteResponse(token=token, url=url, expires_at=expires_at)
     except Exception as exc:
         logger.exception("create_invite failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/invites")
-async def list_invites(request: Request) -> dict:
+async def list_invites(request: Request) -> InviteListResponse:
     """Lista convites pendentes (não usados, não expirados)."""
     user = _get_user(request)
     require_admin(user)
@@ -340,14 +356,16 @@ async def list_invites(request: Request) -> dict:
         from backend.rbac import auth as auth_svc
 
         invites = await auth_svc.list_invites()
-        return {"invites": invites, "total": len(invites)}
+        return InviteListResponse(
+            invites=[InviteInfo(**invite) for invite in invites], total=len(invites)
+        )
     except Exception as exc:
         logger.exception("list_invites failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.delete("/invites/{token_hash}")
-async def revoke_invite(request: Request, token_hash: str) -> dict:
+async def revoke_invite(request: Request, token_hash: str) -> RevokeInviteResponse:
     """Revoga um convite pendente pelo seu hash."""
     user = _get_user(request)
     require_admin(user)
@@ -358,7 +376,7 @@ async def revoke_invite(request: Request, token_hash: str) -> dict:
         removed = await auth_svc.revoke_invite(token_hash)
         if not removed:
             raise HTTPException(status_code=404, detail="Convite não encontrado.")
-        return {"status": "revoked", "token_hash": token_hash}
+        return RevokeInviteResponse(token_hash=token_hash)
     except HTTPException:
         raise
     except Exception as exc:

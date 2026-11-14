@@ -1876,6 +1876,7 @@
         "type": "object"
       },
       "CreateInviteBody": {
+        "description": "Corpo de `POST /admin/invites`.\n\nHerda os campos e a validação de `CreateInviteRequest`; o nome é o que o\ncontrato HTTP publicado já usa, e trocá-lo seria uma quebra de compatibilidade.",
         "properties": {
           "email": {
             "anyOf": [
@@ -1895,11 +1896,36 @@
           },
           "ttl_hours": {
             "default": 24,
+            "maximum": 720.0,
+            "minimum": 1.0,
             "title": "Ttl Hours",
             "type": "integer"
           }
         },
         "title": "CreateInviteBody",
+        "type": "object"
+      },
+      "CreateInviteResponse": {
+        "properties": {
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "url",
+          "expires_at"
+        ],
+        "title": "CreateInviteResponse",
         "type": "object"
       },
       "CreateLinkRequest": {
@@ -4510,6 +4536,77 @@
           "archive_path"
         ],
         "title": "InspectBackupRequest",
+        "type": "object"
+      },
+      "InviteInfo": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "token_hash": {
+            "title": "Token Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token_hash",
+          "role",
+          "expires_at",
+          "created_at"
+        ],
+        "title": "InviteInfo",
+        "type": "object"
+      },
+      "InviteListResponse": {
+        "properties": {
+          "invites": {
+            "items": {
+              "$ref": "#/components/schemas/InviteInfo"
+            },
+            "title": "Invites",
+            "type": "array"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "invites"
+        ],
+        "title": "InviteListResponse",
         "type": "object"
       },
       "InviteValidationResponse": {
@@ -7311,6 +7408,25 @@
           "sha"
         ],
         "title": "RevertCommitRequest",
+        "type": "object"
+      },
+      "RevokeInviteResponse": {
+        "properties": {
+          "status": {
+            "const": "revoked",
+            "default": "revoked",
+            "title": "Status",
+            "type": "string"
+          },
+          "token_hash": {
+            "title": "Token Hash",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token_hash"
+        ],
+        "title": "RevokeInviteResponse",
         "type": "object"
       },
       "RewindRequest": {
@@ -11158,9 +11274,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response List Invites Admin Invites Get",
-                  "type": "object"
+                  "$ref": "#/components/schemas/InviteListResponse"
                 }
               }
             },
@@ -11173,7 +11287,7 @@
         ]
       },
       "post": {
-        "description": "Gera um convite para outra conta na instância local.",
+        "description": "Gera um convite para outra conta na instância local.\n\nO link aponta para `VECTORA_FRONTEND_URL` quando definida (frontend em outro\nendereço, como no desenvolvimento) e, do contrário, para o endereço em que\nesta instância foi acessada, que é onde o app é servido.",
         "operationId": "create_invite_admin_invites_post",
         "requestBody": {
           "content": {
@@ -11190,9 +11304,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Create Invite Admin Invites Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/CreateInviteResponse"
                 }
               }
             },
@@ -11235,9 +11347,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Revoke Invite Admin Invites  Token Hash  Delete",
-                  "type": "object"
+                  "$ref": "#/components/schemas/RevokeInviteResponse"
                 }
               }
             },
