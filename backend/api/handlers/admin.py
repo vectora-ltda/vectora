@@ -114,6 +114,14 @@ class ToolToggleBody(BaseModel):
     enabled: bool
 
 
+class CreateInviteBody(CreateInviteRequest):
+    """Corpo de `POST /admin/invites`.
+
+    Herda os campos e a validação de `CreateInviteRequest`; o nome é o que o
+    contrato HTTP publicado já usa, e trocá-lo seria uma quebra de compatibilidade.
+    """
+
+
 class ToolOverrideBody(BaseModel):
     disabled: list[str] = []
 
@@ -298,7 +306,7 @@ async def set_user_tools(
 
 @router.post("/invites")
 async def create_invite(
-    request: Request, body: CreateInviteRequest
+    request: Request, body: CreateInviteBody
 ) -> CreateInviteResponse:
     """Gera um convite para outra conta na instância local.
 
