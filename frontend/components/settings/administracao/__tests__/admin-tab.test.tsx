@@ -25,7 +25,8 @@ vi.mock("@/lib/hooks/use-license-status", () => ({
   }),
 }));
 
-const { SystemPanel, SafeRootsPanel } = await import("../admin-tab");
+const { SystemPanel, SafeRootsPanel, UsersPanel } =
+  await import("../admin-tab");
 
 /** Formato mínimo válido pra cada endpoint que os painéis buscam no mount —
  * sem isso `SystemPanel`/`ConfigSection` quebram em campos undefined
@@ -191,5 +192,104 @@ describe("SafeRootsPanel — seletor nativo de pasta", () => {
         ([url, init]) => url === "/admin/safe-roots" && !init,
       ),
     ).toHaveLength(1);
+  });
+});
+
+const pending = (hash: string) => ({
+  token_hash: hash,
+  email: `${hash}@example.com`,
+  role: "member",
+  created_by: "u1",
+  expires_at: "2030-01-02T00:00:00+00:00",
+  created_at: "2030-01-01T00:00:00+00:00",
+});
+
+const ok = (body: unknown) =>
+  new Response(JSON.stringify(body), { status: 200 });
+
+/** Responde `/admin/users` e `/admin/invites` conforme o cenário. */
+function mockInvites(options: {
+  list?: Response | (() => Response);
+  revoke?: Response;
+  create?: Response;
+}) {
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url === "/admin/users")
+      return new Response(JSON.stringify({ users: [] }), { status: 200 });
+    if (url === "/admin/invites" && init?.method === "POST")
+      return options.create ?? new Response("{}", { status: 500 });
+    if (url === "/admin/invites") {
+      const list = options.list;
+      return typeof list === "function"
+        ? list()
+        : (list ?? new Response("{}", { status: 500 }));
+    }
+    if (url.startsWith("/admin/invites/") && init?.method === "DELETE")
+      return options.revoke ?? new Response("{}", { status: 500 });
+    return new Response("{}", { status: 200 });
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
+}
+
+describe("UsersPanel — convites", () => {
+  it("lista os convites pendentes com a função e o e-mail", async () => {
+    mockInvites({ list: ok({ invites: [pending("a")], total: 1 }) });
+    await act(async () => {
+      render(<UsersPanel />);
+    });
+
+    expect(await screen.findByText(/a@example\.com/)).toBeTruthy();
+    expect(screen.getByText("member")).toBeTruthy();
+  });
+
+  it("falha ao carregar os convites mostra o erro em vez de esconder", async () => {
+    mockInvites({ list: new Response("{}", { status: 500 }) });
+    await act(async () => {
+      render(<UsersPanel />);
+    });
+
+    expect((await screen.findByRole("alert")).textContent).toBeTruthy();
+  });
+
+  it("revoga o convite escolhido e o tira da lista", async () => {
+    const fetchMock = mockInvites({
+      list: ok({ invites: [pending("a"), pending("b")], total: 2 }),
+      revoke: ok({ status: "revoked", token_hash: "a" }),
+    });
+    await act(async () => {
+      render(<UsersPanel />);
+    });
+    await screen.findByText(/a@example\.com/);
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByTitle("Revogar")[0]!);
+    });
+
+    await waitFor(() =>
+      expect(screen.queryByText(/a@example\.com/)).toBeNull(),
+    );
+    expect(screen.getByText(/b@example\.com/)).toBeTruthy();
+    expect(fetchMock).toHaveBeenCalledWith("/admin/invites/a", {
+      method: "DELETE",
+    });
+  });
+
+  it("falha ao revogar mantém o convite e mostra o erro", async () => {
+    mockInvites({
+      list: ok({ invites: [pending("a")], total: 1 }),
+      revoke: new Response("{}", { status: 500 }),
+    });
+    await act(async () => {
+      render(<UsersPanel />);
+    });
+    await screen.findByText(/a@example\.com/);
+
+    await act(async () => {
+      fireEvent.click(screen.getByTitle("Revogar"));
+    });
+
+    expect((await screen.findByRole("alert")).textContent).toBeTruthy();
+    expect(screen.getByText(/a@example\.com/)).toBeTruthy();
   });
 });

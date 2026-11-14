@@ -304,7 +304,8 @@ class TestCreateInvite:
     async def test_admin_free_pode_convidar_membro_local(self, monkeypatch):
         from unittest.mock import AsyncMock, MagicMock
 
-        from backend.api.handlers.admin import CreateInviteBody, create_invite
+        from backend.api.handlers.admin import create_invite
+        from backend.api.schemas import CreateInviteRequest
         from backend.rbac import auth as auth_svc
 
         expires_at = "2026-11-12T00:00:00+00:00"
@@ -313,12 +314,12 @@ class TestCreateInvite:
 
         request = MagicMock()
         request.state.user = MagicMock(role="admin", id="u1")
-        body = CreateInviteBody(role="member", email="novo@example.com")
+        body = CreateInviteRequest(role="member", email="novo@example.com")
 
         result = await create_invite(request, body)
 
-        assert result["token"] == "invite-token"
-        assert result["expires_at"] == expires_at
+        assert result.token == "invite-token"
+        assert result.expires_at == expires_at
         create_invite_mock.assert_awaited_once_with(
             "u1", role="member", email="novo@example.com", ttl_hours=24
         )
@@ -327,7 +328,8 @@ class TestCreateInvite:
     async def test_membro_sem_papel_admin_nao_pode_convidar(self, monkeypatch):
         from unittest.mock import AsyncMock, MagicMock
 
-        from backend.api.handlers.admin import CreateInviteBody, create_invite
+        from backend.api.handlers.admin import create_invite
+        from backend.api.schemas import CreateInviteRequest
         from backend.rbac import auth as auth_svc
 
         create_invite_mock = AsyncMock()
@@ -338,11 +340,149 @@ class TestCreateInvite:
         with pytest.raises(Exception) as exc:
             await create_invite(
                 request,
-                CreateInviteBody(role="member", email="novo@example.com"),
+                CreateInviteRequest(role="member", email="novo@example.com"),
             )
 
         assert exc.value.status_code == 403  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
         create_invite_mock.assert_not_awaited()
+
+
+class TestInviteLinkAndTypedResponses:
+    """O link do convite abre o app onde ele é servido; as respostas são tipadas."""
+
+    @staticmethod
+    def _admin_request(base_url: str = "http://app.test:8080/") -> Any:
+        from unittest.mock import MagicMock
+
+        request = MagicMock()
+        request.base_url = base_url
+        request.state.user = MagicMock(role="admin", id="u1")
+        return request
+
+    @pytest.mark.asyncio
+    async def test_link_usa_o_endereco_de_onde_o_app_e_servido(self, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        from backend.api.handlers.admin import create_invite
+        from backend.api.schemas import CreateInviteRequest
+        from backend.rbac import auth as auth_svc
+
+        monkeypatch.delenv("VECTORA_FRONTEND_URL", raising=False)
+        monkeypatch.setattr(
+            auth_svc, "create_invite", AsyncMock(return_value=("tok", "2030-01-01"))
+        )
+
+        result = await create_invite(self._admin_request(), CreateInviteRequest())
+
+        assert result.url == "http://app.test:8080/auth/signup?invite=tok"
+
+    @pytest.mark.asyncio
+    async def test_frontend_url_definida_vence_o_endereco_da_requisicao(
+        self, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
+
+        from backend.api.handlers.admin import create_invite
+        from backend.api.schemas import CreateInviteRequest
+        from backend.rbac import auth as auth_svc
+
+        monkeypatch.setenv("VECTORA_FRONTEND_URL", "http://localhost:3000/")
+        monkeypatch.setattr(
+            auth_svc, "create_invite", AsyncMock(return_value=("tok", "2030-01-01"))
+        )
+
+        result = await create_invite(self._admin_request(), CreateInviteRequest())
+
+        assert result.url == "http://localhost:3000/auth/signup?invite=tok"
+
+    def test_validade_fora_de_1_a_720_horas_e_recusada(self):
+        from pydantic import ValidationError
+
+        from backend.api.schemas import CreateInviteRequest
+
+        for hours in (0, 721, -5):
+            with pytest.raises(ValidationError):
+                CreateInviteRequest(ttl_hours=hours)
+        assert CreateInviteRequest(ttl_hours=720).ttl_hours == 720
+
+    @pytest.mark.asyncio
+    async def test_papel_invalido_responde_400_sem_criar(self, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        from backend.api.handlers.admin import create_invite
+        from backend.api.schemas import CreateInviteRequest
+        from backend.rbac import auth as auth_svc
+
+        create_mock = AsyncMock()
+        monkeypatch.setattr(auth_svc, "create_invite", create_mock)
+
+        with pytest.raises(Exception) as exc:
+            await create_invite(self._admin_request(), CreateInviteRequest(role="root"))
+
+        assert exc.value.status_code == 400  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        create_mock.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_lista_devolve_convites_tipados_e_o_total(self, monkeypatch):
+        from unittest.mock import AsyncMock
+
+        from backend.api.handlers.admin import list_invites
+        from backend.rbac import auth as auth_svc
+
+        row = {
+            "token_hash": "h1",
+            "email": None,
+            "role": "member",
+            "created_by": "u1",
+            "expires_at": "2030-01-02",
+            "created_at": "2030-01-01",
+        }
+        monkeypatch.setattr(auth_svc, "list_invites", AsyncMock(return_value=[row]))
+
+        result = await list_invites(self._admin_request())
+
+        assert result.total == 1
+        assert result.invites[0].token_hash == "h1"
+        assert result.invites[0].email is None
+
+    @pytest.mark.asyncio
+    async def test_so_admin_lista_e_revoga(self, monkeypatch):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from backend.api.handlers.admin import list_invites, revoke_invite
+        from backend.rbac import auth as auth_svc
+
+        list_mock = AsyncMock(return_value=[])
+        revoke_mock = AsyncMock(return_value=True)
+        monkeypatch.setattr(auth_svc, "list_invites", list_mock)
+        monkeypatch.setattr(auth_svc, "revoke_invite", revoke_mock)
+        member = MagicMock()
+        member.state.user = MagicMock(role="member", id="u2")
+
+        for call in (list_invites(member), revoke_invite(member, "h1")):
+            with pytest.raises(Exception) as exc:
+                await call
+            assert exc.value.status_code == 403  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
+        list_mock.assert_not_awaited()
+        revoke_mock.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_revogar_devolve_o_hash_e_convite_inexistente_e_404(
+        self, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
+
+        from backend.api.handlers.admin import revoke_invite
+        from backend.rbac import auth as auth_svc
+
+        monkeypatch.setattr(auth_svc, "revoke_invite", AsyncMock(return_value=True))
+        result = await revoke_invite(self._admin_request(), "h1")
+        assert (result.status, result.token_hash) == ("revoked", "h1")
+
+        monkeypatch.setattr(auth_svc, "revoke_invite", AsyncMock(return_value=False))
+        with pytest.raises(Exception) as exc:
+            await revoke_invite(self._admin_request(), "h2")
+        assert exc.value.status_code == 404  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
 
 
 class TestToggleToolGlobal:

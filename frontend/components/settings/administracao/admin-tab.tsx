@@ -110,6 +110,12 @@ interface ServerConfig {
 // API helpers
 // ---------------------------------------------------------------------------
 
+/** Recusa respostas de erro, para que a tela mostre a falha em vez de a engolir. */
+const ensureOk = (response: Response): Response => {
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response;
+};
+
 const api = {
   users: {
     list: () => fetch("/admin/users").then((r) => r.json()),
@@ -131,15 +137,20 @@ const api = {
       }),
   },
   invites: {
-    list: () => fetch("/admin/invites").then((r) => r.json()),
+    list: () =>
+      fetch("/admin/invites")
+        .then(ensureOk)
+        .then((r) => r.json()),
     create: (body: { role: string; email?: string; ttl_hours: number }) =>
       fetch("/admin/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
-      }).then((r) => r.json()),
+      })
+        .then(ensureOk)
+        .then((r) => r.json()),
     revoke: (tokenHash: string) =>
-      fetch(`/admin/invites/${tokenHash}`, { method: "DELETE" }),
+      fetch(`/admin/invites/${tokenHash}`, { method: "DELETE" }).then(ensureOk),
   },
   system: () => fetch("/admin/system").then((r) => r.json()),
   config: {
@@ -173,7 +184,7 @@ function InvitesSection() {
       const data = await api.invites.list();
       setInvites(data.invites ?? []);
     } catch {
-      // silencioso
+      setError(m.invite_error_load());
     }
   }, []);
 
@@ -208,14 +219,23 @@ function InvitesSection() {
 
   const handleCopy = async () => {
     if (!link) return;
-    await navigator.clipboard.writeText(link);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError(m.invite_error_copy());
+    }
   };
 
   const handleRevoke = async (tokenHash: string) => {
-    await api.invites.revoke(tokenHash);
-    setInvites((prev) => prev.filter((i) => i.token_hash !== tokenHash));
+    setError(null);
+    try {
+      await api.invites.revoke(tokenHash);
+      setInvites((prev) => prev.filter((i) => i.token_hash !== tokenHash));
+    } catch {
+      setError(m.invite_error_revoke());
+    }
   };
 
   return (
@@ -300,8 +320,6 @@ function InvitesSection() {
             {m.invite_create()}
           </Button>
 
-          {error && <p className="text-xs text-destructive">{error}</p>}
-
           {link && (
             <div className="flex items-center gap-1.5 rounded-md border bg-background p-1.5">
               <span className="text-[10px] font-mono truncate flex-1">
@@ -324,6 +342,12 @@ function InvitesSection() {
         </div>
       )}
 
+      {error && (
+        <p role="alert" className="text-xs text-destructive">
+          {error}
+        </p>
+      )}
+
       {/* Convites pendentes */}
       <div className="space-y-1">
         <p className="text-[10px] text-muted-foreground uppercase tracking-wide">
@@ -342,7 +366,7 @@ function InvitesSection() {
               </Badge>
               <span className="flex-1 truncate text-muted-foreground">
                 {inv.email || "—"} · {m.invite_expires()}{" "}
-                {new Date(inv.expires_at).toLocaleString("pt-BR")}
+                {new Date(inv.expires_at).toLocaleString()}
               </span>
               <Button
                 variant="ghost"
