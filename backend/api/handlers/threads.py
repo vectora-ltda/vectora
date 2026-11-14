@@ -866,9 +866,29 @@ async def _assert_owns_thread(
                 status_code=404, detail=f"Thread {thread_id!r} not found"
             )
         return
-    user_id = _user_id(http_request)
-    if session["user_id"] != user_id:
+    from backend.rbac.permissions import can_access_thread
+
+    # Dono, ou admin/root (que enxergam threads de terceiros). Quem não pode
+    # recebe 404, igual a uma thread que não existe.
+    if not can_access_thread(http_request.state.user, session["user_id"]):
         raise HTTPException(status_code=404, detail=f"Thread {thread_id!r} not found")
+
+
+async def _assert_can_delete_thread(
+    thread_id: str, http_request: Request | None
+) -> None:
+    """Excluir exige ser o dono ou admin/root: quem só enxerga a thread (um
+    papel sem poder de exclusão sobre ela) recebe 403."""
+    if http_request is None or getattr(http_request.state, "user", None) is None:
+        return
+    from backend.rbac.permissions import can_delete_thread
+
+    session = await (await _get_session_store()).get_session(thread_id)
+    owner = session["user_id"] if session is not None else None
+    if session is not None and not can_delete_thread(http_request.state.user, owner):
+        raise HTTPException(
+            status_code=403, detail="Sem permissão para excluir esta conversa."
+        )
 
 
 async def _require_existing_thread(thread_id: str, request: Request) -> None:
@@ -1585,6 +1605,7 @@ async def delete_thread(
 ) -> dict:
     """Executa a operação delete thread."""
     await _assert_owns_thread(request.thread_id, http_request)
+    await _assert_can_delete_thread(request.thread_id, http_request)
     db = await _get_db()
     # Grava o tombstone ANTES de qualquer exclusão: fecha a corrida onde
     # uma reconciliação concorrente já tinha lido `list_all_sessions()`

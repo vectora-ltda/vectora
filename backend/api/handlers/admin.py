@@ -34,6 +34,7 @@ from backend.api.schemas import (
     RevokeInviteResponse,
 )
 from backend.rbac.auth import User
+from backend.rbac.permissions import can_manage_users, has_min_role
 from backend.settings import settings
 from backend.vtypes.safe_root import SafeRoot
 
@@ -45,14 +46,11 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # Helpers de autorização
 # ---------------------------------------------------------------------------
 
-_ADMIN_ROLES = {"root", "admin"}
-_ROOT_ONLY_ROLES = {"root"}
-
 
 def require_admin(user: Any) -> None:
     """Lança HTTPException 403 se user não é admin ou root."""
     role = getattr(user, "role", None)
-    if role not in _ADMIN_ROLES:
+    if not has_min_role(user, "admin"):
         raise HTTPException(
             status_code=403,
             detail=f"Acesso negado. Role '{role}' não tem permissão de administrador.",
@@ -62,7 +60,7 @@ def require_admin(user: Any) -> None:
 def require_root(user: Any) -> None:
     """Lança HTTPException 403 se user não é root."""
     role = getattr(user, "role", None)
-    if role not in _ROOT_ONLY_ROLES:
+    if not can_manage_users(user):
         raise HTTPException(
             status_code=403,
             detail="Acesso negado. Apenas root pode executar esta ação.",
