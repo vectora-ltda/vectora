@@ -25,11 +25,13 @@ import * as fs from "fs";
 import {
   app,
   BrowserWindow,
+  clipboard,
   desktopCapturer,
   Menu,
   screen,
   session,
   Tray,
+  type WebContents,
   dialog,
   ipcMain,
   nativeImage,
@@ -48,6 +50,7 @@ import { Readable } from "stream";
 import treeKill = require("tree-kill");
 import { parseSetCookieHeader, buildCookieHeader } from "./cookie-utils.js";
 import { createOpenPathsDispatcher, pathsFromArgv } from "./open-paths.js";
+import { buildContextMenuTemplate, contextMenuLabels } from "./context-menu.js";
 import {
   getFreePort,
   backendPath,
@@ -350,6 +353,7 @@ function getBrowserViewManager(): BrowserViewManager {
           session: session.fromPartition(`persist:browser-${profileId}`),
         },
       });
+      attachContextMenu(view.webContents);
       if (options.zoomPercent !== undefined) {
         const factor = Math.max(0.25, Math.min(5, options.zoomPercent / 100));
         view.webContents.setZoomLevel(Math.log(factor) / Math.log(1.2));
@@ -767,6 +771,32 @@ async function waitForBackend(): Promise<void> {
 // Window
 // ---------------------------------------------------------------------------
 
+/**
+ * Menu do clique direito. O Electron não abre menu algum sozinho: sem isto não
+ * há como recortar, copiar, colar, selecionar tudo nem corrigir uma palavra.
+ * Vale para a janela principal e para as páginas do navegador embutido.
+ */
+function attachContextMenu(webContents: WebContents): void {
+  webContents.on("context-menu", (_event, params) => {
+    const template = buildContextMenuTemplate(
+      params,
+      contextMenuLabels(app.getLocale()),
+      {
+        replaceMisspelling: (suggestion) =>
+          webContents.replaceMisspelling(suggestion),
+        addToDictionary: (word) =>
+          webContents.session.addWordToSpellCheckerDictionary(word),
+        copyText: (text) => clipboard.writeText(text),
+      },
+    );
+    if (template.length === 0) return;
+    Menu.buildFromTemplate(template).popup({
+      window:
+        BrowserWindow.fromWebContents(webContents) ?? mainWindow ?? undefined,
+    });
+  });
+}
+
 function createWindow(options: { visible?: boolean } = {}): void {
   const webMode = process.env.VECTORA_WEB_MODE === "1";
   const shouldShow = options.visible ?? !webMode;
@@ -806,6 +836,8 @@ function createWindow(options: { visible?: boolean } = {}): void {
       preload: path.join(__dirname, "preload.js"),
     },
   });
+
+  attachContextMenu(mainWindow.webContents);
 
   mainWindow.on("maximize", () => {
     mainWindow?.webContents.send("vectora:window-state", { maximized: true });
