@@ -949,7 +949,7 @@ async function handleEvent(
       // chegou ao modelo (arquivo ou texto).
       setMessages((prev) => {
         const assistantIndex = prev.findIndex(
-          (msg) => msg.id === assistantMessageId,
+          (candidate) => candidate.id === assistantMessageId,
         );
         const searchEnd = assistantIndex === -1 ? prev.length : assistantIndex;
         for (let index = searchEnd - 1; index >= 0; index -= 1) {
