@@ -1286,12 +1286,6 @@ async def workspace_sandbox_status(workspace_id: str) -> SandboxStatusResponse:
     )
 
 
-_HOST_PATTERN = re.compile(
-    r"(\*\.)?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+",
-    re.IGNORECASE,
-)
-
-
 class SandboxPolicyBody(BaseModel):
     """O que o usuário define para o sandbox do workspace (fora do repositório)."""
 
@@ -1309,6 +1303,11 @@ class SandboxPolicyBody(BaseModel):
     network: Literal["off", "filtered", "open"] = "filtered"
     allow_hosts: list[str] = Field(default_factory=list)
     registry_hosts: bool = True
+    #: Maior arquivo gravável (MB), teto de memória por processo (MB, vazio não
+    #: limita) e tamanho dos tmpfs do jail (MB).
+    max_file_mb: int = Field(default=4096, ge=1, le=1_048_576)
+    memory_limit_mb: int | None = Field(default=None, ge=128, le=1_048_576)
+    tmp_size_mb: int = Field(default=1024, ge=16, le=65_536)
 
 
 class SandboxPolicyResponse(SandboxPolicyBody):
@@ -1338,6 +1337,9 @@ def _sandbox_policy_payload(root: Path) -> SandboxPolicyResponse:
         network=policy.network,
         allow_hosts=list(policy.allow_hosts),
         registry_hosts=policy.registry_hosts,
+        max_file_mb=policy.max_file_mb,
+        memory_limit_mb=policy.memory_limit_mb,
+        tmp_size_mb=policy.tmp_size_mb,
         ignored_repo_keys=list(policy.ignored_repo_keys),
         user_policy=trusted_policy_path(root).is_file(),
     )
@@ -1366,6 +1368,7 @@ async def update_workspace_sandbox_policy(
     válidas. Um worker já aberto é recriado na próxima ação."""
     from backend.sandbox.policy import (
         DEFAULT_MASK,
+        HOST_PATTERN,
         SandboxPolicy,
         write_trusted_policy,
     )
@@ -1393,7 +1396,7 @@ async def update_workspace_sandbox_policy(
         raise HTTPException(
             status_code=400, detail="Nome de variável de ambiente inválido."
         )
-    if any(not _HOST_PATTERN.fullmatch(host) for host in body.allow_hosts):
+    if any(not HOST_PATTERN.fullmatch(host) for host in body.allow_hosts):
         raise HTTPException(
             status_code=400,
             detail="Destino inválido: use `dominio.com` ou `*.dominio.com`.",
@@ -1413,6 +1416,9 @@ async def update_workspace_sandbox_policy(
         network=body.network,
         allow_hosts=tuple(body.allow_hosts),
         registry_hosts=body.registry_hosts,
+        max_file_mb=body.max_file_mb,
+        memory_limit_mb=body.memory_limit_mb,
+        tmp_size_mb=body.tmp_size_mb,
     )
     await asyncio.to_thread(write_trusted_policy, root, policy)
     from backend.sandbox import audit

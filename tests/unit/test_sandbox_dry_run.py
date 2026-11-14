@@ -246,3 +246,51 @@ def test_workspace_dir_appears_exactly_once_as_bind_source():
     assert "--chdir" in argv
     chdir_idx = argv.index("--chdir")
     assert argv[chdir_idx + 1] == "/ws/project"
+
+
+# ── limites de recursos no comando ──────────────────────────────────────────
+
+
+def test_limites_viajam_ao_jail_por_variaveis():
+    argv = build_bwrap_command(
+        SandboxPolicy(enabled=True, max_file_mb=100, memory_limit_mb=2048),
+        "/ws",
+        ["true"],
+    )
+    ambiente = {
+        argv[i + 1]: argv[i + 2] for i, item in enumerate(argv) if item == "--setenv"
+    }
+
+    assert ambiente["VECTORA_SANDBOX_MAX_FILE_MB"] == "100"
+    assert ambiente["VECTORA_SANDBOX_MEMORY_MB"] == "2048"
+
+
+def test_sem_limite_de_memoria_a_variavel_nao_existe():
+    argv = build_bwrap_command(SandboxPolicy(enabled=True), "/ws", ["true"])
+
+    assert "VECTORA_SANDBOX_MEMORY_MB" not in argv
+
+
+def test_tmpfs_do_jail_tem_teto_quando_o_bwrap_suporta(monkeypatch):
+    from backend.sandbox import dry_run
+
+    monkeypatch.setattr(dry_run, "bwrap_supports_size", lambda: True)
+    argv = build_bwrap_command(
+        SandboxPolicy(enabled=True, tmp_size_mb=64), "/ws", ["true"]
+    )
+
+    tamanho = str(64 * 1024 * 1024)
+    for destino in ("/tmp", dry_run.WORKER_HOME):
+        i = argv.index(destino)
+        assert argv[i - 1 : i] == ["--tmpfs"]
+        assert argv[i - 3 : i - 1] == ["--size", tamanho]
+
+
+def test_bwrap_antigo_sem_size_nao_impede_o_jail(monkeypatch):
+    from backend.sandbox import dry_run
+
+    monkeypatch.setattr(dry_run, "bwrap_supports_size", lambda: False)
+    argv = build_bwrap_command(SandboxPolicy(enabled=True), "/ws", ["true"])
+
+    assert "--size" not in argv
+    assert argv.count("--tmpfs") == 2

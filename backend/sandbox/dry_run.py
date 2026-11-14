@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 import sysconfig
 from collections.abc import Sequence
@@ -131,6 +132,39 @@ def _resolver_run_dir() -> str | None:
     if not str(real).startswith("/run/"):
         return None
     return str(real.parent)
+
+
+_size_support: bool | None = None
+
+
+def bwrap_supports_size() -> bool:
+    """O `bwrap` instalado aceita `--size` (versões novas); sem ele os tmpfs
+    ficam sem teto em vez de o jail não iniciar."""
+    global _size_support
+    if _size_support is None:
+        import subprocess  # nosec B404
+
+        binary = shutil.which("bwrap")
+        if binary is None:
+            _size_support = False
+        else:
+            try:
+                help_text = subprocess.run(  # noqa: S603  # nosec B603
+                    [binary, "--help"], capture_output=True, text=True, check=False
+                )
+                _size_support = "--size" in (help_text.stdout + help_text.stderr)
+            except OSError:
+                _size_support = False
+    return _size_support
+
+
+def _sized_tmpfs(path: str, policy: SandboxPolicy) -> list[str]:
+    size = (
+        ["--size", str(policy.tmp_size_mb * 1024 * 1024)]
+        if bwrap_supports_size()
+        else []
+    )
+    return [*size, "--tmpfs", path]
 
 
 def system_mounts() -> list[str]:
@@ -273,6 +307,9 @@ def build_bwrap_command(
     *,
     runtime_ro_paths: Sequence[str | tuple[str, str]] = (),
     egress_dir: str | None = None,
+    inherit_env: bool = False,
+    harden: bool = False,
+    extra_ro_paths: Sequence[str] = (),
 ) -> list[str]:
     """Monta o argv completo de `bwrap`, na ordem: sessão e ambiente limpos →
     mounts base (proc/dev/sistema somente leitura, `/tmp` próprio) → `$HOME`
@@ -294,7 +331,14 @@ def build_bwrap_command(
     A rede segue `effective_network(policy)`: `open` herda a do host; `filtered`
     põe o jail num namespace de rede sem rota e liga o loopback dele, por uma
     ponte, ao socket do proxy de saída em `egress_dir` (`egress_proxy.py`); `off`,
-    o lockdown, e `filtered` sem proxy (nunca abre por omissão) ficam sem rede."""
+    o lockdown, e `filtered` sem proxy (nunca abre por omissão) ficam sem rede.
+
+    `inherit_env` mantém o ambiente que o processo do `bwrap` recebeu (só `HOME` e
+    `PATH` são redefinidos): é o caso do servidor MCP, cujo ambiente o chamador
+    já montou com as variáveis aprovadas, sem passá-las pela linha de comando.
+    `harden` faz o comando começar por `egress_bridge --harden` (rlimits,
+    `no_new_privs` e Landlock), como o worker faz sozinho. `extra_ro_paths` são
+    pastas somente leitura além do sistema (onde mora o programa do usuário)."""
     network = effective_network(policy)
     filtered = network == "filtered" and egress_dir is not None
     argv: list[str] = [
@@ -304,24 +348,35 @@ def build_bwrap_command(
         "--unshare-ipc",
         "--die-with-parent",
         "--new-session",
-        "--clearenv",
+        *([] if inherit_env else ["--clearenv"]),
         "--proc",
         "/proc",
         "--dev",
         "/dev",
         *system_mounts(),
-        "--tmpfs",
-        "/tmp",  # noqa: S108  # nosec B108 - /tmp do próprio jail, nunca o do host
-        "--tmpfs",
-        WORKER_HOME,
+        *_sized_tmpfs("/tmp", policy),  # noqa: S108  # nosec B108 - /tmp do próprio jail
+        *_sized_tmpfs(WORKER_HOME, policy),
     ]
     runtime = tuple(runtime_ro_paths)
-    if filtered and not runtime:
-        runtime = python_runtime_paths()  # a ponte é um módulo Python
+    wrapped = filtered or harden
+    if wrapped and not runtime:
+        runtime = python_runtime_paths()  # o preparo é um módulo Python
+    for extra in extra_ro_paths:
+        argv += ["--ro-bind", extra, extra]
     for entry in runtime:
         source, target = (entry, entry) if isinstance(entry, str) else entry
         argv += ["--ro-bind", source, target]
     environment = jail_environment(policy, python_path_for(runtime))
+    if inherit_env:
+        environment = {
+            name: value
+            for name, value in environment.items()
+            if name in {"HOME", "PYTHONPATH"} or name == "PATH"
+        }
+        if extra_ro_paths:
+            environment["PATH"] = ":".join(
+                [*(f"{p}/bin" for p in extra_ro_paths), environment["PATH"]]
+            )
     if filtered:
         environment.update(proxy_environment())
     for name, value in environment.items():
@@ -351,6 +406,9 @@ def build_bwrap_command(
     if network != "open":
         argv += ["--unshare-net"]
     argv += ["--setenv", "VECTORA_SANDBOX_LOCKDOWN", "1" if policy.lockdown else "0"]
+    argv += ["--setenv", "VECTORA_SANDBOX_MAX_FILE_MB", str(policy.max_file_mb)]
+    if policy.memory_limit_mb:
+        argv += ["--setenv", "VECTORA_SANDBOX_MEMORY_MB", str(policy.memory_limit_mb)]
     # Propaga rw_paths/ro_paths/workspace pro worker aplicar Landlock (4.1)
     # de dentro do próprio processo — landlock_restrict_self só afeta quem
     # o chama, não pode ser feito de fora via bwrap. As pastas base (sistema,
@@ -362,7 +420,14 @@ def build_bwrap_command(
     argv += [
         "--setenv",
         "VECTORA_SANDBOX_BASE_RO_PATHS",
-        json.dumps([*system_read_paths(), *map(_runtime_real, runtime), "/proc"]),
+        json.dumps(
+            [
+                *system_read_paths(),
+                *map(_runtime_real, runtime),
+                *extra_ro_paths,
+                "/proc",
+            ]
+        ),
     ]
     argv += [
         "--setenv",
@@ -375,15 +440,22 @@ def build_bwrap_command(
         json.dumps(list(policy.allow_tcp_ports)),
     ]
     argv += ["--chdir", workspace_dir]
-    if filtered:
+    if wrapped:
         command = [
             sys.executable,
             "-m",
             "backend.sandbox.egress_bridge",
-            "--socket",
-            f"{JAIL_SOCKET_DIR}/{SOCKET_NAME}",
-            "--port",
-            str(JAIL_PROXY_PORT),
+            *(
+                [
+                    "--socket",
+                    f"{JAIL_SOCKET_DIR}/{SOCKET_NAME}",
+                    "--port",
+                    str(JAIL_PROXY_PORT),
+                ]
+                if filtered
+                else []
+            ),
+            *(["--harden"] if harden else []),
             "--",
             *command,
         ]

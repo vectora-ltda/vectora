@@ -5612,6 +5612,14 @@
       },
       "McpServer": {
         "properties": {
+          "allow_hosts": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Allow Hosts",
+            "type": "array"
+          },
           "args": {
             "default": [],
             "items": {
@@ -7913,6 +7921,26 @@
             ],
             "title": "Mask"
           },
+          "max_file_mb": {
+            "default": 4096,
+            "maximum": 1048576.0,
+            "minimum": 1.0,
+            "title": "Max File Mb",
+            "type": "integer"
+          },
+          "memory_limit_mb": {
+            "anyOf": [
+              {
+                "maximum": 1048576.0,
+                "minimum": 128.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Limit Mb"
+          },
           "network": {
             "default": "filtered",
             "enum": [
@@ -7951,6 +7979,13 @@
             },
             "title": "Rw Paths",
             "type": "array"
+          },
+          "tmp_size_mb": {
+            "default": 1024,
+            "maximum": 65536.0,
+            "minimum": 16.0,
+            "title": "Tmp Size Mb",
+            "type": "integer"
           }
         },
         "title": "SandboxPolicyBody",
@@ -8009,6 +8044,26 @@
             "title": "Mask",
             "type": "array"
           },
+          "max_file_mb": {
+            "default": 4096,
+            "maximum": 1048576.0,
+            "minimum": 1.0,
+            "title": "Max File Mb",
+            "type": "integer"
+          },
+          "memory_limit_mb": {
+            "anyOf": [
+              {
+                "maximum": 1048576.0,
+                "minimum": 128.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory Limit Mb"
+          },
           "network": {
             "default": "filtered",
             "enum": [
@@ -8047,6 +8102,13 @@
             },
             "title": "Rw Paths",
             "type": "array"
+          },
+          "tmp_size_mb": {
+            "default": 1024,
+            "maximum": 65536.0,
+            "minimum": 16.0,
+            "title": "Tmp Size Mb",
+            "type": "integer"
           },
           "user_policy": {
             "default": false,

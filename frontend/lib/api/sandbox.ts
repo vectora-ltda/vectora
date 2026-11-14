@@ -38,6 +38,9 @@ export interface SandboxPolicy {
   network: SandboxNetwork;
   allow_hosts: string[];
   registry_hosts: boolean;
+  max_file_mb: number;
+  memory_limit_mb: number | null;
+  tmp_size_mb: number;
   ignored_repo_keys: string[];
   user_policy: boolean;
 }

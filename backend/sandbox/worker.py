@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from backend.sandbox.landlock import apply_landlock, set_no_new_privs
-from backend.sandbox.rlimits import apply_rlimits
+from backend.sandbox.rlimits import apply_rlimits, limits_from_environment
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,12 @@ async def main() -> None:
     # os limites, contendo fork bombs/exaustão de descritores mesmo sem
     # Landlock/seccomp cobrirem esse vetor. Perfil vem de env var setada por
     # `workspace_jail.py` no spawn (`--setenv`, conforme `policy.lockdown`).
-    apply_rlimits(lockdown=os.environ.get("VECTORA_SANDBOX_LOCKDOWN") == "1")
+    max_file_mb, memory_mb = limits_from_environment()
+    apply_rlimits(
+        lockdown=os.environ.get("VECTORA_SANDBOX_LOCKDOWN") == "1",
+        max_file_mb=max_file_mb,
+        memory_limit_mb=memory_mb,
+    )
     _state["rlimits"] = True
     _state["no_new_privs"] = set_no_new_privs()
 
