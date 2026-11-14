@@ -50,12 +50,13 @@ export async function* withResume<T extends ResumableEvent>(
 ): AsyncGenerator<T> {
   const maxAttempts = options.maxAttempts ?? DEFAULT_ATTEMPTS;
   const delayMs = options.delayMs ?? defaultDelay;
-  let lastEventId = "";
-  let finished = false;
+  // Estado mutado por `track`; fica num objeto para o laço de retomada ler o
+  // valor atual a cada tentativa.
+  const state = { lastEventId: "", finished: false };
 
   const track = (event: T) => {
-    if (event.event_id) lastEventId = event.event_id;
-    if (event.type === "done") finished = true;
+    if (event.event_id) state.lastEventId = event.event_id;
+    if (event.type === "done") state.finished = true;
   };
 
   let failure: unknown;
@@ -71,7 +72,7 @@ export async function* withResume<T extends ResumableEvent>(
 
   for (
     let attempt = 1;
-    !finished && lastEventId && attempt <= maxAttempts;
+    !state.finished && state.lastEventId && attempt <= maxAttempts;
     attempt++
   ) {
     if (options.signal?.aborted) break;
@@ -79,7 +80,10 @@ export async function* withResume<T extends ResumableEvent>(
     await wait(delayMs(attempt), options.signal);
     if (options.signal?.aborted) break;
     try {
-      for await (const event of options.open(lastEventId, options.signal)) {
+      for await (const event of options.open(
+        state.lastEventId,
+        options.signal,
+      )) {
         track(event);
         yield event;
       }
@@ -91,5 +95,5 @@ export async function* withResume<T extends ResumableEvent>(
     }
   }
 
-  if (failure !== undefined && !finished) throw failure;
+  if (failure !== undefined && !state.finished) throw failure;
 }
