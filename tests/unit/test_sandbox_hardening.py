@@ -421,3 +421,31 @@ def test_bwrap_nao_executa_ioctl_tiocsti_nem_syscalls_negadas(tmp_path):
     )
 
     assert run.returncode != 0
+
+
+@real_bwrap
+@pytest.mark.asyncio
+async def test_worker_e_recriado_quando_a_pasta_ou_a_politica_mudam(tmp_path):
+    primeira = tmp_path / "a"
+    segunda = tmp_path / "b"
+    primeira.mkdir()
+    segunda.mkdir()
+    manager = workspace_jail.WorkspaceJailManager()
+    politica = SandboxPolicy(enabled=True)
+    try:
+        w1 = await manager.get_or_spawn("ws", str(primeira), politica)
+        mesmo = await manager.get_or_spawn("ws", str(primeira), politica)
+        outra_pasta = await manager.get_or_spawn("ws", str(segunda), politica)
+        escrita = await _exec(outra_pasta, "echo x > novo.txt")
+        outra_politica = await manager.get_or_spawn(
+            "ws", str(segunda), SandboxPolicy(enabled=True, lockdown=True)
+        )
+    finally:
+        await manager.close("ws")
+
+    assert mesmo is w1
+    assert outra_pasta is not w1
+    assert escrita["exit_code"] == 0
+    assert (segunda / "novo.txt").exists()
+    assert not (primeira / "novo.txt").exists()
+    assert outra_politica is not outra_pasta

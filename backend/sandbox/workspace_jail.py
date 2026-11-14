@@ -95,6 +95,10 @@ class JailedWorker:
     isolation_enforced: bool = False
     #: O filtro seccomp foi carregado no bwrap (libseccomp disponível).
     seccomp_applied: bool = False
+    #: Pasta e política com que o worker nasceu: mudou qualquer uma, o worker
+    #: antigo não serve mais (escreveria na pasta errada ou com a regra velha).
+    workspace_dir: str = ""
+    policy: SandboxPolicy | None = None
 
     async def request(
         self, op: str, timeout_s: float = DEFAULT_REQUEST_TIMEOUT_S, **kwargs: Any
@@ -184,7 +188,13 @@ class WorkspaceJailManager:
         async with self._spawn_lock:
             existing = self._workers.get(workspace_id)
             if existing is not None and existing.is_alive():
-                return existing
+                if (
+                    existing.workspace_dir == workspace_dir
+                    and existing.policy == policy
+                ):
+                    return existing
+                await existing.close()
+                self._workers.pop(workspace_id, None)
             worker = await self._spawn(workspace_id, workspace_dir, policy)
             if (
                 workspace_id in self._isolation_required
@@ -285,6 +295,8 @@ class WorkspaceJailManager:
             job_handle=job_handle,
             isolation_enforced=soft_env is None and policy.backend == "local",
             seccomp_applied=seccomp_applied,
+            workspace_dir=workspace_dir,
+            policy=policy,
         )
         if policy.require_full_isolation and soft_env is None:
             status = await worker.isolation_status()

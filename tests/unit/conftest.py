@@ -57,3 +57,29 @@ def sem_bwrap_automatico(monkeypatch):
     import backend.sandbox.policy as policy_module
 
     monkeypatch.setattr(policy_module, "_native_sandbox_available_sync", lambda: False)
+
+
+@pytest.fixture(autouse=True)
+def _encerra_workers_do_jail():
+    """Nenhum worker jailado sobrevive ao teste que o criou: o `jail_manager` é
+    um singleton do processo, e um worker esquecido seguiria apontando para a
+    pasta temporária de um teste anterior."""
+    yield
+    import contextlib
+
+    from backend.sandbox.workspace_jail import jail_manager
+
+    for worker in list(jail_manager._workers.values()):
+        with contextlib.suppress(ProcessLookupError, OSError):
+            worker.proc.kill()
+    jail_manager._workers.clear()
+
+
+@pytest.fixture(autouse=True)
+def _git_com_ramo_padrao_master(monkeypatch):
+    """Repositórios criados pelos testes nascem em `master`, qualquer que seja
+    o `init.defaultBranch` da máquina de quem roda (os testes de git citam o
+    ramo pelo nome)."""
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "init.defaultBranch")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "master")
