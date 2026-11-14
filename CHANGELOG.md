@@ -1,3 +1,54 @@
+## [0.1.26] (2026-11-14)
+
+Esta seção reúne as alterações publicadas nesta versão.
+
+### Features
+
+Os recursos incluídos nesta versão são listados abaixo.
+
+- feat(chat): alerta do sistema idempotente por thread, turno e evento (#529)
+- feat(threads): histórico paginado com cursor estável por message_id (#528)
+- feat(threads): contrato de criação, listagem e contagem de threads (#527)
+- feat(chat): retomada do stream por cursor, envio cancelado e rascunho preservado (#522)
+- feat(chat): indicador de desfecho do run e fila com altura limitada (#520)
+- feat(chat): fila do composer com estados, reenvio idempotente e remoção (#518)
+- feat(chat): o cliente descarta evento repetido, reordenado ou posterior ao done (#517)
+- feat(chat): eventos do stream com seq e event_id, e o desfecho no evento done (#516)
+- feat(harness): digest cobre post_file_write e o hook é encerrado em árvore no Windows (#515)
+- feat(workspace): tela para revisar e aprovar as regras de hook do workspace (#511)
+- feat(cli): vectora hooks list e hooks test para ver e testar as regras do workspace (#510)
+- feat(harness): hook pre_response que devolve a resposta negada ao modelo para revisão (#509)
+- feat(harness): aprovação das regras de hook presa ao digest do vectora.toml (#505)
+- feat(harness): hooks determinísticos pre_tool e post_tool configuráveis no workspace (#503)
+- feat(mcp): transcreve localmente o áudio devolvido por ferramentas MCP (#501)
+- feat(contexto): aprende o custo em tokens de uma imagem por modelo (#500)
+- feat(midia): tela para configurar os limites de imagens de PDF e vídeo (#499)
+- feat(build): scons install completo, com detecção do ambiente (#496)
+- feat(midia): limites configuráveis e ferramentas de PDF e vídeo com opções (#494)
+- feat(midia): configuração da transcrição local nas configurações do app (#492)
+- feat(midia): reconhecimento de fala nativo do macOS para transcrição local (#491)
+- feat(midia): transcrição local-first de áudio e vídeo e PDF em imagens (#490)
+- feat(chat): envia PDF e vídeo como imagens a modelos que só leem imagem (#488)
+- feat(chat): imagens devolvidas por ferramentas MCP chegam ao modelo (#487)
+- feat(chat): envia PDF, áudio e vídeo nativos pelo OpenRouter e 9router (#486)
+- feat(chat): screenshots de ferramentas chegam ao modelo como imagem (#483)
+- feat(chat): composer aceita qualquer arquivo e mostra como cada anexo chegou ao modelo (#482)
+- feat(chat): envia PDF, áudio e vídeo nativos aos modelos que aceitam (#481)
+- feat(chat): aceita qualquer arquivo anexado e classifica pelos bytes (#480)
+
+### Bug Fixes
+
+As correções incluídas nesta versão são listadas abaixo.
+
+- fix(chat): resumable-stream sem avisos do oxlint (#525)
+- fix(chat): anexos não enviados sobrevivem à troca de conversa e ao remontar (#519)
+- fix(ci): trata avisos do oxlint como erros e remove os avisos do CI (#524)
+- fix(deps): opentelemetry-api 1.45.2 corrige ReDoS no TraceContextTextMapPropagator (#521)
+- fix(contracts): info.version do OpenAPI acompanha a versão do contrato (#508)
+- fix(ci): lê o epoch da última tag anotada pelo commit (#484)
+- fix(contexto): estimativa de tokens conta as imagens de PDF e vídeo (#493)
+- fix(chat): imagens anexadas chegam ao modelo depois de gravadas no histórico (#479)
+
 ## [0.1.25] (2026-11-13)
 
 Esta seção reúne as alterações publicadas nesta versão.
