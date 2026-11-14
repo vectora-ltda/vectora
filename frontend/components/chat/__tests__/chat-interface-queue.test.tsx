@@ -249,6 +249,77 @@ describe("ChatInterface — fila do composer", () => {
     expect(queue()).toEqual([]);
   });
 
+  it("alerta do sistema uma vez por turno quando a aba está oculta e a resposta demorou", async () => {
+    sessionStorage.clear();
+    const alerts = vi.fn();
+    vi.stubGlobal(
+      "Notification",
+      Object.assign(alerts, { permission: "granted" }),
+    );
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("hidden");
+    render(<ChatInterface threadId="thread-alerta" />);
+    await flush();
+
+    await submit("primeira");
+    await act(async () => {
+      vi.advanceTimersByTime(20_000);
+      h.streams[0].resolve({
+        assistantContent: "ok",
+        requestReachedBackend: true,
+      });
+    });
+    await flush();
+    expect(alerts).toHaveBeenCalledTimes(1);
+
+    // Outro turno é outra chave: alerta de novo; o mesmo turno não repete.
+    await submit("segunda");
+    await act(async () => {
+      vi.advanceTimersByTime(20_000);
+      h.streams[1].resolve({
+        assistantContent: "ok",
+        requestReachedBackend: true,
+      });
+    });
+    await flush();
+    expect(alerts).toHaveBeenCalledTimes(2);
+
+    visibility.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
+  it("sem permissão do sistema não há alerta e a chave não é consumida", async () => {
+    sessionStorage.clear();
+    const alerts = vi.fn();
+    vi.stubGlobal(
+      "Notification",
+      Object.assign(alerts, { permission: "denied" }),
+    );
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("hidden");
+    render(<ChatInterface threadId="thread-alerta" />);
+    await flush();
+
+    await submit("primeira");
+    await act(async () => {
+      vi.advanceTimersByTime(20_000);
+      h.streams[0].resolve({
+        assistantContent: "ok",
+        requestReachedBackend: true,
+      });
+    });
+    await flush();
+
+    expect(alerts).not.toHaveBeenCalled();
+    expect(
+      sessionStorage.getItem("vectora:delivered-notifications"),
+    ).toBeNull();
+    visibility.mockRestore();
+    vi.unstubAllGlobals();
+  });
+
   it("interromper o envio marca o item como cancelado e a fila segue para o próximo", async () => {
     render(<ChatInterface threadId="thread-q" />);
     await flush();
