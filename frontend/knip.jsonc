@@ -1,0 +1,35 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  // Entradas de produção (sufixo "!"): o app (main.tsx), as rotas do TanStack
+  // Router e o processo principal do Electron. Tudo que não é alcançável a
+  // partir delas é código sem uso. Testes só entram na análise padrão, nunca
+  // na de produção, então um módulo que só o teste importa continua apontado.
+  "entry": [
+    "src/routes/**/*.{ts,tsx}!",
+    "!src/routes/**/__tests__/**",
+    "electron/src/main.ts!",
+    "electron/src/preload.ts!",
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}!",
+    "components/**/*.{ts,tsx}!",
+    "lib/**/*.{ts,tsx}!",
+    "hooks/**/*.{ts,tsx}!",
+    "electron/src/**/*.ts!",
+  ],
+  // lib/contracts/** é gerado por `python -m backend.contracts export` e
+  // conferido pelo check de drift, não importado pelo app. src/shims/** são alvos de alias
+  // do vite (`next/link`, `next/image`...) que o knip não enxerga como import.
+  // Dois nomes para o mesmo símbolo (retrocompatibilidade) são estilo, não
+  // código morto; o que o detector precisa apontar é o que ninguém usa.
+  // Usadas por arquivos que o knip não lê: o CSS do Tailwind (`@import` e
+  // `@plugin` em src/styles.css) e o hook de formatação do pre-commit.
+  "ignoreDependencies": [
+    "tailwindcss",
+    "tailwindcss-animate",
+    "@tailwindcss/typography",
+    "prettier",
+  ],
+  "rules": { "duplicates": "off" },
+  "ignore": ["lib/contracts/**", "src/shims/**"],
+}

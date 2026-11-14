@@ -43,6 +43,20 @@ pnpm --dir frontend exec oxlint
 
 `scons lint` e `scons tests` rodam o conjunto completo a partir da raiz. Rode os checks da área que você mexeu e diga no PR o que rodou e o que não rodou. Mexeu em `.github/`? Veja [Mudanças em `.github/`](#mudanças-em-github): a mudança precisa passar pela simulação com o `gh` falso.
 
+## Código sem uso
+
+Código que nada alcança costuma ser uma funcionalidade do Vectora ainda não ligada ao produto, não lixo: **não o apague, conecte-o**. Três checks apontam o que falta ligar, no pre-commit e no CI (`utils/unused_code.py`), e os dois com baseline só podem encolher:
+
+- **Frontend (knip):** arquivos, dependências e exports sem uso, contra `utils/unused_frontend_baseline.json`. O modo de produção parte só do `main` e das rotas, então um módulo que só um teste importa também é apontado. Código novo sem uso falha; um item que deixou de aparecer (porque foi ligado) precisa sair do baseline com `python utils/unused_code.py frontend --write-baseline`. O `frontend/knip.jsonc` só lista o que o knip não enxerga (alvos de alias do vite, dependências lidas pelo CSS).
+- **Páginas sem navegação:** toda rota de `frontend/src/routes` precisa de uma navegação no código (`to:`, `href`, `navigate`, `router.replace`, redirect do backend). Uma página aberta de fora do app, ou ainda por ligar, é declarada com o motivo em `utils/route_entrypoints.json`; a declaração de uma rota que já tem navegação, ou que não existe mais, também falha.
+- **Python (vulture):** funções, métodos e classes sem uso, contra `utils/unused_python_baseline.json`, com a mesma regra. Remova a entrada do baseline com `uv run --with vulture python utils/unused_code.py python --write-baseline` quando o código for ligado.
+
+```bash
+python utils/unused_code.py routes
+python utils/unused_code.py frontend
+uv run --with vulture python utils/unused_code.py python
+```
+
 ## Regras do código
 
 - **Testes primeiro:** um bug começa por um teste que o reproduz; uma funcionalidade nova traz pelo menos um teste do caminho feliz e um do caminho de erro.
