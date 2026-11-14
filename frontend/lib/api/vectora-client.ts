@@ -469,6 +469,62 @@ export async function* streamChat(
   yield* readSSEStream(response.body);
 }
 
+/** O servidor não guarda mais os eventos pedidos; o cliente deve reconciliar. */
+export class StreamResumeUnavailableError extends Error {
+  constructor() {
+    super("ResumeStream: eventos indisponíveis");
+    this.name = "StreamResumeUnavailableError";
+  }
+}
+
+/**
+ * Retoma o stream de um run depois do último evento recebido (`event_id`,
+ * no formato `<run_id>:<seq>`) e acompanha o run até o evento terminal.
+ * Lança `StreamResumeUnavailableError` quando o servidor não tem mais o log.
+ */
+export async function* resumeStream(
+  threadId: string,
+  lastEventId: string,
+  signal?: AbortSignal,
+): AsyncGenerator<StreamEvent> {
+  const url = `${VECTORA_API_URL}/vectora.chat.v1.ChatService/ResumeStream`;
+  const doFetch = () => {
+    const deviceId = getDeviceId();
+    return fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Last-Event-ID": lastEventId,
+        ...(deviceId ? { "X-Vectora-Device-Id": deviceId } : {}),
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        thread_id: threadId,
+        last_event_id: lastEventId,
+      }),
+      signal,
+    });
+  };
+
+  let response = await doFetch();
+  if (response.status === 401) {
+    const refreshed = await tryRefreshToken();
+    if (!refreshed) {
+      redirectToLogin();
+      throw new Error("ResumeStream: sessão expirada. Faça login novamente.");
+    }
+    response = await doFetch();
+  }
+  if (response.status === 404 || response.status === 400) {
+    throw new StreamResumeUnavailableError();
+  }
+  if (!response.ok || !response.body) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`ResumeStream failed (${response.status}): ${text}`);
+  }
+  yield* readSSEStream(response.body);
+}
+
 /**
  * Retoma uma execução pausada (HITL).
  */

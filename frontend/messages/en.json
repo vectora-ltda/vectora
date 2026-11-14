@@ -532,6 +532,7 @@
   "input_loading_placeholder": "Type your next message...",
   "input_new_line_hint": "new line",
   "input_placeholder": "Ask me anything...",
+  "input_queue_cancelled": "Cancelled",
   "input_queue_failed": "Not sent",
   "input_queue_remove": "Remove from queue",
   "input_queue_retry": "Try again",

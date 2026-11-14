@@ -37,7 +37,7 @@ from backend.api.schemas import (
     TurnFilesChangedEvent,
     encode_event,
 )
-from backend.api.sse_sequence import sequence_stream
+from backend.api.sse_sequence import RunEventLog, sequence_stream
 from backend.engine.sse_adapter import to_sse_line
 from backend.engine.stream_events import (
     ErrorSignal,
@@ -374,6 +374,8 @@ def stream_engine_events(
     """
     import asyncio
 
+    run_log = RunEventLog(thread_id)
+
     async def _gen() -> AsyncGenerator[str]:
         """Executa a operação gen."""
         from backend.api.turn_files import (
@@ -654,6 +656,13 @@ def stream_engine_events(
                                     first_item = await pending
                                 item = first_item
                                 while item is not _SENTINEL:
+                                    # Sem cliente, o run segue alimentando o log para
+                                    # que uma retomada receba o que perdeu.
+                                    if item is not None and not isinstance(
+                                        item, Exception
+                                    ):
+                                        with contextlib.suppress(Exception):
+                                            run_log.add(to_sse_line(item))
                                     if isinstance(item, MessageChunk):
                                         accumulated_partial_content += item.content
                                         await _spawn_save_partial(
@@ -696,7 +705,28 @@ def stream_engine_events(
                                         )
                             finally:
                                 _release_workspace_lock()
+                                with contextlib.suppress(Exception):
+                                    if run_error is not None:
+                                        code, friendly = classify_stream_error(
+                                            run_error
+                                        )
+                                        run_log.add(
+                                            encode_event(
+                                                ErrorEvent(message=friendly, code=code)
+                                            )
+                                        )
+                                    run_log.add(
+                                        encode_event(
+                                            DoneEvent(
+                                                thread_id=thread_id,
+                                                run_id=resolved_run_id,
+                                                stopped_reason=stopped_reason,
+                                            )
+                                        )
+                                    )
+                                run_log.finish()
 
+                        run_log.detached = True
                         remainder = asyncio.create_task(
                             _consume_remainder(next_task, queue)
                         )
@@ -871,4 +901,4 @@ def stream_engine_events(
                 )
             )
 
-    return sequence_stream(_gen())
+    return sequence_stream(_gen(), run_log)

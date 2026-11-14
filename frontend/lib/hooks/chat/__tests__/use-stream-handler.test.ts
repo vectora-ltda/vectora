@@ -24,8 +24,11 @@ import {
 const streamChatMock = vi.fn();
 const resumeChatMock = vi.fn();
 const getHistoryMock = vi.fn();
+const resumeStreamMock = vi.fn();
 
 vi.mock("@/lib/api/vectora-client", () => ({
+  resumeStream: (...args: unknown[]) => resumeStreamMock(...args),
+  StreamResumeUnavailableError: class StreamResumeUnavailableError extends Error {},
   streamChat: (...args: unknown[]) => streamChatMock(...args),
   resumeChat: (...args: unknown[]) => resumeChatMock(...args),
   getHistory: (...args: unknown[]) => getHistoryMock(...args),
@@ -57,6 +60,7 @@ describe("useStreamHandler.processStream", () => {
     streamChatMock.mockReset();
     resumeChatMock.mockReset();
     getHistoryMock.mockReset();
+    resumeStreamMock.mockReset();
     window.localStorage.clear();
   });
 
@@ -341,6 +345,35 @@ describe("useStreamHandler.processStream", () => {
       expect.any(Error),
     );
     errorSpy.mockRestore();
+  });
+
+  it("queda de transporte: retoma pelo cursor, recebe o resto e não precisa reconciliar", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    streamChatMock.mockReturnValue(
+      (async function* () {
+        yield { type: "thread", thread_id: "t1", ...seq(1) } as StreamEvent;
+        yield { type: "token", content: "Olá", ...seq(2) } as StreamEvent;
+        throw new Error("network down");
+      })(),
+    );
+    resumeStreamMock.mockReturnValue(
+      gen([
+        { type: "token", content: ", mundo", ...seq(3) },
+        { type: "done", thread_id: "t1", run_id: "run-1", ...seq(4) },
+      ] as StreamEvent[]),
+    );
+
+    const { result } = run();
+    await result.current.processStream("oi", "a1");
+
+    expect(resumeStreamMock).toHaveBeenCalledWith(
+      "t1",
+      "run-1:2",
+      expect.anything(),
+    );
+    const assistant = messages.find((m) => m.id === "a1");
+    expect(assistant?.content).toBe("Olá, mundo");
+    expect(getHistoryMock).not.toHaveBeenCalled();
   });
 
   it("queda de transporte sem reconciliação disponível (getHistory rejeita) mantém o conteúdo parcial — nunca perde o que já foi gerado", async () => {

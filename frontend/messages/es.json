@@ -532,6 +532,7 @@
   "input_loading_placeholder": "Escribe tu siguiente mensaje...",
   "input_new_line_hint": "nueva línea",
   "input_placeholder": "Pregúntame lo que quieras...",
+  "input_queue_cancelled": "Cancelada",
   "input_queue_failed": "No enviada",
   "input_queue_remove": "Quitar de la cola",
   "input_queue_retry": "Reintentar",

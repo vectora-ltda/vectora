@@ -138,7 +138,7 @@ interface ChatInputProps {
   queuedMessages?: {
     content: string;
     id: string;
-    status?: "waiting" | "sending" | "failed";
+    status?: "waiting" | "sending" | "failed" | "cancelled";
   }[];
   onRunQueuedNow?: (messageId: string) => void;
   onRemoveQueued?: (messageId: string) => void;
@@ -608,29 +608,33 @@ export function ChatInput({
                     <span className="text-xs font-medium">
                       {msg.status === "failed"
                         ? m.input_queue_failed()
-                        : msg.status === "sending"
-                          ? m.input_queue_sending()
-                          : m.input_queued()}
+                        : msg.status === "cancelled"
+                          ? m.input_queue_cancelled()
+                          : msg.status === "sending"
+                            ? m.input_queue_sending()
+                            : m.input_queued()}
                     </span>
                   </div>
                   <span className="text-foreground/80 truncate">
                     {msg.content}
                   </span>
                   <div className="ml-auto flex shrink-0 items-center gap-0.5">
-                    {msg.status === "failed" && onRetryQueued && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-primary"
-                        aria-label={m.input_queue_retry()}
-                        title={m.input_queue_retry()}
-                        onClick={() => onRetryQueued(msg.id)}
-                      >
-                        <RotateCcw className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
+                    {(msg.status === "failed" || msg.status === "cancelled") &&
+                      onRetryQueued && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-primary"
+                          aria-label={m.input_queue_retry()}
+                          title={m.input_queue_retry()}
+                          onClick={() => onRetryQueued(msg.id)}
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     {msg.status !== "failed" &&
+                      msg.status !== "cancelled" &&
                       msg.status !== "sending" &&
                       onRunQueuedNow && (
                         <Tooltip>

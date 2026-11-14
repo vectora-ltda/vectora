@@ -3,12 +3,14 @@
  *
  * Cada item tem um ID estável (o mesmo `turn_id` enviado ao backend, que
  * deduplica por ele: repetir o envio não duplica a mensagem) e um estado:
- * `waiting` (aguardando a vez), `sending` (em envio) ou `failed` (a requisição
- * não chegou ao servidor). Um item só sai da fila quando o servidor confirma;
+ * `waiting` (aguardando a vez), `sending` (em envio), `failed` (a requisição
+ * não chegou ao servidor) ou `cancelled` (o usuário interrompeu o envio). Um item só sai da fila quando o servidor confirma;
  * falha preserva o item, e a ordem é mantida: um item `failed` na frente
- * bloqueia os seguintes até ser reenviado ou removido.
+ * bloqueia os seguintes até ser reenviado ou removido. Um item `cancelled` foi
+ * uma escolha do usuário: fica visível para reenviar ou remover, mas não
+ * bloqueia os seguintes.
  */
-export type QueueStatus = "waiting" | "sending" | "failed";
+export type QueueStatus = "waiting" | "sending" | "failed" | "cancelled";
 
 export interface QueueItem<T> {
   id: string;
@@ -21,7 +23,10 @@ export interface SendQueue<T> {
   items(): readonly QueueItem<T>[];
   /** Enfileira; `false` se já existe item com esse ID (idempotente). */
   enqueue(id: string, payload: T): boolean;
-  /** Próximo a enviar: o primeiro, se estiver `waiting` e nada estiver em envio. */
+  /**
+   * Próximo a enviar: o primeiro item que não está cancelado, se estiver
+   * `waiting` e nada estiver em envio.
+   */
   next(): QueueItem<T> | undefined;
   /** `waiting` → `sending`. */
   start(id: string): boolean;
@@ -29,7 +34,9 @@ export interface SendQueue<T> {
   succeed(id: string): boolean;
   /** Requisição não chegou ao servidor: mantém o item como `failed`. */
   fail(id: string): boolean;
-  /** `failed` → `waiting`, na mesma posição e com o mesmo ID. */
+  /** O usuário interrompeu o envio: `sending` → `cancelled`. */
+  cancel(id: string): boolean;
+  /** `failed` ou `cancelled` → `waiting`, na mesma posição e com o mesmo ID. */
   retry(id: string): boolean;
   /** Remove um item que não está em envio. */
   remove(id: string): boolean;
@@ -51,7 +58,7 @@ export function createSendQueue<T>(): SendQueue<T> {
     },
     next() {
       if (list.some((item) => item.status === "sending")) return undefined;
-      const head = list[0];
+      const head = list.find((item) => item.status !== "cancelled");
       return head?.status === "waiting" ? { ...head } : undefined;
     },
     start(id) {
@@ -71,9 +78,17 @@ export function createSendQueue<T>(): SendQueue<T> {
       item.status = "failed";
       return true;
     },
+    cancel(id) {
+      const item = find(id);
+      if (item?.status !== "sending") return false;
+      item.status = "cancelled";
+      return true;
+    },
     retry(id) {
       const item = find(id);
-      if (item?.status !== "failed") return false;
+      if (item?.status !== "failed" && item?.status !== "cancelled") {
+        return false;
+      }
       item.status = "waiting";
       return true;
     },

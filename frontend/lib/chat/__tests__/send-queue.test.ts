@@ -63,4 +63,25 @@ describe("createSendQueue", () => {
     expect(queue.succeed("zzz")).toBe(false);
     expect(queue.items()[0].status).toBe("waiting");
   });
+
+  it("cancelado fica visível, não bloqueia os seguintes e pode ser reenviado", () => {
+    const queue = queueWith("a", "b");
+    queue.start("a");
+    expect(queue.cancel("a")).toBe(true);
+    expect(queue.items()[0]).toMatchObject({ id: "a", status: "cancelled" });
+    expect(queue.next()?.id).toBe("b");
+    expect(queue.promote("a")).toBe(false);
+    expect(queue.retry("a")).toBe(true);
+    expect(queue.next()?.id).toBe("a");
+    expect(queue.items().map((item) => item.id)).toEqual(["a", "b"]);
+  });
+
+  it("só um item em envio pode ser cancelado, e cancelado pode ser removido", () => {
+    const queue = queueWith("a");
+    expect(queue.cancel("a")).toBe(false);
+    queue.start("a");
+    queue.cancel("a");
+    expect(queue.remove("a")).toBe(true);
+    expect(queue.items()).toEqual([]);
+  });
 });
