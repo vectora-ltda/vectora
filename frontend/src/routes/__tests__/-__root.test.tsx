@@ -26,6 +26,9 @@ vi.mock("@tanstack/react-router", () => ({
 
 // TitleBar/NetworkStatusBanner/Toaster puxam bridges/contexto irrelevantes
 // pro teste do hydrate de workspaces — stubs simples.
+vi.mock("@/lib/hooks/use-system-open-requests", () => ({
+  useSystemOpenRequests: () => {},
+}));
 vi.mock("@/components/layout/title-bar", () => ({ TitleBar: () => null }));
 vi.mock("@/components/layout/network-status-banner", () => ({
   NetworkStatusBanner: () => null,

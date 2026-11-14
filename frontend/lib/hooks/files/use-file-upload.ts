@@ -10,8 +10,8 @@
 
 import { useState, useCallback } from "react";
 import type { ImageAttachment } from "../../types";
-import { createImageAttachment, validateImageFile } from "../../utils/chat";
-import { isTextKind, mediaKindOf } from "../../utils/chat/media-kind";
+import { processAttachmentFiles } from "../../utils/chat/process-files";
+import { mediaKindOf } from "../../utils/chat/media-kind";
 import { IMAGE_UNSUPPORTED_MODEL_MESSAGE } from "../../constants/features";
 
 // ============================================================================
@@ -87,40 +87,10 @@ export function useFileUpload(
   const processFiles = useCallback(
     async (files: File[]) => {
       setUploadError(null);
-      // Cada arquivo é independente; processar em paralelo preserva a ordem
-      // do array de entrada porque Promise.all mantém a ordem dos resultados.
-      const results = await Promise.all(
-        files.map(async (file) => {
-          const validation = validateImageFile(file);
-          if (!validation.valid) {
-            return { error: validation.error || "Invalid file" } as const;
-          }
-          const isImage = isImageFile(file);
-          if (isImage && disableImageUploads) {
-            return { error: IMAGE_UNSUPPORTED_MODEL_MESSAGE } as const;
-          }
-          try {
-            // Só arquivos de texto têm contagem de caracteres; ler binário
-            // (PDF, áudio, vídeo) como texto não tem significado.
-            const textLength = isTextKind(mediaKindOf(file.type, file.name))
-              ? (await file.text()).length
-              : undefined;
-            const imageAttachment = await createImageAttachment(file);
-            imageAttachment.textLength = textLength;
-            return { attachment: imageAttachment } as const;
-          } catch (error) {
-            console.error("Error processing file:", error);
-            return { error: "Failed to process file" } as const;
-          }
-        }),
-      );
-
-      const attachments = results.flatMap((r): ImageAttachment[] =>
-        "attachment" in r ? [r.attachment as ImageAttachment] : [],
-      );
-      const lastError = results.toReversed().find((r) => "error" in r);
-      if (lastError && "error" in lastError)
-        setUploadError((lastError as { error: string }).error);
+      const { attachments, error } = await processAttachmentFiles(files, {
+        disableImageUploads,
+      });
+      if (error) setUploadError(error);
       if (attachments.length > 0) {
         setAttachedFiles((prev) => [...prev, ...attachments]);
       }

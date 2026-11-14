@@ -9,6 +9,7 @@ import type { RouterContext } from "../router";
 import { useAuthStore } from "@/lib/stores/auth-store";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useSessionExpiry } from "@/lib/hooks/use-session-expiry";
+import { useSystemOpenRequests } from "@/lib/hooks/use-system-open-requests";
 import {
   useSettingsStore,
   hydrateFromBackend,
@@ -246,6 +247,8 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 });
 
 function RootComponent() {
+  // Arquivos, pastas e deep-links que o sistema entrega ao app desktop.
+  useSystemOpenRequests();
   const location = useLocation();
   const userId = useAuthStore((s) => s.user?.id ?? null);
   // Idioma persistido em settings-store — reflete a preferência de fato

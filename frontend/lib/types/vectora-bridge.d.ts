@@ -6,6 +6,24 @@
 
 import type { UpdateBackupEntry } from "./update-backup";
 
+/** Arquivo ou pasta que o sistema entregou ao app ("Abrir com Vectora"). */
+export type VectoraOpenedPath =
+  | {
+      kind: "file";
+      path: string;
+      name: string;
+      mimeType: string;
+      size: number;
+      data: Uint8Array;
+    }
+  | { kind: "directory"; path: string; name: string }
+  | {
+      kind: "error";
+      path: string;
+      name: string;
+      reason: "missing" | "unreadable" | "too_large" | "unsupported";
+    };
+
 export interface VectoraUpdateStatus {
   state:
     | "checking"
@@ -125,6 +143,12 @@ export interface VectoraDesktopBridge {
   captureScreenshot?: () => Promise<Uint8Array | null>;
   acknowledgeDeepLink?: (url: string) => void;
   onDeepLink?: (handler: (url: string) => void) => () => void;
+  /** Deep-link que chegou antes de a janela montar o ouvinte (e o descarta). */
+  takeDeepLink?: () => Promise<string | null>;
+  /** Arquivos e pastas que o sistema entregou antes de a janela montar (e os descarta). */
+  takeOpenFiles?: () => Promise<VectoraOpenedPath[]>;
+  /** Arquivos e pastas entregues depois ("Abrir com Vectora", segunda instância). */
+  onOpenFiles?: (handler: (files: VectoraOpenedPath[]) => void) => () => void;
   onUpdateStatus?: (
     handler: (status: VectoraUpdateStatus) => void,
   ) => () => void;

@@ -47,6 +47,7 @@ import { Readable } from "stream";
 // tree-kill ships its own types — no @types/tree-kill needed.
 import treeKill = require("tree-kill");
 import { parseSetCookieHeader, buildCookieHeader } from "./cookie-utils.js";
+import { createOpenPathsDispatcher, pathsFromArgv } from "./open-paths.js";
 import {
   getFreePort,
   backendPath,
@@ -248,6 +249,16 @@ let backendPipePath: string | null = null; // Windows named pipe path (\\.\pipe\
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let pendingDeepLink: string | null = null;
+// Arquivos e pastas entregues pelo sistema ("Abrir com Vectora"): ficam guardados
+// até a janela montar e pedir, e depois seguem direto para ela.
+const openPaths = createOpenPathsDispatcher({
+  canReceive: () => Boolean(mainWindow && !mainWindow.webContents.isLoading()),
+  send: (items) => mainWindow?.webContents.send("vectora:open-files", items),
+  focus: () => {
+    mainWindow?.show();
+    mainWindow?.focus();
+  },
+});
 let updateReady = false;
 let browserViewManager: BrowserViewManager | null = null;
 const desktopBridgeToken =
@@ -816,10 +827,8 @@ function createWindow(options: { visible?: boolean } = {}): void {
       // como servidor sem janela.
       console.log("VECTORA_ELECTRON_WINDOW_READY");
     }
-    if (pendingDeepLink) {
-      mainWindow?.webContents.send("vectora:deep-link", pendingDeepLink);
-      pendingDeepLink = null;
-    }
+    // O deep-link pendente não é empurrado aqui: a janela ainda não montou o
+    // ouvinte e o perderia. Ela o busca por "vectora:take-deep-link".
   });
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -1199,6 +1208,14 @@ function registerIpc(): void {
     const source = sources[result.response];
     return source ? source.thumbnail.toPNG() : null;
   });
+  // A janela pede os arquivos que chegaram antes de ela montar e passa a receber os
+  // seguintes por "vectora:open-files".
+  ipcMain.handle("vectora:take-deep-link", () => {
+    const url = pendingDeepLink;
+    pendingDeepLink = null;
+    return url;
+  });
+  ipcMain.handle("vectora:take-open-files", () => openPaths.take());
   ipcMain.on("vectora:deep-link-ack", (_event, url: string) => {
     console.log(`[deep-link] renderer ack: ${url}`);
   });
@@ -1471,10 +1488,16 @@ if (!gotLock) {
   app.quit();
 }
 
-app.on("second-instance", (_event, argv) => {
+app.on("second-instance", (_event, argv, workingDirectory) => {
   // Windows passa o deep-link como último argumento.
   const url = argv.find((a) => a.startsWith(`${PROTOCOL}://`));
   if (url) deliverDeepLink(url);
+  openPaths.enqueue(
+    pathsFromArgv(argv, {
+      cwd: workingDirectory,
+      defaultApp: process.defaultApp,
+    }),
+  );
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
@@ -1482,6 +1505,20 @@ app.on("second-instance", (_event, argv) => {
   } else {
     createWindow({ visible: process.env.VECTORA_WEB_MODE !== "1" });
   }
+});
+
+// Arquivos e pastas passados na primeira execução ("Abrir com Vectora", arrastar
+// sobre o ícone, linha de comando).
+if (gotLock && !installedTestsMode && !webSidecarMode) {
+  openPaths.enqueue(
+    pathsFromArgv(process.argv, { defaultApp: process.defaultApp }),
+  );
+}
+
+// macOS entrega os arquivos por "open-file", inclusive antes de o app estar pronto.
+app.on("open-file", (event, filePath) => {
+  event.preventDefault();
+  openPaths.enqueue([filePath]);
 });
 
 // macOS entrega via "open-url".

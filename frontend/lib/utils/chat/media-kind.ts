@@ -117,6 +117,19 @@ const TEXT_MIMES = new Set([
   "application/toml",
 ]);
 
+/**
+ * Todas as extensões que o Vectora trata como anexo. É a base das associações de
+ * arquivo do instalador ("Abrir com Vectora"): `electron/electron-builder.yml`
+ * precisa cobrir cada uma, e um teste confere.
+ */
+export const ATTACHMENT_EXTENSIONS: readonly string[] = [
+  ...IMAGE_EXTENSIONS,
+  ...AUDIO_EXTENSIONS,
+  ...VIDEO_EXTENSIONS,
+  ...DOCUMENT_EXTENSIONS,
+  ...TEXT_EXTENSIONS,
+];
+
 const hasExtension = (name: string, extensions: string[]): boolean => {
   const lowered = name.toLowerCase();
   return extensions.some((ext) => lowered.endsWith(ext));

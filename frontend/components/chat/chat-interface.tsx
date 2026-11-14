@@ -32,6 +32,7 @@ import { queryClient } from "@/src/router";
 import { updateThreadsCache } from "@/lib/queries/threads";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useChatInputStore } from "@/lib/stores/chat-input-store";
+import { useOpenedFilesStore } from "@/lib/stores/opened-files-store";
 import { useThreadMessages } from "@/lib/hooks/chat/use-thread-messages";
 import { estimateTokens } from "@/lib/utils/tokens";
 import { CONTEXT_BLOCK_PCT, CONTEXT_WARN_PCT } from "@/lib/utils/usage";
@@ -380,6 +381,20 @@ export function ChatInterface({
     filesOwnerRef.current = threadId;
     replaceFiles(store.getFileDraft(threadId));
   }, [threadId, replaceFiles]);
+
+  // Arquivos abertos pelo sistema ("Abrir com Vectora") entram como anexos da
+  // conversa nova. Vem depois do efeito de trocar anexos por thread: no render
+  // em que a conversa nova monta, primeiro se restaura o rascunho dela e só então
+  // os anexos pendentes são somados a ele.
+  const openedFiles = useOpenedFilesStore((s) => s.pending);
+  useEffect(() => {
+    if (openedFiles.length === 0 || !isNewThread || !threadId) return;
+    if (filesOwnerRef.current !== threadId) return;
+    const attachments = useOpenedFilesStore.getState().take();
+    if (attachments.length > 0) {
+      replaceFiles([...attachedFilesRef.current, ...attachments]);
+    }
+  }, [openedFiles, isNewThread, threadId, replaceFiles]);
 
   // Message queue for sending while AI is responding
   const queueRef = useRef(createSendQueue<QueuedMessage>());
