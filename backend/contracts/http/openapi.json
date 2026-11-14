@@ -6106,6 +6106,17 @@
             "title": "Messages",
             "type": "array"
           },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
           "run_status": {
             "default": "idle",
             "enum": [
@@ -21426,7 +21437,7 @@
     },
     "/threads/{thread_id}/history": {
       "get": {
-        "description": "Histórico paginado de mensagens de uma thread.\n\nRetorna as ``limit`` mensagens mais recentes (excluindo as ``offset`` mais\nrecentes), em ordem cronológica. ``has_more=True`` quando existem mensagens\nmais antigas além das retornadas.",
+        "description": "Histórico paginado de mensagens de uma thread.\n\nRetorna as ``limit`` mensagens mais recentes (excluindo as ``offset`` mais\nrecentes), em ordem cronológica. ``has_more=True`` quando existem mensagens\nmais antigas além das retornadas.\n\nCom ``before_message_id`` a página é a janela que termina logo antes dessa\nmensagem, e ``offset`` é ignorado: o cursor é a identidade da mensagem, então\nmensagens novas chegando no fim da conversa entre duas páginas não\ndeslocam a janela (o que repetiria ou pularia mensagens com ``offset``).\n``next_cursor`` é o ``message_id`` da mensagem mais antiga da página, ou\n``None`` quando não há mais páginas ou essa mensagem não tem ID (aí o\ncliente volta a usar ``offset``). Um cursor que não existe mais (mensagem\nremovida por rewind) responde 409, e o cliente recarrega do fim.",
         "operationId": "get_thread_history_paginated_threads__thread_id__history_get",
         "parameters": [
           {
@@ -21456,6 +21467,22 @@
               "default": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before_message_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before Message Id"
             }
           }
         ],

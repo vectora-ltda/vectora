@@ -12,6 +12,7 @@ import type {
   PagedHistoryResponse,
 } from "@/lib/api/vectora-client";
 import { getHistoryPage } from "@/lib/api/vectora-client";
+import { HistoryCursorGoneError } from "@/lib/api/history-cursor";
 
 const PAGE_SIZE = 50;
 
@@ -37,6 +38,9 @@ export function useOlderMessages(
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [olderMessages, setOlderMessages] = useState<HistoryMessage[]>([]);
   const isLoadingRef = useRef(false);
+  // Cursor da próxima página (a mensagem mais antiga já carregada); só vale
+  // para a thread em que foi recebido. Sem ele, a página usa o offset.
+  const cursorRef = useRef<{ threadId: string; id: number } | null>(null);
 
   // Ajusta o estado de paginação a partir das props durante o render (não
   // num efeito): ao trocar de thread, zera olderMessages e adota o hasMore
@@ -64,11 +68,18 @@ export function useOlderMessages(
       // olderMessages.length já é quantas mensagens antigas foram
       // acumuladas até aqui — soma direto ao offset, sem contador à parte.
       const offset = olderMessages.length + currentCount;
-      const page: PagedHistoryResponse = await getHistoryPage(
-        threadId,
-        PAGE_SIZE,
-        offset,
-      );
+      const saved = cursorRef.current;
+      const before = saved?.threadId === threadId ? saved.id : undefined;
+      let page: PagedHistoryResponse;
+      try {
+        page = await getHistoryPage(threadId, PAGE_SIZE, offset, before);
+      } catch (error) {
+        if (!(error instanceof HistoryCursorGoneError)) throw error;
+        // A mensagem do cursor foi removida: refaz a página por posição.
+        page = await getHistoryPage(threadId, PAGE_SIZE, offset);
+      }
+      cursorRef.current =
+        page.next_cursor == null ? null : { threadId, id: page.next_cursor };
       setHasMore(page.has_more);
       setOlderMessages((prev) => [...page.messages, ...prev]);
     } catch {

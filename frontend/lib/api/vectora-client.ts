@@ -12,6 +12,7 @@
  */
 
 import { VECTORA_API_URL } from "@/lib/constants/api";
+import { HistoryCursorGoneError } from "./history-cursor";
 import { saveReturnTo } from "@/lib/utils/return-to";
 import { getDeviceId, resetDeviceId } from "@/lib/device-id";
 
@@ -744,17 +745,34 @@ export interface PagedHistoryResponse {
   messages: HistoryMessage[];
   has_more: boolean;
   total_count: number;
+  /** `message_id` da mensagem mais antiga da página; `null` sem mais páginas. */
+  next_cursor?: number | null;
 }
 
-/** Carrega mensagens antigas paginadas (GC + scroll infinito). */
+/**
+ * Carrega mensagens antigas paginadas (GC + scroll infinito).
+ *
+ * Com `beforeMessageId` a janela termina logo antes dessa mensagem e `offset`
+ * é ignorado: o cursor não se desloca quando chegam mensagens novas. Lança
+ * `HistoryCursorGoneError` quando o servidor não acha mais essa mensagem.
+ */
 export const getHistoryPage = (
   thread_id: string,
   limit = 200,
   offset = 0,
-): Promise<PagedHistoryResponse> =>
-  fetch(
-    `/threads/${encodeURIComponent(thread_id)}/history?limit=${limit}&offset=${offset}`,
-  ).then((r) => r.json() as Promise<PagedHistoryResponse>);
+  beforeMessageId?: number,
+): Promise<PagedHistoryResponse> => {
+  const cursor =
+    beforeMessageId === undefined
+      ? ""
+      : `&before_message_id=${beforeMessageId}`;
+  return fetch(
+    `/threads/${encodeURIComponent(thread_id)}/history?limit=${limit}&offset=${offset}${cursor}`,
+  ).then((r) => {
+    if (r.status === 409) throw new HistoryCursorGoneError();
+    return r.json() as Promise<PagedHistoryResponse>;
+  });
+};
 
 /** Pede ao backend um título gerado pela IA (idempotente: só no 1º turno). */
 export const generateTitle = (thread_id: string): Promise<{ title: string }> =>
