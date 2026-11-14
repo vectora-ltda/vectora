@@ -1,4 +1,3 @@
 {
-  "/share/$token": "Link público de conversa compartilhada: o dono cria o link na ação Compartilhar da conversa e quem o recebe o abre fora do app, então nenhuma tela do app navega para ele.",
-  "/integrations/": "Página de integrações sem entrada de navegação ainda; a ligação está planejada para a 0.1.28 e a declaração sai quando houver navegação."
+  "/share/$token": "Link público de conversa compartilhada: o dono cria o link na ação Compartilhar da conversa e quem o recebe o abre fora do app, então nenhuma tela do app navega para ele."
 }

@@ -32,6 +32,7 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -46,6 +47,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { m } from "@/lib/paraglide/messages";
+import { useSettingsOverlayStore } from "@/lib/stores/settings-overlay-store";
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -595,7 +597,12 @@ function uncategorizedIds(all: Integration[]): string[] {
 // Componente principal
 // ---------------------------------------------------------------------------
 
-export function IntegracoesTab() {
+interface IntegracoesTabProps {
+  /** Quando informado, mostra o atalho para abrir as integrações em página inteira. */
+  onOpenFullPage?: () => void;
+}
+
+export function IntegracoesTab({ onOpenFullPage }: IntegracoesTabProps = {}) {
   const [integrations, setIntegrations] = useState<Integration[]>([]);
   const [customEnvs, setCustomEnvs] = useState<Record<string, string>>({});
   const [customKeys, setCustomKeys] = useState<string[]>([]);
@@ -728,23 +735,32 @@ export function IntegracoesTab() {
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-0.5">
           <p className="text-sm font-medium">
-            {connected > 0
-              ? `${connected} integração${connected > 1 ? "s" : ""} ativa${connected > 1 ? "s" : ""}`
-              : m.integrations_none_active()}
+            {connected === 0
+              ? m.integrations_none_active()
+              : connected === 1
+                ? m.integrations_one_active()
+                : m.integrations_many_active({ count: connected })}
           </p>
           <p className="text-xs text-muted-foreground">
             {m.integrations_keys_private()}
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="shrink-0"
-          onClick={() => setAddCustomOpen(true)}
-        >
-          <Plus className="w-3.5 h-3.5 mr-1.5" />
-          {m.integrations_add_custom()}
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          {onOpenFullPage && (
+            <Button variant="ghost" size="sm" onClick={onOpenFullPage}>
+              <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
+              {m.integrations_open_page()}
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAddCustomOpen(true)}
+          >
+            <Plus className="w-3.5 h-3.5 mr-1.5" />
+            {m.integrations_add_custom()}
+          </Button>
+        </div>
       </div>
 
       {/* Banner gateway — 3 estados distintos (não só conectado/desconectado):
@@ -924,5 +940,22 @@ export function IntegracoesTab() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/**
+ * A aba de integrações dentro das configurações: fecha o painel e abre as mesmas
+ * integrações em página inteira (`/integrations`).
+ */
+export function IntegracoesSettingsTab() {
+  const navigate = useNavigate();
+  const setSettingsOpen = useSettingsOverlayStore((state) => state.setOpen);
+  return (
+    <IntegracoesTab
+      onOpenFullPage={() => {
+        setSettingsOpen(false);
+        void navigate({ to: "/integrations" });
+      }}
+    />
   );
 }

@@ -42,7 +42,7 @@ const ContaTab = lazyWithRetry(
 const IntegracoesTab = lazyWithRetry(
   () =>
     import("./environment/tabs/integracoes-tab").then((mod) => ({
-      default: mod.IntegracoesTab,
+      default: mod.IntegracoesSettingsTab,
     })),
   "settings-integracoes-tab",
 );
