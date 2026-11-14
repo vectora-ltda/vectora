@@ -20,7 +20,7 @@
     "i18n:compile": "paraglide-js compile --project ./project.inlang --outdir ./lib/paraglide",
     "lint:i18n": "tsx scripts/lint-i18n.ts",
     "typecheck": "pnpm i18n:compile && tsr generate && tsc --noEmit",
-    "lint:oxc": "oxlint",
+    "lint:oxc": "oxlint --deny-warnings",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

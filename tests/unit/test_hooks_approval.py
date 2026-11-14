@@ -57,10 +57,20 @@ def test_regra_alterada_volta_a_ficar_pendente(
     assert _to_info(ws).hooks_rules_pending is False
 
 
-def test_sem_regras_nada_fica_pendente(
+def test_post_file_write_tambem_exige_aprovacao_e_a_alteracao_a_invalida(
     registry: WorkspaceRegistry, tmp_path: Path
 ) -> None:
     ws = _workspace(registry, tmp_path, '[hooks]\npost_file_write = ["true"]\n')
+    assert _to_info(ws).hooks_rules_pending is True
+    registry.approve_hooks(ws.id)
+    assert ws.hooks_rules_digest
+    assert _to_info(ws).hooks_rules_pending is False
+
+
+def test_workspace_sem_nenhum_hook_nao_fica_pendente(
+    registry: WorkspaceRegistry, tmp_path: Path
+) -> None:
+    ws = _workspace(registry, tmp_path, "[hooks]\n")
     assert _to_info(ws).hooks_rules_pending is False
     registry.approve_hooks(ws.id)
     assert ws.hooks_rules_digest is None

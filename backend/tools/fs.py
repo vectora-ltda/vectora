@@ -415,7 +415,10 @@ async def _run_hooks_and_autocommit(path: Path, root: Path, ws: Any) -> str:
     arbitrário vindo do repositório).
     """
     try:
-        from backend.workspace.workspace_config import load_workspace_config
+        from backend.workspace.workspace_config import (
+            hooks_approval_valid,
+            load_workspace_config,
+        )
 
         cfg = await asyncio.to_thread(load_workspace_config, root)
         if cfg is None or (not cfg.hooks.post_file_write and not cfg.agent.auto_commit):
@@ -423,12 +426,17 @@ async def _run_hooks_and_autocommit(path: Path, root: Path, ws: Any) -> str:
 
         note = ""
         if cfg.hooks.post_file_write:
-            if not getattr(ws, "hooks_approved", False):
+            if not hooks_approval_valid(
+                cfg.hooks,
+                approved=bool(getattr(ws, "hooks_approved", False)),
+                approved_digest=getattr(ws, "hooks_rules_digest", None),
+            ):
                 note = (
                     "Nota: este workspace tem hooks [hooks].post_file_write "
                     "configurados em vectora.toml, mas eles ainda não foram "
-                    "aprovados — não foram executados. Aprove em Configurações > "
-                    "Workspace para habilitar lint/format automático pós-escrita."
+                    "aprovados (ou mudaram depois da aprovação) — não foram "
+                    "executados. Aprove em Configurações > Workspace para "
+                    "habilitar lint/format automático pós-escrita."
                 )
             else:
                 workspace_id = str(getattr(ws, "id", root))

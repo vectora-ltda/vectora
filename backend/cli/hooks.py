@@ -18,7 +18,7 @@ from backend.engine import hooks as engine_hooks
 from backend.tools.context import ToolContext
 from backend.workspace.workspace_config import (
     HookRule,
-    hook_rules_digest,
+    hooks_approval_valid,
     load_workspace_config,
 )
 
@@ -58,7 +58,7 @@ def _print(value: dict[str, object], output: str) -> int:
     return 0 if value["status"] == "ok" else 1
 
 
-def _approval_state(root: Path, rules: list[HookRule]) -> str:
+def _approval_state(root: Path) -> str:
     """``approved``, ``pending`` ou ``unregistered`` para as regras do workspace."""
     from backend.workspace.workspace import workspace_registry
 
@@ -66,9 +66,15 @@ def _approval_state(root: Path, rules: list[HookRule]) -> str:
     for workspace in workspace_registry.list_all():
         if Path(workspace.cwd).resolve() != resolved:
             continue
-        granted = bool(workspace.hooks_approved)
-        same = workspace.hooks_rules_digest == hook_rules_digest(rules)
-        return "approved" if granted and same else "pending"
+        config = load_workspace_config(root)
+        if config is None:
+            return "no_rules"
+        valid = hooks_approval_valid(
+            config.hooks,
+            approved=bool(workspace.hooks_approved),
+            approved_digest=workspace.hooks_rules_digest,
+        )
+        return "approved" if valid else "pending"
     return "unregistered"
 
 
@@ -83,7 +89,7 @@ def _list(root: Path) -> dict[str, object]:
         "ok",
         {
             "workspace": str(root),
-            "approval": _approval_state(root, rules) if rules else "no_rules",
+            "approval": _approval_state(root) if rules else "no_rules",
             "rules": [
                 {
                     "id": rule.id,
