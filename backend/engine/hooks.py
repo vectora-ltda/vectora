@@ -207,10 +207,10 @@ async def _run_command(
     Levanta ``TimeoutError`` quando passa de ``rule.timeout_s``.
     """
     if sandboxed:
-        from backend.sandbox.policy import parse_policy
+        from backend.sandbox.policy import resolve_policy
         from backend.sandbox.workspace_jail import jail_manager
 
-        policy = parse_policy(root / "vectora.toml")
+        policy = resolve_policy(root)
         worker = await jail_manager.get_or_spawn(workspace_id, str(root), policy)
         try:
             response = await worker.request(
@@ -376,10 +376,10 @@ async def run_hooks(
     if not rules:
         return []
 
-    from backend.sandbox.policy import parse_policy
+    from backend.sandbox.policy import resolve_policy
     from backend.workspace.workspace_config import hooks_approval_valid
 
-    sandboxed = parse_policy(root / "vectora.toml").enabled
+    sandboxed = resolve_policy(root).enabled
     granted = bool(getattr(workspace, "hooks_approved", False))
     approved = hooks_approval_valid(
         config.hooks,

@@ -10,7 +10,7 @@ para execução batch pontual (backends `docker`/`ssh`/`modal`).
 from __future__ import annotations
 
 from backend.sandbox.linux import SandboxResult
-from backend.sandbox.policy import SandboxPolicy, parse_policy
+from backend.sandbox.policy import SandboxPolicy, parse_policy, resolve_policy
 from backend.sandbox.runner import run_sandboxed
 from backend.sandbox.workspace_jail import (
     JailedWorker,
@@ -27,5 +27,6 @@ __all__ = [
     "WorkspaceJailManager",
     "jail_manager",
     "parse_policy",
+    "resolve_policy",
     "run_sandboxed",
 ]

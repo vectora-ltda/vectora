@@ -47,7 +47,7 @@ def _has_rm_recursive_force(cmd: str) -> bool:
 #: Diretórios que nunca devem ser lidos/escritos por uma tool, mesmo que
 #: caiam dentro do workspace confiável (ex.: usuário versionou `.ssh/` por
 #: engano) — mesmas categorias do mask de sandbox nativo
-#: (`backend.sandbox.policy._DEFAULT_MASK`), mas checado independentemente
+#: (`backend.sandbox.policy.DEFAULT_MASK`), mas checado independentemente
 #: dele: essa é a segunda camada de defesa que continua ativa mesmo quando
 #: o sandbox está desabilitado (ex. Windows sem WSL2, `DISABLED_POLICY`).
 _SENSITIVE_DIR_NAMES = frozenset(

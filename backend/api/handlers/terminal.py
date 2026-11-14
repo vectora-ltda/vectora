@@ -145,9 +145,9 @@ async def terminal_ws(ws: WebSocket) -> None:
         try:
             from pathlib import Path
 
-            from backend.sandbox.policy import parse_policy
+            from backend.sandbox.policy import resolve_policy
 
-            policy = parse_policy(Path(workspace.cwd) / "vectora.toml")
+            policy = resolve_policy(Path(workspace.cwd))
             session = PtySession.create(
                 terminal_id=terminal_id,
                 workspace_id=workspace_id,

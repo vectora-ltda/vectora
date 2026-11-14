@@ -2454,6 +2454,14 @@
   },
   {
     "methods": [
+      "GET",
+      "PUT"
+    ],
+    "name": "workspace_sandbox_policy_workspaces__workspace_id__sandbox_policy_get",
+    "path": "/workspaces/{workspace_id}/sandbox/policy"
+  },
+  {
+    "methods": [
       "GET"
     ],
     "name": "workspace_sandbox_status_workspaces__workspace_id__sandbox_status_get",

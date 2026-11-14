@@ -10,16 +10,20 @@ nunca forkada, com nomes de campo ao estilo Vectora.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
+import os
 import shutil
 import sys
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MASK = (".env", "**/*.pem", "**/.ssh/**", "**/.aws/**")
+DEFAULT_MASK = (".env", "**/*.pem", "**/.ssh/**", "**/.aws/**")
 
 
 @dataclass(frozen=True)
@@ -31,7 +35,7 @@ class SandboxPolicy:
     backend: str = "local"
     rw_paths: tuple[str, ...] = ()
     ro_paths: tuple[str, ...] = ()
-    mask: tuple[str, ...] = field(default_factory=lambda: _DEFAULT_MASK)
+    mask: tuple[str, ...] = field(default_factory=lambda: DEFAULT_MASK)
     no_gpu: bool = True
     lockdown: bool = False
     allow_tcp_ports: tuple[int, ...] = ()
@@ -44,6 +48,9 @@ class SandboxPolicy:
     git_writable: bool = False
     #: Recusa iniciar o jail quando seccomp ou Landlock não puderem ser aplicados.
     require_full_isolation: bool = False
+    #: Chaves do `[sandbox]` do repositório que tentaram ampliar o acesso e
+    #: foram ignoradas (só a configuração do usuário amplia).
+    ignored_repo_keys: tuple[str, ...] = ()
 
 
 DISABLED_POLICY = SandboxPolicy(enabled=False)
@@ -68,6 +75,22 @@ AUTO_ENABLED_POLICY = SandboxPolicy(enabled=True, backend="local")
 LOCKED_DOWN_POLICY = SandboxPolicy(
     enabled=True, backend="local", lockdown=True, rw_paths=()
 )
+
+
+def _list_field(
+    section: dict[str, Any],
+    key: str,
+    convert: type,
+    default: tuple[Any, ...] = (),
+) -> tuple[Any, ...]:
+    """Campo de lista do `[sandbox]`. Uma string no lugar da lista (que o Python
+    percorreria letra a letra) é tipo errado: levanta e cai na falha fechada."""
+    if key not in section:
+        return default
+    value = section[key]
+    if not isinstance(value, list):
+        raise TypeError(f"[sandbox].{key} deve ser uma lista")
+    return tuple(convert(item) for item in value)
 
 
 def parse_policy(vectora_toml_path: Path) -> SandboxPolicy:
@@ -100,12 +123,12 @@ def parse_policy(vectora_toml_path: Path) -> SandboxPolicy:
         return SandboxPolicy(
             enabled=bool(section.get("enabled", True)),
             backend=str(section.get("backend", "local")),
-            rw_paths=tuple(str(p) for p in section.get("rw_paths", [])),
-            ro_paths=tuple(str(p) for p in section.get("ro_paths", [])),
-            mask=tuple(str(p) for p in section.get("mask", _DEFAULT_MASK)),
+            rw_paths=_list_field(section, "rw_paths", str),
+            ro_paths=_list_field(section, "ro_paths", str),
+            mask=_list_field(section, "mask", str, DEFAULT_MASK),
             no_gpu=bool(section.get("no_gpu", True)),
             lockdown=bool(section.get("lockdown", False)),
-            allow_tcp_ports=tuple(int(p) for p in section.get("allow_tcp_ports", [])),
+            allow_tcp_ports=_list_field(section, "allow_tcp_ports", int),
             docker_image=(
                 str(section["docker_image"]) if "docker_image" in section else None
             ),
@@ -115,7 +138,7 @@ def parse_policy(vectora_toml_path: Path) -> SandboxPolicy:
             ssh_key_id=(
                 str(section["ssh_key_id"]) if "ssh_key_id" in section else None
             ),
-            env_pass=tuple(str(n) for n in section.get("env_pass", [])),
+            env_pass=_list_field(section, "env_pass", str),
             git_writable=bool(section.get("git_writable", False)),
             require_full_isolation=bool(section.get("require_full_isolation", False)),
         )
@@ -125,6 +148,204 @@ def parse_policy(vectora_toml_path: Path) -> SandboxPolicy:
             vectora_toml_path,
         )
         return LOCKED_DOWN_POLICY
+
+
+# ── política confiável ──────────────────────────────────────────────────────
+#
+# O `vectora.toml` mora no repositório, que pode ter sido clonado de qualquer
+# lugar. A política que amplia o acesso (caminhos graváveis, variáveis do
+# ambiente, `.git` gravável, portas, backend) vem de um arquivo do usuário, fora
+# do workspace; o arquivo do repositório só pode restringir.
+
+TRUSTED_POLICY_DIR_ENV = "VECTORA_SANDBOX_POLICY_DIR"
+
+
+def trusted_policy_dir() -> Path:
+    """Pasta das políticas do usuário (fora de qualquer workspace)."""
+    override = os.environ.get(TRUSTED_POLICY_DIR_ENV)
+    if override:
+        return Path(override)
+    from backend.settings import settings
+
+    return Path(settings.vectora_home) / "sandbox-policies"
+
+
+def trusted_policy_path(root: Path) -> Path:
+    """Arquivo da política do usuário para o workspace em `root`."""
+    digest = hashlib.sha256(str(Path(root).resolve()).encode("utf-8")).hexdigest()
+    return trusted_policy_dir() / f"{digest[:24]}.toml"
+
+
+def _toml_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_toml_value(item) for item in value) + "]"
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def policy_to_toml(policy: SandboxPolicy) -> str:
+    """`[sandbox]` equivalente a `policy`, no formato que `parse_policy` lê."""
+    lines = ["[sandbox]"]
+    fixed = (
+        "enabled",
+        "backend",
+        "rw_paths",
+        "ro_paths",
+        "mask",
+        "no_gpu",
+        "lockdown",
+        "allow_tcp_ports",
+        "env_pass",
+        "git_writable",
+        "require_full_isolation",
+    )
+    lines.extend(f"{name} = {_toml_value(getattr(policy, name))}" for name in fixed)
+    optional = ("docker_image", "remote_host", "ssh_key_id")
+    lines.extend(
+        f"{name} = {_toml_value(getattr(policy, name))}"
+        for name in optional
+        if getattr(policy, name) is not None
+    )
+    return "\n".join(lines) + "\n"
+
+
+def write_trusted_policy(root: Path, policy: SandboxPolicy) -> Path:
+    """Grava a política do usuário para o workspace, de forma atômica."""
+    path = trusted_policy_path(root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(policy_to_toml(policy), encoding="utf-8")
+    temporary.replace(path)
+    return path
+
+
+_MALFORMED: Any = object()
+
+
+def _read_repo_section(path: Path) -> dict[str, Any] | Any | None:
+    """`[sandbox]` do repositório: `None` sem arquivo ou seção, `_MALFORMED` se
+    o TOML ou a seção são inválidos."""
+    if not path.is_file():
+        return None
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return _MALFORMED
+    if "sandbox" not in raw:
+        return None
+    section = raw["sandbox"]
+    return section if isinstance(section, dict) else None
+
+
+def _narrowed(base: tuple[Any, ...], requested: tuple[Any, ...]) -> tuple[Any, ...]:
+    """Só o que a política do usuário já permite e o repositório manteve."""
+    return tuple(item for item in base if item in requested)
+
+
+_logged_ignored: set[tuple[str, tuple[str, ...]]] = set()
+
+
+def resolve_policy(root: Path) -> SandboxPolicy:
+    """Política efetiva do workspace em `root`: a do usuário (ou o padrão do
+    ambiente) com as restrições que o `vectora.toml` do repositório acrescenta.
+
+    O repositório pode ligar o sandbox, ligar o lockdown, acrescentar máscaras,
+    desligar GPU, exigir isolamento completo e estreitar caminhos, portas,
+    variáveis e `.git`. Qualquer pedido que amplie o acesso, ou desligue o
+    sandbox, é ignorado e registrado em `ignored_repo_keys`. Um `vectora.toml`
+    malformado, como sempre, vira lockdown (falha fechada)."""
+    root = Path(root)
+    repo_toml = root / "vectora.toml"
+    user_file = trusted_policy_path(root)
+    if user_file.is_file():
+        base = parse_policy(user_file)
+    elif repo_toml.is_file():
+        # Sem política do usuário, um `vectora.toml` sem `[sandbox]` continua
+        # significando "não habilitado" (só a ausência do arquivo liga o padrão
+        # automático do ambiente); o `[sandbox]` dele pode ligar, nunca ampliar.
+        base = DISABLED_POLICY
+    else:
+        base = parse_policy(user_file)
+    section = _read_repo_section(repo_toml)
+    if section is None:
+        return base
+    if section is _MALFORMED:
+        return replace(base, enabled=True, lockdown=True, rw_paths=())
+
+    repo = parse_policy(root / "vectora.toml")
+    if repo == LOCKED_DOWN_POLICY:
+        return replace(base, enabled=True, lockdown=True, rw_paths=())
+
+    ignored: list[str] = []
+    if "enabled" in section and not repo.enabled and base.enabled:
+        ignored.append("enabled")
+    ignored.extend(
+        key
+        for key in ("backend", "docker_image", "remote_host", "ssh_key_id")
+        if key in section and getattr(repo, key) != getattr(base, key)
+    )
+    ignored.extend(
+        key
+        for key in ("rw_paths", "ro_paths", "env_pass", "allow_tcp_ports")
+        if key in section and set(getattr(repo, key)) - set(getattr(base, key))
+    )
+    if "git_writable" in section and repo.git_writable and not base.git_writable:
+        ignored.append("git_writable")
+    if "no_gpu" in section and not repo.no_gpu and base.no_gpu:
+        ignored.append("no_gpu")
+    if "lockdown" in section and not repo.lockdown and base.lockdown:
+        ignored.append("lockdown")
+
+    merged = replace(
+        base,
+        enabled=base.enabled or repo.enabled,
+        lockdown=base.lockdown or repo.lockdown,
+        no_gpu=base.no_gpu or repo.no_gpu,
+        require_full_isolation=(
+            base.require_full_isolation or repo.require_full_isolation
+        ),
+        mask=tuple(dict.fromkeys((*base.mask, *repo.mask))),
+        rw_paths=(
+            _narrowed(base.rw_paths, repo.rw_paths)
+            if "rw_paths" in section
+            else base.rw_paths
+        ),
+        ro_paths=(
+            _narrowed(base.ro_paths, repo.ro_paths)
+            if "ro_paths" in section
+            else base.ro_paths
+        ),
+        env_pass=(
+            _narrowed(base.env_pass, repo.env_pass)
+            if "env_pass" in section
+            else base.env_pass
+        ),
+        allow_tcp_ports=(
+            _narrowed(base.allow_tcp_ports, repo.allow_tcp_ports)
+            if "allow_tcp_ports" in section
+            else base.allow_tcp_ports
+        ),
+        git_writable=(
+            base.git_writable and repo.git_writable
+            if "git_writable" in section
+            else base.git_writable
+        ),
+        ignored_repo_keys=tuple(ignored),
+    )
+    if ignored:
+        marker = (str(root), tuple(ignored))
+        if marker not in _logged_ignored:
+            _logged_ignored.add(marker)
+            logger.warning(
+                "sandbox: %s tenta ampliar o acesso (%s) — ignorado; só a "
+                "configuração do usuário amplia",
+                root / "vectora.toml",
+                ", ".join(ignored),
+            )
+    return merged
 
 
 class _Unset:

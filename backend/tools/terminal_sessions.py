@@ -40,7 +40,7 @@ async def open_terminal(
     de terminais abertos pelo agente.
     """
     try:
-        from backend.sandbox.policy import parse_policy
+        from backend.sandbox.policy import resolve_policy
         from backend.workspace.workspace import workspace_registry
 
         workspace = workspace_registry.get(ctx.workspace_id)
@@ -55,7 +55,7 @@ async def open_terminal(
                 ensure_ascii=False,
             )
         terminal_id = f"agent-{uuid.uuid4().hex[:12]}"
-        policy = parse_policy(Path(workspace.cwd) / "vectora.toml")
+        policy = resolve_policy(Path(workspace.cwd))
         session = PtySession.create(
             terminal_id=terminal_id,
             workspace_id=ctx.workspace_id,

@@ -340,6 +340,16 @@ def _page_target_id(page: Any) -> str:
     )
 
 
+def _forget_page_owner(page: Any) -> None:
+    """Esquece o dono da página. Uma página sem identidade de alvo (já fechada
+    ou nunca ligada ao Chromium) não tem dono registrado, e isso não pode
+    impedir o fechamento da sessão."""
+    try:
+        _page_owners.pop(_page_target_id(page), None)
+    except RuntimeError:
+        logger.debug("browser_session: página sem identidade de alvo ao fechar")
+
+
 def _claim_page(page: Any, workspace_id: str) -> None:
     tid = _page_target_id(page)
     owner = _page_owners.get(tid)
@@ -571,7 +581,7 @@ async def close_tab(workspace_id: str, tab_id: str) -> bool:
         session["active_tab_id"] = blank_id
         return True
     session["tabs"].pop(tab_id, None)
-    _page_owners.pop(_page_target_id(tab.page), None)
+    _forget_page_owner(tab.page)
     try:
         await _release_route_guard(tab.page)
         from backend.tools.browser import release_navigation_guard
@@ -690,7 +700,7 @@ async def close_browser_session(workspace_id: str) -> None:
     if session is None:
         return
     for tab in session.get("tabs", {}).values():
-        _page_owners.pop(_page_target_id(tab.page), None)
+        _forget_page_owner(tab.page)
         try:
             await _release_route_guard(tab.page)
             from backend.tools.browser import release_navigation_guard
