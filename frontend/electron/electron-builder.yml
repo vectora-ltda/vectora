@@ -39,6 +39,250 @@ protocols:
     schemes:
       - vectora
 
+# Associações de arquivo ("Abrir com Vectora"): o Vectora entra como opção, nunca como
+# aplicativo padrão. Cobrem as extensões que `lib/utils/chat/media-kind.ts` trata como
+# anexo (um teste confere); o `mimeType` só existe onde há tipo MIME padrão, porque é ele
+# que vira o `MimeType` do .desktop no Linux. Mac e Windows usam as extensões; no
+# macOS `rank: Alternate` impede que o Vectora dispute o aplicativo padrão.
+fileAssociations:
+  - ext: [png]
+    name: Image
+    description: PNG image
+    mimeType: image/png
+    role: Viewer
+    rank: Alternate
+  - ext: [jpg, jpeg]
+    name: Image
+    description: JPEG image
+    mimeType: image/jpeg
+    role: Viewer
+    rank: Alternate
+  - ext: [gif]
+    name: Image
+    description: GIF image
+    mimeType: image/gif
+    role: Viewer
+    rank: Alternate
+  - ext: [webp]
+    name: Image
+    description: WebP image
+    mimeType: image/webp
+    role: Viewer
+    rank: Alternate
+  - ext: [mp3]
+    name: Audio
+    description: MP3 audio
+    mimeType: audio/mpeg
+    role: Viewer
+    rank: Alternate
+  - ext: [wav]
+    name: Audio
+    description: WAV audio
+    mimeType: audio/x-wav
+    role: Viewer
+    rank: Alternate
+  - ext: [m4a]
+    name: Audio
+    description: MPEG-4 audio
+    mimeType: audio/mp4
+    role: Viewer
+    rank: Alternate
+  - ext: [ogg, oga]
+    name: Audio
+    description: Ogg audio
+    mimeType: audio/ogg
+    role: Viewer
+    rank: Alternate
+  - ext: [flac]
+    name: Audio
+    description: FLAC audio
+    mimeType: audio/flac
+    role: Viewer
+    rank: Alternate
+  - ext: [weba]
+    name: Audio
+    description: WebM audio
+    mimeType: audio/webm
+    role: Viewer
+    rank: Alternate
+  - ext: [mp4]
+    name: Video
+    description: MPEG-4 video
+    mimeType: video/mp4
+    role: Viewer
+    rank: Alternate
+  - ext: [webm]
+    name: Video
+    description: WebM video
+    mimeType: video/webm
+    role: Viewer
+    rank: Alternate
+  - ext: [mov]
+    name: Video
+    description: QuickTime video
+    mimeType: video/quicktime
+    role: Viewer
+    rank: Alternate
+  - ext: [m4v]
+    name: Video
+    description: M4V video
+    mimeType: video/x-m4v
+    role: Viewer
+    rank: Alternate
+  - ext: [pdf]
+    name: Document
+    description: PDF document
+    mimeType: application/pdf
+    role: Viewer
+    rank: Alternate
+  - ext: [docx]
+    name: Document
+    description: Word document
+    mimeType: application/vnd.openxmlformats-officedocument.wordprocessingml.document
+    role: Viewer
+    rank: Alternate
+  - ext: [xlsx]
+    name: Document
+    description: Excel spreadsheet
+    mimeType: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+    role: Viewer
+    rank: Alternate
+  - ext: [pptx]
+    name: Document
+    description: PowerPoint presentation
+    mimeType: application/vnd.openxmlformats-officedocument.presentationml.presentation
+    role: Viewer
+    rank: Alternate
+  - ext: [odt]
+    name: Document
+    description: OpenDocument text
+    mimeType: application/vnd.oasis.opendocument.text
+    role: Viewer
+    rank: Alternate
+  - ext: [ods]
+    name: Document
+    description: OpenDocument spreadsheet
+    mimeType: application/vnd.oasis.opendocument.spreadsheet
+    role: Viewer
+    rank: Alternate
+  - ext: [odp]
+    name: Document
+    description: OpenDocument presentation
+    mimeType: application/vnd.oasis.opendocument.presentation
+    role: Viewer
+    rank: Alternate
+  - ext: [txt, log]
+    name: Text file
+    description: Plain text
+    mimeType: text/plain
+    role: Viewer
+    rank: Alternate
+  - ext: [md]
+    name: Text file
+    description: Markdown document
+    mimeType: text/markdown
+    role: Viewer
+    rank: Alternate
+  - ext: [csv]
+    name: Text file
+    description: CSV table
+    mimeType: text/csv
+    role: Viewer
+    rank: Alternate
+  - ext: [tsv]
+    name: Text file
+    description: TSV table
+    mimeType: text/tab-separated-values
+    role: Viewer
+    rank: Alternate
+  - ext: [json]
+    name: Text file
+    description: JSON file
+    mimeType: application/json
+    role: Viewer
+    rank: Alternate
+  - ext: [xml]
+    name: Text file
+    description: XML file
+    mimeType: application/xml
+    role: Viewer
+    rank: Alternate
+  - ext: [html]
+    name: Text file
+    description: HTML document
+    mimeType: text/html
+    role: Viewer
+    rank: Alternate
+  - ext: [css]
+    name: Text file
+    description: CSS stylesheet
+    mimeType: text/css
+    role: Viewer
+    rank: Alternate
+  - ext: [yaml, yml]
+    name: Text file
+    description: YAML file
+    mimeType: application/yaml
+    role: Viewer
+    rank: Alternate
+  - ext: [py]
+    name: Source code
+    description: Python source
+    mimeType: text/x-python
+    role: Viewer
+    rank: Alternate
+  - ext: [js]
+    name: Source code
+    description: JavaScript source
+    mimeType: text/javascript
+    role: Viewer
+    rank: Alternate
+  - ext: [sh, bash]
+    name: Source code
+    description: Shell script
+    mimeType: application/x-shellscript
+    role: Viewer
+    rank: Alternate
+  - ext: [sql]
+    name: Source code
+    description: SQL script
+    mimeType: application/sql
+    role: Viewer
+    rank: Alternate
+  - ext:
+      [
+        jsonl,
+        har,
+        toml,
+        ini,
+        svg,
+        graphql,
+        jsx,
+        ts,
+        tsx,
+        java,
+        c,
+        h,
+        cpp,
+        cs,
+        go,
+        rs,
+        rb,
+        php,
+        r,
+        swift,
+        kt,
+        scala,
+        lua,
+        dart,
+        vue,
+        svelte,
+      ]
+    name: Source code
+    description: Source code
+    role: Viewer
+    rank: Alternate
+
 directories:
   output: dist-electron
   buildResources: electron/build-resources
@@ -148,6 +392,10 @@ linux:
     - tar.gz
   icon: electron/build-resources/linux-icons
   category: Development
+  # Pastas: o gerenciador de arquivos oferece "Abrir com Vectora" e o caminho chega
+  # ao app como argumento (abre como workspace).
+  mimeTypes:
+    - inode/directory
   # Os PNGs em electron/build-resources/linux-icons são instalados sob hicolor/<tamanho>/apps;
   # Icon referencia o mesmo nome em todas as entradas .desktop geradas.
   desktop:
