@@ -7,7 +7,7 @@ import json
 import sys
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from pydantic import create_model
@@ -572,3 +572,23 @@ async def test_post_tool_bloqueante_retem_o_resultado(
     assert result[0].is_error is True
     assert "conteúdo sensível" not in result[0].text()
     assert "hook_denied: filtro: vazou dado" in result[0].text()
+
+
+def test_no_windows_o_encerramento_percorre_a_arvore_com_taskkill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[list[str]] = []
+    killed: list[bool] = []
+
+    def fake_run(argv: list[str], **_kwargs: Any) -> None:
+        calls.append(argv)
+
+    monkeypatch.setattr(hooks.os, "name", "nt")
+    monkeypatch.setattr(hooks.subprocess, "run", fake_run)
+    process = cast(
+        "asyncio.subprocess.Process",
+        SimpleNamespace(pid=4321, kill=lambda: killed.append(True)),
+    )
+    hooks._kill_process_tree(process)
+    assert calls == [["taskkill", "/T", "/F", "/PID", "4321"]]
+    assert killed == [True]
