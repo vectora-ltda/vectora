@@ -924,6 +924,48 @@ export interface SharedThread {
   permission?: "read";
 }
 
+export interface CreatedShare {
+  token: string;
+  /** Link de leitura, no endereço em que este servidor do Vectora é acessível. */
+  url: string;
+  expires_at: string;
+  /** Só vem na listagem. */
+  created_at?: string;
+}
+
+/** Cria um link de leitura da conversa (o dono ou um admin). */
+export const createShare = (
+  threadId: string,
+  ttlHours: number,
+): Promise<CreatedShare> =>
+  postRpc("/threads/share", { thread_id: threadId, ttl_hours: ttlHours });
+
+/** Links de leitura ainda válidos de uma conversa, do mais novo ao mais antigo. */
+export async function listShares(
+  threadId: string,
+): Promise<{ shares: CreatedShare[] }> {
+  const url = `${VECTORA_API_URL}/threads/${encodeURIComponent(threadId)}/shares`;
+  let res = await fetch(url, { credentials: "include" });
+  if (res.status === 401) {
+    if (!(await tryRefreshToken())) {
+      redirectToLogin();
+      throw new Error("unauthorized");
+    }
+    res = await fetch(url, { credentials: "include" });
+  }
+  if (!res.ok) throw new Error(`share list failed (${res.status})`);
+  return res.json();
+}
+
+/** Revoga um link criado antes; o endereço deixa de abrir a conversa. */
+export async function revokeShare(token: string): Promise<void> {
+  const response = await fetch(
+    `${VECTORA_API_URL}/threads/share/${encodeURIComponent(token)}`,
+    { method: "DELETE", credentials: "include" },
+  );
+  if (!response.ok) throw new Error(`share revoke failed (${response.status})`);
+}
+
 export async function getSharedThread(
   token: string,
 ): Promise<SharedThread | null> {

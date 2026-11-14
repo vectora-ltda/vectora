@@ -1522,6 +1522,13 @@
   },
   {
     "methods": [
+      "GET"
+    ],
+    "name": "list_thread_shares_threads__thread_id__shares_get",
+    "path": "/threads/{thread_id}/shares"
+  },
+  {
+    "methods": [
       "POST"
     ],
     "name": "answer_structured_question_threads__thread_id__structured_questions_answer_post",

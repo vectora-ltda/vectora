@@ -32,6 +32,11 @@ vi.mock("@/lib/api/vectora-client", () => ({
   getHistory: vi.fn(),
   listThreads: vi.fn(),
   markThreadRead: vi.fn().mockResolvedValue(undefined),
+  createShare: vi.fn(),
+  revokeShare: vi.fn(),
+}));
+vi.mock("../share-thread-dialog", () => ({
+  ShareThreadDialog: () => <div role="dialog" />,
 }));
 vi.mock("@/lib/queries/threads", () => ({
   threadsQueryKey: (limit = 100) => ["threads", limit],
@@ -42,6 +47,7 @@ vi.mock("@/lib/paraglide/messages", () => ({
     workbench_close: () => "Fechar",
     sidebar_new_conversation: () => "Nova conversa",
     sidebar_ctx_rename: () => "Renomear",
+    sidebar_ctx_share: () => "Compartilhar…",
     sidebar_ctx_pin: () => "Fixar",
     sidebar_ctx_unpin: () => "Desafixar",
     sidebar_ctx_delete: () => "Apagar",
@@ -326,5 +332,29 @@ describe("ThreadItem — menu de contexto", () => {
     fireEvent.touchMove(row!, { touches: [{ clientX: 14, clientY: 103 }] });
     act(() => vi.advanceTimersByTime(500));
     expect(screen.getAllByText("Renomear").length).toBeGreaterThan(1);
+  });
+});
+
+describe("ThreadItem — compartilhar", () => {
+  it("o menu de contexto oferece Compartilhar e abre o diálogo da conversa", () => {
+    const thread = {
+      thread_id: "t-share",
+      metadata: { title: "Conversa" },
+    } as Thread;
+    render(
+      <ThreadItem
+        thread={thread}
+        isActive={false}
+        onSelect={vi.fn()}
+        onDelete={vi.fn()}
+        onRename={vi.fn()}
+        onTogglePin={vi.fn()}
+      />,
+    );
+
+    fireEvent.contextMenu(screen.getByText("Conversa"));
+    fireEvent.click(screen.getByText("Compartilhar…"));
+
+    expect(screen.getByRole("dialog")).toBeTruthy();
   });
 });

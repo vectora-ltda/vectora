@@ -51,6 +51,7 @@ vi.mock("@/lib/paraglide/messages", () => ({
     sidebar_workspace_thread_count: ({ n }: { n: number }) => `${n}`,
     sidebar_delete_thread: () => "Excluir conversa",
     sidebar_ctx_rename: () => "Renomear",
+    sidebar_ctx_share: () => "Compartilhar…",
     sidebar_ctx_pin: () => "Fixar",
     sidebar_ctx_unpin: () => "Desafixar",
     sidebar_ctx_delete: () => "Apagar",

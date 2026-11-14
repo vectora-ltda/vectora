@@ -4765,6 +4765,22 @@
         "title": "ListSafeRootsResponse",
         "type": "object"
       },
+      "ListSharesResponse": {
+        "properties": {
+          "shares": {
+            "items": {
+              "$ref": "#/components/schemas/ThreadShare"
+            },
+            "title": "Shares",
+            "type": "array"
+          }
+        },
+        "required": [
+          "shares"
+        ],
+        "title": "ListSharesResponse",
+        "type": "object"
+      },
       "ListThreadsRequest": {
         "properties": {
           "cursor": {
@@ -8883,6 +8899,41 @@
           "thread_id"
         ],
         "title": "ThreadPinsResponse",
+        "type": "object"
+      },
+      "ThreadShare": {
+        "description": "Um link de leitura ainda válido de uma conversa.",
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "title": "Expires At",
+            "type": "string"
+          },
+          "permission": {
+            "const": "read",
+            "default": "read",
+            "title": "Permission",
+            "type": "string"
+          },
+          "token": {
+            "title": "Token",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
+          "url",
+          "created_at",
+          "expires_at"
+        ],
+        "title": "ThreadShare",
         "type": "object"
       },
       "TimezoneBody": {
@@ -21747,6 +21798,49 @@
           }
         },
         "summary": "List Thread Agent Runs"
+      }
+    },
+    "/threads/{thread_id}/shares": {
+      "get": {
+        "description": "Lista os links de leitura ainda válidos de uma conversa, do mais novo ao mais antigo.\n\nQuem pode listar é quem pode criar: o dono da conversa ou um admin. Os links\nvencidos ficam de fora, porque já não abrem a conversa.",
+        "operationId": "list_thread_shares_threads__thread_id__shares_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "thread_id",
+            "required": true,
+            "schema": {
+              "title": "Thread Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListSharesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Thread Shares",
+        "tags": [
+          "share"
+        ]
       }
     },
     "/threads/{thread_id}/structured-questions/answer": {

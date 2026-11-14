@@ -716,6 +716,20 @@ class CreateShareResponse(BaseModel):
     permission: Literal["read"] = "read"
 
 
+class ThreadShare(BaseModel):
+    """Um link de leitura ainda válido de uma conversa."""
+
+    token: str
+    url: str
+    created_at: str
+    expires_at: str
+    permission: Literal["read"] = "read"
+
+
+class ListSharesResponse(BaseModel):
+    shares: list[ThreadShare]
+
+
 class SharedThread(BaseModel):
     thread_id: str
     title: str = ""
