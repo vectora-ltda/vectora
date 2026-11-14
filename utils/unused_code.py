@@ -1,6 +1,7 @@
 """Aponta código, páginas e rotas que nada alcança e ainda não estão ligados ao produto.
 
-Uso: `python utils/unused_code.py <comando>`. Só depende da stdlib, exceto o
+Uso: `python utils/unused_code.py <comando> [--strict]`. Por padrão os achados só
+avisam (anotação de aviso no GitHub Actions); `--strict` os faz reprovar. Só depende da stdlib, exceto o
 comando `python`, que precisa do `vulture` no ambiente (`uv run --with vulture`).
 
 Comandos:
@@ -22,6 +23,7 @@ from __future__ import annotations
 import argparse
 import io
 import json
+import os
 import re
 import shutil
 import subprocess  # nosec B404
@@ -36,6 +38,25 @@ FRONTEND: Final = ROOT / "frontend"
 ROUTES_DIR: Final = FRONTEND / "src" / "routes"
 ENTRYPOINTS: Final = ROOT / "utils" / "route_entrypoints.json"
 PYTHON_BASELINE: Final = ROOT / "utils" / "unused_python_baseline.json"
+
+#: Com `--strict` (ou UNUSED_CODE_STRICT=1) um achado reprova; por padrão só avisa.
+#: Código sem uso costuma ser funcionalidade ainda não ligada, então o detector
+#: informa no pre-commit e no CI sem impedir ninguém de seguir.
+_STRICT = False
+
+
+def _warn(message: str) -> None:
+    """Mostra um achado; no GitHub Actions também o publica como anotação de aviso."""
+    print(message)
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        text = message.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+        print(f"::warning title=Código sem uso::{text}")
+
+
+def _status(findings: int) -> int:
+    """Código de saída: avisos não reprovam, exceto no modo estrito."""
+    return 1 if findings and _STRICT else 0
+
 
 #: Diretórios de código de produção onde uma navegação conta como referência.
 FRONTEND_SOURCE_DIRS: Final = ("components", "lib", "src", "hooks", "electron/src")
@@ -258,18 +279,18 @@ def routes_main(_argv: Sequence[str] = ()) -> int:
     entrypoints = load_entrypoints()
     unreachable, stale = unreachable_routes(routes, references, entrypoints)
     for route in unreachable:
-        print(
+        _warn(
             f"rota sem navegação: {route}\n"
             "  nenhum código navega para ela. Remova a página ou declare a entrada "
             "externa e o motivo em utils/route_entrypoints.json."
         )
     for route in stale:
-        print(
+        _warn(
             f"entrada declarada obsoleta: {route}\n"
             "  a rota não existe mais ou já tem navegação no código; remova-a de "
             "utils/route_entrypoints.json."
         )
-    return 1 if unreachable or stale else 0
+    return _status(len(unreachable) + len(stale))
 
 
 # ── Frontend (knip) ─────────────────────────────────────────────────────────
@@ -367,14 +388,14 @@ def frontend_main(argv: Sequence[str] = ()) -> int:
     )
     new, gone = compare_baseline(current, baseline)
     for key in new:
-        print(f"frontend sem uso: {key}\n  conecte ao produto ou use-o.")
+        _warn(f"frontend sem uso: {key}\n  conecte ao produto ou use-o.")
     for key in gone:
-        print(
+        _warn(
             f"baseline obsoleto: {key}\n"
             "  já não aparece como sem uso; rode "
             "`python utils/unused_code.py frontend --write-baseline`."
         )
-    return 1 if new or gone else 0
+    return _status(len(new) + len(gone))
 
 
 # ── Python (vulture) ────────────────────────────────────────────────────────
@@ -454,14 +475,14 @@ def python_main(argv: Sequence[str] = ()) -> int:
     )
     new, gone = compare_baseline(current, baseline)
     for key in new:
-        print(f"código Python sem uso: {key}\n  remova-o ou use-o.")
+        _warn(f"código Python sem uso: {key}\n  conecte ao produto ou use-o.")
     for key in gone:
-        print(
+        _warn(
             f"baseline obsoleto: {key}\n"
             "  já não aparece como sem uso; rode "
             "`python utils/unused_code.py python --write-baseline`."
         )
-    return 1 if new or gone else 0
+    return _status(len(new) + len(gone))
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────────
@@ -474,7 +495,10 @@ _COMMANDS: Final[dict[str, Callable[[Sequence[str]], int]]] = {
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    global _STRICT
     arguments = list(sys.argv[1:] if argv is None else argv)
+    _STRICT = "--strict" in arguments or os.environ.get("UNUSED_CODE_STRICT") == "1"
+    arguments = [argument for argument in arguments if argument != "--strict"]
     if not arguments or arguments[0] not in _COMMANDS:
         print(__doc__)
         return 2
