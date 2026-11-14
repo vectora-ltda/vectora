@@ -227,6 +227,12 @@ vi.mock("@/components/layout/horizontal-split", () => ({
 
 vi.mock("@/lib/queries/threads", () => ({
   useThreadsQuery: () => ({ data: [], isLoading: false }),
+  useThreadsPaging: () => ({
+    hasMore: false,
+    remaining: 0,
+    isLoadingMore: false,
+    loadMore: async () => {},
+  }),
   useDeleteThread: () => ({ mutateAsync: vi.fn() }),
   useUpdateThread: () => ({ mutate: vi.fn() }),
   threadsQueryKey: () => ["threads"],

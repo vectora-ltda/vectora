@@ -3,6 +3,7 @@
 import { memo, useRef, useState } from "react";
 import type { Thread } from "@/lib/hooks/threads";
 import { m } from "@/lib/paraglide/messages";
+import type { ThreadsPaging } from "@/lib/queries/threads";
 import { ThreadListSkeleton } from "./thread-list-skeleton";
 import { ThreadGroup } from "./thread-group";
 import { WorkspaceGroup } from "./workspace-group";
@@ -24,6 +25,7 @@ interface ThreadListProps {
   onTogglePinThread: (threadId: string, pinned: boolean) => void;
   onToggleWorkspace: (workspaceId: string) => void;
   onRefresh?: () => Promise<unknown>;
+  paging?: ThreadsPaging;
 }
 
 export const ThreadList = memo(function ThreadList({
@@ -42,6 +44,7 @@ export const ThreadList = memo(function ThreadList({
   onTogglePinThread,
   onToggleWorkspace,
   onRefresh,
+  paging,
 }: ThreadListProps) {
   const [pullDistance, setPullDistance] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -177,6 +180,21 @@ export const ThreadList = memo(function ThreadList({
               </>
             )}
           </>
+        )}
+        {!isLoading && paging?.hasMore && (
+          <div className="px-3 py-3">
+            <button
+              type="button"
+              onClick={() => void paging.loadMore()}
+              disabled={paging.isLoadingMore}
+              aria-busy={paging.isLoadingMore}
+              className="w-full rounded-md border border-sidebar-border px-3 py-2 text-xs text-muted-foreground hover:bg-sidebar-accent/20 disabled:opacity-60"
+            >
+              {paging.isLoadingMore
+                ? m.sidebar_refreshing()
+                : m.sidebar_load_more({ count: paging.remaining })}
+            </button>
+          </div>
         )}
       </nav>
     </>

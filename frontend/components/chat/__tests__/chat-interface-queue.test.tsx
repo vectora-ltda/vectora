@@ -51,6 +51,7 @@ vi.mock("@/src/router", () => ({
 }));
 vi.mock("@/lib/queries/threads", () => ({
   threadsQueryKey: () => ["threads"],
+  updateThreadsCache: vi.fn(),
 }));
 vi.mock("@/lib/api/vectora-client", async (importOriginal) => ({
   ...(await importOriginal<object>()),

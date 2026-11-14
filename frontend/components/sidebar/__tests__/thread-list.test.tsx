@@ -22,6 +22,8 @@ vi.mock("@/lib/paraglide/messages", () => ({
     sidebar_group_yesterday: () => "Ontem",
     sidebar_group_last_7_days: () => "Últimos 7 dias",
     sidebar_group_older: () => "Mais antigas",
+    sidebar_load_more: ({ count }: { count: number }) =>
+      `Carregar mais (${count})`,
   },
 }));
 vi.mock("../thread-list-skeleton", () => ({
@@ -32,7 +34,10 @@ vi.mock("../workspace-group", () => ({ WorkspaceGroup: () => <div /> }));
 
 afterEach(cleanup);
 
-function renderList(onRefresh: () => Promise<unknown>) {
+function renderList(
+  onRefresh: () => Promise<unknown>,
+  paging?: import("@/lib/queries/threads").ThreadsPaging,
+) {
   return render(
     <ThreadList
       isLoading={false}
@@ -50,6 +55,7 @@ function renderList(onRefresh: () => Promise<unknown>) {
       onTogglePinThread={vi.fn()}
       onToggleWorkspace={vi.fn()}
       onRefresh={onRefresh}
+      paging={paging}
     />,
   );
 }
@@ -107,5 +113,41 @@ describe("ThreadList pull-to-refresh", () => {
     expect(screen.getByRole("status")).toHaveTextContent("Atualizando");
     resolveRefresh();
     await waitFor(() => expect(nav).toHaveAttribute("aria-busy", "false"));
+  });
+});
+
+const paging = (
+  over: Partial<import("@/lib/queries/threads").ThreadsPaging>,
+) => ({
+  hasMore: true,
+  remaining: 12,
+  isLoadingMore: false,
+  loadMore: vi.fn().mockResolvedValue(undefined),
+  ...over,
+});
+
+describe("ThreadList — carregar mais", () => {
+  it("mostra quantas faltam e carrega a próxima página ao clicar", () => {
+    const state = paging({});
+    renderList(vi.fn(), state);
+
+    fireEvent.click(screen.getByRole("button", { name: "Carregar mais (12)" }));
+
+    expect(state.loadMore).toHaveBeenCalledTimes(1);
+  });
+
+  it("enquanto carrega, o botão fica desabilitado", () => {
+    renderList(vi.fn(), paging({ isLoadingMore: true }));
+
+    expect(screen.getByRole("button", { name: "Atualizando…" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+  });
+
+  it("sem mais páginas, não mostra o botão", () => {
+    renderList(vi.fn(), paging({ hasMore: false, remaining: 0 }));
+
+    expect(screen.queryByRole("button")).toBeNull();
   });
 });

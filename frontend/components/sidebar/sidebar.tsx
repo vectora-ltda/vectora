@@ -19,6 +19,7 @@ import { ThreadList } from "./thread-list";
 import { SidebarFooter } from "./sidebar-footer";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { m } from "@/lib/paraglide/messages";
+import type { ThreadsPaging } from "@/lib/queries/threads";
 
 interface SidebarProps {
   isCollapsed: boolean;
@@ -32,6 +33,8 @@ interface SidebarProps {
   /** true quando a sessão atual é nova/vazia — destaca "Nova sessão". */
   isNewSession?: boolean;
   onRefreshThreads?: () => Promise<unknown>;
+  /** Carregar as threads que a primeira página não trouxe. */
+  paging?: ThreadsPaging;
   /** Oculta a barra de título local quando o app header já ocupa a coluna central. */
   showHeader?: boolean;
 }
@@ -47,6 +50,7 @@ export const Sidebar = memo(function Sidebar({
   isLoading = false,
   isNewSession = false,
   onRefreshThreads,
+  paging,
   showHeader = true,
 }: SidebarProps) {
   const reducedMotion = useReducedMotion();
@@ -262,6 +266,7 @@ export const Sidebar = memo(function Sidebar({
                 onTogglePinThread={handleTogglePin}
                 onToggleWorkspace={toggleWorkspaceGroup}
                 onRefresh={onRefreshThreads}
+                paging={paging}
               />
 
               <SidebarFooter />

@@ -52,6 +52,12 @@ vi.mock("@/components/chat/features/empty-state-header", () => ({
 
 vi.mock("@/lib/queries/threads", () => ({
   useThreadsQuery: () => ({ data: [], isLoading: false }),
+  useThreadsPaging: () => ({
+    hasMore: false,
+    remaining: 0,
+    isLoadingMore: false,
+    loadMore: async () => {},
+  }),
   useDeleteThread: () => ({ mutateAsync: deleteThreadMutateAsync }),
   threadsQueryKey: (limit = 100) => ["threads", limit],
 }));
