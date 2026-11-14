@@ -45,10 +45,10 @@ pnpm --dir frontend exec oxlint
 
 ## Código sem uso
 
-Código que nada alcança costuma ser uma funcionalidade do Vectora ainda não ligada ao produto, não lixo: **não o apague, conecte-o**. Três checks apontam o que falta ligar, no pre-commit e no CI (`utils/unused_code.py`), e os dois com baseline só podem encolher:
+Código que nada alcança costuma ser uma funcionalidade do Vectora ainda não ligada ao produto, não lixo: **não o apague, conecte-o**. Três checks apontam o que falta ligar, no pre-commit e no CI (`utils/unused_code.py`). Eles **avisam e não reprovam**: no GitHub Actions viram anotações de aviso no PR, e `--strict` (ou `UNUSED_CODE_STRICT=1`) os faz reprovar, para quem quiser a verificação dura. Os dois com baseline têm a meta de só encolher:
 
-- **Frontend (knip):** arquivos, dependências e exports sem uso, contra `utils/unused_frontend_baseline.json`. O modo de produção parte só do `main` e das rotas, então um módulo que só um teste importa também é apontado. Código novo sem uso falha; um item que deixou de aparecer (porque foi ligado) precisa sair do baseline com `python utils/unused_code.py frontend --write-baseline`. O `frontend/knip.jsonc` só lista o que o knip não enxerga (alvos de alias do vite, dependências lidas pelo CSS).
-- **Páginas sem navegação:** toda rota de `frontend/src/routes` precisa de uma navegação no código (`to:`, `href`, `navigate`, `router.replace`, redirect do backend). Uma página aberta de fora do app, ou ainda por ligar, é declarada com o motivo em `utils/route_entrypoints.json`; a declaração de uma rota que já tem navegação, ou que não existe mais, também falha.
+- **Frontend (knip):** arquivos, dependências e exports sem uso, contra `utils/unused_frontend_baseline.json`. O modo de produção parte só do `main` e das rotas, então um módulo que só um teste importa também é apontado. Código novo sem uso é avisado; um item que deixou de aparecer (porque foi ligado) deve sair do baseline com `python utils/unused_code.py frontend --write-baseline`. O `frontend/knip.jsonc` só lista o que o knip não enxerga (alvos de alias do vite, dependências lidas pelo CSS).
+- **Páginas sem navegação:** toda rota de `frontend/src/routes` precisa de uma navegação no código (`to:`, `href`, `navigate`, `router.replace`, redirect do backend). Uma página aberta de fora do app, ou ainda por ligar, é declarada com o motivo em `utils/route_entrypoints.json`; a declaração de uma rota que já tem navegação, ou que não existe mais, também é avisada.
 - **Python (vulture):** funções, métodos e classes sem uso, contra `utils/unused_python_baseline.json`, com a mesma regra. Remova a entrada do baseline com `uv run --with vulture python utils/unused_code.py python --write-baseline` quando o código for ligado.
 
 ```bash
