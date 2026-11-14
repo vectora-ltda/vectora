@@ -36,6 +36,11 @@ import {
 } from "@testing-library/react";
 import { overwriteGetLocale, baseLocale } from "@/lib/paraglide/runtime";
 
+const navigation = vi.hoisted(() => ({ navigate: vi.fn() }));
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => navigation.navigate,
+}));
+
 vi.mock("@/lib/hooks/use-feature-flags", () => ({
   useFeatureFlags: () => ({ enableFeaturesBeta: true }),
 }));
@@ -870,5 +875,82 @@ describe("IntegracoesTab — instrução inline de credencial", () => {
       .parentElement!.parentElement!;
     fireEvent.click(within(geminiCard).getByTitle(/colar token manualmente/i));
     expect(within(geminiCard).queryByText(/BotFather/i)).toBeNull();
+  });
+});
+
+describe("IntegracoesTab — página inteira", () => {
+  beforeEach(() => {
+    overwriteGetLocale(() => "pt");
+    mockFetch(BASE_INTEGRATIONS);
+    navigation.navigate.mockReset();
+  });
+
+  it("sem o atalho, não mostra o botão de abrir em página inteira", async () => {
+    const { IntegracoesTab } = await import("../integracoes-tab");
+    render(<IntegracoesTab />);
+    await screen.findAllByText("GitHub");
+
+    expect(screen.queryByText("Abrir em página inteira")).toBeNull();
+  });
+
+  it("com o atalho, mostra o botão e o chama ao clicar", async () => {
+    const { IntegracoesTab } = await import("../integracoes-tab");
+    const onOpenFullPage = vi.fn();
+    render(<IntegracoesTab onOpenFullPage={onOpenFullPage} />);
+    await screen.findAllByText("GitHub");
+
+    fireEvent.click(screen.getByText("Abrir em página inteira"));
+
+    expect(onOpenFullPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("nas configurações, o atalho fecha o painel e navega para /integrations", async () => {
+    const { IntegracoesSettingsTab } = await import("../integracoes-tab");
+    const { useSettingsOverlayStore } =
+      await import("@/lib/stores/settings-overlay-store");
+    useSettingsOverlayStore.getState().setOpen(true);
+    render(<IntegracoesSettingsTab />);
+    await screen.findAllByText("GitHub");
+
+    fireEvent.click(screen.getByText("Abrir em página inteira"));
+
+    expect(navigation.navigate).toHaveBeenCalledWith({ to: "/integrations" });
+    expect(useSettingsOverlayStore.getState().open).toBe(false);
+  });
+});
+
+const withConnected = (count: number) =>
+  BASE_INTEGRATIONS.map((integration, index) => ({
+    ...integration,
+    connected: index < count,
+  }));
+
+describe("IntegracoesTab — contagem de ativas", () => {
+  beforeEach(() => overwriteGetLocale(() => "pt"));
+
+  it("sem nenhuma conectada, diz que não há integração configurada", async () => {
+    mockFetch(withConnected(0));
+    const { IntegracoesTab } = await import("../integracoes-tab");
+    render(<IntegracoesTab />);
+
+    expect(
+      await screen.findByText("Nenhuma integração configurada"),
+    ).toBeTruthy();
+  });
+
+  it("com uma conectada, usa o singular", async () => {
+    mockFetch(withConnected(1));
+    const { IntegracoesTab } = await import("../integracoes-tab");
+    render(<IntegracoesTab />);
+
+    expect(await screen.findByText("1 integração ativa")).toBeTruthy();
+  });
+
+  it("com várias conectadas, usa o plural com o total", async () => {
+    mockFetch(withConnected(3));
+    const { IntegracoesTab } = await import("../integracoes-tab");
+    render(<IntegracoesTab />);
+
+    expect(await screen.findByText("3 integrações ativas")).toBeTruthy();
   });
 });
