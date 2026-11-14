@@ -454,3 +454,52 @@ class TestAuthMiddlewareIntegration:
             "/auth/me", headers={"Authorization": f"Bearer {raw_token_2}"}
         )
         assert r_revogado.status_code == 401
+
+    def test_service_token_scopes_are_preserved_and_enforced(self, auth_client):
+        import asyncio
+
+        import backend.rbac.auth as auth_mod
+        from backend.rbac import token_auth
+
+        async def _create(scopes: list[str]) -> str:
+            db = await auth_mod._get_db()
+            _, raw = await token_auth.create_service_token(db, "scoped", scopes)
+            return raw
+
+        thread_reader = asyncio.run(_create(["threads:read"]))
+        assert (
+            auth_client.get(
+                "/auth/me", headers={"Authorization": f"Bearer {thread_reader}"}
+            ).status_code
+            == 403
+        )
+        assert (
+            auth_client.get(
+                "/admin/system", headers={"Authorization": f"Bearer {thread_reader}"}
+            ).status_code
+            == 403
+        )
+
+        auth_reader = asyncio.run(_create(["auth:read"]))
+        response = auth_client.get(
+            "/auth/me", headers={"Authorization": f"Bearer {auth_reader}"}
+        )
+        assert response.status_code == 200
+        assert response.json()["id"].startswith("service:")
+
+    def test_service_token_unknown_route_is_denied_by_default(self, auth_client):
+        import asyncio
+
+        import backend.rbac.auth as auth_mod
+        from backend.rbac import token_auth
+
+        async def _create() -> str:
+            db = await auth_mod._get_db()
+            _, raw = await token_auth.create_service_token(db, "empty", [])
+            return raw
+
+        raw = asyncio.run(_create())
+        response = auth_client.get(
+            "/admin/system", headers={"Authorization": f"Bearer {raw}"}
+        )
+        assert response.status_code == 403

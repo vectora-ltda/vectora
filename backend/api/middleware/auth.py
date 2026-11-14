@@ -128,7 +128,9 @@ def _is_public_route(path: str, method: str = "GET") -> bool:
     return any(_matches_prefix(path, p) for p in _PUBLIC_PREFIXES)
 
 
-async def _extract_service_token_user(token: str) -> Any:
+async def _extract_service_token_user(
+    token: str, request: Request | None = None
+) -> Any:
     """Autentica via token de serviço (`vst_...`, `backend.rbac.
     token_auth`) — credencial de máquina, alternativa ao JWT de login
     humano. Devolve um `User` sintético (`id="service:<token_id>"`,
@@ -140,6 +142,8 @@ async def _extract_service_token_user(token: str) -> Any:
     service_token = await token_auth.verify_service_token(db, token)
     if service_token is None:
         return None
+    if request is not None:
+        request.state.service_token = service_token
 
     from datetime import UTC, datetime
 
@@ -177,7 +181,7 @@ async def _extract_user(request: Request) -> Any:
         token = request.cookies["vectora_access"]
 
     if token and token.startswith("vst_"):
-        return await _extract_service_token_user(token)
+        return await _extract_service_token_user(token, request)
 
     user: Any = None
     if token:
@@ -236,6 +240,12 @@ class AuthMiddleware(BaseHTTPMiddleware):
             # Rotas públicas não bloqueiam, mas tentamos extrair o usuário
             # para que handlers como /auth/me possam verificar autenticação.
             request.state.user = await _extract_user(request)
+            if not _service_token_allowed(request):
+                from fastapi.responses import JSONResponse
+
+                return JSONResponse(
+                    {"detail": "Scope insuficiente para esta rota."}, status_code=403
+                )
             from backend.rbac.device_id import validate_device_id
 
             request.state.device_id = validate_device_id(
@@ -261,4 +271,38 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
+        if not _service_token_allowed(request):
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse(
+                {"detail": "Scope insuficiente para esta rota."}, status_code=403
+            )
+
         return await call_next(request)
+
+
+def _required_service_scope(method: str, path: str) -> str | None:
+    """Retorna o scope mínimo conhecido; rotas sem contrato não aceitam tokens de serviço."""
+    method = method.upper()
+    if path == "/auth/me" and method == "GET":
+        return "auth:read"
+    if path == "/threads" or path.startswith("/threads/"):
+        if path.startswith("/threads/share/"):
+            return "threads:read" if method == "GET" else None
+        return "threads:read" if method in {"GET", "HEAD"} else "threads:write"
+    if path == "/terminal" or path.startswith("/terminal/"):
+        return "terminal:use"
+    if path.startswith("/workspaces/"):
+        return "workspaces:read" if method in {"GET", "HEAD"} else "workspaces:write"
+    return None
+
+
+def _service_token_allowed(request: Request) -> bool:
+    """JWTs humanos não passam por scopes; tokens de serviço são deny-by-default."""
+    service_token = getattr(request.state, "service_token", None)
+    if service_token is None:
+        return True
+    from backend.rbac.token_auth import has_scope
+
+    required = _required_service_scope(request.method, request.url.path)
+    return required is not None and has_scope(service_token, required)

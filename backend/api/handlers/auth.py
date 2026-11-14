@@ -555,10 +555,11 @@ async def get_audit_log(
     import json
 
     from backend.rbac.auth import get_db_for_audit
-    from backend.rbac.permissions import require_min_role
+    from backend.rbac.permissions import can_read_audit
 
     caller = getattr(request.state, "user", None)
-    require_min_role(caller, "admin")
+    if not can_read_audit(caller):
+        raise HTTPException(status_code=403, detail="Requer role 'admin' ou superior.")
 
     db = await get_db_for_audit()
     query = "SELECT * FROM audit WHERE 1=1"

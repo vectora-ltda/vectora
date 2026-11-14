@@ -98,18 +98,17 @@ async def terminal_ws(ws: WebSocket) -> None:
         return
 
     # Sem isso, um usuário autenticado abria terminal interativo (execução
-    # arbitrária) no workspace de outro usuário só sabendo o id.
+    # arbitrária) no workspace de outro usuário só sabendo o id. A regra é a do
+    # RBAC: admin/root em qualquer workspace, member só no próprio, viewer nunca.
+    from backend.rbac.permissions import can_run_terminal
+
     owner_id = getattr(workspace, "owner_id", None)
-    if owner_id is not None and user is not None:
-        role = str(getattr(user, "role", "")).lower()
-        if role not in {"root", "admin"} and str(getattr(user, "id", "")) != owner_id:
-            await ws.send_text(
-                json.dumps(
-                    {"type": "error", "message": "acesso negado a este workspace"}
-                )
-            )
-            await ws.close(code=1008)
-            return
+    if user is not None and not can_run_terminal(user, owner_id):
+        await ws.send_text(
+            json.dumps({"type": "error", "message": "acesso negado a este workspace"})
+        )
+        await ws.close(code=1008)
+        return
 
     # Terminal interativo só roda em transport "local" — PTY remoto
     # (SSH/Codespace) usa a tool `terminal` (comandos one-shot) em vez
