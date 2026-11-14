@@ -87,12 +87,6 @@ async def _snapshot_com_dev_server(
     )
 
 
-def _validate_browser_url(url: str, ctx: ToolContext) -> tuple[bool, str]:
-    """Aplica a mesma política de egress ao início e ao destino final."""
-    ok, reason = _policy_snapshot(ctx).validate_call("browser_navigate", {"url": url})
-    return ok, reason
-
-
 async def _install_navigation_guard(
     page: Any, snapshot: PolicySnapshot
 ) -> tuple[Any | None, dict[str, str]]:

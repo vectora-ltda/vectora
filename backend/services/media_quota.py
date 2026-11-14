@@ -710,11 +710,6 @@ def media_estimate_record(
     )
 
 
-def media_estimate(operation: str, *, provider: str = "", model: str = "") -> int:
-    """Retorna as unidades da estimativa canônica de uma operação."""
-    return media_estimate_record(operation, provider=provider, model=model).units
-
-
 def new_idempotency_key(ctx_call_id: str, operation: str) -> str:
     key = ctx_call_id.strip()
     if not key:

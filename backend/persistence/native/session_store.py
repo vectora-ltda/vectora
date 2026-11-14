@@ -2720,19 +2720,3 @@ class SessionStore:
                 (thread_id, run_id),
             )
             await conn.commit()
-
-    async def find_orphan_runs(self) -> list[tuple[str, str]]:
-        """Identifica runs com agent_turn_started sem término (run_completed, run_failed ou agent_turn_finished)."""
-        await self.setup()
-        async with self._pool.acquire() as conn:
-            cur = await conn.execute(
-                "SELECT DISTINCT e1.thread_id, e1.run_id FROM thread_events e1 "
-                "WHERE e1.type = 'agent_turn_started' AND e1.run_id IS NOT NULL "
-                "AND NOT EXISTS ("
-                "  SELECT 1 FROM thread_events e2 "
-                "  WHERE e2.thread_id = e1.thread_id AND e2.run_id = e1.run_id "
-                "  AND e2.type IN ('run_completed', 'run_failed', 'run_cancelled', 'agent_turn_finished')"
-                ")"
-            )
-            rows = await cur.fetchall()
-        return [(r[0], r[1]) for r in rows]

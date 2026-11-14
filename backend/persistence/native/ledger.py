@@ -143,13 +143,6 @@ def make_agent_turn_started_key(run_id: str, turn_id: str | None = None) -> str:
     return f"agent_turn_started:{run_id}"
 
 
-def make_agent_turn_finished_key(run_id: str, turn_id: str | None = None) -> str:
-    """Executa a operação make agent turn finished key."""
-    if turn_id:
-        return f"agent_turn_finished:{run_id}:{turn_id}"
-    return f"agent_turn_finished:{run_id}"
-
-
 def make_approval_requested_key(interrupt_id: str) -> str:
     """Executa a operação make approval requested key."""
     return f"approval_requested:{interrupt_id}"
@@ -173,16 +166,6 @@ def make_run_cancelled_key(run_id: str) -> str:
 def make_run_completed_key(run_id: str) -> str:
     """Executa a operação make run completed key."""
     return f"run_completed:{run_id}"
-
-
-def is_event_notifiable(event: ThreadLedgerEvent) -> bool:
-    """Retorna True se o evento deve incrementar contador de badge não-lido."""
-    if event.type not in NOTIFIABLE_EVENT_TYPES:
-        return False
-    if event.type == "message_created":
-        role = event.payload.get("role")
-        return role == "assistant"
-    return True
 
 
 async def backfill_thread_ledger(

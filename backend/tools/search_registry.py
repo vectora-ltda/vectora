@@ -18,7 +18,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -175,16 +174,3 @@ def resolve_backend() -> SearchBackend:
     # "não há resultados" em vez de "não há busca".
     msg = "nenhum backend de busca disponível"
     raise SearchBackendUnavailableError(msg)
-
-
-def backend_choices() -> list[dict[str, Any]]:
-    """Opções pro seletor das Settings, com disponibilidade por item."""
-    return [
-        {
-            "value": b.name,
-            "label": b.label,
-            "available": b.is_available(),
-            "keyless": b.keyless,
-        }
-        for b in _BACKENDS
-    ]

@@ -1,14 +1,13 @@
 # file discovery, type classification, and corpus health checks
 from __future__ import annotations
 
-import contextlib
 import fnmatch
 import json
 import os
 import re
 import shlex
 from concurrent.futures import ThreadPoolExecutor
-from enum import Enum, StrEnum
+from enum import StrEnum
 from pathlib import Path
 
 from .paths import GRAPH_OUT, GRAPH_OUT_NAME, out_path
@@ -672,124 +671,6 @@ def xlsx_to_markdown(path: Path) -> str:
         return ""
 
 
-def xlsx_extract_structure(path: Path) -> dict:
-    """Extract structural nodes (sheets, named tables, column headers) from an .xlsx file.
-
-    Returns a nodes/edges dict compatible with the context graph extract pipeline.
-    Used in addition to xlsx_to_markdown so Claude sees both structure and content.
-    """
-
-    def _nid(*parts: str) -> str:
-        return re.sub(r"[^a-z0-9_]", "_", "_".join(p.lower() for p in parts).strip("_"))
-
-    try:
-        import openpyxl
-    except ImportError:
-        return {"nodes": [], "edges": []}
-
-    try:
-        wb = openpyxl.load_workbook(str(path), read_only=False, data_only=True)
-    except Exception:
-        return {"nodes": [], "edges": []}
-
-    # F-035: typo fix — was `_re.sub` (NameError, but unreachable because the
-    # whole xlsx codepath is currently behind a feature flag / not yet wired
-    # into the dispatcher). Before re-enabling this path, re-audit it for
-    # zip/XML bombs (openpyxl is built on top of zipfile and lxml-style XML
-    # parsing — a malicious .xlsx can blow up memory at load_workbook time).
-    stem = re.sub(r"[^a-z0-9]", "_", path.stem.lower())
-    str_path = str(path)
-    file_nid = _nid(str_path)
-    nodes: list[dict] = [
-        {
-            "id": file_nid,
-            "label": path.name,
-            "file_type": "document",
-            "source_file": str_path,
-            "source_location": None,
-        }
-    ]
-    edges: list[dict] = []
-    seen: set[str] = {file_nid}
-
-    def _add(nid: str, label: str) -> None:
-        if nid not in seen:
-            seen.add(nid)
-            nodes.append(
-                {
-                    "id": nid,
-                    "label": label,
-                    "file_type": "document",
-                    "source_file": str_path,
-                    "source_location": None,
-                }
-            )
-
-    def _edge(src: str, tgt: str, relation: str) -> None:
-        edges.append(
-            {
-                "source": src,
-                "target": tgt,
-                "relation": relation,
-                "confidence": "EXTRACTED",
-                "source_file": str_path,
-                "source_location": None,
-                "weight": 1.0,
-            }
-        )
-
-    for sheet_name in wb.sheetnames:
-        ws = wb[sheet_name]
-        sheet_nid = _nid(stem, sheet_name)
-        _add(sheet_nid, f"{sheet_name} (sheet)")
-        _edge(file_nid, sheet_nid, "contains")
-
-        # Named Excel Tables (ListObjects)
-        if hasattr(ws, "tables"):
-            for tbl in ws.tables.values():
-                tbl_nid = _nid(stem, sheet_name, tbl.name)
-                _add(tbl_nid, tbl.name)
-                _edge(sheet_nid, tbl_nid, "contains")
-                # Column headers from table header row
-                ref = tbl.ref  # e.g. "A1:D10"
-                if ref:
-                    try:
-                        from openpyxl.utils import range_boundaries
-
-                        min_col, min_row, max_col, _ = range_boundaries(ref)
-                        header_row = list(
-                            ws.iter_rows(
-                                min_row=min_row,
-                                max_row=min_row,
-                                min_col=min_col,
-                                max_col=max_col,
-                                values_only=True,
-                            )
-                        )
-                        if header_row:
-                            for col_name in header_row[0]:
-                                if col_name:
-                                    col_nid = _nid(stem, tbl.name, str(col_name))
-                                    _add(col_nid, str(col_name))
-                                    _edge(tbl_nid, col_nid, "contains")
-                    except Exception:
-                        pass
-        else:
-            # Fallback: first non-empty row as column headers
-            for row in ws.iter_rows(max_row=1, values_only=True):
-                for cell in row:
-                    if cell:
-                        col_nid = _nid(stem, sheet_name, str(cell))
-                        _add(col_nid, str(cell))
-                        _edge(sheet_nid, col_nid, "contains")
-                break
-
-    with contextlib.suppress(Exception):
-        wb.close()
-
-    return {"nodes": nodes, "edges": edges}
-
-
 def convert_office_file(path: Path, out_dir: Path) -> Path | None:
     """Convert a .docx or .xlsx to a markdown sidecar in out_dir.
 
@@ -1135,85 +1016,6 @@ def _load_include_patterns(root: Path) -> list[tuple[Path, str]]:
                 if line:
                     patterns.append((d, line))
     return patterns
-
-
-def _is_included(path: Path, root: Path, patterns: list[tuple[Path, str]]) -> bool:
-    """Return True if path matches any .vectorainclude allowlist pattern."""
-    if not patterns:
-        return False
-
-    def _matches(rel: str, p: str, anchored: bool) -> bool:
-        if anchored:
-            return fnmatch.fnmatch(rel, p)
-        parts = rel.split("/")
-        if fnmatch.fnmatch(rel, p):
-            return True
-        if fnmatch.fnmatch(path.name, p):
-            return True
-        for i, part in enumerate(parts):
-            if fnmatch.fnmatch(part, p):
-                return True
-            if fnmatch.fnmatch("/".join(parts[: i + 1]), p):
-                return True
-        return False
-
-    for anchor, pattern in patterns:
-        anchored = pattern.startswith("/")
-        p = pattern.strip("/")
-        if not p:
-            continue
-        if anchored:
-            try:
-                rel_anchor = str(path.relative_to(anchor)).replace(os.sep, "/")
-                if _matches(rel_anchor, p, anchored=True):
-                    return True
-            except ValueError:
-                pass
-        else:
-            try:
-                rel = str(path.relative_to(root)).replace(os.sep, "/")
-                if _matches(rel, p, anchored=False):
-                    return True
-            except ValueError:
-                pass
-            if anchor != root:
-                try:
-                    rel_anchor = str(path.relative_to(anchor)).replace(os.sep, "/")
-                    if _matches(rel_anchor, p, anchored=False):
-                        return True
-                except ValueError:
-                    pass
-    return False
-
-
-def _could_contain_included_path(
-    path: Path, root: Path, patterns: list[tuple[Path, str]]
-) -> bool:
-    """Return True if a directory may contain files matched by .vectorainclude."""
-    if not patterns:
-        return False
-
-    rels: list[str] = []
-    with contextlib.suppress(ValueError):
-        rels.append(str(path.relative_to(root)).replace(os.sep, "/"))
-    for anchor, _ in patterns:
-        if anchor != root:
-            with contextlib.suppress(ValueError):
-                rels.append(str(path.relative_to(anchor)).replace(os.sep, "/"))
-
-    for rel in rels:
-        rel = rel.strip("/")
-        if not rel:
-            return True
-        for _, pattern in patterns:
-            p = pattern.strip("/")
-            if not p:
-                continue
-            if p == rel or p.startswith(rel + "/"):
-                return True
-            if fnmatch.fnmatch(rel, p):
-                return True
-    return False
 
 
 def _auto_follow_symlinks(root: Path) -> bool:

@@ -78,21 +78,6 @@ class PtyRegistry:
             return None
         return session
 
-    def list_for_context(
-        self, *, user_id: str, thread_id: str, workspace_id: str
-    ) -> list[PtySession]:
-        if not thread_id or not workspace_id:
-            return []
-        return [
-            s
-            for s in self._sessions.values()
-            if (
-                getattr(s, "user_id", "local") == user_id
-                and s.thread_id == thread_id
-                and s.workspace_id == workspace_id
-            )
-        ]
-
     def list_for_user_workspace(
         self, *, user_id: str, workspace_id: str
     ) -> list[PtySession]:

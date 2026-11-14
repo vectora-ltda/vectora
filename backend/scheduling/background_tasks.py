@@ -629,22 +629,6 @@ async def _await_reservation_step(operation: Awaitable[bool]) -> bool:
         raise
 
 
-async def _reopen_cancelled_run(run_id: str) -> bool:
-    """Desfaz um cancelamento quando a transição do cartão não foi possível."""
-    conn = await _get_db()
-    try:
-        cur = await conn.execute(
-            "UPDATE vectora_background_runs SET status = 'awaiting_approval', "
-            "finished_at = NULL WHERE id = ? AND status = 'cancelled'",
-            (run_id,),
-        )
-        await conn.commit()
-        return cur.rowcount > 0
-    finally:
-        with contextlib.suppress(Exception):
-            await conn.close()
-
-
 async def _reserve_resumed_run(run_id: str, task: BackgroundTask) -> bool:
     """Reserva run e card antes de entrar no motor, com compensação."""
     reserved = False
@@ -916,7 +900,6 @@ def _soul_tool_registry(soul: Any, user_id: str | None) -> Any:
     ``list_terminals``) que só é registrado por um módulo de tool nunca
     importado neste caminho de execução (agendamento roda fora do fluxo de
     ``get_native_agent``, que é quem normalmente garante isso)."""
-    import backend.nodes.tools  # import registra todo @vtool no TOOL_REGISTRY
     from backend.rbac import tool_policy
     from backend.tools.registry import TOOL_REGISTRY, ToolRegistry
 

@@ -36,7 +36,6 @@ from urllib.parse import urlsplit, urlunsplit
 
 import yaml
 import yaml.resolver
-from pydantic import BaseModel
 
 from backend.services import extension_trust
 from backend.vtypes.skill import Skill, SkillCatalogEntry
@@ -505,15 +504,6 @@ def _git_source_parts(source: str) -> tuple[str, str | None, str | None]:
     if subpath.is_absolute() or ".." in subpath.parts:
         raise ValueError("subdiretório da fonte Git inválido")
     return match.group("url"), match.group("revision"), subpath.as_posix()
-
-
-class InstallSkillRequest(BaseModel):
-    source: str
-    """URL git ou path absoluto."""
-    scope: SkillScope = "user"
-    target: str | None = None
-    workspace_id: str | None = None
-    confirm_unverified: bool = False
 
 
 def _install_skill_unlocked(

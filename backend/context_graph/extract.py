@@ -1561,20 +1561,6 @@ def _python_collect_param_refs(params_node, source: bytes) -> list[tuple[str, st
     return out
 
 
-def _resolve_name(node, source: bytes, config: LanguageConfig) -> str | None:
-    """Get the name from a node using config.name_field, falling back to child types."""
-    if config.resolve_function_name_fn is not None:
-        # For C/C++ where the name is inside a declarator
-        return None  # caller handles this separately
-    n = node.child_by_field_name(config.name_field)
-    if n:
-        return _read_text(n, source)
-    for child in node.children:
-        if child.type in config.name_fallback_child_types:
-            return _read_text(child, source)
-    return None
-
-
 def _find_body(node, config: LanguageConfig):
     """Find the body node using config.body_field, falling back to child types."""
     b = node.child_by_field_name(config.body_field)
@@ -4722,7 +4708,6 @@ def _extract_python_rationale(path: Path, result: dict) -> None:
     Mutates result in-place by appending to result['nodes'] and result['edges'].
     """
     try:
-        import tree_sitter_python as tspython
         from tree_sitter import Parser
 
         language = _load_tree_sitter_language("python")
@@ -9992,15 +9977,11 @@ def _parse_js_tree(path: Path):
         from tree_sitter import Parser
 
         if path.suffix in (".ts", ".tsx"):
-            import tree_sitter_typescript as tstypescript
-
             language = _load_tree_sitter_language(
                 "typescript",
                 "language_tsx" if path.suffix == ".tsx" else "language_typescript",
             )
         else:
-            import tree_sitter_javascript as tsjavascript
-
             language = _load_tree_sitter_language("javascript")
         source = path.read_bytes()
         parser = Parser(language)
@@ -10596,7 +10577,6 @@ def _collect_js_symbol_resolution_facts(
 
 def _parse_python_tree(path: Path):
     try:
-        import tree_sitter_python as tspython
         from tree_sitter import Parser
 
         source = path.read_bytes()
@@ -10802,18 +10782,6 @@ def _augment_symbol_resolution_edges(
     facts = _SymbolResolutionFacts()
     _collect_js_symbol_resolution_facts(paths, facts)
     _collect_python_symbol_resolution_facts(paths, root, facts)
-    _apply_symbol_resolution_facts(paths, nodes, edges, root, facts)
-
-
-def _augment_js_reexport_edges(
-    paths: list[Path],
-    nodes: list[dict],
-    edges: list[dict],
-    root: Path,
-) -> None:
-    """Compatibility wrapper for the JS/TS symbol-resolution post-pass."""
-    facts = _SymbolResolutionFacts()
-    _collect_js_symbol_resolution_facts(paths, facts)
     _apply_symbol_resolution_facts(paths, nodes, edges, root, facts)
 
 
@@ -11471,10 +11439,6 @@ def extract_objc(path: Path) -> dict:
 
     def _read(node) -> str:
         return source[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
-
-    def _get_name(node, field: str) -> str | None:
-        n = node.child_by_field_name(field)
-        return _read(n) if n else None
 
     def ensure_named_node(name: str, line: int) -> str:
         nid = _make_id(stem, name)

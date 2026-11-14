@@ -1448,44 +1448,6 @@ PROVIDER_KEY_URL: dict[str, str] = {
 }
 
 
-def get_available_models(provider: str | None = None) -> dict[str, list[str]]:
-    """Retorna modelos disponíveis para um provider ou todos."""
-    if provider:
-        return {provider: AVAILABLE_MODELS.get(provider, [])}
-    return AVAILABLE_MODELS
-
-
-def get_context_window(model: str) -> int:
-    """Janela de contexto (tokens) do modelo.
-
-    Olha primeiro a tabela explícita; se não estiver listado, cai num
-    fallback por família a partir do prefixo do id. Default final: 128k.
-    """
-    explicit = MODEL_CONTEXT_WINDOWS.get(model)
-    if explicit is not None:
-        return explicit
-    for prefixes, window in _FAMILY_CONTEXT_FALLBACKS:
-        if model.startswith(prefixes):
-            return window
-    return 128_000
-
-
-def find_provider_for_model(model: str) -> str | None:
-    """Retorna o provider que possui o modelo, ou None se não encontrado."""
-    for provider, models in AVAILABLE_MODELS.items():
-        if model in models:
-            return provider
-    return None
-
-
-def has_api_key(provider: str) -> bool:
-    """True se a env var da API key do provider está populada (Ollama → sempre True)."""
-    key_env = PROVIDER_API_KEY_ENV.get(provider)
-    if key_env is None:
-        return True
-    return bool(os.environ.get(key_env))
-
-
 # ============================================================================
 # SINGLETON INSTANCE (For gradual migration from old Config)
 # ============================================================================

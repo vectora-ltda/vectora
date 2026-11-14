@@ -17,7 +17,6 @@ from io import BytesIO
 from pathlib import Path
 
 from backend.settings import settings
-from backend.version import __version__
 
 logger = logging.getLogger(__name__)
 
@@ -131,75 +130,6 @@ async def generate_debug_dump(
     except Exception as e:
         logger.exception(f"Erro ao gerar debug dump: {e}")
         raise
-
-
-async def create_qa_report(
-    debug_dump_path: str,
-    tester_name: str,
-    test_scenario: str,
-    bug_description: str,
-    severity: str = "medium",
-) -> str:
-    """Cria relatório estruturado de bug para QA.
-
-    Args:
-        debug_dump_path: Caminho do arquivo debug dump
-        tester_name: Nome do tester
-        test_scenario: Cenário que estava testando
-        bug_description: Descrição detalhada do bug
-        severity: "critical" | "high" | "medium" | "low"
-
-    Returns:
-        Conteúdo do relatório (markdown)
-    """
-    return f"""# 🐛 Relatório de Bug - Vectora v{__version__}
-
-## Informações do Teste
-
-**Tester:** {tester_name}
-**Timestamp:** {datetime.now(UTC).isoformat()}
-**Cenário:** {test_scenario}
-**Severidade:** {severity.upper()}
-
-## Descrição do Bug
-
-{bug_description}
-
-## Debug Dump
-
-**Arquivo:** `{debug_dump_path}`
-**Tamanho:** {Path(debug_dump_path).stat().st_size / 1024:.2f} KB
-
-### Conteúdo do Dump
-
-- `INFO.json` - Metadados de sistema (Python, platform, config)
-- `data/*.db` - Bancos de dados (vectora.db, embedding_queue.db)
-- `data/*.db-wal` - WAL files para recuperação
-- `logs/*.jsonl` - Logs estruturados (com correlation_id)
-- `.env.safe` - Configuração (sem secrets)
-
-## Instruções para Reproduzir
-
-[Por favor, descreva os passos para reproduzir o bug]
-
-1.
-2.
-3.
-
-## Logs Relevantes
-
-[Cole aqui as linhas relevantes de `logs/mcp.log` com correlation_id]
-
-```
-[correlation_id] EVENT_NAME: ...
-[correlation_id] EVENT_NAME: ...
-```
-
----
-
-**Status:** Aberto
-**Assignee:** [Será atribuído pelo time de desenvolvimento]
-"""
 
 
 # CLI Interface

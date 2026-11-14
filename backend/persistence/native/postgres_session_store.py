@@ -1504,21 +1504,6 @@ class PostgresSessionStore:
                 run_id,
             )
 
-    async def find_orphan_runs(self) -> list[tuple[str, str]]:
-        """Executa a operação find orphan runs."""
-        await self.setup()
-        async with self._pool.acquire() as conn:
-            rows = await conn.fetch(
-                "SELECT DISTINCT e1.thread_id, e1.run_id FROM vectora_native_thread_events e1 "
-                "WHERE e1.type = 'agent_turn_started' AND e1.run_id IS NOT NULL "
-                "AND NOT EXISTS ("
-                "  SELECT 1 FROM vectora_native_thread_events e2 "
-                "  WHERE e2.thread_id = e1.thread_id AND e2.run_id = e1.run_id "
-                "  AND e2.type IN ('run_completed', 'run_failed', 'run_cancelled', 'agent_turn_finished')"
-                ")"
-            )
-        return [(r["thread_id"], r["run_id"]) for r in rows]
-
     async def _upsert_agent_run_on_conn(
         self, conn: asyncpg.Connection, run: AgentRun
     ) -> None:

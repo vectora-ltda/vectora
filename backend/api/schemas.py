@@ -775,31 +775,6 @@ class InviteValidationResponse(BaseModel):
     role: str | None = None
 
 
-class CreateInviteRequest(BaseModel):
-    role: str = "member"
-    email: str | None = None
-    ttl_hours: int = 24
-
-
-class InviteInfo(BaseModel):
-    token_hash: str
-    email: str | None = None
-    role: str
-    created_by: str | None = None
-    expires_at: str
-    created_at: str
-
-
-class CreateInviteResponse(BaseModel):
-    token: str
-    url: str
-    expires_at: str
-
-
-class InviteListResponse(BaseModel):
-    invites: list[InviteInfo]
-
-
 class SigninRequest(BaseModel):
     email: str
     password: str

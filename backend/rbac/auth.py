@@ -20,10 +20,9 @@ import os
 import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
 from backend.settings import settings
 
@@ -69,13 +68,6 @@ class UserInDB(User):
 
     password_hash: str
     env_overrides_json: str = "{}"
-
-
-class TokenPair(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"  # noqa: S105
-    user: User
 
 
 class Credentials(BaseModel):
@@ -1301,58 +1293,6 @@ class PostgresAuthDB:
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
-    async def count_users(self) -> int:
-        """Retorna o total de usuários cadastrados."""
-        from backend.storage.factory import get_pg_pool
-
-        pool = await get_pg_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT COUNT(*) AS n FROM users")
-        return row["n"] if row else 0
-
-    async def create_user(
-        self,
-        email: str,
-        password_hash: str,
-        role: str = "member",
-        name: str = "",
-        user_id: str | None = None,
-    ) -> str:
-        """Cria um usuário e retorna seu ID."""
-        import uuid
-        from datetime import UTC, datetime
-
-        from backend.storage.factory import get_pg_pool
-
-        uid = user_id or str(uuid.uuid4())
-        now = datetime.now(UTC).isoformat()
-        pool = await get_pg_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO users
-                    (id, email, password_hash, role, name,
-                     env_overrides_json, created_at)
-                VALUES ($1, $2, $3, $4, $5, '{}', $6)
-                """,
-                uid,
-                email,
-                password_hash,
-                role,
-                name,
-                now,
-            )
-        return uid
-
-    async def get_user_by_email(self, email: str) -> dict[str, object] | None:
-        """Retorna o usuário pelo e-mail ou None."""
-        from backend.storage.factory import get_pg_pool
-
-        pool = await get_pg_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT * FROM users WHERE email = $1", email)
-        return dict(row) if row else None
-
     async def get_user_by_id(self, user_id: str) -> dict[str, object] | None:
         """Retorna o usuário pelo ID ou None."""
         from backend.storage.factory import get_pg_pool
@@ -1361,42 +1301,6 @@ class PostgresAuthDB:
         async with pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM users WHERE id = $1", user_id)
         return dict(row) if row else None
-
-    async def upsert_refresh_token(
-        self,
-        token_hash: str,
-        user_id: str,
-        expires_at: str,
-    ) -> None:
-        """Insere ou substitui um refresh token."""
-        from datetime import UTC, datetime
-
-        from backend.storage.factory import get_pg_pool
-
-        now = datetime.now(UTC).isoformat()
-        pool = await get_pg_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO refresh_tokens
-                    (token_hash, user_id, expires_at, revoked, created_at)
-                VALUES ($1, $2, $3, false, $4)
-                ON CONFLICT (token_hash) DO UPDATE
-                    SET expires_at = EXCLUDED.expires_at, revoked = false
-                """,
-                token_hash,
-                user_id,
-                expires_at,
-                now,
-            )
-
-    async def revoke_refresh_tokens(self, user_id: str) -> None:
-        """Revoga todos os refresh tokens do usuário."""
-        from backend.storage.factory import get_pg_pool
-
-        pool = await get_pg_pool()
-        async with pool.acquire() as conn:
-            await conn.execute("DELETE FROM refresh_tokens WHERE user_id = $1", user_id)
 
     async def write_audit(
         self,

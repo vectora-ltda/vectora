@@ -120,8 +120,3 @@ def all_categories() -> list[str]:
 
 def all_fields() -> Iterable[SettingField]:
     return _REGISTRY.values()
-
-
-def _reset_registry_for_tests() -> None:
-    """Só para testes: limpa o registry global entre casos isolados."""
-    _REGISTRY.clear()

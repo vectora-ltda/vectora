@@ -568,45 +568,6 @@ class EmbeddingQueue:
         except Exception:
             logger.exception("embedding_queue_reconcile_failed")
 
-    async def cleanup_old_records(self, days: int = 30) -> int:
-        """Remove registros antigos de DLQ e failed do banco de dados.
-
-        Evita crescimento indefinido de registros de falha. Deve ser chamado
-        periodicamente (ex: startup do worker, ou manualmente via /rag cleanup).
-
-        Args:
-            days: Deletar registros mais antigos que N dias (default 30)
-
-        Returns:
-            Número de registros deletados
-        """
-        try:
-            if self.AsyncSessionLocal is None:
-                return 0
-            async with self.AsyncSessionLocal() as session:
-                from sqlalchemy import delete
-
-                cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=days)
-                query = delete(EmbeddingQueueRecord).where(
-                    EmbeddingQueueRecord.status.in_(
-                        [EmbeddingStatus.DLQ, EmbeddingStatus.FAILED]
-                    )
-                    & (EmbeddingQueueRecord.created_at < cutoff)
-                )
-                result = await session.execute(query)
-                await session.commit()
-                deleted = result.rowcount or 0
-
-                if deleted:
-                    logger.info(
-                        "embedding_queue_cleanup",
-                        extra={"deleted": deleted, "older_than_days": days},
-                    )
-                return deleted
-        except Exception:
-            logger.exception("embedding_queue_cleanup_failed")
-            return 0
-
     async def retry_failed(self, limit: int = 100) -> int:
         """Move itens failed/DLQ de volta para pending para nova tentativa.
 

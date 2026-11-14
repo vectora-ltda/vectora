@@ -86,32 +86,9 @@ def _clear_session() -> None:
         _AUTH_FILE.unlink(missing_ok=True)
 
 
-def get_active_session() -> dict | None:
-    """Retorna a sessão ativa, ou None se não estiver logado."""
-    return _load_session()
-
-
-def get_bearer_token() -> str | None:
-    """Retorna o access_token da sessão ativa, se disponível.
-
-    Usado por comandos CLI que precisam autenticar requests ao servidor.
-    """
-    session = _load_session()
-    return session.get("access_token") if session else None
-
-
 # ---------------------------------------------------------------------------
 # Comandos interativos
 # ---------------------------------------------------------------------------
-
-
-def _get_server_url() -> str:
-    """Lê a URL do servidor do storage ou usa o padrão local."""
-    session = _load_session()
-    if session and session.get("server_url"):
-        return session["server_url"]
-    # Padrão local
-    return "http://localhost:8080"
 
 
 def _prompt_server_url() -> str:

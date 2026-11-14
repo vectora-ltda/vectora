@@ -136,61 +136,6 @@ class _SSRFGuardedHTTPSConnection(http.client.HTTPSConnection):
         self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
 
 
-class _SSRFGuardedHTTPHandler(urllib.request.HTTPHandler):
-    def http_open(self, req):
-        return self.do_open(_SSRFGuardedHTTPConnection, req)
-
-
-class _SSRFGuardedHTTPSHandler(urllib.request.HTTPSHandler):
-    def https_open(self, req):
-        return self.do_open(_SSRFGuardedHTTPSConnection, req)
-
-
-class _NoFileRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        validate_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-def _build_opener() -> urllib.request.OpenerDirector:
-    return urllib.request.build_opener(
-        _SSRFGuardedHTTPHandler,
-        _SSRFGuardedHTTPSHandler,
-        _NoFileRedirectHandler,
-    )
-
-
-def safe_fetch(url: str, max_bytes: int = _MAX_FETCH_BYTES, timeout: int = 30) -> bytes:
-    validate_url(url)
-    opener = _build_opener()
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 vectora/1.0"})
-    with opener.open(req, timeout=timeout) as resp:
-        status = getattr(resp, "status", None) or getattr(resp, "code", None)
-        if status is not None and not (200 <= status < 300):
-            raise urllib.error.HTTPError(url, status, f"HTTP {status}", {}, None)
-        chunks: list[bytes] = []
-        total = 0
-        while True:
-            chunk = resp.read(65_536)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > max_bytes:
-                raise OSError(
-                    f"Response from {url!r} exceeds size limit "
-                    f"({max_bytes // 1_048_576} MB). Aborting download."
-                )
-            chunks.append(chunk)
-    return b"".join(chunks)
-
-
-def safe_fetch_text(
-    url: str, max_bytes: int = _MAX_TEXT_BYTES, timeout: int = 15
-) -> str:
-    raw = safe_fetch(url, max_bytes=max_bytes, timeout=timeout)
-    return raw.decode("utf-8", errors="replace")
-
-
 def validate_graph_path(path: str | Path, base: Path | None = None) -> Path:
     if base is None:
         resolved_hint = Path(path).resolve()

@@ -55,30 +55,6 @@ async def list_codespaces() -> list[dict]:
     return []
 
 
-async def ensure_started(codespace_name: str) -> bool:
-    """Garante que o codespace está em estado executável.
-
-    ``gh codespace start`` é idempotente: roda mesmo se já estiver
-    rodando. Devolve True em sucesso.
-    """
-    proc = await asyncio.create_subprocess_exec(
-        "gh",
-        "codespace",
-        "start",
-        "--codespace",
-        codespace_name,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    try:
-        await asyncio.wait_for(proc.wait(), timeout=120.0)
-    except TimeoutError:
-        proc.kill()
-        await proc.wait()
-        return False
-    return proc.returncode == 0
-
-
 class CodespaceTransport:
     """Transport via ``gh codespace ssh`` — um subprocess por comando.
 

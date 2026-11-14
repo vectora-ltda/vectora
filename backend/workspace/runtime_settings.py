@@ -33,7 +33,6 @@ import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
 
 from backend.runtime_profile import resolve_runtime_home
 
@@ -350,26 +349,6 @@ class RuntimeSettings:
     def storage_mode(self, value: str) -> None:
         self.set("storage_mode", value if value in ("lite", "complete") else "lite")
 
-    def get_service_startup(self, service: str) -> dict:
-        """Configuração de auto-start para um serviço self-hosted do modo
-        "complete" (``postgres`` | ``redis`` | ``qdrant``).
-
-        Retorna ``{"self_hosted": bool, "start_command": str | None}``. Usado
-        por ``POST /admin/storage/test`` (Setup Wizard) para tentar subir o
-        serviço localmente quando a conexão falha. Não se aplica a serviços
-        terceirizados (Supabase, Upstash, Qdrant Cloud etc.).
-        """
-        services = self.get("storage_services", {})
-        if not isinstance(services, dict):
-            return {"self_hosted": False, "start_command": None}
-        cfg = cast("dict[str, Any]", services).get(service)
-        if not isinstance(cfg, dict):
-            return {"self_hosted": False, "start_command": None}
-        return {
-            "self_hosted": bool(cfg.get("self_hosted", False)),
-            "start_command": cfg.get("start_command") or None,
-        }
-
     def set_service_startup(
         self, service: str, *, self_hosted: bool, start_command: str | None
     ) -> None:
@@ -393,22 +372,6 @@ class RuntimeSettings:
             self._data["active_model"] = model
             self._persist("active_model", model)
         logger.info("runtime_settings: provider=%s model=%s", provider, model)
-
-    def set_theme(self, theme: str) -> None:
-        """Define o tema da TUI ('dark'|'light'|'system') e persiste.
-
-        Valores fora de `_VALID_THEMES` caem em 'dark' — mantém o arquivo
-        consistente mesmo se um valor inválido chegar via edição manual
-        ou de uma versão futura/antiga do app.
-        """
-        self.set("theme", theme if theme in _VALID_THEMES else "dark")
-
-    def set_language(self, language: str) -> None:
-        """Define o idioma da TUI ('en'|'es'|'pt-BR') e persiste.
-
-        Mesma lógica defensiva de `set_theme` — valor inválido cai em 'en'.
-        """
-        self.set("language", language if language in _VALID_LANGUAGES else "en")
 
     @property
     def user_timezone(self) -> str:
@@ -518,18 +481,6 @@ class RuntimeSettings:
         if not isinstance(val, dict):
             return {}
         return {str(k): str(v) for k, v in val.items()}
-
-    def get_session_for_dir(self, cwd: str) -> str | None:
-        """Return the last thread_id used in the given directory, or None."""
-        return self.last_session_by_dir.get(cwd)
-
-    def set_session_for_dir(self, cwd: str, thread_id: str) -> None:
-        """Persist the last thread_id used in the given directory."""
-        with self._lock:
-            mapping = dict(self.last_session_by_dir)
-            mapping[cwd] = thread_id
-            self._data["last_session_by_dir"] = mapping
-            self._persist("last_session_by_dir", mapping)
 
     def _read_frontend_prefs(self) -> dict[str, object]:
         """Read durable preferences under the instance lock; propagate storage errors."""

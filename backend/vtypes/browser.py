@@ -73,11 +73,6 @@ def validate_browser_tab(value: BrowserTab) -> None:
     _BROWSER_TAB_ADAPTER.validate_python(value)
 
 
-def validate_browser_target(value: BrowserTarget) -> None:
-    """Validate the target identity before it crosses a tool boundary."""
-    _BROWSER_TARGET_ADAPTER.validate_python(value)
-
-
 def validate_browser_console_entry(value: BrowserConsoleEntry) -> None:
     """Validate a console event before storing it in the ring buffer."""
     _BROWSER_CONSOLE_ENTRY_ADAPTER.validate_python(value)

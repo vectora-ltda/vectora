@@ -1476,50 +1476,6 @@ async def get_card_version_snapshot(task_id: str) -> dict[str, Any]:
     return snapshot
 
 
-async def classify_block_kind_with_systemone(
-    task_id: str,
-    error_summary: str,
-    *,
-    harness: SystemOneHarness | None,
-    workspace_id: str = "default",
-    default_kind: str = "needs_input",
-) -> tuple[str, str]:
-    """Classifica o tipo de bloqueio em modo consultivo/shadow sem manter transação aberta.
-
-    Retorna `(block_kind, template_justification)` preservando `default_kind` em falha
-    ou quando o harness estiver em modo `off`/`shadow`.
-    """
-    if default_kind not in BLOCK_KINDS:
-        default_kind = "needs_input"
-    if harness is None:
-        return default_kind, f"template:default_block_kind({default_kind})"
-
-    try:
-        res = await harness.classify_kanban_block(
-            workspace_id=workspace_id,
-            task_id=task_id,
-            error_summary=error_summary,
-        )
-    except Exception:
-        logger.warning(
-            "kanban: falha na classificação SystemOne de bloqueio", exc_info=True
-        )
-        return default_kind, f"template:fallback_on_error({default_kind})"
-
-    if not res.is_usable_recommendation or res.response is None:
-        return default_kind, f"template:non_enforced({','.join(res.reason_codes)})"
-
-    ans = res.response.answers.get("block_kind")
-    selection = getattr(ans, "selection", None)
-    if isinstance(selection, str) and selection in BLOCK_KINDS:
-        conf = getattr(ans, "confidence", 0.0) or 0.0
-        return (
-            selection,
-            f"template:systemone_block_kind(kind={selection},confidence={conf:.2f},decision_id={res.decision_id})",
-        )
-    return default_kind, f"template:invalid_selection_fallback({default_kind})"
-
-
 async def propose_transition_with_systemone(
     task_id: str,
     *,

@@ -191,17 +191,6 @@ def _fallback_order() -> list[str]:
     return [str(x) for x in order] if isinstance(order, list) else []
 
 
-def _default_fallback_chain(current_provider: str) -> list[str]:
-    """Retorna a cadeia vazia quando fallback não foi configurado.
-
-    Fallback é uma decisão explícita do usuário: uma lista vazia não autoriza
-    o agente a trocar de provider por conta própria, mesmo que outras chaves
-    estejam presentes no ambiente.
-    """
-    _ = current_provider
-    return []
-
-
 def get_fallback_chain(current_model_id: str) -> list[str]:
     """Cadeia ordenada de modelos a tentar após o atual esgotar.
 
