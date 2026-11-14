@@ -485,6 +485,7 @@ def test_frontend_lint_runs_oxlint_only_on_frontend_files(monkeypatch) -> None:
             "frontend",
             "exec",
             "oxlint",
+            "--deny-warnings",
             "--no-ignore",
             "lib/a.ts",
             "components/b.tsx",

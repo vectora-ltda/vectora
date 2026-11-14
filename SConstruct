@@ -656,7 +656,7 @@ def _action_lint(target, source, env):
         # ── vectora: TypeScript frontend ──────────────────────────────────────
         # `typecheck` = i18n:compile (paraglide) + tsr generate + tsc --noEmit
         _run([PNPM, "--dir", "frontend", "run", "typecheck"], log=log)
-        _run([PNPM, "--dir", "frontend", "exec", "oxlint"], log=log)
+        _run([PNPM, "--dir", "frontend", "exec", "oxlint", "--deny-warnings"], log=log)
         # ── electron (main process, TS puro — sem oxlint/eslint configurado).
         # Fundido no package.json do frontend (mesmo node_modules); só o
         # tsconfig de compilação (Node/NodeNext) segue separado. ───────────
