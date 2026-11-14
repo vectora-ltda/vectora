@@ -745,6 +745,8 @@ export interface PagedHistoryResponse {
   messages: HistoryMessage[];
   has_more: boolean;
   total_count: number;
+  /** Tarefas (write_todos) da conversa; só a primeira página (a mais recente) traz. */
+  todos?: TodoItem[];
   /** `message_id` da mensagem mais antiga da página; `null` sem mais páginas. */
   next_cursor?: number | null;
 }
@@ -770,8 +772,27 @@ export const getHistoryPage = (
     `/threads/${encodeURIComponent(thread_id)}/history?limit=${limit}&offset=${offset}${cursor}`,
   ).then((r) => {
     if (r.status === 409) throw new HistoryCursorGoneError();
+    if (!r.ok) throw new Error(`histórico indisponível (${r.status})`);
     return r.json() as Promise<PagedHistoryResponse>;
   });
+};
+
+/** Tamanho da página mais recente com que uma conversa abre. */
+const INITIAL_HISTORY_PAGE = 100;
+
+/**
+ * Página mais recente da conversa (com as tarefas do plano), em vez da
+ * conversa inteira. As anteriores vêm por `getHistoryPage` com o
+ * `next_cursor` devolvido aqui.
+ */
+export const getLatestHistory = (
+  thread_id: string,
+  limit = INITIAL_HISTORY_PAGE,
+): Promise<PagedHistoryResponse> => {
+  if (!thread_id.trim()) {
+    return Promise.resolve({ messages: [], has_more: false, total_count: 0 });
+  }
+  return getHistoryPage(thread_id, limit, 0);
 };
 
 /** Pede ao backend um título gerado pela IA (idempotente: só no 1º turno). */

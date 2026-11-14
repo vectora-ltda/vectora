@@ -82,7 +82,7 @@ import { useActiveWorkbenchContextStore } from "@/lib/stores/active-workbench-co
 import { resolveBrowserProfileId } from "@/lib/browser-profile";
 import {
   listThreads,
-  getHistory,
+  getLatestHistory,
   type Thread as VectoraThread,
 } from "@/lib/api/vectora-client";
 import { queryClient } from "../../router";
@@ -141,7 +141,7 @@ export const Route = createFileRoute("/session/$threadId")({
     void queryClient
       .prefetchQuery({
         queryKey: ["thread-history", params.threadId],
-        queryFn: () => getHistory(params.threadId),
+        queryFn: () => getLatestHistory(params.threadId),
         staleTime: 30_000,
       })
       .catch((err: unknown) => {

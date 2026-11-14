@@ -46,7 +46,7 @@ export function threadsQueryKey(
  * Dado da query: as threads carregadas e, quando o servidor informa, o total do
  * filtro e o cursor da página seguinte.
  */
-export type ThreadsCache = ListThreadsResult;
+type ThreadsCache = ListThreadsResult;
 
 /**
  * Altera só a lista de threads do cache e preserva `total` e `next_cursor`.

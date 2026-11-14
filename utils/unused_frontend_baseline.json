@@ -61,7 +61,6 @@
   "exports::lib/config/deployment-config.ts::isAuthRequired",
   "exports::lib/hooks/auth/index.ts::useClientProfile",
   "exports::lib/hooks/auth/use-client-profile.ts::useClientProfile",
-  "exports::lib/hooks/chat/index.ts::useOlderMessages",
   "exports::lib/hooks/use-broadcast-sync.ts::BROADCAST_AUTH",
   "exports::lib/hooks/use-global-shortcuts.ts::getRegisteredShortcuts",
   "exports::lib/hooks/use-media-query.ts::IDE_COMPACT_BREAKPOINT",

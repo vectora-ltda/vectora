@@ -12,7 +12,12 @@ import {
   historyMessageToMessage,
 } from "@/lib/utils/chat";
 import { truncate } from "@/lib/utils/string";
-import { useStreamHandler, useFeedback, useChatState } from "@/lib/hooks/chat";
+import {
+  useStreamHandler,
+  useFeedback,
+  useChatState,
+  useOlderMessages,
+} from "@/lib/hooks/chat";
 import { useSendGuard } from "@/lib/hooks/chat/use-send-guard";
 import { useUserId } from "@/lib/hooks/auth";
 import { useFileUpload, useVoiceInput } from "@/lib/hooks/files";
@@ -22,11 +27,12 @@ import { ChatInput } from "./chat-input";
 import type { AgentConfig } from "@/components/layout/agent-settings";
 import {
   generateTitle,
-  getHistory,
+  getLatestHistory,
   getThread,
   markThreadRead,
   cancelRun,
   type HistoryMessage,
+  type PagedHistoryResponse,
 } from "@/lib/api/vectora-client";
 import { queryClient } from "@/src/router";
 import { updateThreadsCache } from "@/lib/queries/threads";
@@ -229,6 +235,44 @@ export function ChatInterface({
       });
   }, [isNewThread, messages, readRetry, threadId]);
   const [branchHistoryError, setBranchHistoryError] = useState(false);
+  // Paginação do histórico: a conversa abre pela página mais recente e as
+  // anteriores vêm ao rolar até o topo, pelo cursor da mensagem mais antiga.
+  const [historyPage, setHistoryPage] = useState<{
+    hasMore: boolean;
+    cursor: number | null;
+  }>({ hasMore: false, cursor: null });
+  // Muda quando a conversa é recarregada (rewind, branch): as anteriores já
+  // acumuladas deixam de valer.
+  const [historyEpoch, setHistoryEpoch] = useState(0);
+  const olderSentinelRef = useRef<HTMLDivElement | null>(null);
+  const older = useOlderMessages(
+    threadId,
+    olderSentinelRef,
+    messages.length,
+    historyPage.hasMore,
+    historyPage.cursor,
+    historyEpoch,
+  );
+  // Mensagens anteriores já carregadas, antes das atuais. Uma mensagem que já
+  // está na janela atual (mesmo id persistido) não entra de novo.
+  const displayMessages = useMemo(() => {
+    if (older.olderMessages.length === 0) return messages;
+    const present = new Set(
+      messages
+        .map((message) => message.persistedMessageId)
+        .filter((id): id is number => id !== undefined),
+    );
+    const earlier: Message[] = [];
+    older.olderMessages.forEach((hist, idx) => {
+      if (hist.message_id !== undefined && present.has(hist.message_id)) return;
+      const converted = historyMessageToMessage(
+        hist,
+        `history-${threadId}-m${hist.message_id ?? `o${idx}`}`,
+      );
+      if (converted.content.trim().length > 0) earlier.push(converted);
+    });
+    return [...earlier, ...messages];
+  }, [older.olderMessages, messages, threadId]);
 
   // Barra de uso de contexto: estima tokens e deriva pct de uso.
   // Aviso (toast) em 80% e bloqueio de send em 95%.
@@ -664,14 +708,14 @@ export function ChatInterface({
         // do backend logo após reiniciar) não é autoritativo: o backend é a
         // fonte de verdade no reload, então refazemos o fetch.
         // Sem isso, reabrir a sessão após reiniciar mostrava o chat vazio.
-        const prefetched = queryClient.getQueryData<{
-          messages: HistoryMessage[];
-          todos?: WorkbenchTodoItem[];
-        }>(["thread-history", currentThreadId]);
-        const { messages: historyMessages, todos: historyTodos } =
+        const prefetched = queryClient.getQueryData<PagedHistoryResponse>([
+          "thread-history",
+          currentThreadId,
+        ]);
+        const page: PagedHistoryResponse =
           prefetched && prefetched.messages.length > 0
             ? prefetched
-            : await getHistory(currentThreadId).catch((err) => {
+            : await getLatestHistory(currentThreadId).catch((err) => {
                 const errMsg = err instanceof Error ? err.message : String(err);
                 if (errMsg.includes("404")) {
                   console.log("Thread not found (404)");
@@ -682,8 +726,22 @@ export function ChatInterface({
                 return {
                   messages: [] as HistoryMessage[],
                   todos: [] as WorkbenchTodoItem[],
+                  has_more: false,
+                  total_count: 0,
                 };
               });
+        // A resposta em andamento (`partial`) chega pelo stream retomado; não
+        // vira mensagem do histórico.
+        const historyMessages = page.messages.filter(
+          (hist) => hist.checkpoint_id !== "partial",
+        );
+        const historyTodos = page.todos;
+        if (currentThreadId === threadId) {
+          setHistoryPage({
+            hasMore: page.has_more,
+            cursor: page.next_cursor ?? null,
+          });
+        }
 
         // Repopula a checklist ao vivo do Plan tab (write_todos) — o SSE já
         // entrega isso em tempo real, mas não sobrevive a um reload de
@@ -762,13 +820,18 @@ export function ChatInterface({
     const onThreadRewound = (event: Event) => {
       const detail = (event as CustomEvent<{ threadId?: string }>).detail;
       if (!detail || detail.threadId !== threadId) return;
-      getHistory(threadId)
-        .then(({ messages: historyMessages }) => {
-          const convertedMessages: Message[] = historyMessages
+      getLatestHistory(threadId)
+        .then((page) => {
+          const convertedMessages: Message[] = page.messages
             .map((hist, idx) =>
               historyMessageToMessage(hist, `history-${threadId}-${idx}`),
             )
             .filter((message) => message.content.trim().length > 0);
+          setHistoryPage({
+            hasMore: page.has_more,
+            cursor: page.next_cursor ?? null,
+          });
+          setHistoryEpoch((epoch) => epoch + 1);
           setMessages(convertedMessages);
         })
         .catch((err: unknown) => {
@@ -781,11 +844,16 @@ export function ChatInterface({
       void queryClient.invalidateQueries({
         queryKey: ["thread-history", threadId],
       });
-      getHistory(threadId)
-        .then(({ messages: historyMessages }) => {
+      getLatestHistory(threadId)
+        .then((page) => {
           setBranchHistoryError(false);
+          setHistoryPage({
+            hasMore: page.has_more,
+            cursor: page.next_cursor ?? null,
+          });
+          setHistoryEpoch((epoch) => epoch + 1);
           setMessages(
-            historyMessages
+            page.messages
               .map((hist, idx) =>
                 historyMessageToMessage(hist, `history-${threadId}-${idx}`),
               )
@@ -1594,7 +1662,12 @@ export function ChatInterface({
           />
         ) : (
           <MessageList
-            messages={messages}
+            messages={displayMessages}
+            hasOlderMessages={older.hasMore}
+            isLoadingOlder={older.isLoadingOlder}
+            loadOlderFailed={older.loadFailed}
+            onLoadOlder={() => void older.loadOlder()}
+            olderSentinelRef={olderSentinelRef}
             showToolCalls={showToolCalls}
             isRegenerating={uiState.isRegenerating}
             isLoadingThread={uiState.isLoadingThread}

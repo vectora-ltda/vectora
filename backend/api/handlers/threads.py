@@ -2369,10 +2369,25 @@ async def get_thread_history_paginated(
                 exc_info=True,
             )
 
+    todos: list[TodoItem] = []
+    if offset == 0 and before_message_id is None:
+        try:
+            raw_todos = await agent_factory.aget_thread_todos(
+                thread_id, workspace_id=thread.workspace_id or None
+            )
+            todos = [TodoItem.model_validate(todo) for todo in raw_todos]
+        except Exception:
+            # As tarefas acompanham a página mais recente, mas não valem a
+            # conversa: sem elas o histórico ainda abre.
+            logger.warning(
+                "threads/history: tarefas de %s indisponíveis", thread_id, exc_info=True
+            )
+
     return PagedHistoryResponse(
         messages=messages,
         has_more=has_more,
         total_count=total,
+        todos=todos,
         next_cursor=page[0].message_id if has_more and page else None,
         run_status=summary.status if summary else "idle",
         last_seq=safe_last_seq,

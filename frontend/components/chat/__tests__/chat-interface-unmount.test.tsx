@@ -35,6 +35,13 @@ vi.mock("@/lib/hooks/auth", () => ({
 }));
 
 vi.mock("@/lib/hooks/chat", () => ({
+  useOlderMessages: () => ({
+    hasMore: false,
+    isLoadingOlder: false,
+    olderMessages: [],
+    loadFailed: false,
+    loadOlder: async () => {},
+  }),
   useStreamHandler: () => ({
     sendMessage: vi.fn(),
     abort: vi.fn(),
@@ -134,7 +141,9 @@ vi.mock("@/lib/stores/streaming-store", () => ({
 }));
 
 vi.mock("@/lib/stores/workbench-store", () => ({
-  useWorkbenchStore: () => ({}),
+  useWorkbenchStore: Object.assign(() => ({}), {
+    getState: () => ({ setTodos: vi.fn() }),
+  }),
 }));
 
 vi.mock("@/lib/stores/settings-store", () => ({

@@ -250,3 +250,62 @@ describe("useOlderMessages — cursor por message_id", () => {
     expect(mockGetHistoryPage).toHaveBeenLastCalledWith("t2", 50, 5, undefined);
   });
 });
+
+describe("useOlderMessages — cursor inicial e nova tentativa", () => {
+  const sentinelRef = { current: {} as Element };
+
+  it("a primeira página anterior já usa o cursor da página inicial", async () => {
+    mockGetHistoryPage.mockResolvedValueOnce({
+      messages: [{ role: "human", content: "a" }],
+      has_more: false,
+      total_count: 100,
+      next_cursor: null,
+    });
+    renderHook(() => useOlderMessages("t1", sentinelRef, 100, true, 901));
+
+    await intersect();
+
+    expect(mockGetHistoryPage).toHaveBeenCalledWith("t1", 50, 100, 901);
+  });
+
+  it("falha marca loadFailed e a chamada manual tenta de novo", async () => {
+    mockGetHistoryPage
+      .mockRejectedValueOnce(new Error("rede"))
+      .mockResolvedValueOnce({
+        messages: [{ role: "human", content: "a" }],
+        has_more: false,
+        total_count: 3,
+        next_cursor: null,
+      });
+    const { result } = renderHook(() =>
+      useOlderMessages("t1", sentinelRef, 2, true),
+    );
+
+    await intersect();
+    expect(result.current.loadFailed).toBe(true);
+    expect(result.current.olderMessages).toEqual([]);
+
+    await act(async () => {
+      await result.current.loadOlder();
+    });
+
+    expect(result.current.loadFailed).toBe(false);
+    expect(result.current.olderMessages.map((m) => m.content)).toEqual(["a"]);
+    expect(mockGetHistoryPage).toHaveBeenCalledTimes(2);
+  });
+
+  it("depois de falhar o observador não dispara em laço", async () => {
+    mockGetHistoryPage.mockRejectedValue(new Error("rede"));
+    renderHook(() => useOlderMessages("t1", sentinelRef, 2, true));
+
+    await intersect();
+    await act(async () => {});
+
+    // O observador do topo é desligado e não é recriado: só o botão tenta de novo.
+    const observers = MockIntersectionObserver.instances;
+    expect(
+      observers.every((observer) => observer.disconnect.mock.calls.length > 0),
+    ).toBe(true);
+    expect(mockGetHistoryPage).toHaveBeenCalledTimes(1);
+  });
+});

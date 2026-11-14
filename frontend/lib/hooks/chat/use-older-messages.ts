@@ -20,42 +20,66 @@ export interface UseOlderMessagesResult {
   hasMore: boolean;
   isLoadingOlder: boolean;
   olderMessages: HistoryMessage[];
+  /** A última tentativa de carregar a página anterior falhou. */
+  loadFailed: boolean;
+  /** Pede a página anterior (o observador do topo faz o mesmo ao rolar). */
+  loadOlder: () => Promise<void>;
 }
 
 /**
  * @param threadId  ID da thread
  * @param sentinelRef  ref para o elemento sentinel no topo da lista
  * @param currentCount  número de mensagens atualmente carregadas (para calcular offset)
- * @param initialHasMore  se há mensagens mais antigas (do GetHistory inicial)
+ * @param initialHasMore  se há mensagens mais antigas (da página inicial)
+ * @param initialCursor  `next_cursor` da página inicial: a mensagem mais antiga
+ *   já carregada; com ele a primeira página anterior já pagina por identidade
+ * @param resetKey  muda quando a conversa foi recarregada (rewind, branch):
+ *   descarta as mensagens anteriores já acumuladas
  */
 export function useOlderMessages(
   threadId: string,
   sentinelRef: React.RefObject<Element | null>,
   currentCount: number,
   initialHasMore = false,
+  initialCursor: number | null = null,
+  resetKey = 0,
 ): UseOlderMessagesResult {
   const [hasMore, setHasMore] = useState(initialHasMore);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [olderMessages, setOlderMessages] = useState<HistoryMessage[]>([]);
   const isLoadingRef = useRef(false);
   // Cursor da próxima página (a mensagem mais antiga já carregada); só vale
   // para a thread em que foi recebido. Sem ele, a página usa o offset.
-  const cursorRef = useRef<{ threadId: string; id: number } | null>(null);
+  const [cursor, setCursor] = useState<{ threadId: string; id: number } | null>(
+    initialCursor == null ? null : { threadId, id: initialCursor },
+  );
 
   // Ajusta o estado de paginação a partir das props durante o render (não
   // num efeito): ao trocar de thread, zera olderMessages e adota o hasMore
   // inicial da nova thread; ao só mudar initialHasMore (ex.: após o
   // GetHistory inicial resolver) sincroniza hasMore sem mexer no restante.
   const [prevThreadId, setPrevThreadId] = useState(threadId);
+  const [prevResetKey, setPrevResetKey] = useState(resetKey);
   const [prevInitialHasMore, setPrevInitialHasMore] = useState(initialHasMore);
-  if (threadId !== prevThreadId) {
+  const [prevInitialCursor, setPrevInitialCursor] = useState(initialCursor);
+  if (threadId !== prevThreadId || resetKey !== prevResetKey) {
     setPrevThreadId(threadId);
+    setPrevResetKey(resetKey);
     setPrevInitialHasMore(initialHasMore);
+    setPrevInitialCursor(initialCursor);
     setHasMore(initialHasMore);
     setOlderMessages([]);
-  } else if (initialHasMore !== prevInitialHasMore) {
-    setPrevInitialHasMore(initialHasMore);
-    setHasMore(initialHasMore);
+    setCursor(initialCursor == null ? null : { threadId, id: initialCursor });
+  } else {
+    if (initialHasMore !== prevInitialHasMore) {
+      setPrevInitialHasMore(initialHasMore);
+      setHasMore(initialHasMore);
+    }
+    if (initialCursor !== prevInitialCursor) {
+      setPrevInitialCursor(initialCursor);
+      setCursor(initialCursor == null ? null : { threadId, id: initialCursor });
+    }
   }
 
   const loadOlder = useCallback(async () => {
@@ -63,13 +87,13 @@ export function useOlderMessages(
 
     isLoadingRef.current = true;
     setIsLoadingOlder(true);
+    setLoadFailed(false);
 
     try {
       // olderMessages.length já é quantas mensagens antigas foram
       // acumuladas até aqui — soma direto ao offset, sem contador à parte.
       const offset = olderMessages.length + currentCount;
-      const saved = cursorRef.current;
-      const before = saved?.threadId === threadId ? saved.id : undefined;
+      const before = cursor?.threadId === threadId ? cursor.id : undefined;
       let page: PagedHistoryResponse;
       try {
         page = await getHistoryPage(threadId, PAGE_SIZE, offset, before);
@@ -78,21 +102,23 @@ export function useOlderMessages(
         // A mensagem do cursor foi removida: refaz a página por posição.
         page = await getHistoryPage(threadId, PAGE_SIZE, offset);
       }
-      cursorRef.current =
-        page.next_cursor == null ? null : { threadId, id: page.next_cursor };
+      setCursor(
+        page.next_cursor == null ? null : { threadId, id: page.next_cursor },
+      );
       setHasMore(page.has_more);
       setOlderMessages((prev) => [...page.messages, ...prev]);
     } catch {
-      // falha silenciosa — usuário pode rolar de novo para tentar
+      // O botão "Carregar anteriores" reaparece para tentar de novo.
+      setLoadFailed(true);
     } finally {
       isLoadingRef.current = false;
       setIsLoadingOlder(false);
     }
-  }, [threadId, hasMore, currentCount, olderMessages.length]);
+  }, [threadId, hasMore, currentCount, olderMessages.length, cursor]);
 
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !hasMore) return;
+    if (!el || !hasMore || loadFailed) return;
 
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -105,7 +131,7 @@ export function useOlderMessages(
 
     observer.observe(el);
     return () => observer.disconnect();
-  }, [sentinelRef, hasMore, loadOlder]);
+  }, [sentinelRef, hasMore, loadFailed, loadOlder]);
 
-  return { hasMore, isLoadingOlder, olderMessages };
+  return { hasMore, isLoadingOlder, olderMessages, loadFailed, loadOlder };
 }
