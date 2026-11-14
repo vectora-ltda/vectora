@@ -31,6 +31,7 @@ import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { Switch } from "@/components/ui/switch";
 import { WorkbenchDialog } from "@/components/workbench/workbench-dialog";
 import { m } from "@/lib/paraglide/messages";
+import { notificationKey, notifyOnce } from "@/lib/notifications/notify-once";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import { useToastStore } from "@/lib/stores/toast-store";
 
@@ -204,15 +205,32 @@ export function TasksTab({ threadId }: { threadId: string }) {
 
   // Revalida ao receber um evento de run em segundo plano via SSE.
   const onWebhook = useCallback(
-    (evt: { provider: string }) => {
-      if (evt.provider === "background") {
-        void refetch();
-        if (taskNotifications) {
-          useToastStore.getState().info(m.background_tasks_title());
-        }
+    (evt: {
+      provider: string;
+      event_type?: string;
+      data?: Record<string, unknown>;
+    }) => {
+      if (evt.provider !== "background") return;
+      void refetch();
+      if (!taskNotifications) return;
+      const showToast = () => {
+        useToastStore.getState().info(m.background_tasks_title());
+        return true;
+      };
+      // Reconexão do canal de eventos pode reentregar o mesmo evento: a chave
+      // liga o aviso à thread, à run e ao estado, e cada um aparece uma vez.
+      // Sem `run_id` não há como identificar a repetição, então avisa.
+      const runId = typeof evt.data?.run_id === "string" ? evt.data.run_id : "";
+      if (!runId) {
+        showToast();
+        return;
       }
+      notifyOnce(
+        notificationKey(threadId, runId, evt.event_type ?? "background"),
+        showToast,
+      );
     },
-    [refetch, taskNotifications],
+    [refetch, taskNotifications, threadId],
   );
   useWebhookEvents(onWebhook);
 
