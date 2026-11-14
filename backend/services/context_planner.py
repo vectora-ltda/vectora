@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
@@ -18,6 +19,7 @@ from backend.services.context_compaction import (
     _conversation_units,
     _marker,
     _message_tokens,
+    compact_messages,
     count_previews_for,
 )
 from backend.services.context_manifest import (
@@ -651,6 +653,8 @@ class ContextPlanner:
 
 _DEFAULT_PLANNER = ContextPlanner()
 
+logger = logging.getLogger(__name__)
+
 
 def plan_context(
     messages: list[VMessage],
@@ -679,3 +683,59 @@ def plan_context(
             policy_snapshot=policy_snapshot,
             persistent_memory_records=persistent_memory_records,
         )
+
+
+def plan_context_with_fallback(
+    messages: list[VMessage],
+    *,
+    max_tokens: int,
+    enabled: bool = True,
+    preserve_latest_tool_result: bool = False,
+    workspace_id: str | None = None,
+    policy_snapshot: PolicySnapshot | None = None,
+    persistent_memory_records: Sequence[MemoryRecord] | None = None,
+    model: str | None = None,
+) -> PlannedContext:
+    """``plan_context`` que nunca derruba o turno.
+
+    O planejador consulta memória, RAG e grafo; se qualquer um deles falhar, a
+    conversa não pode parar por isso. Nesse caso o turno segue com a compactação
+    determinística (``compact_messages``): instruções do sistema e trabalho mais
+    recente dentro do orçamento, sem memória enriquecida. O manifesto registra
+    que foi o caminho de reserva.
+    """
+    try:
+        return plan_context(
+            messages,
+            max_tokens=max_tokens,
+            enabled=enabled,
+            preserve_latest_tool_result=preserve_latest_tool_result,
+            workspace_id=workspace_id,
+            policy_snapshot=policy_snapshot,
+            persistent_memory_records=persistent_memory_records,
+            model=model,
+        )
+    except Exception:
+        logger.exception(
+            "context_planner: falha no planejamento; compactação determinística de reserva"
+        )
+    with count_previews_for(messages, model):
+        kept = compact_messages(
+            messages,
+            max_tokens=max_tokens,
+            enabled=enabled,
+            preserve_latest_tool_result=preserve_latest_tool_result,
+        )
+        tokens = sum(_message_tokens(message) for message in kept)
+    manifest = ContextManifest(
+        blocks=[
+            ContextBlock(
+                domain="short_term",
+                title="Transcript com compactação de reserva",
+                token_count=tokens,
+                reason="Planejador de contexto indisponível; compactação determinística",
+            )
+        ],
+        total_tokens=tokens,
+    )
+    return PlannedContext(messages=kept, manifest=manifest)

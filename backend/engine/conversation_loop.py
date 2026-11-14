@@ -995,9 +995,9 @@ async def run_conversation(  # noqa: PLR0911
             if config.context_max_tokens is not None
             else _default_context_tokens()
         )
-        from backend.services.context_planner import plan_context
+        from backend.services.context_planner import plan_context_with_fallback
 
-        planned_context = plan_context(
+        planned_context = plan_context_with_fallback(
             raw_history,
             max_tokens=effective_max_tokens,
             enabled=config.context_compaction_enabled,

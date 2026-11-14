@@ -234,6 +234,8 @@ export interface SettingsState {
   gitSignoffEnabled: boolean;
   /** Permite solicitar bypass de proteções Git no Workbench. */
   gitBypassEnabled: boolean;
+  /** Compacta o histórico quando a conversa passa do limite de contexto do modelo. */
+  contextCompactionEnabled: boolean;
   /** Expande automaticamente itens de planos recém-abertos. */
   planAutoExpand: boolean;
   /** Ordem usada para listar itens do plano. */
@@ -260,6 +262,7 @@ export interface SettingsState {
   setCustomSystemPrompt: (v: string) => void;
   setTrainingInstructions: (v: string[]) => void;
   setLanguage: (v: Lang) => void;
+  setContextCompactionEnabled: (v: boolean) => void;
   setPermissionMode: (v: PermissionMode) => void;
   setReasoningEffort: (v: ReasoningEffort) => void;
   setDecisionModelsEnabled: (v: boolean) => void;
@@ -488,6 +491,7 @@ const DEFAULTS = {
   gitHooksEnabled: false,
   gitSignoffEnabled: false,
   gitBypassEnabled: false,
+  contextCompactionEnabled: true,
   planAutoExpand: true,
   planSort: "created" as "created" | "title",
   taskNotifications: true,
@@ -728,6 +732,7 @@ export const useSettingsStore = create<SettingsState>()(
       setGitHooksEnabled: (v) => set({ gitHooksEnabled: v }),
       setGitSignoffEnabled: (v) => set({ gitSignoffEnabled: v }),
       setGitBypassEnabled: (v) => set({ gitBypassEnabled: v }),
+      setContextCompactionEnabled: (v) => set({ contextCompactionEnabled: v }),
       setPlanAutoExpand: (v) => set({ planAutoExpand: v }),
       setPlanSort: (v) => set({ planSort: v }),
       setTaskNotifications: (v) => set({ taskNotifications: v }),
@@ -827,6 +832,7 @@ export const useSettingsStore = create<SettingsState>()(
         gitHooksEnabled: state.gitHooksEnabled,
         gitSignoffEnabled: state.gitSignoffEnabled,
         gitBypassEnabled: state.gitBypassEnabled,
+        contextCompactionEnabled: state.contextCompactionEnabled,
         planAutoExpand: state.planAutoExpand,
         planSort: state.planSort,
         taskNotifications: state.taskNotifications,

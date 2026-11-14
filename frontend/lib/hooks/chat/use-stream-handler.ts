@@ -433,6 +433,7 @@ export function useStreamHandler({
       }
       config.permission_mode = settings.permissionMode;
       config.reasoning_effort = settings.reasoningEffort;
+      config.context_compaction_enabled = settings.contextCompactionEnabled;
       // Editar mensagem / regenerar resposta: resume a partir do checkpoint
       // pai da mensagem alvo em vez do mais recente, fazendo o histórico
       // ramificar dali (histórico original preservado).
