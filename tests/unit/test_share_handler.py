@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -243,20 +244,35 @@ class TestShareDelete:
         await db.close()
 
     @pytest.mark.asyncio
-    async def test_rejeita_nao_autorizado_e_sem_autenticacao(self, monkeypatch):
+    async def test_rejeita_usuario_que_nao_criou_o_link(self, monkeypatch):
         db = await self._database()
         monkeypatch.setattr(share_handler, "_get_db", lambda: _resolved(db))
         monkeypatch.setattr(share_handler, "_ensure_share_table", _noop)
-
-        with pytest.raises(share_handler.HTTPException) as unauthenticated:
-            await share_handler.delete_share("share-token", self._request())
-        assert unauthenticated.value.status_code == 401
 
         with pytest.raises(share_handler.HTTPException) as forbidden:
             await share_handler.delete_share(
                 "share-token", self._request(SimpleNamespace(id="other", role="member"))
             )
         assert forbidden.value.status_code == 403
+
+        with pytest.raises(share_handler.HTTPException) as anonymous:
+            await share_handler.delete_share("share-token", self._request())
+        assert anonymous.value.status_code == 403
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_sem_usuario_revoga_o_link_criado_como_local(self, monkeypatch):
+        """No modo local sem login, o link criado como `local` precisa poder ser revogado."""
+        db = await self._database()
+        await db.execute("UPDATE shared_threads SET created_by = 'local'")
+        await db.commit()
+        monkeypatch.setattr(share_handler, "_get_db", lambda: _resolved(db))
+        monkeypatch.setattr(share_handler, "_ensure_share_table", _noop)
+        monkeypatch.setattr(share_handler, "_write_share_audit", _noop)
+
+        assert await share_handler.delete_share("share-token", self._request()) == {}
+        async with db.execute("SELECT 1 FROM shared_threads") as cursor:
+            assert await cursor.fetchone() is None
         await db.close()
 
     @pytest.mark.asyncio
@@ -290,3 +306,168 @@ async def _noop(*_args, **_kwargs):
 
 async def _audit_failure(*_args, **_kwargs):
     raise RuntimeError("audit indisponível")
+
+
+class TestShareList:
+    """GET /threads/{id}/shares: os links ainda válidos de uma conversa."""
+
+    @staticmethod
+    async def _database() -> Any:
+        import aiosqlite
+
+        db = await aiosqlite.connect(":memory:")
+        await db.execute(
+            "CREATE TABLE shared_threads (token TEXT PRIMARY KEY, thread_id TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, permission TEXT NOT NULL DEFAULT 'read')"
+        )
+        rows = [
+            (
+                "velho",
+                "thread-1",
+                "owner",
+                "2030-01-01T00:00:00+00:00",
+                "2031-01-01T00:00:00+00:00",
+            ),
+            (
+                "novo",
+                "thread-1",
+                "owner",
+                "2030-02-01T00:00:00+00:00",
+                "2031-02-01T00:00:00+00:00",
+            ),
+            (
+                "vencido",
+                "thread-1",
+                "owner",
+                "2020-01-01T00:00:00+00:00",
+                "2020-01-02T00:00:00+00:00",
+            ),
+            (
+                "outra",
+                "thread-2",
+                "owner",
+                "2030-03-01T00:00:00+00:00",
+                "2031-03-01T00:00:00+00:00",
+            ),
+        ]
+        for token, thread_id, created_by, created_at, expires_at in rows:
+            await db.execute(
+                "INSERT INTO shared_threads VALUES (?, ?, ?, ?, ?, 'read')",
+                (token, thread_id, created_by, created_at, expires_at),
+            )
+        await db.commit()
+        return db
+
+    @staticmethod
+    def _request(user: object | None) -> Request:
+        request = Request(
+            {
+                "type": "http",
+                "method": "GET",
+                "path": "/threads/thread-1/shares",
+                "headers": [],
+                "scheme": "http",
+                "server": ("test", 80),
+                "client": ("test", 1),
+                "root_path": "",
+                "query_string": b"",
+            }
+        )
+        if user is not None:
+            request.state.user = user
+        return request
+
+    @staticmethod
+    def _wire(monkeypatch, db, owner: str | None = "owner") -> None:
+        class FakeStore:
+            async def get_session(self, _thread_id):
+                return None if owner is None else {"user_id": owner}
+
+        monkeypatch.setattr(share_handler, "_get_db", lambda: _resolved(db))
+        monkeypatch.setattr(share_handler, "_ensure_share_table", _noop)
+        monkeypatch.setattr(
+            "backend.services.agent_factory.get_session_store",
+            lambda: _resolved(FakeStore()),
+        )
+
+    @pytest.mark.asyncio
+    async def test_lista_so_os_links_validos_da_conversa_do_mais_novo_ao_mais_antigo(
+        self, monkeypatch
+    ):
+        db = await self._database()
+        self._wire(monkeypatch, db)
+
+        result = await share_handler.list_thread_shares(
+            "thread-1", self._request(SimpleNamespace(id="owner", role="member"))
+        )
+
+        assert [item.token for item in result.shares] == ["novo", "velho"]
+        assert result.shares[0].url == "http://test/share/novo"
+        assert result.shares[0].expires_at == "2031-02-01T00:00:00+00:00"
+        assert result.shares[0].permission == "read"
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_conversa_sem_links_devolve_lista_vazia(self, monkeypatch):
+        db = await self._database()
+        await db.execute("DELETE FROM shared_threads WHERE thread_id = 'thread-1'")
+        await db.commit()
+        self._wire(monkeypatch, db)
+
+        result = await share_handler.list_thread_shares(
+            "thread-1", self._request(SimpleNamespace(id="owner", role="member"))
+        )
+
+        assert result.shares == []
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_admin_lista_links_de_conversa_alheia(self, monkeypatch):
+        db = await self._database()
+        self._wire(monkeypatch, db)
+
+        result = await share_handler.list_thread_shares(
+            "thread-1", self._request(SimpleNamespace(id="admin", role="admin"))
+        )
+
+        assert len(result.shares) == 2
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_outro_usuario_nao_lista_os_links_da_conversa(self, monkeypatch):
+        db = await self._database()
+        self._wire(monkeypatch, db)
+
+        with pytest.raises(share_handler.HTTPException) as forbidden:
+            await share_handler.list_thread_shares(
+                "thread-1", self._request(SimpleNamespace(id="intruso", role="member"))
+            )
+
+        assert forbidden.value.status_code == 403
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_conversa_inexistente_responde_404(self, monkeypatch):
+        db = await self._database()
+        self._wire(monkeypatch, db, owner=None)
+
+        with pytest.raises(share_handler.HTTPException) as missing:
+            await share_handler.list_thread_shares(
+                "thread-x", self._request(SimpleNamespace(id="owner", role="member"))
+            )
+
+        assert missing.value.status_code == 404
+        await db.close()
+
+    @pytest.mark.asyncio
+    async def test_sem_usuario_lista_so_conversa_do_usuario_local(self, monkeypatch):
+        db = await self._database()
+        self._wire(monkeypatch, db, owner="local")
+
+        result = await share_handler.list_thread_shares("thread-1", self._request(None))
+        assert len(result.shares) == 2
+
+        self._wire(monkeypatch, db, owner="owner")
+        with pytest.raises(share_handler.HTTPException) as forbidden:
+            await share_handler.list_thread_shares("thread-1", self._request(None))
+        assert forbidden.value.status_code == 403
+        await db.close()
