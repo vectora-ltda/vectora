@@ -145,9 +145,11 @@ async def terminal_ws(ws: WebSocket) -> None:
         try:
             from pathlib import Path
 
+            from backend.sandbox.egress_proxy import egress_dir_for
             from backend.sandbox.policy import resolve_policy
 
             policy = resolve_policy(Path(workspace.cwd))
+            egress_dir = await egress_dir_for(workspace_id, policy)
             session = PtySession.create(
                 terminal_id=terminal_id,
                 workspace_id=workspace_id,
@@ -155,6 +157,7 @@ async def terminal_ws(ws: WebSocket) -> None:
                 user_id=str(getattr(user, "id", "local")),
                 cwd=workspace.cwd,
                 policy=policy,
+                egress_dir=egress_dir,
             )
             pty_registry.add(session)
         except Exception as exc:

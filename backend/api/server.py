@@ -577,6 +577,13 @@ async def _lifespan(app: FastAPI):  # type: ignore[return]  # noqa: ANN202
         if wsl2_warmup_task is not None:
             wsl2_warmup_task.cancel()
         try:
+            # Os sockets do proxy de saída do jail ficam em /tmp: removê-los.
+            from backend.sandbox.egress_proxy import egress_registry
+
+            await egress_registry.close_all()
+        except Exception:
+            logger.debug("api/server: erro ao encerrar o proxy de saída do jail")
+        try:
             from backend.embedding.cache_sync import stop_cache_sync
 
             await stop_cache_sync()

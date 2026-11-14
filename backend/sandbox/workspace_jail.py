@@ -18,13 +18,18 @@ import logging
 import os
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import PureWindowsPath
 from typing import Any
 
 from backend.sandbox.dry_run import build_bwrap_command, python_runtime_paths
+from backend.sandbox.egress_proxy import egress_registry
 from backend.sandbox.linux import build_seccomp_filter
-from backend.sandbox.policy import SandboxPolicy, detect_wsl2
+from backend.sandbox.policy import (
+    SandboxPolicy,
+    detect_wsl2,
+    effective_network,
+)
 from backend.sandbox.windows import (
     assign_job_object_kill_on_close,
     build_soft_env,
@@ -229,11 +234,16 @@ class WorkspaceJailManager:
                 cwd = workspace_dir
                 soft_env = build_soft_env(self._soft_worker_env(policy))
         else:
+            egress_dir: str | None = None
+            if effective_network(policy) == "filtered":
+                proxy = await egress_registry.ensure(workspace_id, policy)
+                egress_dir = proxy.directory
             argv = build_bwrap_command(
                 policy,
                 workspace_dir,
                 [sys.executable, "-m", "backend.sandbox.worker"],
                 runtime_ro_paths=python_runtime_paths(),
+                egress_dir=egress_dir,
             )
 
         # seccomp (libseccomp) só faz sentido no caminho bwrap (Linux/WSL2);
@@ -346,6 +356,14 @@ class WorkspaceJailManager:
                 "bubblewrap` (ou o gerenciador de pacotes da sua distro) e tente de novo."
             )
         wsl_workspace_dir = _windows_path_to_wsl(workspace_dir)
+        if effective_network(policy) == "filtered":
+            # O proxy de saída escuta num socket do host Windows, que a distro
+            # não alcança: o filtro de rede não existe por aqui. Declarar rede
+            # aberta é mais honesto do que um jail sem rede nenhuma.
+            logger.warning(
+                "sandbox: filtro de rede indisponível no WSL2 — rede aberta nesta distro"
+            )
+            policy = replace(policy, network="open")
         bwrap_argv = build_bwrap_command(
             policy, wsl_workspace_dir, ["python3", "-m", "backend.sandbox.worker"]
         )

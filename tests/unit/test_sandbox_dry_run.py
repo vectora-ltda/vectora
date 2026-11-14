@@ -127,7 +127,7 @@ def test_lockdown_adds_unshare_net():
         SandboxPolicy(enabled=True, lockdown=True), "/ws", ["true"]
     )
     unlocked = build_bwrap_command(
-        SandboxPolicy(enabled=True, lockdown=False), "/ws", ["true"]
+        SandboxPolicy(enabled=True, lockdown=False, network="open"), "/ws", ["true"]
     )
 
     assert "--unshare-net" in locked

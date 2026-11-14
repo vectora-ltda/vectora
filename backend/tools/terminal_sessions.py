@@ -40,6 +40,7 @@ async def open_terminal(
     de terminais abertos pelo agente.
     """
     try:
+        from backend.sandbox.egress_proxy import egress_dir_for
         from backend.sandbox.policy import resolve_policy
         from backend.workspace.workspace import workspace_registry
 
@@ -56,6 +57,7 @@ async def open_terminal(
             )
         terminal_id = f"agent-{uuid.uuid4().hex[:12]}"
         policy = resolve_policy(Path(workspace.cwd))
+        egress_dir = await egress_dir_for(ctx.workspace_id, policy)
         session = PtySession.create(
             terminal_id=terminal_id,
             workspace_id=ctx.workspace_id,
@@ -65,6 +67,7 @@ async def open_terminal(
             cols=max(20, min(int(cols), 400)),
             rows=max(5, min(int(rows), 200)),
             policy=policy,
+            egress_dir=egress_dir,
         )
         pty_registry.add(session)
         logger.info(

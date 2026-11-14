@@ -120,6 +120,7 @@ class PtySession:
         rows: int = 24,
         argv: list[str] | None = None,
         policy: SandboxPolicy | None = None,
+        egress_dir: str | None = None,
     ) -> PtySession:
         if _Backend is None:
             raise RuntimeError(
@@ -154,7 +155,7 @@ class PtySession:
                 )
             from backend.sandbox.dry_run import build_bwrap_command
 
-            cmd = build_bwrap_command(policy, cwd, cmd)
+            cmd = build_bwrap_command(policy, cwd, cmd, egress_dir=egress_dir)
 
         # pywinpty aceita lista ou string; ptyprocess espera argv (lista).
         try:

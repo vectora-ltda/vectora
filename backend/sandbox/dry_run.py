@@ -14,7 +14,8 @@ import sysconfig
 from collections.abc import Sequence
 from pathlib import Path
 
-from backend.sandbox.policy import SandboxPolicy
+from backend.sandbox.egress_proxy import JAIL_PROXY_PORT, JAIL_SOCKET_DIR, SOCKET_NAME
+from backend.sandbox.policy import SandboxPolicy, effective_network
 
 # `$HOME` dedicado do worker — tmpfs vazio, nunca o `$HOME` real do host
 # (que não existe de qualquer forma dentro do mount namespace isolado, mas
@@ -240,6 +241,15 @@ def jail_environment(policy: SandboxPolicy, pythonpath: str = "") -> dict[str, s
     return env
 
 
+def proxy_environment() -> dict[str, str]:
+    """Variáveis que apontam as ferramentas ao proxy de saída (loopback do jail)."""
+    url = f"http://127.0.0.1:{JAIL_PROXY_PORT}"
+    names = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy")
+    environment = dict.fromkeys(names, url)
+    environment["NO_PROXY"] = environment["no_proxy"] = "127.0.0.1,localhost,::1"
+    return environment
+
+
 def git_protection_mounts(workspace_dir: str) -> list[str]:
     """Deixa ``.git/hooks`` e ``.git/config`` somente leitura: um hook ou um
     ``core.fsmonitor`` gravados pelo agente rodariam fora do jail, no próximo
@@ -262,6 +272,7 @@ def build_bwrap_command(
     command: list[str],
     *,
     runtime_ro_paths: Sequence[str | tuple[str, str]] = (),
+    egress_dir: str | None = None,
 ) -> list[str]:
     """Monta o argv completo de `bwrap`, na ordem: sessão e ambiente limpos →
     mounts base (proc/dev/sistema somente leitura, `/tmp` próprio) → `$HOME`
@@ -278,7 +289,14 @@ def build_bwrap_command(
     chaves de provider e tokens do backend nunca chegam ao jail. `--new-session`
     tira o jail do terminal de controle do backend. `lockdown` também nega rede
     (`--unshare-net`) e seta `VECTORA_SANDBOX_LOCKDOWN=1` (perfil restrito de
-    rlimits, ver `backend/sandbox/rlimits.py`)."""
+    rlimits, ver `backend/sandbox/rlimits.py`).
+
+    A rede segue `effective_network(policy)`: `open` herda a do host; `filtered`
+    põe o jail num namespace de rede sem rota e liga o loopback dele, por uma
+    ponte, ao socket do proxy de saída em `egress_dir` (`egress_proxy.py`); `off`,
+    o lockdown, e `filtered` sem proxy (nunca abre por omissão) ficam sem rede."""
+    network = effective_network(policy)
+    filtered = network == "filtered" and egress_dir is not None
     argv: list[str] = [
         "bwrap",
         "--unshare-pid",
@@ -298,11 +316,18 @@ def build_bwrap_command(
         WORKER_HOME,
     ]
     runtime = tuple(runtime_ro_paths)
+    if filtered and not runtime:
+        runtime = python_runtime_paths()  # a ponte é um módulo Python
     for entry in runtime:
         source, target = (entry, entry) if isinstance(entry, str) else entry
         argv += ["--ro-bind", source, target]
-    for name, value in jail_environment(policy, python_path_for(runtime)).items():
+    environment = jail_environment(policy, python_path_for(runtime))
+    if filtered:
+        environment.update(proxy_environment())
+    for name, value in environment.items():
         argv += ["--setenv", name, value]
+    if filtered and egress_dir is not None:
+        argv += ["--bind", egress_dir, JAIL_SOCKET_DIR]
     argv += ["--bind", workspace_dir, workspace_dir]
     for path in policy.rw_paths:
         argv += ["--bind", path, path]
@@ -323,7 +348,7 @@ def build_bwrap_command(
             else:
                 argv += ["--ro-bind", "/dev/null", resolved]
 
-    if policy.lockdown:
+    if network != "open":
         argv += ["--unshare-net"]
     argv += ["--setenv", "VECTORA_SANDBOX_LOCKDOWN", "1" if policy.lockdown else "0"]
     # Propaga rw_paths/ro_paths/workspace pro worker aplicar Landlock (4.1)
@@ -342,7 +367,7 @@ def build_bwrap_command(
     argv += [
         "--setenv",
         "VECTORA_SANDBOX_BASE_RW_PATHS",
-        json.dumps(list(BASE_RW_PATHS)),
+        json.dumps([*BASE_RW_PATHS, *([JAIL_SOCKET_DIR] if filtered else [])]),
     ]
     argv += [
         "--setenv",
@@ -350,5 +375,17 @@ def build_bwrap_command(
         json.dumps(list(policy.allow_tcp_ports)),
     ]
     argv += ["--chdir", workspace_dir]
+    if filtered:
+        command = [
+            sys.executable,
+            "-m",
+            "backend.sandbox.egress_bridge",
+            "--socket",
+            f"{JAIL_SOCKET_DIR}/{SOCKET_NAME}",
+            "--port",
+            str(JAIL_PROXY_PORT),
+            "--",
+            *command,
+        ]
     argv += ["--", *command]
     return argv

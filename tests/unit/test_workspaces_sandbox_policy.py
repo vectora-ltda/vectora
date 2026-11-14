@@ -166,3 +166,54 @@ async def test_put_e_get_concordam_e_a_politica_vale_na_proxima_resolucao(
 
     assert resp.lockdown is True
     assert resp.mask == ["segredo.txt"]
+
+
+@pytest.mark.asyncio
+async def test_put_grava_rede_e_destinos_e_get_devolve(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _register(monkeypatch, tmp_path)
+
+    resp = await update_workspace_sandbox_policy(
+        "ws-1",
+        SandboxPolicyBody(
+            network="filtered",
+            allow_hosts=["api.exemplo.com", "*.cdn.exemplo.com"],
+            registry_hosts=False,
+        ),
+    )
+    lida = await workspace_sandbox_policy("ws-1")
+
+    assert resp.network == lida.network == "filtered"
+    assert lida.allow_hosts == ["api.exemplo.com", "*.cdn.exemplo.com"]
+    assert lida.registry_hosts is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "host", ["sem-ponto", "http://a.com", "a.com/caminho", "*", "a..com", "-a.com"]
+)
+async def test_put_recusa_destino_invalido(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, host: str
+) -> None:
+    _register(monkeypatch, tmp_path)
+
+    with pytest.raises(HTTPException) as erro:
+        await update_workspace_sandbox_policy(
+            "ws-1", SandboxPolicyBody(allow_hosts=[host])
+        )
+
+    assert erro.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_rede_do_repositorio_que_amplia_aparece_como_ignorada(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _register(monkeypatch, tmp_path)
+    (tmp_path / "vectora.toml").write_text('[sandbox]\nnetwork = "open"\n')
+
+    resp = await workspace_sandbox_policy("ws-1")
+
+    assert resp.network == "filtered"
+    assert "network" in resp.ignored_repo_keys
