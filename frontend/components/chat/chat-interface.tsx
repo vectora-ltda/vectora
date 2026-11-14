@@ -1,6 +1,7 @@
 "use client";
 /* oxlint-disable react/memo-dependencies, react-hooks/exhaustive-deps -- callback intentionally captures the stable upload controller. */
 
+import { createSendQueue, type QueueStatus } from "@/lib/chat/send-queue";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { ClientProfile } from "@/lib/hooks";
 import type { EditedFile, Message, ImageAttachment } from "@/lib/types";
@@ -345,11 +346,20 @@ export function ChatInterface({
   } = useFileUpload({ disableImageUploads: false });
 
   // Message queue for sending while AI is responding
-  const messageQueueRef = useRef<QueuedMessage[]>([]);
+  const queueRef = useRef(createSendQueue<QueuedMessage>());
   const isProcessingQueueRef = useRef(false);
   const [queuedMessagesDisplay, setQueuedMessagesDisplay] = useState<
-    { content: string; id: string }[]
+    { content: string; id: string; status: QueueStatus }[]
   >([]);
+  const syncQueueDisplay = useCallback(() => {
+    setQueuedMessagesDisplay(
+      queueRef.current.items().map((item) => ({
+        id: item.id,
+        content: item.payload.content,
+        status: item.status,
+      })),
+    );
+  }, []);
 
   // Track the "base" input text (before voice input started + finalized
   // transcripts). Ref evita closure obsoleta no callback `onTranscript` do
@@ -785,7 +795,14 @@ export function ChatInterface({
 
   // Process a single message (used for both immediate send and queue processing)
   const processMessage = useCallback(
-    async (content: string, files: ImageAttachment[], userMessage: Message) => {
+    async (
+      content: string,
+      files: ImageAttachment[],
+      userMessage: Message,
+    ): Promise<"sent" | "failed"> => {
+      // "sent" só quando o servidor recebeu a requisição; "failed" mantém o
+      // item na fila para reenvio com o mesmo turn_id.
+      let outcome: "sent" | "failed" = "sent";
       // Capturado antes de qualquer setMessages — se essa era a 1ª mensagem
       // da thread e a conexão nunca chegar a estabelecer (ver checagem após
       // processStream), o otimista da sidebar precisa ser desfeito.
@@ -805,7 +822,10 @@ export function ChatInterface({
           content,
           assistantMessageId,
           files,
+          undefined,
+          userMessage.id,
         );
+        if (!assistantContent && !requestReachedBackend) outcome = "failed";
 
         // processStream nunca relança (absorve queda de transporte/erro de
         // app internamente) — quando a 1ª mensagem de uma thread nova não
@@ -884,6 +904,7 @@ export function ChatInterface({
           }
         }
       } catch (error) {
+        outcome = "failed";
         console.error("Error streaming chat response:", error);
         const errorMsg =
           error instanceof Error
@@ -917,6 +938,7 @@ export function ChatInterface({
         // inclusive em erro/abort.
         sendGuardRef.current.release();
       }
+      return outcome;
     },
     [
       threadId,
@@ -935,31 +957,39 @@ export function ChatInterface({
   // próprio corpo é acesso à variável durante a inicialização (TDZ).
   const processQueueRef = useRef<() => void>(() => {});
   const processQueue = useCallback(async () => {
-    if (isProcessingQueueRef.current || messageQueueRef.current.length === 0)
-      return;
+    if (isProcessingQueueRef.current) return;
+    const nextItem = queueRef.current.next();
+    if (!nextItem) return;
 
     isProcessingQueueRef.current = true;
-    const nextMessage = messageQueueRef.current.shift()!;
+    const nextMessage = nextItem.payload;
+    queueRef.current.start(nextItem.id);
+    syncQueueDisplay();
 
-    // Remove from queue display and add to chat
-    setQueuedMessagesDisplay((prev) =>
-      prev.filter((m) => m.id !== nextMessage.userMessage.id),
+    // No reenvio a mensagem já está no chat: não duplica na tela.
+    setMessages((prev) =>
+      prev.some((message) => message.id === nextMessage.userMessage.id)
+        ? prev
+        : [...prev, nextMessage.userMessage],
     );
-    setMessages((prev) => [...prev, nextMessage.userMessage]);
 
-    await processMessage(
+    const outcome = await processMessage(
       nextMessage.content,
       nextMessage.files,
       nextMessage.userMessage,
     );
 
+    if (outcome === "sent") queueRef.current.succeed(nextItem.id);
+    else queueRef.current.fail(nextItem.id);
+    syncQueueDisplay();
     isProcessingQueueRef.current = false;
 
-    // Process next in queue if any
-    if (messageQueueRef.current.length > 0) {
+    // Próximo da fila; um item que falhou bloqueia os seguintes até o
+    // usuário reenviar ou remover.
+    if (queueRef.current.next()) {
       processQueueRef.current();
     }
-  }, [processMessage, setMessages]);
+  }, [processMessage, setMessages, syncQueueDisplay]);
   useEffect(() => {
     processQueueRef.current = processQueue;
   });
@@ -971,7 +1001,7 @@ export function ChatInterface({
     // A queue may be promoted while a regeneration is active. Once the
     // active stream is idle, always drain the selected item; the focus effect
     // updates prevIsLoadingRef before this effect runs.
-    if (!isCurrentlyLoading && messageQueueRef.current.length > 0) {
+    if (!isCurrentlyLoading && queueRef.current.next()) {
       processQueueRef.current();
     }
   }, [uiState.isLoading, uiState.isRegenerating]);
@@ -1123,16 +1153,12 @@ export function ChatInterface({
 
     // If currently loading, queue the message (don't show in chat yet)
     if (uiState.isLoading || uiState.isRegenerating) {
-      const queuedItem = {
+      queueRef.current.enqueue(userMessage.id, {
         content: currentInput,
         files: currentFiles,
         userMessage,
-      };
-      messageQueueRef.current.push(queuedItem);
-      setQueuedMessagesDisplay((prev) => [
-        ...prev,
-        { content: currentInput, id: userMessage.id },
-      ]);
+      });
+      syncQueueDisplay();
       return;
     }
 
@@ -1163,7 +1189,7 @@ export function ChatInterface({
     await processMessage(currentInput, currentFiles, userMessage);
 
     // Check if anything was queued while processing
-    if (messageQueueRef.current.length > 0) {
+    if (queueRef.current.next()) {
       processQueue();
     }
   }, [
@@ -1184,6 +1210,7 @@ export function ChatInterface({
     setMessages,
     inputLocked,
     contextFull,
+    syncQueueDisplay,
   ]);
 
   const handleStop = useCallback(async () => {
@@ -1202,32 +1229,40 @@ export function ChatInterface({
 
   const handleRunQueuedNow = useCallback(
     (messageId: string) => {
-      const queuedIndex = messageQueueRef.current.findIndex(
-        (message) => message.userMessage.id === messageId,
-      );
-      if (queuedIndex < 0) return;
-
-      const [selectedMessage] = messageQueueRef.current.splice(queuedIndex, 1);
-      if (!selectedMessage) return;
-      messageQueueRef.current.unshift(selectedMessage);
-      setQueuedMessagesDisplay((current) => {
-        const selected = current.find((message) => message.id === messageId);
-        if (!selected) return current;
-        return [
-          selected,
-          ...current.filter((message) => message.id !== messageId),
-        ];
-      });
+      if (!queueRef.current.promote(messageId)) return;
+      syncQueueDisplay();
 
       // Aborta o turno atual; quando o stream terminar, o efeito da fila
-      // remove o próximo item, que agora é o selecionado.
+      // envia o próximo item, que agora é o selecionado.
       if (uiState.isLoading || uiState.isRegenerating) {
         void handleStop();
       } else {
         processQueueRef.current();
       }
     },
-    [handleStop, uiState.isLoading, uiState.isRegenerating],
+    [handleStop, syncQueueDisplay, uiState.isLoading, uiState.isRegenerating],
+  );
+
+  const handleRemoveQueued = useCallback(
+    (messageId: string) => {
+      if (queueRef.current.remove(messageId)) syncQueueDisplay();
+      // Remover um item que falhou libera os seguintes.
+      if (queueRef.current.next() && !uiState.isLoading) {
+        processQueueRef.current();
+      }
+    },
+    [syncQueueDisplay, uiState.isLoading],
+  );
+
+  const handleRetryQueued = useCallback(
+    (messageId: string) => {
+      if (!queueRef.current.retry(messageId)) return;
+      syncQueueDisplay();
+      if (!uiState.isLoading && !uiState.isRegenerating) {
+        processQueueRef.current();
+      }
+    },
+    [syncQueueDisplay, uiState.isLoading, uiState.isRegenerating],
   );
 
   const handleRegenerate = useCallback(async () => {
@@ -1543,6 +1578,8 @@ export function ChatInterface({
           voiceError={voiceError}
           queuedMessages={queuedMessagesDisplay}
           onRunQueuedNow={handleRunQueuedNow}
+          onRemoveQueued={handleRemoveQueued}
+          onRetryQueued={handleRetryQueued}
           modelId={agentConfig?.model}
           tokensUsed={contextTokens}
           agentConfig={agentConfig}

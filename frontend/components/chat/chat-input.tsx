@@ -16,7 +16,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { Play, Send, TriangleAlert } from "lucide-react";
+import { Play, RotateCcw, Send, TriangleAlert, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -135,8 +135,14 @@ interface ChatInputProps {
   voiceError?: string | null;
 
   // Queued messages
-  queuedMessages?: { content: string; id: string }[];
+  queuedMessages?: {
+    content: string;
+    id: string;
+    status?: "waiting" | "sending" | "failed";
+  }[];
   onRunQueuedNow?: (messageId: string) => void;
+  onRemoveQueued?: (messageId: string) => void;
+  onRetryQueued?: (messageId: string) => void;
 
   // Context meter
   tokensUsed?: number;
@@ -377,6 +383,8 @@ export function ChatInput({
   voiceError,
   queuedMessages = EMPTY_QUEUED_MESSAGES,
   onRunQueuedNow,
+  onRemoveQueued,
+  onRetryQueued,
   tokensUsed,
   modelId,
   agentConfig,
@@ -593,31 +601,65 @@ export function ChatInput({
                       <circle cx="12" cy="12" r="10" />
                     </svg>
                     <span className="text-xs font-medium">
-                      {m.input_queued()}
+                      {msg.status === "failed"
+                        ? m.input_queue_failed()
+                        : msg.status === "sending"
+                          ? m.input_queue_sending()
+                          : m.input_queued()}
                     </span>
                   </div>
                   <span className="text-foreground/80 truncate">
                     {msg.content}
                   </span>
-                  {onRunQueuedNow && (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="ml-auto h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-primary"
-                          aria-label={m.input_run_queued_now()}
-                          onClick={() => onRunQueuedNow(msg.id)}
-                        >
-                          <Play className="h-3.5 w-3.5" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent side="top">
-                        {m.input_run_queued_now()}
-                      </TooltipContent>
-                    </Tooltip>
-                  )}
+                  <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                    {msg.status === "failed" && onRetryQueued && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-primary"
+                        aria-label={m.input_queue_retry()}
+                        title={m.input_queue_retry()}
+                        onClick={() => onRetryQueued(msg.id)}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    {msg.status !== "failed" &&
+                      msg.status !== "sending" &&
+                      onRunQueuedNow && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-primary"
+                              aria-label={m.input_run_queued_now()}
+                              onClick={() => onRunQueuedNow(msg.id)}
+                            >
+                              <Play className="h-3.5 w-3.5" />
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            {m.input_run_queued_now()}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    {msg.status !== "sending" && onRemoveQueued && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+                        aria-label={m.input_queue_remove()}
+                        title={m.input_queue_remove()}
+                        onClick={() => onRemoveQueued(msg.id)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

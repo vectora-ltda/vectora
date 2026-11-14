@@ -225,6 +225,56 @@ describe("ChatInput", () => {
     expect(onRunQueuedNow).toHaveBeenCalledWith("q1");
   });
 
+  it("item que falhou mostra o estado, permite tentar de novo e remover", () => {
+    const onRetryQueued = vi.fn();
+    const onRemoveQueued = vi.fn();
+    const onRunQueuedNow = vi.fn();
+    render(
+      <ChatInput
+        {...baseProps({
+          queuedMessages: [
+            { id: "q1", content: "não saiu", status: "failed" as const },
+          ],
+          onRetryQueued,
+          onRemoveQueued,
+          onRunQueuedNow,
+        })}
+      />,
+    );
+
+    expect(screen.getByText(m.input_queue_failed())).toBeTruthy();
+    // "Executar agora" não faz sentido para o que falhou.
+    expect(
+      screen.queryByRole("button", { name: m.input_run_queued_now() }),
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: m.input_queue_retry() }),
+    );
+    expect(onRetryQueued).toHaveBeenCalledWith("q1");
+    fireEvent.click(
+      screen.getByRole("button", { name: m.input_queue_remove() }),
+    );
+    expect(onRemoveQueued).toHaveBeenCalledWith("q1");
+  });
+
+  it("item em envio mostra o estado e não oferece remover", () => {
+    render(
+      <ChatInput
+        {...baseProps({
+          queuedMessages: [
+            { id: "q1", content: "indo", status: "sending" as const },
+          ],
+          onRemoveQueued: vi.fn(),
+          onRunQueuedNow: vi.fn(),
+        })}
+      />,
+    );
+    expect(screen.getByText(m.input_queue_sending())).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: m.input_queue_remove() }),
+    ).toBeNull();
+  });
+
   it("sem mensagens enfileiradas não renderiza a fila", () => {
     render(<ChatInput {...baseProps({ queuedMessages: [] })} />);
     expect(screen.queryByText(/na fila/)).toBeNull();
