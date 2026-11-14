@@ -7,6 +7,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { TasksTab } from "../tasks-tab";
+import { useToastStore } from "@/lib/stores/toast-store";
 
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
@@ -31,8 +32,13 @@ vi.mock("@/lib/stores/workspaces-store", () => ({
     sel({ getActive: () => undefined }),
 }));
 
+const webhook = vi.hoisted(() => ({
+  handler: null as null | ((evt: unknown) => void),
+}));
 vi.mock("@/lib/hooks/use-webhook-events", () => ({
-  useWebhookEvents: () => {},
+  useWebhookEvents: (handler: (evt: unknown) => void) => {
+    webhook.handler = handler;
+  },
 }));
 
 const mockTasks = vi.fn();
@@ -338,5 +344,57 @@ describe("TasksTab", () => {
       expect(toggles[0]).toHaveAttribute("aria-expanded", "true");
       expect(toggles[1]).toHaveAttribute("aria-expanded", "false");
     });
+  });
+});
+
+const event = (eventType: string, runId?: string) => ({
+  provider: "background",
+  event_type: eventType,
+  data: runId === undefined ? {} : { run_id: runId },
+});
+
+const setup = () => {
+  sessionStorage.clear();
+  mockTasks.mockReturnValue(baseHook());
+  const info = vi.spyOn(useToastStore.getState(), "info");
+  render(<TasksTab threadId="t1" />);
+  return info;
+};
+
+describe("TasksTab — aviso de run em segundo plano", () => {
+  it("o mesmo evento reentregue depois de uma reconexão avisa uma vez", () => {
+    const info = setup();
+
+    webhook.handler?.(event("background_run.done", "run-1"));
+    webhook.handler?.(event("background_run.done", "run-1"));
+
+    expect(info).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs e estados diferentes avisam cada um", () => {
+    const info = setup();
+
+    webhook.handler?.(event("background_run.started", "run-1"));
+    webhook.handler?.(event("background_run.done", "run-1"));
+    webhook.handler?.(event("background_run.done", "run-2"));
+
+    expect(info).toHaveBeenCalledTimes(3);
+  });
+
+  it("sem run_id não dá para identificar a repetição, então avisa", () => {
+    const info = setup();
+
+    webhook.handler?.(event("background_run.done"));
+    webhook.handler?.(event("background_run.done"));
+
+    expect(info).toHaveBeenCalledTimes(2);
+  });
+
+  it("eventos de outros provedores não avisam", () => {
+    const info = setup();
+
+    webhook.handler?.({ provider: "github", event_type: "push", data: {} });
+
+    expect(info).not.toHaveBeenCalled();
   });
 });
