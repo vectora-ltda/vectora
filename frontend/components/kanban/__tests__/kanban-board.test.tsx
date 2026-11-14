@@ -17,8 +17,19 @@ import {
   within,
 } from "@testing-library/react";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { overwriteGetLocale, baseLocale } from "@/lib/paraglide/runtime";
 import { applyDragTransition, arcState, KanbanBoard } from "../kanban-board";
+
+/** O formulário de nova tarefa lê os workspaces pelo cache compartilhado. */
+function renderBoard(ui: React.ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
+}
 
 function mockTasks(tasks: unknown[]) {
   // A resposta real de GET /sessions/{id}/background/tasks é `list[TaskOut]`
@@ -147,7 +158,7 @@ afterEach(() => {
 });
 
 async function montar() {
-  render(<KanbanBoard threadId="s1" />);
+  renderBoard(<KanbanBoard threadId="s1" />);
   await act(async () => {});
 }
 
@@ -689,7 +700,7 @@ describe("KanbanBoard", () => {
       value: "visible",
     });
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {
       await Promise.resolve();
     });
@@ -721,7 +732,7 @@ describe("KanbanBoard", () => {
       value: "hidden",
     });
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {
       await Promise.resolve();
     });
@@ -752,7 +763,7 @@ describe("KanbanBoard", () => {
       value: "visible",
     });
 
-    const { unmount } = render(<KanbanBoard threadId="s1" />);
+    const { unmount } = renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {
       await Promise.resolve();
     });
@@ -849,7 +860,7 @@ describe("KanbanBoard", () => {
       ),
     );
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {
       await Promise.resolve();
     });
@@ -1030,7 +1041,7 @@ describe("KanbanBoard", () => {
   it("unmount fecha a conexão SSE ativa", async () => {
     mockTasks([task({ id: "a", status: "todo" })]);
 
-    const { unmount } = render(<KanbanBoard threadId="s1" />);
+    const { unmount } = renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {
       await Promise.resolve();
     });

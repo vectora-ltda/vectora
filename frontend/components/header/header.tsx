@@ -2,6 +2,7 @@
 
 import { ContextualHelp } from "./contextual-help";
 import { SettingsMenu } from "./settings-menu";
+import { GitStatusBadge } from "./git-status-badge";
 import { ModeSwitch } from "./mode-switcher";
 import { useElementWidth } from "@/lib/hooks/use-element-width";
 import { MessageSquare, PanelLeftOpen, PanelRightOpen } from "lucide-react";
@@ -89,6 +90,7 @@ export function Header({
         )}
 
         <div className="ml-auto flex items-center gap-3 shrink-0">
+          <GitStatusBadge />
           <ContextualHelp onShowShortcuts={onShowShortcuts} />
           <SettingsMenu />
         </div>

@@ -25,6 +25,7 @@ import {
 } from "@dnd-kit/core";
 
 import { m } from "@/lib/paraglide/messages";
+import { useWorkspacesQuery } from "@/lib/queries/workspaces";
 import "./kanban.css";
 import { TaskDetailPanel } from "./task-detail-panel";
 
@@ -32,11 +33,6 @@ import { TaskDetailPanel } from "./task-detail-panel";
 //: número livre como no Hermes. Vectora não tem esse conceito; um campo
 //: numérico aqui só produziria valores que o backend rejeitaria com 400.
 const PRIORITIES = ["low", "normal", "high", "urgent"] as const;
-
-interface WorkspaceOption {
-  id: string;
-  name: string;
-}
 
 interface AgentProfileOption {
   id: string;
@@ -61,15 +57,13 @@ function NewTaskForm({
   const [priority, setPriority] = useState("normal");
   const [workspaceId, setWorkspaceId] = useState("");
   const [agentProfileId, setAgentProfileId] = useState("");
-  const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
+  // Lista de workspaces pelo cache compartilhado (TanStack Query), não por um
+  // fetch próprio a cada abertura do formulário.
+  const workspaces = useWorkspacesQuery().data?.workspaces ?? [];
   const [profiles, setProfiles] = useState<AgentProfileOption[]>([]);
 
   useEffect(() => {
     if (!open) return;
-    void fetch("/workspaces", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : { workspaces: [] }))
-      .then((data) => setWorkspaces(data.workspaces ?? []))
-      .catch(() => setWorkspaces([]));
     void fetch("/agent-profiles", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : []))
       .then((data) => setProfiles(Array.isArray(data) ? data : []))

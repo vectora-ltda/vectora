@@ -1,94 +1,96 @@
 "use client";
 
 /**
- * GitStatusBadge (G5)
+ * GitStatusBadge
  *
  * Exibe o estado git do workspace ativo no header:
  *   🌿 feature-auth · ↑2 ↓0 · ●
  *
- * - Branch ativa
- * - Indicadores ahead/behind quando há tracking remote
- * - Ponto colorido: verde = clean, laranja = dirty (uncommitted changes)
+ * - Branch ativa do repositório que o Git workbench usa (o escolhido em
+ *   `[git] repo`, ou o padrão do workspace; uma raiz que não é repositório,
+ *   mas contém um, também aparece).
+ * - Indicadores ahead/behind quando há tracking remoto.
+ * - Ponto colorido: verde = limpo, laranja = alterações não commitadas.
  *
- * Polling leve a cada 5 s (pausa quando aba inativa via visibilitychange).
- * Clique abre um painel com o output completo de git_status (placeholder —
- * expandir em G5 completo).
+ * Polling leve a cada 5 s (pausa quando a aba está inativa).
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { fetchGitStatus, type GitStatus } from "@/components/workbench/git/api";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
-
-interface GitStatus {
-  branch: string;
-  clean: boolean;
-  ahead: number;
-  behind: number;
-}
+import { m } from "@/lib/paraglide/messages";
 
 const POLL_INTERVAL_MS = 5_000;
 
 export function GitStatusBadge() {
-  const activeWorkspace = useWorkspacesStore((s) => s.getActive());
-  const [gitStatus, setGitStatus] = useState<GitStatus | null>(null);
+  const workspaceId = useWorkspacesStore((s) => s.getActive()?.id ?? null);
+  // O status vem com o workspace a que pertence: trocar de workspace esconde o
+  // anterior na hora, e uma resposta atrasada do antigo não aparece no novo.
+  const [snapshot, setSnapshot] = useState<{
+    workspaceId: string;
+    status: GitStatus;
+  } | null>(null);
+  const currentRef = useRef(workspaceId);
+  useEffect(() => {
+    currentRef.current = workspaceId;
+  }, [workspaceId]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pausedRef = useRef(false);
 
-  const fetchStatus = useCallback(async () => {
-    if (!activeWorkspace?.is_git_repo || pausedRef.current) return;
+  const refresh = useCallback(async () => {
+    if (!workspaceId || pausedRef.current) return;
     try {
-      const res = await fetch("/workspaces/active");
-      if (!res.ok) return;
-      const data = await res.json();
-      const ws = data?.workspace;
-      if (ws?.git_current_branch) {
-        setGitStatus({
-          branch: ws.git_current_branch,
-          clean: true, // API básica — status completo exige endpoint dedicado
-          ahead: 0,
-          behind: 0,
-        });
-      }
+      const status = await fetchGitStatus(workspaceId);
+      if (currentRef.current !== workspaceId) return;
+      setSnapshot(status?.is_git_repo ? { workspaceId, status } : null);
     } catch {
-      // silencioso — badge fica ausente se backend não responde
+      // silencioso — o badge some se o backend não responde
     }
-  }, [activeWorkspace?.is_git_repo]);
+  }, [workspaceId]);
 
-  // Polling com pausa em aba inativa
   useEffect(() => {
     const schedule = () => {
       timerRef.current = setTimeout(() => {
-        fetchStatus().finally(schedule);
+        void refresh().finally(schedule);
       }, POLL_INTERVAL_MS);
     };
 
     const onVisibility = () => {
       pausedRef.current = document.hidden;
-      if (!document.hidden) fetchStatus();
+      if (!document.hidden) void refresh();
     };
 
     document.addEventListener("visibilitychange", onVisibility);
-    // Busca inicial do status git ao montar — sincroniza com o backend,
-    // não deriva de prop.
+    // Busca inicial do status git ao montar ou trocar de workspace —
+    // sincroniza com o backend, não deriva de prop.
     // oxlint-disable-next-line react/set-state-in-effect
-    fetchStatus();
+    void refresh();
     schedule();
 
     return () => {
       document.removeEventListener("visibilitychange", onVisibility);
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [fetchStatus]);
+  }, [refresh]);
 
-  if (!activeWorkspace?.is_git_repo || !gitStatus) return null;
+  if (!workspaceId || snapshot?.workspaceId !== workspaceId) return null;
 
-  const { branch, clean, ahead, behind } = gitStatus;
+  const { branch, clean, ahead, behind } = snapshot.status;
+  const title = [
+    m.git_badge_branch({ branch }),
+    ahead > 0 ? `↑${ahead}` : "",
+    behind > 0 ? `↓${behind}` : "",
+    clean ? m.git_badge_clean() : m.git_badge_dirty(),
+  ]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <div
+      data-testid="git-status-badge"
       className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground px-2 py-1 rounded-md hover:bg-muted/50 transition-colors cursor-default select-none"
-      title={`Branch: ${branch}${ahead ? ` · ↑${ahead}` : ""}${behind ? ` ↓${behind}` : ""}${!clean ? " · alterações não commitadas" : ""}`}
+      title={title}
     >
-      {/* Ícone de branch */}
       <svg
         xmlns="http://www.w3.org/2000/svg"
         viewBox="0 0 24 24"
@@ -98,6 +100,7 @@ export function GitStatusBadge() {
         strokeLinecap="round"
         strokeLinejoin="round"
         className="w-3.5 h-3.5 shrink-0"
+        aria-hidden="true"
       >
         <line x1="6" y1="3" x2="6" y2="15" />
         <circle cx="18" cy="6" r="3" />
@@ -105,15 +108,12 @@ export function GitStatusBadge() {
         <path d="M18 9a9 9 0 0 1-9 9" />
       </svg>
 
-      {/* Nome da branch */}
       <span className="max-w-[120px] truncate font-mono">{branch}</span>
-
-      {/* Ahead/behind */}
       {ahead > 0 && <span>↑{ahead}</span>}
       {behind > 0 && <span>↓{behind}</span>}
-
-      {/* Dirty indicator */}
       <span
+        role="img"
+        aria-label={clean ? m.git_badge_clean() : m.git_badge_dirty()}
         className={`w-1.5 h-1.5 rounded-full ${clean ? "bg-green-500" : "bg-orange-400"}`}
       />
     </div>

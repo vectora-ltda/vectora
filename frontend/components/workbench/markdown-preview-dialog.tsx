@@ -5,12 +5,8 @@
  */
 
 import { useEffect, useState } from "react";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { ResizableDialogContent } from "@/components/ui/resizable-dialog";
 import { MarkdownView } from "@/components/workbench/markdown-view";
 import { m } from "@/lib/paraglide/messages";
 interface MarkdownPreviewDialogProps {
@@ -44,9 +40,17 @@ export function MarkdownPreviewDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[80vh] overflow-hidden">
+      <ResizableDialogContent
+        storageKey="markdown-preview"
+        defaultWidth={760}
+        defaultHeight={560}
+        minWidth={360}
+        minHeight={240}
+        className="p-6"
+        aria-describedby={undefined}
+      >
         <DialogHeader>
-          <DialogTitle className="truncate">
+          <DialogTitle className="truncate pr-8">
             {filePath || m.workbench_preview_md_title()}
           </DialogTitle>
         </DialogHeader>
@@ -64,7 +68,7 @@ export function MarkdownPreviewDialog({
             </div>
           )}
         </div>
-      </DialogContent>
+      </ResizableDialogContent>
     </Dialog>
   );
 }

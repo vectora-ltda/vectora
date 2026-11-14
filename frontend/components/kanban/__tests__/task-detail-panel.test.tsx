@@ -14,8 +14,19 @@ import {
   within,
 } from "@testing-library/react";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { overwriteGetLocale, baseLocale } from "@/lib/paraglide/runtime";
 import { KanbanBoard } from "../kanban-board";
+
+/** O quadro lê os workspaces pelo cache compartilhado (TanStack Query). */
+function renderBoard(ui: React.ReactElement) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
+}
 
 function task(over: Record<string, unknown> = {}) {
   return {
@@ -139,7 +150,7 @@ describe("TaskDetailPanel", () => {
       }),
     );
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {});
     await abrirDetalhes();
 
@@ -177,7 +188,7 @@ describe("TaskDetailPanel", () => {
       }),
     );
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {});
     await abrirDetalhes();
 
@@ -210,7 +221,7 @@ describe("TaskDetailPanel", () => {
       }),
     );
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {});
     await abrirDetalhes();
 
@@ -240,7 +251,7 @@ describe("TaskDetailPanel", () => {
       }),
     );
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {});
     await abrirDetalhes();
 
@@ -257,7 +268,7 @@ describe("TaskDetailPanel", () => {
     // (running/done são exclusivos do claim/run real).
     mockPanelFetches([task({ status: "todo" })]);
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {});
     await abrirDetalhes();
 
@@ -270,7 +281,7 @@ describe("TaskDetailPanel", () => {
     const chamadas: { url: string; method: string; body?: string }[] = [];
     mockPanelFetches([task({ status: "todo" })], chamadas);
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {});
     await abrirDetalhes();
 
@@ -291,7 +302,7 @@ describe("TaskDetailPanel", () => {
     const chamadas: { url: string; method: string }[] = [];
     mockPanelFetches([task({ status: "review" })], chamadas);
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {});
     await abrirDetalhes();
 
@@ -310,7 +321,7 @@ describe("TaskDetailPanel", () => {
     const chamadas: { url: string; method: string; body?: string }[] = [];
     mockPanelFetches([task({ status: "review" })], chamadas);
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {});
     await abrirDetalhes();
 
@@ -330,7 +341,7 @@ describe("TaskDetailPanel", () => {
       profiles: [{ id: "ap1", name: "Backend agent" }],
     });
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {});
     await abrirDetalhes();
 
@@ -354,7 +365,7 @@ describe("TaskDetailPanel", () => {
       task({ status: "todo", progress: { done: 1, total: 3 } }),
     ]);
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {});
     await abrirDetalhes();
 
@@ -373,7 +384,7 @@ describe("TaskDetailPanel", () => {
       chamadas,
     );
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {});
     await abrirDetalhes();
 
@@ -412,7 +423,7 @@ describe("TaskDetailPanel", () => {
       linkStatus: 409,
     });
 
-    render(<KanbanBoard threadId="s1" />);
+    renderBoard(<KanbanBoard threadId="s1" />);
     await act(async () => {});
     await abrirDetalhes();
 
