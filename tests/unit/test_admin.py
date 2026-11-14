@@ -304,8 +304,7 @@ class TestCreateInvite:
     async def test_admin_free_pode_convidar_membro_local(self, monkeypatch):
         from unittest.mock import AsyncMock, MagicMock
 
-        from backend.api.handlers.admin import create_invite
-        from backend.api.schemas import CreateInviteRequest
+        from backend.api.handlers.admin import CreateInviteBody, create_invite
         from backend.rbac import auth as auth_svc
 
         expires_at = "2026-11-12T00:00:00+00:00"
@@ -314,7 +313,7 @@ class TestCreateInvite:
 
         request = MagicMock()
         request.state.user = MagicMock(role="admin", id="u1")
-        body = CreateInviteRequest(role="member", email="novo@example.com")
+        body = CreateInviteBody(role="member", email="novo@example.com")
 
         result = await create_invite(request, body)
 
@@ -328,8 +327,7 @@ class TestCreateInvite:
     async def test_membro_sem_papel_admin_nao_pode_convidar(self, monkeypatch):
         from unittest.mock import AsyncMock, MagicMock
 
-        from backend.api.handlers.admin import create_invite
-        from backend.api.schemas import CreateInviteRequest
+        from backend.api.handlers.admin import CreateInviteBody, create_invite
         from backend.rbac import auth as auth_svc
 
         create_invite_mock = AsyncMock()
@@ -340,7 +338,7 @@ class TestCreateInvite:
         with pytest.raises(Exception) as exc:
             await create_invite(
                 request,
-                CreateInviteRequest(role="member", email="novo@example.com"),
+                CreateInviteBody(role="member", email="novo@example.com"),
             )
 
         assert exc.value.status_code == 403  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
@@ -363,8 +361,7 @@ class TestInviteLinkAndTypedResponses:
     async def test_link_usa_o_endereco_de_onde_o_app_e_servido(self, monkeypatch):
         from unittest.mock import AsyncMock
 
-        from backend.api.handlers.admin import create_invite
-        from backend.api.schemas import CreateInviteRequest
+        from backend.api.handlers.admin import CreateInviteBody, create_invite
         from backend.rbac import auth as auth_svc
 
         monkeypatch.delenv("VECTORA_FRONTEND_URL", raising=False)
@@ -372,7 +369,7 @@ class TestInviteLinkAndTypedResponses:
             auth_svc, "create_invite", AsyncMock(return_value=("tok", "2030-01-01"))
         )
 
-        result = await create_invite(self._admin_request(), CreateInviteRequest())
+        result = await create_invite(self._admin_request(), CreateInviteBody())
 
         assert result.url == "http://app.test:8080/auth/signup?invite=tok"
 
@@ -382,8 +379,7 @@ class TestInviteLinkAndTypedResponses:
     ):
         from unittest.mock import AsyncMock
 
-        from backend.api.handlers.admin import create_invite
-        from backend.api.schemas import CreateInviteRequest
+        from backend.api.handlers.admin import CreateInviteBody, create_invite
         from backend.rbac import auth as auth_svc
 
         monkeypatch.setenv("VECTORA_FRONTEND_URL", "http://localhost:3000/")
@@ -391,33 +387,32 @@ class TestInviteLinkAndTypedResponses:
             auth_svc, "create_invite", AsyncMock(return_value=("tok", "2030-01-01"))
         )
 
-        result = await create_invite(self._admin_request(), CreateInviteRequest())
+        result = await create_invite(self._admin_request(), CreateInviteBody())
 
         assert result.url == "http://localhost:3000/auth/signup?invite=tok"
 
     def test_validade_fora_de_1_a_720_horas_e_recusada(self):
         from pydantic import ValidationError
 
-        from backend.api.schemas import CreateInviteRequest
+        from backend.api.handlers.admin import CreateInviteBody
 
         for hours in (0, 721, -5):
             with pytest.raises(ValidationError):
-                CreateInviteRequest(ttl_hours=hours)
-        assert CreateInviteRequest(ttl_hours=720).ttl_hours == 720
+                CreateInviteBody(ttl_hours=hours)
+        assert CreateInviteBody(ttl_hours=720).ttl_hours == 720
 
     @pytest.mark.asyncio
     async def test_papel_invalido_responde_400_sem_criar(self, monkeypatch):
         from unittest.mock import AsyncMock
 
-        from backend.api.handlers.admin import create_invite
-        from backend.api.schemas import CreateInviteRequest
+        from backend.api.handlers.admin import CreateInviteBody, create_invite
         from backend.rbac import auth as auth_svc
 
         create_mock = AsyncMock()
         monkeypatch.setattr(auth_svc, "create_invite", create_mock)
 
         with pytest.raises(Exception) as exc:
-            await create_invite(self._admin_request(), CreateInviteRequest(role="root"))
+            await create_invite(self._admin_request(), CreateInviteBody(role="root"))
 
         assert exc.value.status_code == 400  # type: ignore[attr-defined]  # ty: ignore[unresolved-attribute]
         create_mock.assert_not_awaited()
