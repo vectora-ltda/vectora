@@ -9,6 +9,7 @@
  */
 
 import { contextBridge, ipcRenderer } from "electron";
+import type { OpenedPath } from "./open-paths.js";
 import type {
   BrowserViewEvent,
   BrowserViewOptions,
@@ -54,6 +55,12 @@ export interface VectoraDesktopBridge {
   acknowledgeDeepLink: (url: string) => void;
   /** Subscreve a deep-links (`vectora://...`) entregues ao app. */
   onDeepLink: (handler: (url: string) => void) => () => void;
+  /** Deep-link que chegou antes de a janela montar o ouvinte (e o descarta). */
+  takeDeepLink: () => Promise<string | null>;
+  /** Arquivos e pastas que o sistema entregou antes de a janela montar (e os descarta). */
+  takeOpenFiles: () => Promise<OpenedPath[]>;
+  /** Arquivos e pastas entregues depois ("Abrir com Vectora", segunda instância). */
+  onOpenFiles: (handler: (files: OpenedPath[]) => void) => () => void;
   /** Subscreve ao estado do auto-updater (downloading, ready, error). */
   onUpdateStatus: (
     handler: (status: {
@@ -181,6 +188,15 @@ const bridge: VectoraDesktopBridge = {
     ipcRenderer.on("vectora:deep-link", listener);
     return () => {
       ipcRenderer.removeListener("vectora:deep-link", listener);
+    };
+  },
+  takeDeepLink: () => ipcRenderer.invoke("vectora:take-deep-link"),
+  takeOpenFiles: () => ipcRenderer.invoke("vectora:take-open-files"),
+  onOpenFiles: (handler) => {
+    const listener = (_event: unknown, files: OpenedPath[]) => handler(files);
+    ipcRenderer.on("vectora:open-files", listener);
+    return () => {
+      ipcRenderer.removeListener("vectora:open-files", listener);
     };
   },
   onUpdateStatus: (handler) => {

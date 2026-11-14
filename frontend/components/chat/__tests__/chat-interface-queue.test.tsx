@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, act } from "@testing-library/react";
+import { useOpenedFilesStore } from "@/lib/stores/opened-files-store";
 import { ChatInterface } from "../chat-interface";
 
 type StreamResult = {
@@ -319,6 +320,39 @@ describe("ChatInterface — fila do composer", () => {
     ).toBeNull();
     visibility.mockRestore();
     vi.unstubAllGlobals();
+  });
+
+  it("arquivos abertos pelo sistema entram como anexos da conversa nova", async () => {
+    h.fileApi.replaceFiles.mockClear();
+    h.files = [{ id: "rascunho", name: "rascunho.txt" }] as never;
+    useOpenedFilesStore.setState({
+      pending: [{ id: "f1", name: "nota.md" } as never],
+    });
+
+    render(<ChatInterface threadId="thread-nova" isNewThread />);
+    await flush();
+
+    // Somados ao rascunho que a conversa já tinha, não no lugar dele.
+    expect(h.fileApi.replaceFiles).toHaveBeenCalledWith([
+      { id: "rascunho", name: "rascunho.txt" },
+      { id: "f1", name: "nota.md" },
+    ]);
+    expect(useOpenedFilesStore.getState().pending).toEqual([]);
+    h.files = [];
+  });
+
+  it("numa conversa que já existe, os arquivos abertos continuam à espera da conversa nova", async () => {
+    h.fileApi.replaceFiles.mockClear();
+    useOpenedFilesStore.setState({
+      pending: [{ id: "f1", name: "nota.md" } as never],
+    });
+
+    render(<ChatInterface threadId="thread-existente" />);
+    await flush();
+
+    expect(h.fileApi.replaceFiles).not.toHaveBeenCalled();
+    expect(useOpenedFilesStore.getState().pending).toHaveLength(1);
+    useOpenedFilesStore.setState({ pending: [] });
   });
 
   it("interromper o envio marca o item como cancelado e a fila segue para o próximo", async () => {
