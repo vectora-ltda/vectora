@@ -29,7 +29,7 @@ import {
   type HistoryMessage,
 } from "@/lib/api/vectora-client";
 import { queryClient } from "@/src/router";
-import { threadsQueryKey } from "@/lib/queries/threads";
+import { updateThreadsCache } from "@/lib/queries/threads";
 import { useWorkspacesStore } from "@/lib/stores/workspaces-store";
 import { useChatInputStore } from "@/lib/stores/chat-input-store";
 import { useThreadMessages } from "@/lib/hooks/chat/use-thread-messages";
@@ -205,16 +205,10 @@ export function ChatInterface({
         if (currentGen !== readGenerationRef.current) return;
         lastReadCursorRef.current = Math.max(lastReadCursorRef.current, cursor);
         inFlightReadCursorRef.current = null;
-        queryClient.setQueryData<{
-          threads: { id: string; unread_count?: number }[];
-        }>(threadsQueryKey(), (data) =>
-          data
-            ? {
-                threads: data.threads.map((item) =>
-                  item.id === targetThreadId ? { ...item, unread_count } : item,
-                ),
-              }
-            : data,
+        updateThreadsCache(queryClient, (threads) =>
+          threads.map((item) =>
+            item.id === targetThreadId ? { ...item, unread_count } : item,
+          ),
         );
       })
       .catch(() => {

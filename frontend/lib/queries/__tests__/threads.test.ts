@@ -31,6 +31,8 @@ import {
   useThreadsQuery,
   useDeleteThread,
   useUpdateThread,
+  useThreadsPaging,
+  updateThreadsCache,
   threadsQueryKey,
 } from "@/lib/queries/threads";
 
@@ -275,5 +277,94 @@ describe("useUpdateThread", () => {
       id: "t1",
       title: "",
     });
+  });
+});
+
+describe("paginação da lista de threads", () => {
+  it("updateThreadsCache altera a lista e preserva total e cursor", () => {
+    const { qc } = makeWrapper();
+    qc.setQueryData(threadsQueryKey(), {
+      threads: [vthread("a"), vthread("b")],
+      total: 5,
+      next_cursor: "c1",
+    });
+
+    updateThreadsCache(qc, (threads) => threads.filter((t) => t.id !== "a"));
+
+    expect(qc.getQueryData(threadsQueryKey())).toEqual({
+      threads: [vthread("b")],
+      total: 5,
+      next_cursor: "c1",
+    });
+  });
+
+  it("useThreadsPaging informa quantas faltam e carrega a próxima página pelo cursor", async () => {
+    listThreads
+      .mockResolvedValueOnce({
+        threads: [vthread("a"), vthread("b")],
+        total: 4,
+        next_cursor: "c1",
+      })
+      .mockResolvedValueOnce({
+        threads: [vthread("b"), vthread("c"), vthread("d")],
+        total: 4,
+        next_cursor: "",
+      });
+    const { qc, wrapper } = makeWrapper();
+    const { result } = renderHook(() => useThreadsPaging("u1"), { wrapper });
+
+    await waitFor(() => expect(result.current.hasMore).toBe(true));
+    expect(result.current.remaining).toBe(2);
+
+    await act(async () => {
+      await result.current.loadMore();
+    });
+
+    expect(listThreads).toHaveBeenLastCalledWith(100, { cursor: "c1" });
+    const cache = qc.getQueryData<{ threads: { id: string }[] }>(
+      threadsQueryKey(),
+    );
+    // "b" veio nas duas páginas e entra uma única vez.
+    expect(cache?.threads.map((t) => t.id)).toEqual(["a", "b", "c", "d"]);
+    expect(result.current.hasMore).toBe(false);
+    expect(result.current.remaining).toBe(0);
+  });
+
+  it("sem cursor, loadMore não chama o servidor", async () => {
+    listThreads.mockResolvedValueOnce({
+      threads: [vthread("a")],
+      total: 1,
+      next_cursor: "",
+    });
+    const { wrapper } = makeWrapper();
+    const { result } = renderHook(() => useThreadsPaging("u1"), { wrapper });
+    await waitFor(() => expect(listThreads).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await result.current.loadMore();
+    });
+
+    expect(listThreads).toHaveBeenCalledTimes(1);
+    expect(result.current.hasMore).toBe(false);
+  });
+
+  it("excluir uma thread não apaga o cursor da lista", async () => {
+    listThreads.mockResolvedValue({
+      threads: [vthread("a"), vthread("b")],
+      total: 9,
+      next_cursor: "c1",
+    });
+    deleteThread.mockResolvedValue({});
+    const { qc, wrapper } = makeWrapper();
+    const paging = renderHook(() => useThreadsPaging("u1"), { wrapper });
+    await waitFor(() => expect(paging.result.current.hasMore).toBe(true));
+    const del = renderHook(() => useDeleteThread(), { wrapper });
+
+    await act(async () => {
+      del.result.current.mutate("a");
+    });
+
+    const cache = qc.getQueryData<{ next_cursor?: string }>(threadsQueryKey());
+    expect(cache?.next_cursor).toBe("c1");
   });
 });

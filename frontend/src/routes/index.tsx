@@ -7,6 +7,7 @@ import { useAuthStore } from "@/lib/stores/auth-store";
 import { useSettingsStore } from "@/lib/stores/settings-store";
 import {
   useThreadsQuery,
+  useThreadsPaging,
   useDeleteThread,
   threadsQueryKey,
 } from "@/lib/queries/threads";
@@ -48,6 +49,7 @@ function HomeScreen() {
     isLoading,
     refetch: refetchThreads,
   } = useThreadsQuery(userId);
+  const threadsPaging = useThreadsPaging(userId);
   const deleteThread = useDeleteThread();
   const setChatMode = useSettingsStore((s) => s.setChatMode);
   const sidebarWidth = useSettingsStore((s) => s.sidebarWidth);
@@ -119,6 +121,7 @@ function HomeScreen() {
             isLoading={isLoading}
             isNewSession={false}
             onRefreshThreads={refreshThreads}
+            paging={threadsPaging}
           />
         </div>
         {/* Mobile: a sidebar de verdade some (hidden md:flex acima) — sem
@@ -144,6 +147,7 @@ function HomeScreen() {
               isLoading={isLoading}
               isNewSession={false}
               onRefreshThreads={refreshThreads}
+              paging={threadsPaging}
             />
           </SheetContent>
         </Sheet>

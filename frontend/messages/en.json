@@ -1345,6 +1345,7 @@
   "sidebar_group_other_conversations": "Other conversations",
   "sidebar_group_today": "Today",
   "sidebar_group_yesterday": "Yesterday",
+  "sidebar_load_more": "Load more conversations ({count} remaining)",
   "sidebar_new_chat": "New chat",
   "sidebar_new_conversation": "New conversation",
   "sidebar_no_conversations": "No conversations yet",

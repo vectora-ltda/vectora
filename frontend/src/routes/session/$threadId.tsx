@@ -66,9 +66,11 @@ import { usePreferenciasDialogStore } from "@/lib/stores/preferencias-dialog-sto
 
 import {
   useThreadsQuery,
+  useThreadsPaging,
   useDeleteThread,
   useUpdateThread,
   threadsQueryKey,
+  updateThreadsCache,
 } from "@/lib/queries/threads";
 import { useWindowsStore } from "@/lib/stores/windows-store";
 import { isCanvasDocumentVisible } from "@/lib/canvas-document-visibility";
@@ -381,6 +383,7 @@ function SessionPage() {
     isLoading,
     refetch: refetchThreads,
   } = useThreadsQuery(userId);
+  const threadsPaging = useThreadsPaging(userId);
   const deleteThreadMutation = useDeleteThread();
   const updateThreadMutation = useUpdateThread();
 
@@ -570,11 +573,8 @@ function SessionPage() {
   // otimista inserido no cache antes do envio (handleThreadUpdate com
   // lastMessage="") fica sendo uma sessão fantasma só local. Remove.
   const handleThreadPersistFailed = useCallback((id: string) => {
-    queryClient.setQueryData<{ threads: VectoraThread[] }>(
-      threadsQueryKey(),
-      (old) => ({
-        threads: (old?.threads ?? []).filter((th) => th.id !== id),
-      }),
+    updateThreadsCache(queryClient, (current) =>
+      current.filter((th) => th.id !== id),
     );
   }, []);
 
@@ -584,20 +584,16 @@ function SessionPage() {
       // ainda não existe no backend (StreamChat ainda não rodou), então só
       // refletimos na sidebar localmente — sem chamar UpdateThread (404).
       if (isNew(id) && !lastMessage) {
-        queryClient.setQueryData<{ threads: VectoraThread[] }>(
-          threadsQueryKey(),
-          (old) => {
-            const existing = old?.threads ?? [];
-            if (existing.some((th) => th.id === id)) return old;
-            const optimistic = buildOptimisticThread({
-              id,
-              title,
-              workspaceId: useWorkspacesStore.getState().active_id ?? "",
-              chatMode,
-            });
-            return { threads: [optimistic, ...existing] };
-          },
-        );
+        updateThreadsCache(queryClient, (existing) => {
+          if (existing.some((th) => th.id === id)) return existing;
+          const optimistic = buildOptimisticThread({
+            id,
+            title,
+            workspaceId: useWorkspacesStore.getState().active_id ?? "",
+            chatMode,
+          });
+          return [optimistic, ...existing];
+        });
         return;
       }
       // Primeira persistência da thread no backend: remove do registry de novas.
@@ -895,6 +891,7 @@ function SessionPage() {
         onNewChat={handleNewChat}
         isLoading={isLoading}
         isNewSession={isNewSession}
+        paging={threadsPaging}
         showHeader
         onRefreshThreads={async () => {
           const result = await refetchThreads();
@@ -907,6 +904,7 @@ function SessionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
       threads,
+      threadsPaging,
       threadId,
       isLoading,
       isSidebarCollapsed,
