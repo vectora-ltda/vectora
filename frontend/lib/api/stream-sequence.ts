@@ -8,7 +8,7 @@
  * concluída nunca ser reaberta por um retransmitido atrasado. Eventos sem
  * `seq` (backend antigo) passam sempre, até o terminal.
  */
-export interface SequencedEvent {
+interface SequencedEvent {
   type: string;
   seq?: number;
   event_id?: string;

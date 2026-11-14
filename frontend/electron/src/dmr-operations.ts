@@ -10,7 +10,7 @@ import {
   type DockerCommandResult,
 } from "./docker-cli-executor.js";
 
-export type DmrStatus =
+type DmrStatus =
   | "ready"
   | "stopped"
   | "docker_unavailable"

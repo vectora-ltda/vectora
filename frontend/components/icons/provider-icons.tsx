@@ -1,6 +1,6 @@
 /** Ícones oficiais (simplificados) dos provedores de LLM, usados no seletor de modelo. */
 
-export function GeminiIcon({ className }: { className?: string }) {
+function GeminiIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -18,7 +18,7 @@ export function GeminiIcon({ className }: { className?: string }) {
   );
 }
 
-export function OpenAiIcon({ className }: { className?: string }) {
+function OpenAiIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -35,7 +35,7 @@ export function OpenAiIcon({ className }: { className?: string }) {
   );
 }
 
-export function AnthropicIcon({ className }: { className?: string }) {
+function AnthropicIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -52,7 +52,7 @@ export function AnthropicIcon({ className }: { className?: string }) {
   );
 }
 
-export function CohereIcon({ className }: { className?: string }) {
+function CohereIcon({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 24 24"
@@ -72,7 +72,7 @@ export function CohereIcon({ className }: { className?: string }) {
   );
 }
 
-export function OllamaIcon({ className }: { className?: string }) {
+function OllamaIcon({ className }: { className?: string }) {
   // Sem ícone de marca oficial simplificado — servidor local genérico
   // (Ollama roda no host do usuário, não é um provider de nuvem).
   return (
@@ -107,7 +107,7 @@ export function OllamaIcon({ className }: { className?: string }) {
   );
 }
 
-export function OpenRouterIcon({ className }: { className?: string }) {
+function OpenRouterIcon({ className }: { className?: string }) {
   // Sem ícone de marca oficial simplificado — proxy multi-provider
   // representado como setas convergindo pra um nó central (roteamento).
   return (

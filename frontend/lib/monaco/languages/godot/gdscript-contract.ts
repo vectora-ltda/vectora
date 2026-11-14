@@ -12,7 +12,7 @@ export const GODOT_GDSCRIPT_CONTROL_FLOW = [
   "when",
   "while",
 ] as const;
-export const GODOT_GDSCRIPT_DECLARATIONS = [
+const GODOT_GDSCRIPT_DECLARATIONS = [
   "class",
   "class_name",
   "const",
@@ -25,14 +25,14 @@ export const GODOT_GDSCRIPT_DECLARATIONS = [
   "trait",
   "var",
 ] as const;
-export const GODOT_GDSCRIPT_OTHER_KEYWORDS = [
+const GODOT_GDSCRIPT_OTHER_KEYWORDS = [
   "await",
   "breakpoint",
   "self",
   "super",
   "yield",
 ] as const;
-export const GODOT_GDSCRIPT_OPERATORS = [
+const GODOT_GDSCRIPT_OPERATORS = [
   "and",
   "as",
   "in",
@@ -40,10 +40,10 @@ export const GODOT_GDSCRIPT_OPERATORS = [
   "not",
   "or",
 ] as const;
-export const GODOT_GDSCRIPT_LITERALS = ["false", "null", "true"] as const;
-export const GODOT_GDSCRIPT_CONSTANTS = ["INF", "NAN", "PI", "TAU"] as const;
-export const GODOT_GDSCRIPT_GLOBAL_FUNCTIONS = ["assert", "preload"] as const;
-export const GODOT_GDSCRIPT_BUILTIN_ACCESSORS = ["get", "set"] as const;
+const GODOT_GDSCRIPT_LITERALS = ["false", "null", "true"] as const;
+const GODOT_GDSCRIPT_CONSTANTS = ["INF", "NAN", "PI", "TAU"] as const;
+const GODOT_GDSCRIPT_GLOBAL_FUNCTIONS = ["assert", "preload"] as const;
+const GODOT_GDSCRIPT_BUILTIN_ACCESSORS = ["get", "set"] as const;
 export const GODOT_GDSCRIPT_BUILTIN_TYPES = [
   "bool",
   "int",

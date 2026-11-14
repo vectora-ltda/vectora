@@ -13,8 +13,8 @@ import os from "node:os";
 import path from "node:path";
 import killTree from "tree-kill";
 
-export const MAX_OUTPUT_BYTES = 64 * 1024;
-export const DEFAULT_TIMEOUT_MS = 120_000;
+const MAX_OUTPUT_BYTES = 64 * 1024;
+const DEFAULT_TIMEOUT_MS = 120_000;
 
 const MODEL_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._/@:+-]{0,255}$/;
 

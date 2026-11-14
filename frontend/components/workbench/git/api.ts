@@ -59,7 +59,7 @@ export async function fetchGitOperation(
   return data.operation ?? null;
 }
 
-export async function fetchGitOperationHistory(
+async function fetchGitOperationHistory(
   workspaceId: string,
   limit = 50,
 ): Promise<GitOperation[]> {
@@ -398,7 +398,7 @@ export async function apiCreateWorktree(
   return res.ok;
 }
 
-// ── Pull requests (gh) ────────────────────────────────────────────────────
+// ── Solicitações de merge (gh) ────────────────────────────────────────────────────
 
 export interface PullRequest {
   number: number;

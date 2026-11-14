@@ -7,7 +7,7 @@ export interface WorkspaceThreadGroup {
   threads: Thread[];
 }
 
-export function activityOf(thread: Thread): number {
+function activityOf(thread: Thread): number {
   return new Date(thread.updated_at || thread.created_at).getTime();
 }
 

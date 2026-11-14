@@ -4,7 +4,7 @@ import { mDyn } from "@/lib/i18n-dyn";
 import { m } from "@/lib/paraglide/messages";
 import type { CanvasDocumentDescriptor } from "@/lib/stores/windows-store";
 
-export interface CenterCanvasTab {
+interface CenterCanvasTab {
   /** Stable unique key for this tab within the CenterCanvas instance. */
   id: string;
   label: string;

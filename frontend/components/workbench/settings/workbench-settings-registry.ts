@@ -63,7 +63,7 @@ export const browserSettings: WorkbenchSettingsDescriptor = {
   surface: { workbench: "form", settings: "form" },
 };
 
-export const terminalSettings: WorkbenchSettingsDescriptor = {
+const terminalSettings: WorkbenchSettingsDescriptor = {
   id: "terminal-settings",
   workbench: "terminal",
   title: () => m.terminal_title(),
@@ -85,7 +85,7 @@ export const gitSettings: WorkbenchSettingsDescriptor = {
   surface: { workbench: "form", settings: "form" },
 };
 
-export const filesSettings: WorkbenchSettingsDescriptor = {
+const filesSettings: WorkbenchSettingsDescriptor = {
   id: "files-settings",
   workbench: "files",
   title: () => m.workbench_tab_files(),
@@ -95,7 +95,7 @@ export const filesSettings: WorkbenchSettingsDescriptor = {
   surface: { workbench: "form", settings: "form" },
 };
 
-export const planSettings: WorkbenchSettingsDescriptor = {
+const planSettings: WorkbenchSettingsDescriptor = {
   id: "plan-settings",
   workbench: "plan",
   title: () => m.workbench_tab_plan(),
@@ -105,7 +105,7 @@ export const planSettings: WorkbenchSettingsDescriptor = {
   surface: { workbench: "form", settings: "form" },
 };
 
-export const tasksSettings: WorkbenchSettingsDescriptor = {
+const tasksSettings: WorkbenchSettingsDescriptor = {
   id: "tasks-settings",
   workbench: "tasks",
   title: () => m.workbench_tab_tasks(),
@@ -115,7 +115,7 @@ export const tasksSettings: WorkbenchSettingsDescriptor = {
   surface: { workbench: "form", settings: "form" },
 };
 
-export const librarySettings: WorkbenchSettingsDescriptor = {
+const librarySettings: WorkbenchSettingsDescriptor = {
   id: "library-settings",
   workbench: "library",
   title: () => m.workbench_tab_library(),

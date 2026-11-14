@@ -1,13 +1,11 @@
 // @vitest-environment jsdom
 /**
  * RPCs de thread sem cobertura: getThread, deleteThread, updateThread,
- * transcribeAudio e getHistoryPage.
+ * transcribeAudio.
  *
  * O foco é o que cada um coloca no BODY — `updateThread` monta o payload
  * condicionalmente (campo ausente não pode virar `undefined` no JSON, o que
- * apagaria o valor no backend) e `getHistoryPage` é o único que não passa
- * por `postRpc`: é um GET com querystring e o id vai na URL, então precisa
- * de encode.
+ * apagaria o valor no backend).
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -16,7 +14,6 @@ import {
   deleteThread,
   updateThread,
   transcribeAudio,
-  getHistoryPage,
   cancelRun,
 } from "@/lib/api/vectora-client";
 
@@ -157,65 +154,5 @@ describe("transcribeAudio", () => {
       transcription_mode: "local",
     });
     expect(result.text).toBe("ditado local");
-  });
-});
-
-describe("getHistoryPage — GET com querystring", () => {
-  it("usa limit/offset default e devolve a página", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ messages: [], has_more: false, total_count: 0 }),
-    );
-    const r = await getHistoryPage("t1");
-
-    const url = String(fetchMock.mock.calls[0][0]);
-    expect(url).toContain("/threads/t1/history");
-    expect(url).toContain("limit=200");
-    expect(url).toContain("offset=0");
-    expect(r.has_more).toBe(false);
-  });
-
-  it("propaga limit/offset explícitos", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ messages: [], has_more: true, total_count: 300 }),
-    );
-    await getHistoryPage("t1", 50, 100);
-
-    const url = String(fetchMock.mock.calls[0][0]);
-    expect(url).toContain("limit=50");
-    expect(url).toContain("offset=100");
-  });
-
-  it("before_message_id só vai na URL quando há cursor", async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({ messages: [], has_more: false, total_count: 0 }),
-    );
-    await getHistoryPage("t1", 50, 0);
-    await getHistoryPage("t1", 50, 0, 41);
-
-    expect(String(fetchMock.mock.calls[0][0])).not.toContain(
-      "before_message_id",
-    );
-    expect(String(fetchMock.mock.calls[1][0])).toContain(
-      "before_message_id=41",
-    );
-  });
-
-  it("409 vira HistoryCursorGoneError", async () => {
-    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: "x" }, 409));
-
-    await expect(getHistoryPage("t1", 50, 0, 41)).rejects.toMatchObject({
-      name: "HistoryCursorGoneError",
-    });
-  });
-
-  it("erro/borda: id com caractere especial é encodado na URL", async () => {
-    // Sem encode, um id com `/` ou `?` montaria outra rota ou viraria query.
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ messages: [], has_more: false, total_count: 0 }),
-    );
-    await getHistoryPage("a/b?c");
-
-    const url = String(fetchMock.mock.calls[0][0]);
-    expect(url).toContain("/threads/a%2Fb%3Fc/history");
   });
 });

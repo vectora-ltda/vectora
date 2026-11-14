@@ -168,7 +168,7 @@ export interface GitOpsSnapshot {
   updatedAt: number;
 }
 
-export interface GitOpsState {
+interface GitOpsState {
   selectedFiles: string[];
   selectionRevision: number;
   selectedHunks: Record<string, number[]>;

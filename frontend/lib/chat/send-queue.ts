@@ -12,7 +12,7 @@
  */
 export type QueueStatus = "waiting" | "sending" | "failed" | "cancelled";
 
-export interface QueueItem<T> {
+interface QueueItem<T> {
   id: string;
   status: QueueStatus;
   payload: T;

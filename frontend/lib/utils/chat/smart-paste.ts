@@ -1,6 +1,6 @@
 import { isMap, isSeq, parseDocument } from "yaml";
 
-export type SmartPasteKind = "url" | "json" | "yaml" | "html" | "code" | "text";
+type SmartPasteKind = "url" | "json" | "yaml" | "html" | "code" | "text";
 
 export interface SmartPasteResult {
   kind: SmartPasteKind;

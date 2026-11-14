@@ -2,8 +2,8 @@ import type * as Monaco from "monaco-editor";
 
 export const GODOT_DARK_THEME = "vectora-godot-dark";
 export const GODOT_LIGHT_THEME = "vectora-godot-light";
-export const VECTOR_DARK_THEME = "vectora-dark";
-export const VECTOR_LIGHT_THEME = "vectora-light";
+const VECTOR_DARK_THEME = "vectora-dark";
+const VECTOR_LIGHT_THEME = "vectora-light";
 
 export interface GodotMonacoPalette {
   background: string;
@@ -227,9 +227,9 @@ function themeData(
 }
 
 export const godotDarkTheme = themeData("dark", true);
-export const godotLightTheme = themeData("light", true);
+const godotLightTheme = themeData("light", true);
 export const vectoraDarkTheme = themeData("dark", false);
-export const vectoraLightTheme = themeData("light", false);
+const vectoraLightTheme = themeData("light", false);
 
 const registered = new WeakSet<object>();
 export function ensureMonacoThemes(

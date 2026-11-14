@@ -16,8 +16,7 @@ import {
   type SettingsCategoryId,
 } from "./settings-overlay-store";
 
-export type PreferenciasTab =
-  "preferencias" | "fallbacks" | "conta" | "memoria";
+type PreferenciasTab = "preferencias" | "fallbacks" | "conta" | "memoria";
 
 const CATEGORY_BY_TAB: Record<PreferenciasTab, SettingsCategoryId> = {
   preferencias: "geral",

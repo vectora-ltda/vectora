@@ -63,7 +63,7 @@ async function addToSmartApprovalAllowlist(
 // Types
 // ===========================================================================
 
-export interface HITLPendingInfo {
+interface HITLPendingInfo {
   toolName: string;
   argsJson: string;
   interruptId: string;

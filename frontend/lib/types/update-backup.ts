@@ -1,4 +1,4 @@
-export interface UpdateBackupFile {
+interface UpdateBackupFile {
   path: string;
   bytes: number;
   sha256: string;

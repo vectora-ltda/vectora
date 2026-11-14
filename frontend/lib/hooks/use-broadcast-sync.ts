@@ -21,7 +21,7 @@ import { useEffect } from "react";
 
 export const BROADCAST_WORKSPACES = "vectora:workspaces";
 export const BROADCAST_THREADS = "vectora:threads";
-export const BROADCAST_AUTH = "vectora:auth";
+const BROADCAST_AUTH = "vectora:auth";
 
 export type BroadcastPayload =
   | { type: "invalidate" }

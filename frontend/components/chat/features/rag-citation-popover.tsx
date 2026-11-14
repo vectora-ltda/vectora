@@ -69,7 +69,7 @@ function CitationBadge({ citation }: { citation: RagCitation }) {
  *
  * Retorna o texto original quando não há citações ou nenhum marcador.
  */
-export function renderWithCitations(
+function renderWithCitations(
   text: string,
   citations: RagCitation[] | undefined,
 ): ReactNode {

@@ -33,7 +33,7 @@ export interface ChatUIState {
 /**
  * Actions for updating chat state.
  */
-export type ChatUIAction =
+type ChatUIAction =
   | { type: "SET_INPUT"; payload: string }
   | { type: "SET_COPIED_ID"; payload: string | null }
   | { type: "SET_LOADING"; payload: boolean }

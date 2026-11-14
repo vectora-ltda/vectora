@@ -8,8 +8,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-export type LicenseTier = "plus" | "pro" | null;
-export type LicenseState =
+type LicenseTier = "plus" | "pro" | null;
+type LicenseState =
   | "active"
   | "trial"
   | "trialing"

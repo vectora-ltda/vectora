@@ -14,5 +14,3 @@ export function resolveBrowserProfileId(
     getBrowserSession(sessionKey)?.profileId ?? getBrowserProfileId(sessionKey)
   );
 }
-
-export { getBrowserProfileId };

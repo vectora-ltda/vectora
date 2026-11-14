@@ -175,7 +175,7 @@ function BillingAndAboutPanel() {
   );
 }
 
-export type SettingsGroupId =
+type SettingsGroupId =
   "preferencias" | "ambiente" | "administracao" | "geral_grupo";
 
 export interface SettingsCategory {

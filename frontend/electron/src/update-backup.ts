@@ -6,10 +6,7 @@ import type {
   UpdateBackupEntry,
   UpdateBackupFile,
 } from "./update-backup-types.js";
-export type {
-  UpdateBackupEntry,
-  UpdateBackupFile,
-} from "./update-backup-types.js";
+export type { UpdateBackupEntry } from "./update-backup-types.js";
 
 const MANIFEST = "manifest.json";
 const MAX_FILE_BYTES = 256 * 1024 * 1024;

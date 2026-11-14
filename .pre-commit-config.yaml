@@ -221,6 +221,27 @@ repos:
         language: system
         files: ^frontend/.*\.(ts|tsx|js|jsx|mjs|cjs)$
 
+      - id: frontend-unused
+        name: Frontend sem uso (knip)
+        entry: uv run --no-project python utils/unused_code.py frontend
+        language: system
+        files: ^frontend/.*\.(ts|tsx|mts|json|jsonc)$
+        pass_filenames: false
+
+      - id: unused-routes
+        name: Páginas sem navegação (rotas do frontend)
+        entry: uv run --no-project python utils/unused_code.py routes
+        language: system
+        files: ^(frontend/(src|components|lib|hooks|electron/src)/.*\.(ts|tsx)|backend/.*\.py|utils/(unused_code\.py|route_entrypoints\.json))$
+        pass_filenames: false
+
+      - id: unused-python
+        name: Python sem uso (vulture)
+        entry: uv run --no-project --with vulture python utils/unused_code.py python
+        language: system
+        files: ^(backend/.*\.py|utils/(unused_code\.py|unused_python_baseline\.json))$
+        pass_filenames: false
+
       - id: i18n
         name: Frontend i18n lint
         entry: uv run --no-project python utils/checks.py frontend-i18n

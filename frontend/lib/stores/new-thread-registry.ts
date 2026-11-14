@@ -31,7 +31,7 @@ function notify(threadId: string): void {
  * Inscreve um consumidor nas mudanças de um thread e devolve a função de cancelamento.
  * A notificação é limitada ao `threadId` informado.
  */
-export function subscribeNewThread(
+function subscribeNewThread(
   threadId: string,
   listener: () => void,
 ): () => void {

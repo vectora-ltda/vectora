@@ -65,11 +65,3 @@ export const MessageSkeletons = memo(function MessageSkeletons() {
     </div>
   );
 });
-
-/**
- * Alias — padroniza o nome `MessageListSkeleton` entre os skeletons do
- * produto (`ThreadListSkeleton`, `FileTreeSkeleton`, `GitSkeleton`,
- * `MessageListSkeleton`). Mantém `MessageSkeletons` para não quebrar imports
- * existentes.
- */
-export const MessageListSkeleton = MessageSkeletons;

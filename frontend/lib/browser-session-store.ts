@@ -1,4 +1,4 @@
-export interface PersistedTabState {
+interface PersistedTabState {
   id: string;
   title: string;
   history: string[];
@@ -63,7 +63,7 @@ export function getBrowserSessionGeneration(sessionKey: string): number {
 }
 
 /** Destroys native views and forgets one thread's persisted browser session. */
-export function disposeBrowserSession(sessionKey: string): void {
+function disposeBrowserSession(sessionKey: string): void {
   browserSessionGenerations.set(
     sessionKey,
     getBrowserSessionGeneration(sessionKey) + 1,
@@ -95,7 +95,7 @@ export function disposeBrowserThread(threadId: string): void {
   }
 }
 
-export function clearBrowserSessionCache(): void {
+function clearBrowserSessionCache(): void {
   for (const sessionKey of browserSessions.keys()) {
     browserSessionGenerations.set(
       sessionKey,

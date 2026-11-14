@@ -26,7 +26,7 @@ export function useMediaQuery(query: string): boolean {
 
 /** Breakpoint `md` do Tailwind (768px) — abaixo dele, layouts multi-painel
  * colapsam para um único painel visível por vez. */
-export const MD_BREAKPOINT_QUERY = "(max-width: 767px)";
+const MD_BREAKPOINT_QUERY = "(max-width: 767px)";
 
 export function useIsNarrowViewport(): boolean {
   return useMediaQuery(MD_BREAKPOINT_QUERY);
@@ -48,10 +48,10 @@ export function getUnscaledViewportWidth(): number {
 }
 
 /** Tailwind `sm` breakpoint: below 640px is the smartphone layout. */
-export const IDE_COMPACT_BREAKPOINT = 640;
+const IDE_COMPACT_BREAKPOINT = 640;
 
 /** Tablet-sized session windows switch to one panel plus explicit controls. */
-export const SESSION_COMPACT_BREAKPOINT = 900;
+const SESSION_COMPACT_BREAKPOINT = 900;
 export type SessionLayoutState = "compact" | "wide";
 
 export function getSessionLayoutState(width: number): SessionLayoutState {
@@ -105,6 +105,6 @@ export function useIdeLayoutState(): IdeLayoutState {
 }
 
 /** Whether the IDE should use its smartphone-only mobile layout. */
-export function useIsNarrowIdeViewport(): boolean {
+function useIsNarrowIdeViewport(): boolean {
   return useIdeLayoutState() === "mobile";
 }

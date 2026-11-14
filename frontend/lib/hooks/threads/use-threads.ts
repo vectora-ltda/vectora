@@ -11,7 +11,7 @@ export interface ClientProfile {
   avatarColor?: string;
 }
 
-export interface ThreadMetadata {
+interface ThreadMetadata {
   user_id: string;
   title?: string;
   lastMessage?: string;

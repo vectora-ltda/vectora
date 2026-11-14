@@ -85,7 +85,7 @@ function parseDiff(diff: string): DiffFile[] {
   return files;
 }
 
-export function EmptyCommitDetails() {
+function EmptyCommitDetails() {
   return (
     <div className="flex h-full min-h-56 flex-col items-center justify-center gap-3 p-6 text-center">
       <Code2 className="h-10 w-10 text-muted-foreground/60" />

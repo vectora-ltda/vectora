@@ -5,7 +5,7 @@
 // =============================================================================
 
 /** Bump version to force reset of saved user configs */
-export const CONFIG_STORAGE = {
+const CONFIG_STORAGE = {
   key: "agent-config",
   versionKey: "agent-config-version",
   version: "1.0",
@@ -35,7 +35,7 @@ export interface ModelConfig {
  * Todos os modelos disponíveis — fonte única da verdade.
  * Formato id: "<provider>:<model>" — espelhado pelo load_llm() do backend.
  */
-export const MODELS = {
+const MODELS = {
   // ── Google Gemini 3.x ─────────────────────────────────────────────────────
   "gemini-3.5-flash": {
     id: "google-genai:gemini-3.5-flash",
@@ -202,7 +202,7 @@ export const MODELS = {
   },
 } as const satisfies Record<string, ModelConfig>;
 
-export type ModelKey = keyof typeof MODELS;
+type ModelKey = keyof typeof MODELS;
 export type ModelOption = (typeof MODELS)[ModelKey]["id"];
 
 // =============================================================================
@@ -216,7 +216,7 @@ interface AgentConfig {
   description?: string;
 }
 
-export const AGENTS = {
+const AGENTS = {
   vectora: {
     id: "vectora",
     name: "Vectora",
@@ -288,7 +288,7 @@ const DEPLOYMENT: DeploymentConfig = {
 // Core Functions
 // =============================================================================
 
-export function getDeploymentConfig(): DeploymentConfig {
+function getDeploymentConfig(): DeploymentConfig {
   return DEPLOYMENT;
 }
 
@@ -354,7 +354,7 @@ export function isProviderVisionCapable(
   return VISION_CAPABLE_PROVIDERS.has(provider);
 }
 
-export type ImageCapability = "known_capable" | "known_incapable" | "unknown";
+type ImageCapability = "known_capable" | "known_incapable" | "unknown";
 
 export interface ProviderModelInfo {
   id: string;
@@ -420,24 +420,24 @@ export function getContextWindow(modelId: ModelOption): number {
 // Agent Functions
 // =============================================================================
 
-export function getAllowedAgents(): AgentType[] {
+function getAllowedAgents(): AgentType[] {
   return getDeploymentConfig().agents.map((key) => AGENTS[key].id);
 }
 
-export function getDefaultAgent(): AgentType {
+function getDefaultAgent(): AgentType {
   return AGENTS[getDeploymentConfig().defaultAgent].id;
 }
 
-export function isAgentAllowed(agentId: AgentType): boolean {
+function isAgentAllowed(agentId: AgentType): boolean {
   return getAllowedAgents().includes(agentId);
 }
 
-export function getAgentDisplayName(agentId: AgentType): string {
+function getAgentDisplayName(agentId: AgentType): string {
   const agent = Object.values(AGENTS).find((a) => a.id === agentId);
   return agent?.name ?? agentId;
 }
 
-export function getAgentShortDisplayName(agentId: AgentType): string {
+function getAgentShortDisplayName(agentId: AgentType): string {
   const agent = Object.values(AGENTS).find((a) => a.id === agentId);
   return agent?.shortName ?? agentId;
 }
@@ -446,6 +446,6 @@ export function getAgentShortDisplayName(agentId: AgentType): string {
 // Auth Functions
 // =============================================================================
 
-export function isAuthRequired(): boolean {
+function isAuthRequired(): boolean {
   return getDeploymentConfig().requiresAuth;
 }

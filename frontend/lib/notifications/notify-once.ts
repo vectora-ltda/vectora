@@ -7,7 +7,7 @@
  * O canal é explícito e a ausência dele nunca é registrada como entrega.
  */
 
-export type NotificationChannel = "local" | "in-app" | "push";
+type NotificationChannel = "local" | "in-app" | "push";
 
 export type NotificationOutcome =
   /** O canal confirmou a entrega e a chave ficou registrada. */

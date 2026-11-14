@@ -6,7 +6,7 @@
 
 import type { RenderHint, ToolCategory } from "./render";
 
-export type { RenderHint, ToolCategory } from "./render";
+export type { RenderHint } from "./render";
 
 /**
  * Representa uma tool call feita pelo assistente.

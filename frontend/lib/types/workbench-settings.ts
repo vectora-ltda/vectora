@@ -13,13 +13,12 @@ export type WorkbenchId =
   | "library";
 
 /** Dono dos dados alterados por uma configuração. */
-export type WorkbenchSettingsScope =
-  "user" | "workspace" | "session" | "instance";
+type WorkbenchSettingsScope = "user" | "workspace" | "session" | "instance";
 
 /** Superfície que está apresentando a configuração. */
-export type WorkbenchSettingsPresentation = "workbench" | "settings";
-export type WorkbenchSettingsSurfaceMode = "form" | "native-view" | "link";
-export type ResolvedSurfaceMode = WorkbenchSettingsSurfaceMode | "unavailable";
+type WorkbenchSettingsPresentation = "workbench" | "settings";
+type WorkbenchSettingsSurfaceMode = "form" | "native-view" | "link";
+type ResolvedSurfaceMode = WorkbenchSettingsSurfaceMode | "unavailable";
 
 export interface WorkbenchSettingsContext {
   threadId: string | null;

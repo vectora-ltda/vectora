@@ -22,7 +22,7 @@ export interface ViewBounds {
 
 const HIDDEN_BOUNDS: ViewBounds = { x: 0, y: 0, width: 0, height: 0 };
 
-export interface ManagedWebContents {
+interface ManagedWebContents {
   navigationHistory?: {
     canGoBack(): boolean;
     canGoForward(): boolean;

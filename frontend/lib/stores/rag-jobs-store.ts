@@ -12,7 +12,7 @@ import { create } from "zustand";
  * daqui, então a indexação continua visível mesmo após "Minimizar".
  */
 
-export type RagJobStatus =
+type RagJobStatus =
   "starting" | "indexing" | "done" | "failed" | "paused" | "no_files";
 
 export interface RagJob {

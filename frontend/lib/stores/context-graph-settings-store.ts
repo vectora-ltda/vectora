@@ -17,7 +17,7 @@ export const ALL_GRAPH_FILE_TYPES: GraphFileType[] = [
   "paper",
 ];
 
-export type GraphMode = "semantic" | "ast";
+type GraphMode = "semantic" | "ast";
 
 interface ContextGraphSettingsState {
   /** Tipos a indexar. Vazio = todos (default). */

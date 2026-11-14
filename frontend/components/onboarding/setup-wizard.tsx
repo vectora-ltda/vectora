@@ -697,7 +697,7 @@ export function StepWorkspace(_props: StepProps) {
   );
 }
 
-export function StepWorkspaceSelect({ onWorkspaceSelect }: StepProps) {
+function StepWorkspaceSelect({ onWorkspaceSelect }: StepProps) {
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const activeId = useWorkspacesStore((s) => s.active_id);
   const hydrate = useWorkspacesStore((s) => s.hydrate);
@@ -1129,7 +1129,7 @@ export function StepCapabilities(_props: StepProps) {
   );
 }
 
-export function StepDone(_props: StepProps) {
+function StepDone(_props: StepProps) {
   return (
     <div className="flex flex-col items-center gap-3 py-4 text-center">
       <span className="text-4xl">🎉</span>

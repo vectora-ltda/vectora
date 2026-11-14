@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useRef } from "react";
 
 /** TTLs canônicos por tipo de recurso (ms). */
-export const SWR_TTL = {
+const SWR_TTL = {
   workspaces: 60_000,
   threads: 30_000,
   safeRoots: 5 * 60_000,

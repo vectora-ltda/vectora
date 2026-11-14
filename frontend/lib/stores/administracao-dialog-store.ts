@@ -18,8 +18,7 @@ import {
 /** Sub-abas históricas de Administração — hoje cada uma é sua própria
  * categoria (`admin_*`) no SettingsOverlay; este tipo só sobrevive pra
  * quem ainda deep-linka por aqui. */
-export type AdminSubTab =
-  "users" | "tools" | "system" | "safe-roots" | "storage";
+type AdminSubTab = "users" | "tools" | "system" | "safe-roots" | "storage";
 
 const CATEGORY_BY_SUBTAB: Record<AdminSubTab, SettingsCategoryId> = {
   users: "admin_users",

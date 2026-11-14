@@ -12,7 +12,7 @@ export type MediaKind =
 const MB = 1024 * 1024;
 
 /** Teto por tipo, igual ao `MAX_BYTES_BY_KIND` do backend. */
-export const MAX_BYTES_BY_KIND: Record<MediaKind, number> = {
+const MAX_BYTES_BY_KIND: Record<MediaKind, number> = {
   image: 10 * MB,
   audio: 25 * MB,
   video: 50 * MB,
@@ -20,7 +20,7 @@ export const MAX_BYTES_BY_KIND: Record<MediaKind, number> = {
   text: 10 * MB,
   file: 25 * MB,
 };
-export const MAX_HAR_BYTES = 50 * MB;
+const MAX_HAR_BYTES = 50 * MB;
 
 const IMAGE_MIMES = new Set([
   "image/png",

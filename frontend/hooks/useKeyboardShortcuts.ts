@@ -1,6 +1,6 @@
 import { useEffect, useCallback } from "react";
 
-export type KeyboardShortcut = {
+type KeyboardShortcut = {
   key: string;
   metaKey?: boolean;
   ctrlKey?: boolean;
@@ -10,7 +10,7 @@ export type KeyboardShortcut = {
   category: string;
 };
 
-export type KeyboardShortcutHandler = {
+type KeyboardShortcutHandler = {
   handler: () => void;
   shortcut: KeyboardShortcut;
 };
@@ -26,14 +26,14 @@ export const isMac = () => {
 /**
  * Gets the modifier key symbol for the current platform
  */
-export const getModifierKey = () => {
+const getModifierKey = () => {
   return isMac() ? "⌘" : "Ctrl";
 };
 
 /**
  * Formats a keyboard shortcut for display
  */
-export const formatShortcut = (shortcut: KeyboardShortcut): string => {
+const formatShortcut = (shortcut: KeyboardShortcut): string => {
   const parts: string[] = [];
 
   if (shortcut.metaKey || shortcut.ctrlKey) {
@@ -100,7 +100,7 @@ const matchesShortcut = (
  * Global keyboard shortcuts hook
  * Handles keyboard events and prevents conflicts with input fields
  */
-export const useKeyboardShortcuts = (
+const useKeyboardShortcuts = (
   shortcuts: KeyboardShortcutHandler[],
   enabled: boolean = true,
 ) => {
@@ -139,7 +139,7 @@ export const useKeyboardShortcuts = (
 /**
  * Hook to get all available keyboard shortcuts grouped by category
  */
-export const useAvailableShortcuts = (): Record<string, KeyboardShortcut[]> => {
+const useAvailableShortcuts = (): Record<string, KeyboardShortcut[]> => {
   const shortcuts: KeyboardShortcut[] = [
     // Navigation
     {

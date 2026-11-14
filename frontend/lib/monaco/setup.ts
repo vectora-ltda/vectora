@@ -73,5 +73,5 @@ prepareMonaco(monaco);
  * cai na extensão. Desconhecido → "plaintext" (ainda editável no Monaco). */
 export const languageFromPath = (path: string): string =>
   resolveLanguageFromPath(path, godotLanguages);
-export const languageFromFence = (label: string): string =>
+const languageFromFence = (label: string): string =>
   resolveLanguageFromFence(label, godotLanguages);

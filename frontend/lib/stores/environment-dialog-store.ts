@@ -17,7 +17,7 @@ import {
   type SettingsCategoryId,
 } from "./settings-overlay-store";
 
-export type EnvironmentTab = "provider_routing" | "integracoes" | "connect";
+type EnvironmentTab = "provider_routing" | "integracoes" | "connect";
 
 const CATEGORY_BY_TAB: Record<EnvironmentTab, SettingsCategoryId> = {
   integracoes: "integracoes",

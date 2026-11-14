@@ -4,7 +4,7 @@ import { SideColumn } from "@/components/layout/side-column";
 import { MOTION_INSTANT } from "@/lib/motion/transitions";
 import { WORKBENCH_WIDTH_TRANSITION } from "@/lib/layout/workbench-geometry";
 
-export type ShellColumnVisibility = "visible" | "collapsed" | "hidden";
+type ShellColumnVisibility = "visible" | "collapsed" | "hidden";
 
 interface ShellColumnStateBase {
   kind?: "standard" | "workbench";
@@ -42,7 +42,7 @@ export type ShellColumnState = ShellColumnStateBase &
       }
   );
 
-export interface ShellCenterColumnState {
+interface ShellCenterColumnState {
   label: string;
 }
 

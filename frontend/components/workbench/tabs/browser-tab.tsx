@@ -37,11 +37,6 @@ import {
   setBrowserSession,
 } from "@/lib/browser-session-store";
 
-export {
-  clearBrowserSessionCache,
-  getBrowserProfileId,
-} from "@/lib/browser-session-store";
-
 interface LaunchConfig {
   name: string;
   runtimeExecutable: string;

@@ -20,7 +20,7 @@ import { create } from "zustand";
 
 export type ToastLevel = "success" | "error" | "warning" | "info";
 
-export interface ToastAction {
+interface ToastAction {
   label: string;
   onClick: () => void | Promise<void>;
 }
@@ -136,4 +136,3 @@ export const useToastStore = create<ToastState>()((set, get) => ({
 }));
 
 // ActionResult moved to lib/types/async-state.ts — reexport for compatibility.
-export type { ActionResult } from "@/lib/types/async-state";

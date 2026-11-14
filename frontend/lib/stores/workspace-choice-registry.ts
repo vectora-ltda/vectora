@@ -27,7 +27,7 @@ function notify(threadId: string): void {
  * Inscreve um consumidor nas mudanças de escolha e devolve a função de cancelamento.
  * A notificação é limitada ao `threadId` informado.
  */
-export function subscribeWorkspaceChosen(
+function subscribeWorkspaceChosen(
   threadId: string,
   listener: () => void,
 ): () => void {

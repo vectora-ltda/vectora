@@ -74,6 +74,8 @@ jobs:
         run: uv run ruff format --check backend tests
       - name: Type check (ty)
         run: uv run ty check backend tests
+      - name: Python sem uso (vulture)
+        run: uv run --with vulture python utils/unused_code.py python
 
   # ── 2. Security Scanning ────────────────────────────────────────────────
   security:
@@ -128,6 +130,13 @@ jobs:
       - name: Lint (oxlint)
         working-directory: frontend
         run: pnpm exec oxlint --deny-warnings
+      - name: Arquivos, dependências e exports sem uso (knip)
+        working-directory: frontend
+        run: |
+          pnpm exec knip --production --include files,dependencies
+          pnpm exec knip --include exports,types,dependencies
+      - name: Páginas sem navegação
+        run: python3 utils/unused_code.py routes
       - name: Lint i18n (no hardcoded UI strings)
         working-directory: frontend
         env:

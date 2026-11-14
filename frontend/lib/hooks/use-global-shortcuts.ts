@@ -131,6 +131,6 @@ export function useGlobalShortcuts(shortcutMap: ShortcutMap): void {
  * Lista de todos os atalhos registrados ativos (para o cheatsheet C.30).
  * Retorna as chaves normalizadas (ex.: "ctrl+t", "ctrl+backslash").
  */
-export function getRegisteredShortcuts(): string[] {
+function getRegisteredShortcuts(): string[] {
   return [...handlers.keys()].filter((k) => (handlers.get(k)?.size ?? 0) > 0);
 }

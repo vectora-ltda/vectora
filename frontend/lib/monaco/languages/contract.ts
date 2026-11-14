@@ -1,6 +1,6 @@
 import type * as Monaco from "monaco-editor";
 
-export interface EngineLanguageSourceContract {
+interface EngineLanguageSourceContract {
   engine: string;
   version: string;
   files: readonly string[];

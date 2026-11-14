@@ -34,7 +34,7 @@ import {
 import { m } from "@/lib/paraglide/messages";
 import { disposeBrowserWorkspace } from "@/lib/browser-session-store";
 
-export type WorkspaceTransport = "local" | "ssh" | "codespace";
+type WorkspaceTransport = "local" | "ssh" | "codespace";
 
 export interface WorkspaceInfo {
   id: string;
@@ -54,7 +54,7 @@ export interface WorkspaceInfo {
   codespace_name?: string | null;
 }
 
-export interface DirEntry {
+interface DirEntry {
   name: string;
   path: string;
   is_dir: boolean;
@@ -81,7 +81,7 @@ export interface BrowseResult {
 export const DRIVES_PSEUDO_PATH = "__drives__";
 
 /** Resumo de uma safe-root para o painel de acesso rápido. */
-export interface SafeRootSummary {
+interface SafeRootSummary {
   id: string;
   path: string;
   label: string;

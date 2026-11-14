@@ -1,7 +1,7 @@
 import { SIDE_COLUMN_MIN_WIDTH } from "@/lib/layout/panel-geometry";
 
 /** Tailwind-aligned viewport breakpoints used by resizable side panels. */
-export const RESPONSIVE_PANEL_BREAKPOINTS = {
+const RESPONSIVE_PANEL_BREAKPOINTS = {
   sm: 640,
   md: 768,
   lg: 1024,

@@ -40,4 +40,3 @@ export * from "./chat";
 export * from "./string";
 
 // Logger
-export { logger } from "./logger";

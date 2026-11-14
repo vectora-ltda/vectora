@@ -12,7 +12,7 @@ import { useEffect, useState } from "react";
 import { colorizeLines } from "@/lib/monaco/colorize";
 import { languageFromPath } from "@/lib/monaco/languages";
 
-export const STATUS_TONE: Record<string, string> = {
+const STATUS_TONE: Record<string, string> = {
   M: "text-git-modification",
   A: "text-git-addition",
   D: "text-destructive",
@@ -113,4 +113,4 @@ export function HunkView({ hunk, path }: { hunk: DiffHunk; path?: string }) {
   );
 }
 
-export type { DiffFile, DiffHunk, DiffLine };
+export type { DiffHunk };

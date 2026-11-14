@@ -43,6 +43,20 @@ pnpm --dir frontend exec oxlint
 
 `scons lint` e `scons tests` rodam o conjunto completo a partir da raiz. Rode os checks da área que você mexeu e diga no PR o que rodou e o que não rodou. Mexeu em `.github/`? Veja [Mudanças em `.github/`](#mudanças-em-github): a mudança precisa passar pela simulação com o `gh` falso.
 
+## Código sem uso
+
+Três checks apontam o que nada alcança, no pre-commit e no CI (`utils/unused_code.py`):
+
+- **Frontend (knip):** arquivos, dependências e exports. O modo de produção parte só do `main` e das rotas, então um módulo que só um teste importa também é apontado. Remova o código ou passe a usá-lo; o `frontend/knip.jsonc` só lista o que o knip não enxerga (alvos de alias do vite, dependências lidas pelo CSS).
+- **Páginas sem navegação:** toda rota de `frontend/src/routes` precisa de uma navegação no código (`to:`, `href`, `navigate`, `router.replace`, redirect do backend). Uma página aberta de fora do app (link público, retorno de OAuth) é declarada com o motivo em `utils/route_entrypoints.json`; entrada que já tem navegação, ou de rota que não existe mais, também falha.
+- **Python (vulture):** funções, métodos e classes sem uso. `utils/unused_python_baseline.json` lista o que já existia e só encolhe: código novo sem uso falha, e uma entrada que deixou de aparecer precisa sair com `uv run --with vulture python utils/unused_code.py python --write-baseline`.
+
+```bash
+python utils/unused_code.py routes
+python utils/unused_code.py frontend
+uv run --with vulture python utils/unused_code.py python
+```
+
 ## Regras do código
 
 - **Testes primeiro:** um bug começa por um teste que o reproduz; uma funcionalidade nova traz pelo menos um teste do caminho feliz e um do caminho de erro.

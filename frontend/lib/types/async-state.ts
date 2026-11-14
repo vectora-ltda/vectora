@@ -26,7 +26,7 @@ export interface AsyncSlice {
 }
 
 /** Estado inicial — nada foi buscado ainda. */
-export const ASYNC_IDLE: AsyncSlice = { status: "idle", error: null };
+const ASYNC_IDLE: AsyncSlice = { status: "idle", error: null };
 
 /** Helpers para transições — usar dentro de `set()` nos stores. */
 export const asyncLoading = (): AsyncSlice => ({
@@ -48,7 +48,7 @@ export function hasLoaded(fetchedAt: number | null): boolean {
 }
 
 /** Mensagem de erro padrão quando a causa real não pôde ser determinada. */
-export const UNKNOWN_ASYNC_ERROR = "Falha inesperada. Tente novamente.";
+const UNKNOWN_ASYNC_ERROR = "Falha inesperada. Tente novamente.";
 
 /**
  * ActionResult<T> — resultado padronizado de ações assíncronas em stores.

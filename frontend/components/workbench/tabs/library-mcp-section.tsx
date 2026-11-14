@@ -68,7 +68,7 @@ async function uninstallMcp(mcpId: string): Promise<void> {
   });
 }
 
-export function connectorToLibraryItem(c: MCPConnector): LibraryItem {
+function connectorToLibraryItem(c: MCPConnector): LibraryItem {
   return { id: c.id, name: c.name, description: c.description };
 }
 

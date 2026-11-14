@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { FileContent } from "@/lib/stores/workbench-store";
 
-export interface EditorEntry {
+interface EditorEntry {
   workspaceId: string;
   path: string;
   dirty: boolean;

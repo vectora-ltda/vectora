@@ -32,7 +32,7 @@ export interface FileWindowState {
   zIndex: number;
 }
 
-export type CanvasDocumentKind =
+type CanvasDocumentKind =
   "file" | "file-diff" | "commit-details" | "plan" | "mcp-preview";
 
 export interface McpCanvasPreviewData {

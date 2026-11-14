@@ -330,7 +330,7 @@ const POLL_INTERVAL_MS = 30000;
 const SSE_URL = "/webhook/events";
 const SSE_RECONNECT_DELAY_MS = 3000;
 
-export interface KanbanDependency {
+interface KanbanDependency {
   id: string;
   name: string;
   status: string;
