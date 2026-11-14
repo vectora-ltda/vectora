@@ -103,20 +103,3 @@ async def ollama_web_search(
         for r in resultados
         if isinstance(r, dict)
     ]
-
-
-async def ollama_web_fetch(url: str, *, api_key: str, http_client: Any = None) -> dict:
-    """Extrai o conteúdo de uma URL via Ollama Cloud."""
-    if not (url or "").strip():
-        msg = "url vazia — nada a buscar"
-        raise ValueError(msg)
-
-    corpo = await _post(
-        "/api/web_fetch", {"url": url}, api_key=api_key, http_client=http_client
-    )
-    links = corpo.get("links")
-    return {
-        "title": str(corpo.get("title") or ""),
-        "content": str(corpo.get("content") or ""),
-        "links": links if isinstance(links, list) else [],
-    }

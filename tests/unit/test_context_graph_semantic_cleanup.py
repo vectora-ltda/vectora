@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 from backend.context_graph.semantic_cleanup import (
     MAX_SEMANTIC_FRAGMENT_BYTES,
     MAX_SEMANTIC_HYPEREDGE_NODES,
@@ -11,7 +9,6 @@ from backend.context_graph.semantic_cleanup import (
     _append_rationale_attr,
     _is_sentence_like_rationale_label,
     _validate_semantic_id,
-    load_validated_semantic_fragment,
     sanitize_semantic_fragment,
     validate_semantic_fragment,
 )
@@ -324,39 +321,6 @@ class TestValidateSemanticId:
 
 
 # ─────────────────────────── load_validated_semantic_fragment ────────────────
-
-
-class TestLoadValidatedFragment:
-    def test_valid_file(self, tmp_path) -> None:
-        p = tmp_path / "frag.json"
-        p.write_text(
-            json.dumps({"nodes": [{"id": "a", "file_type": "code"}], "edges": []}),
-            encoding="utf-8",
-        )
-        fragment, errors = load_validated_semantic_fragment(p)
-        assert errors == []
-        assert fragment is not None
-
-    def test_invalid_json(self, tmp_path) -> None:
-        p = tmp_path / "frag.json"
-        p.write_text("NOTJSON{", encoding="utf-8")
-        fragment, errors = load_validated_semantic_fragment(p)
-        assert fragment is None
-        assert any("invalid JSON" in e for e in errors)
-
-    def test_nonexistent_path(self, tmp_path) -> None:
-        fragment, errors = load_validated_semantic_fragment(tmp_path / "ghost.json")
-        assert fragment is None
-        assert any("could not stat" in e for e in errors)
-
-    def test_invalid_fragment_returns_none_with_errors(self, tmp_path) -> None:
-        p = tmp_path / "frag.json"
-        p.write_text(
-            json.dumps({"nodes": [{"id": "bad/id"}], "edges": []}), encoding="utf-8"
-        )
-        fragment, errors = load_validated_semantic_fragment(p)
-        assert fragment is None
-        assert errors
 
 
 # ─────────────────────────── _append_rationale_attr ──────────────────────────

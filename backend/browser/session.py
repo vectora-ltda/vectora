@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import uuid
 from collections import deque
 from collections.abc import Awaitable, Callable
@@ -602,12 +601,6 @@ def get_tab_state(workspace_id: str, tab_id: str | None = None) -> TabState | No
         return None
     resolved = tab_id or session["active_tab_id"]
     return session["tabs"].get(resolved)
-
-
-async def get_cdp_session(workspace_id: str, tab_id: str | None = None) -> Any:
-    """Sessão CDP da aba resolvida, ou `None` se a sessão/aba não existir."""
-    tab = get_tab_state(workspace_id, tab_id)
-    return tab.cdp if tab is not None else None
 
 
 def set_dialog_policy(

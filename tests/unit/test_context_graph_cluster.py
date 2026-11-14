@@ -138,33 +138,6 @@ class TestSplitCommunity:
         assert all(isinstance(p, list) for p in parts)
 
 
-class TestRemapCommunitiesToPrevious:
-    def test_preserves_ids_with_high_overlap(self):
-        from backend.context_graph.cluster import remap_communities_to_previous
-
-        communities = {0: ["a", "b", "c"], 1: ["d", "e"]}
-        previous = {"a": 5, "b": 5, "c": 5, "d": 7, "e": 7}
-        remapped = remap_communities_to_previous(communities, previous)
-        # Community 0 should map to old id 5 (highest overlap)
-        node_cid = {n: cid for cid, nodes in remapped.items() for n in nodes}
-        assert node_cid["a"] == node_cid["b"] == node_cid["c"]
-        assert node_cid["d"] == node_cid["e"]
-
-    def test_empty_communities_returns_empty(self):
-        from backend.context_graph.cluster import remap_communities_to_previous
-
-        assert remap_communities_to_previous({}, {}) == {}
-
-    def test_all_unmatched_gets_fresh_ids(self):
-        from backend.context_graph.cluster import remap_communities_to_previous
-
-        communities = {0: ["x", "y"], 1: ["z"]}
-        previous: dict[str, int] = {}  # no overlap
-        remapped = remap_communities_to_previous(communities, previous)
-        assert isinstance(remapped, dict)
-        assert sum(len(v) for v in remapped.values()) == 3
-
-
 class TestLabelCommunitiesByHub:
     def test_labels_by_highest_degree_member(self):
         from backend.context_graph.cluster import label_communities_by_hub
@@ -218,36 +191,3 @@ class TestLabelCommunitiesByHub:
         from backend.context_graph.cluster import label_communities_by_hub
 
         assert label_communities_by_hub(nx.Graph(), {}) == {}
-
-
-class TestCommunityMemberSigs:
-    def test_deterministic_across_node_order(self):
-        from backend.context_graph.cluster import community_member_sigs
-
-        sigs_a = community_member_sigs({0: ["a", "b", "c"]})
-        sigs_b = community_member_sigs({0: ["c", "a", "b"]})
-
-        assert sigs_a == sigs_b
-
-    def test_different_membership_yields_different_sig(self):
-        # Erro/borda: essa é a checagem que evita reusar um label antigo
-        # numa comunidade que já não é mais a mesma (stale label bug).
-        from backend.context_graph.cluster import community_member_sigs
-
-        sigs_before = community_member_sigs({0: ["a", "b", "c"]})
-        sigs_after = community_member_sigs({0: ["a", "b", "d"]})
-
-        assert sigs_before[0] != sigs_after[0]
-
-    def test_independent_of_cid_index(self):
-        from backend.context_graph.cluster import community_member_sigs
-
-        sigs_a = community_member_sigs({0: ["a", "b"]})
-        sigs_b = community_member_sigs({7: ["a", "b"]})
-
-        assert sigs_a[0] == sigs_b[7]
-
-    def test_empty_communities_returns_empty_dict(self):
-        from backend.context_graph.cluster import community_member_sigs
-
-        assert community_member_sigs({}) == {}

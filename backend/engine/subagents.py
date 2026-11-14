@@ -79,7 +79,6 @@ from backend.engine.conversation_loop import LoopConfig, run_conversation
 from backend.engine.stream_events import MessageChunk, SubagentOutput
 from backend.persistence.native.agent_run import AgentRunStatus
 from backend.rbac import tool_policy
-from backend.services.egress_policy import EgressPolicy
 from backend.services.policy_compiler import (
     DESTRUCTIVE_TOOLS,
     PolicySnapshot,
@@ -633,13 +632,3 @@ async def _run_subagent_once(
         )
 
     return texto
-
-
-def spawn_subagent_background(
-    spec: SubagentSpec, prompt: str, **kwargs: Any
-) -> asyncio.Task[str]:
-    """Dispara `run_subagent` em segundo plano via `asyncio.create_task` —
-    nunca thread OS. Devolve a `asyncio.Task[str]` pra
-    quem chamou decidir se/quando esperar (ex.: `await` direto pra
-    delegação síncrona, ou nunca esperar pra fire-and-forget real)."""
-    return asyncio.create_task(run_subagent(spec, prompt, **kwargs))

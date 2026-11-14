@@ -49,14 +49,6 @@ def test_close_unknown_returns_false():
     assert reg.close("nao") is False
 
 
-def test_list_for_thread_filters():
-    reg = PtyRegistry()
-    reg.add(_FakeSession("a", thread_id="t1"))  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-    reg.add(_FakeSession("b", thread_id="t1"))  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-    reg.add(_FakeSession("c", thread_id="t2"))  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-    assert {s.terminal_id for s in reg.list_for_thread("t1")} == {"a", "b"}
-
-
 def test_list_for_user_workspace_prioriza_anexo_mais_recente() -> None:
     reg = PtyRegistry()
     older = _FakeSession("older", thread_id="shared")
@@ -69,28 +61,6 @@ def test_list_for_user_workspace_prioriza_anexo_mais_recente() -> None:
     assert [session.terminal_id for session in sessions] == ["newer", "older"]
 
 
-def test_resolve_for_context_requires_thread_and_workspace():
-    reg = PtyRegistry()
-    session = _FakeSession("a", thread_id="t1", workspace_id="ws1")
-    reg.add(session)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-    assert (
-        reg.resolve_for_context("a", user_id="u1", thread_id="t1", workspace_id="ws1")
-        is session
-    )
-    assert (
-        reg.resolve_for_context("a", user_id="u1", thread_id="t2", workspace_id="ws1")
-        is None
-    )
-    assert (
-        reg.resolve_for_context("a", user_id="u1", thread_id="t1", workspace_id="ws2")
-        is None
-    )
-    assert (
-        reg.resolve_for_context("a", user_id="u1", thread_id="", workspace_id="ws1")
-        is None
-    )
-
-
 def test_close_all_clears():
     reg = PtyRegistry()
     a, b = _FakeSession("a"), _FakeSession("b")
@@ -101,22 +71,3 @@ def test_close_all_clears():
     assert b.closed
     assert reg.get("a") is None
     assert reg.get("b") is None
-
-
-def test_user_isolation_and_closed_state() -> None:
-    reg = PtyRegistry()
-    session = _FakeSession("a", user_id="owner")
-    reg.add(session)  # type: ignore[arg-type]  # ty: ignore[invalid-argument-type]
-    assert (
-        reg.resolve_for_context(
-            "a", user_id="other", thread_id="t1", workspace_id="ws1"
-        )
-        is None
-    )
-    assert reg.close("a") is True
-    assert reg.was_closed_for_context(
-        "a", user_id="owner", thread_id="t1", workspace_id="ws1"
-    )
-    assert not reg.was_closed_for_context(
-        "a", user_id="other", thread_id="t1", workspace_id="ws1"
-    )

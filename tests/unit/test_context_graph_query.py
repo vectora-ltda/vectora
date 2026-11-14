@@ -2,15 +2,9 @@
 
 from __future__ import annotations
 
-import json
-from pathlib import Path
-
-import networkx as nx
-
 from backend.context_graph.query import (
     affected_summary,
     explain_node,
-    load_graph_nx,
     path_between,
     query_nodes,
 )
@@ -70,23 +64,6 @@ def _sample_data() -> dict:
 
 
 # ─────────────────────────── load_graph_nx ───────────────────────────────────
-
-
-class TestLoadGraphNx:
-    def test_loads_from_json_file(self, tmp_path: Path) -> None:
-        data = _sample_data()
-        graph_file = tmp_path / "graph.json"
-        graph_file.write_text(json.dumps(data), encoding="utf-8")
-        g = load_graph_nx(graph_file)
-        assert g.number_of_nodes() == 4
-        assert g.number_of_edges() == 3
-
-    def test_returns_digraph(self, tmp_path: Path) -> None:
-        data = _sample_data()
-        graph_file = tmp_path / "graph.json"
-        graph_file.write_text(json.dumps(data), encoding="utf-8")
-        g = load_graph_nx(graph_file)
-        assert isinstance(g, nx.DiGraph)
 
 
 # ─────────────────────────── query_nodes ─────────────────────────────────────
@@ -211,25 +188,6 @@ class TestAffectedSummary:
 
 
 # ─────────────────────────── load_graph_nx (extras) ──────────────────────────
-
-
-class TestLoadGraphNxExtra:
-    def test_handles_links_key(self, tmp_path: Path) -> None:
-        data = {
-            "directed": True,
-            "nodes": [{"id": "a"}, {"id": "b"}],
-            "links": [{"source": "a", "target": "b", "relation": "calls"}],
-        }
-        gf = tmp_path / "graph.json"
-        gf.write_text(json.dumps(data), encoding="utf-8")
-        g = load_graph_nx(gf)
-        assert g.has_edge("a", "b")
-
-    def test_empty_graph(self, tmp_path: Path) -> None:
-        gf = tmp_path / "graph.json"
-        gf.write_text(json.dumps({"nodes": [], "edges": []}), encoding="utf-8")
-        g = load_graph_nx(gf)
-        assert g.number_of_nodes() == 0
 
 
 # ─────────────────────────── query_nodes (extras) ────────────────────────────

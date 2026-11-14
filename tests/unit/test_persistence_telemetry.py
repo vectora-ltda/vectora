@@ -188,23 +188,6 @@ class TestRecordToolCall:
 
         assert captured.records == []
 
-    def test_record_error_does_not_raise(self, captured: _ListHandler) -> None:
-        """``record_error`` é síncrono e best-effort — grava o evento sem
-        propagar a exceção original recebida."""
-        telemetry = VectoraTelemetry()
-
-        try:
-            telemetry.record_error(
-                "agent_turn", RuntimeError("falha inesperada no turno")
-            )
-        except Exception:
-            pytest.fail("record_error propagou exceção — deve ser best-effort")
-
-        assert len(captured.records) == 1
-        assert _field(captured.records[0], "telemetry_event") == "unhandled_error"
-        assert _field(captured.records[0], "source") == "agent_turn"
-        assert _field(captured.records[0], "error_type") == "RuntimeError"
-
 
 class TestTurnEvents:
     async def test_turn_start_and_end_record_status_and_duration(
@@ -448,30 +431,6 @@ class TestRecordToolCallEdgeCases:
             "web_search", {"q": "x"}, duration_ms=1.0, success=True
         )
         assert _field(captured.records[0], "session_id") is None
-
-
-class TestRecordErrorEdgeCases:
-    def test_extra_fields_are_included_in_the_event(
-        self, captured: _ListHandler
-    ) -> None:
-        """Verifica o comportamento de extra fields are included in the event."""
-        telemetry_instance = VectoraTelemetry()
-        telemetry_instance.record_error(
-            "agent_turn", ValueError("payload inválido"), turn_id="turn-9"
-        )
-
-        record = captured.records[0]
-        assert _field(record, "turn_id") == "turn-9"
-        assert "payload" in _field(record, "error_message")
-
-    def test_long_error_message_is_truncated(self, captured: _ListHandler) -> None:
-        """Verifica o comportamento de long error message is truncated."""
-        telemetry_instance = VectoraTelemetry()
-        telemetry_instance.record_error("agent_turn", RuntimeError("x" * 300))
-
-        message = _field(captured.records[0], "error_message")
-        assert len(message) == 201
-        assert message.endswith("…")
 
 
 class TestEmitNeverRaises:

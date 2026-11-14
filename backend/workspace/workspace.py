@@ -266,12 +266,6 @@ class WorkspaceRegistry:
         logger.info("Workspace confiado: %s (%s) by=%s", ws.name, workspace_id, user_id)
         return True
 
-    def is_trusted(self, workspace_id: str) -> bool:
-        """True se o workspace existe e foi marcado como confiável."""
-        self._load()
-        ws = self._workspaces.get(workspace_id)
-        return ws is not None and ws.trusted
-
     @staticmethod
     def _current_rules_digest(cwd: str) -> str | None:
         """Digest dos hooks atuais (regras e ``post_file_write``); ``None`` sem hooks."""
@@ -542,9 +536,3 @@ async def acquire_workspace_lock(
         yield
     finally:
         lock.release()
-
-
-def is_workspace_locked(workspace_id: str, thread_id: str) -> bool:
-    """Indica se o par já tem uma operação em andamento (não bloqueia)."""
-    lock = _workspace_locks.get(_lock_key(workspace_id, thread_id))
-    return lock is not None and lock.locked()

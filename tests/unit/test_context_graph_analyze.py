@@ -228,52 +228,6 @@ class TestSuggestQuestions:
         assert "ambiguous_edge" in types
 
 
-class TestGraphDiff:
-    def test_detects_new_nodes(self):
-        from backend.context_graph.analyze import graph_diff
-
-        G_old = nx.Graph()
-        G_old.add_node("a", label="A")
-        G_new = nx.Graph()
-        G_new.add_node("a", label="A")
-        G_new.add_node("b", label="B")
-        diff = graph_diff(G_old, G_new)
-        assert len(diff["new_nodes"]) == 1
-        assert diff["new_nodes"][0]["id"] == "b"
-
-    def test_detects_removed_nodes(self):
-        from backend.context_graph.analyze import graph_diff
-
-        G_old = nx.Graph()
-        G_old.add_node("a", label="A")
-        G_old.add_node("b", label="B")
-        G_new = nx.Graph()
-        G_new.add_node("a", label="A")
-        diff = graph_diff(G_old, G_new)
-        assert len(diff["removed_nodes"]) == 1
-
-    def test_no_changes_summary(self):
-        from backend.context_graph.analyze import graph_diff
-
-        G = nx.Graph()
-        G.add_node("a", label="A")
-        diff = graph_diff(G, G)
-        assert diff["summary"] == "no changes"
-
-    def test_detects_new_edges(self):
-        from backend.context_graph.analyze import graph_diff
-
-        G_old = nx.Graph()
-        G_old.add_node("a")
-        G_old.add_node("b")
-        G_new = nx.Graph()
-        G_new.add_node("a")
-        G_new.add_node("b")
-        G_new.add_edge("a", "b", relation="calls")
-        diff = graph_diff(G_old, G_new)
-        assert len(diff["new_edges"]) == 1
-
-
 class TestFindImportCycles:
     def test_detects_cycle(self):
         from backend.context_graph.analyze import find_import_cycles

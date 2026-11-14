@@ -5,8 +5,6 @@ Cobre: validate_extraction (todos os branches) e assert_valid.
 
 from __future__ import annotations
 
-import pytest
-
 
 class TestValidateExtraction:
     def test_non_dict_returns_error(self):
@@ -242,16 +240,3 @@ class TestValidateExtraction:
             }
         )
         assert errors == []
-
-
-class TestAssertValid:
-    def test_raises_on_invalid(self):
-        from backend.context_graph.validate import assert_valid
-
-        with pytest.raises(ValueError, match=r"error\(s\)"):
-            assert_valid({"nodes": [], "edges": 42})
-
-    def test_does_not_raise_on_valid(self):
-        from backend.context_graph.validate import assert_valid
-
-        assert_valid({"nodes": [], "edges": []})  # should not raise

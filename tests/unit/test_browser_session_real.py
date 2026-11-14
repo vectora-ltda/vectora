@@ -144,28 +144,6 @@ async def test_close_browser_session_workspace_inexistente_e_noop():
 
 
 @pytest.mark.asyncio
-async def test_new_tab_cria_segunda_aba_com_cdp_session_propria():
-    first_page = await browser_session.get_browser_page("ws-tabs-1")
-    await first_page.goto("about:blank")
-
-    second_tab_id = await _new_tab_or_assert_workbench_capability(
-        "ws-tabs-1", "about:blank"
-    )
-    if second_tab_id is None:
-        return
-
-    tabs = await browser_session.list_tabs("ws-tabs-1")
-    assert len(tabs) == 2
-    assert any(t["tab_id"] == second_tab_id and t["active"] for t in tabs)
-
-    cdp_first = await browser_session.get_cdp_session(
-        "ws-tabs-1", tabs[0]["tab_id"] if tabs[0]["tab_id"] != second_tab_id else None
-    )
-    cdp_second = await browser_session.get_cdp_session("ws-tabs-1", second_tab_id)
-    assert cdp_first is not cdp_second
-
-
-@pytest.mark.asyncio
 async def test_select_tab_troca_a_aba_ativa():
     first_page = await browser_session.get_browser_page("ws-tabs-2")
     await first_page.goto("about:blank")

@@ -114,40 +114,6 @@ async def test_request_raises_when_worker_closes_stdout(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_close_idle_terminates_stale_workers_and_respawns(tmp_path, monkeypatch):
-    proc = _fake_proc()
-    spawn_mock = AsyncMock(return_value=proc)
-    monkeypatch.setattr(wj.asyncio, "create_subprocess_exec", spawn_mock)
-    manager = wj.WorkspaceJailManager(idle_timeout_s=0.0)
-    policy = SandboxPolicy(enabled=True)
-
-    worker = await manager.get_or_spawn("ws-1", str(tmp_path), policy)
-    worker.last_used -= 1.0  # força "ocioso"
-
-    await manager.close_idle()
-    proc.terminate.assert_called_once()
-
-    await manager.get_or_spawn("ws-1", str(tmp_path), policy)
-    assert spawn_mock.await_count == 2
-
-
-@pytest.mark.asyncio
-async def test_close_idle_keeps_recently_used_workers(tmp_path, monkeypatch):
-    proc = _fake_proc()
-    spawn_mock = AsyncMock(return_value=proc)
-    monkeypatch.setattr(wj.asyncio, "create_subprocess_exec", spawn_mock)
-    manager = wj.WorkspaceJailManager(idle_timeout_s=600.0)
-    policy = SandboxPolicy(enabled=True)
-
-    await manager.get_or_spawn("ws-1", str(tmp_path), policy)
-    await manager.close_idle()
-
-    proc.terminate.assert_not_called()
-    await manager.get_or_spawn("ws-1", str(tmp_path), policy)
-    spawn_mock.assert_awaited_once()
-
-
-@pytest.mark.asyncio
 async def test_spawn_aplica_seccomp_fd_quando_filtro_disponivel(tmp_path, monkeypatch):
     proc = _fake_proc()
     spawn_mock = AsyncMock(return_value=proc)

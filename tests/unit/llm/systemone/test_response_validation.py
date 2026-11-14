@@ -155,38 +155,3 @@ def test_invalid_envelopes_are_safe(payload: object) -> None:
     )
     with pytest.raises(SystemOneValidationError, match=r"^systemone_invalid_response$"):
         parse_systemone_response(payload, request, provider="test", latency_ms=1)
-
-
-@pytest.mark.parametrize(
-    "adapter",
-    [
-        ClefLocalAdapter(),
-        ClefApiAdapter(api_key="test", account_id="test-account"),
-        JevApiAdapter(api_key="test"),
-    ],
-)
-async def test_http_errors_do_not_expose_response_body(
-    adapter: ClefLocalAdapter | ClefApiAdapter | JevApiAdapter,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """Provider bodies must not appear in returned policy reasons or logs."""
-
-    async def post(*args: object, **kwargs: object) -> httpx.Response:
-        """Executa a operação post."""
-        return httpx.Response(400, text="secret-state-and-credential")
-
-    monkeypatch.setattr(httpx.AsyncClient, "post", post)
-    request = SystemOneRequest(
-        model="test",
-        state="private",
-        questions={
-            "q": ScoreQuestion(criterion="test"),
-        },
-    )
-    result = await DecisionPolicyEngine(
-        SystemOneSettings(enabled=True)
-    ).execute_decision(adapter, request)
-    assert result.requires_hitl
-    assert "secret-state-and-credential" not in result.reason
-    assert "secret-state-and-credential" not in caplog.text

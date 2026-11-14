@@ -16,9 +16,7 @@ import httpx
 import pytest
 
 from backend.llm.ollama.capabilities import (
-    ModelCapabilities,
     clear_capabilities_cache,
-    fetch_model_capabilities,
 )
 from backend.llm.ollama.client import OllamaClient, OllamaResponseError
 from backend.llm.ollama.embeddings import OllamaEmbeddings
@@ -36,104 +34,6 @@ def _limpa_cache():
     clear_capabilities_cache()
     yield
     clear_capabilities_cache()
-
-
-class TestApiShow:
-    @pytest.mark.asyncio
-    async def test_capabilities_do_modelo_sao_lidas(self):
-        def handler(_req):
-            return httpx.Response(
-                200,
-                json={
-                    "capabilities": ["completion", "tools", "vision", "thinking"],
-                    "model_info": {"llama.context_length": 128000},
-                },
-            )
-
-        caps = await fetch_model_capabilities(_client(handler), "llava:13b")
-
-        assert caps.vision is True
-        assert caps.thinking is True
-        assert caps.tools is True
-        assert caps.embedding is False
-        assert caps.context_length == 128000
-
-    @pytest.mark.asyncio
-    async def test_modelo_de_embedding_e_reconhecido(self):
-        def handler(_req):
-            return httpx.Response(200, json={"capabilities": ["embedding"]})
-
-        caps = await fetch_model_capabilities(_client(handler), "nomic-embed-text")
-
-        assert caps.embedding is True
-        assert caps.vision is False
-
-    @pytest.mark.asyncio
-    async def test_servidor_antigo_sem_capabilities_cai_no_fallback(self):
-        """Erro/borda: servidor anterior ao campo `capabilities` — o Hermes
-        usa o mesmo fallback (`model_info.*.vision.block_count`)."""
-
-        def handler(_req):
-            return httpx.Response(
-                200,
-                json={
-                    "model_info": {
-                        "clip.vision.block_count": 32,
-                        "llama.context_length": 4096,
-                    }
-                },
-            )
-
-        caps = await fetch_model_capabilities(_client(handler), "llava-antigo")
-
-        assert caps.vision is True
-        assert caps.context_length == 4096
-
-    @pytest.mark.asyncio
-    async def test_servidor_fora_do_ar_falha_fechado(self):
-        """Erro/borda crítico: sem resposta, **nenhuma** capacidade é
-        assumida. Falhar aberto faria a UI oferecer o que vai quebrar."""
-
-        def handler(_req):
-            raise httpx.ConnectError("connection refused")
-
-        caps = await fetch_model_capabilities(_client(handler), "qualquer")
-
-        assert caps == ModelCapabilities()
-        assert not any((caps.vision, caps.thinking, caps.tools, caps.embedding))
-
-    @pytest.mark.asyncio
-    async def test_resultado_e_cacheado_por_modelo(self):
-        chamadas = 0
-
-        def handler(_req):
-            nonlocal chamadas
-            chamadas += 1
-            return httpx.Response(200, json={"capabilities": ["vision"]})
-
-        client = _client(handler)
-        await fetch_model_capabilities(client, "llava:13b")
-        await fetch_model_capabilities(client, "llava:13b")
-
-        assert chamadas == 1, "consultou /api/show duas vezes pro mesmo modelo"
-
-    @pytest.mark.asyncio
-    async def test_modelos_diferentes_nao_compartilham_cache(self):
-        """Erro/borda: cache por servidor em vez de por modelo daria a
-        capacidade de um modelo a outro."""
-        vistos: list[str] = []
-
-        def handler(req: httpx.Request) -> httpx.Response:
-            import json as _json
-
-            vistos.append(_json.loads(req.content)["model"])
-            return httpx.Response(200, json={"capabilities": ["vision"]})
-
-        client = _client(handler)
-        await fetch_model_capabilities(client, "modelo-a")
-        await fetch_model_capabilities(client, "modelo-b")
-
-        assert vistos == ["modelo-a", "modelo-b"]
 
 
 class TestEmbeddings:

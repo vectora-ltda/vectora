@@ -20,17 +20,6 @@ def _provider_for_model(model: str) -> str:
     return normalized if normalized in PROVIDER_API_KEY_ENV else raw_provider
 
 
-async def resolve_media_billing_source(user_id: str, model: str) -> str | None:
-    """Resolve a trusted BYOK marker for a user and model pair."""
-    if user_id == "local":
-        return None
-    provider = _provider_for_model(model)
-    key_name = PROVIDER_API_KEY_ENV.get(provider)
-    if not key_name:
-        return None
-    return "byok" if await resolve_media_credential(user_id, model) else None
-
-
 async def resolve_media_credential(user_id: str, model: str) -> str | None:
     """Return the authenticated user's provider credential, if configured."""
     if user_id == "local":

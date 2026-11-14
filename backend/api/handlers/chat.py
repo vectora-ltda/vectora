@@ -222,15 +222,6 @@ _EXT_BY_MIME: dict[str, str] = {
 }
 
 
-def _mime_to_lang(filename: str) -> str:
-    """Detecta a linguagem de programação pela extensão do arquivo.
-
-    Retorna string vazia se não reconhecido (ex: PDF, binários).
-    """
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    return _EXT_TO_LANG.get(ext, "")
-
-
 def _resolve_provider(model_spec: str) -> str:
     """Extrai o provider (``google_genai``, ``cohere`` etc.) do valor já
     normalizado em ``configurable["model"]``. Sem escolha explícita de

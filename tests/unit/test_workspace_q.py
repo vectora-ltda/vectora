@@ -56,12 +56,6 @@ class TestTrust:
     def test_trust_unknown_returns_false(self, reg):
         assert reg.trust("naoexiste", "user1") is False
 
-    def test_is_trusted(self, reg, tmp_path):
-        ws = reg.get_or_create(str(tmp_path))
-        assert reg.is_trusted(ws.id) is False
-        reg.trust(ws.id)
-        assert reg.is_trusted(ws.id) is True
-
     def test_create_with_trust(self, reg, tmp_path):
         ws = reg.create(str(tmp_path), trust=True, user_id="u")
         assert ws.trusted is True

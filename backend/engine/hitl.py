@@ -694,40 +694,6 @@ _NON_TOOL_REVIEW_RECORDS: deque[dict[str, Any]] = deque(
 )
 
 
-def record_non_tool_review_request(
-    *,
-    workspace_id: str,
-    consumer: str,
-    pattern_id: str,
-    decision_id: str,
-    state_version: str,
-    reason: str,
-) -> dict[str, Any]:
-    """Registra em memória (buffer circular limitado ao processo atual) revisão para decisões sem tool call."""
-    record = {
-        "workspace_id": workspace_id,
-        "consumer": consumer,
-        "pattern_id": pattern_id,
-        "decision_id": decision_id,
-        "state_version": state_version,
-        "reason": reason,
-        "status": "pending_review",
-    }
-    _NON_TOOL_REVIEW_RECORDS.append(record)
-    return dict(record)
-
-
-def list_non_tool_review_requests(
-    workspace_id: str | None = None,
-) -> list[dict[str, Any]]:
-    """Lista registros de revisão pendentes para consumidores que não usam tool calls."""
-    if workspace_id is None:
-        return [dict(r) for r in _NON_TOOL_REVIEW_RECORDS]
-    return [
-        dict(r) for r in _NON_TOOL_REVIEW_RECORDS if r["workspace_id"] == workspace_id
-    ]
-
-
 class ApprovalGate:
     """1 instância por processo. `request_approval` persiste IMEDIATA e
     SINCRONAMENTE em `pending_approvals` (o que sobrevive a restart) — o

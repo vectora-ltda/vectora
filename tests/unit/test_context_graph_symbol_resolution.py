@@ -97,37 +97,6 @@ class TestNodeIsResolvableSymbol:
         assert node_is_resolvable_symbol({"id": "n", "label": "fn"}) is False
 
 
-class TestBuildLabelIndex:
-    def test_indexes_code_nodes(self):
-        from backend.context_graph.symbol_resolution import build_label_index
-
-        nodes = [_code_node("n1", "authenticate"), _code_node("n2", "Login")]
-        idx = build_label_index(nodes)
-        assert "authenticate" in idx
-        assert "n1" in idx["authenticate"]
-
-    def test_skips_non_code(self):
-        from backend.context_graph.symbol_resolution import build_label_index
-
-        nodes = [{"id": "n", "label": "Heading", "file_type": "document"}]
-        idx = build_label_index(nodes)
-        assert len(idx) == 0
-
-    def test_multiple_nodes_same_label(self):
-        from backend.context_graph.symbol_resolution import build_label_index
-
-        nodes = [_code_node("n1", "fn", "a.py"), _code_node("n2", "fn", "b.py")]
-        idx = build_label_index(nodes)
-        assert len(idx["fn"]) == 2
-
-    def test_node_without_id_skipped(self):
-        from backend.context_graph.symbol_resolution import build_label_index
-
-        nodes = [{"label": "fn", "file_type": "code", "source_file": "a.py"}]
-        idx = build_label_index(nodes)
-        assert len(idx) == 0
-
-
 class TestExistingEdgePairs:
     def test_basic_pairs(self):
         from backend.context_graph.symbol_resolution import existing_edge_pairs
@@ -150,34 +119,6 @@ class TestExistingEdgePairs:
         from backend.context_graph.symbol_resolution import existing_edge_pairs
 
         assert existing_edge_pairs([]) == set()
-
-
-class TestIterRawCalls:
-    def test_basic_iteration(self):
-        from backend.context_graph.symbol_resolution import iter_raw_calls
-
-        per_file = [{"raw_calls": [{"callee": "fn", "caller_nid": "m"}]}]
-        result = iter_raw_calls(per_file)
-        assert len(result) == 1
-        assert result[0]["callee"] == "fn"
-
-    def test_non_dict_skipped(self):
-        from backend.context_graph.symbol_resolution import iter_raw_calls
-
-        result = iter_raw_calls(["not-a-dict", None, {"raw_calls": []}])
-        assert result == []
-
-    def test_non_list_raw_calls_skipped(self):
-        from backend.context_graph.symbol_resolution import iter_raw_calls
-
-        result = iter_raw_calls([{"raw_calls": "not-a-list"}])
-        assert result == []
-
-    def test_non_dict_items_inside_list_skipped(self):
-        from backend.context_graph.symbol_resolution import iter_raw_calls
-
-        result = iter_raw_calls([{"raw_calls": ["bad", {"callee": "ok"}]}])
-        assert len(result) == 1
 
 
 class TestModuleStem:
@@ -389,91 +330,3 @@ class TestFindUniquePythonSymbol:
         )
         result = find_unique_python_symbol({}, sym)
         assert result is None
-
-
-class TestResolvePythonImportGuidedCalls:
-    def test_resolves_call_via_import(self, tmp_path: Path):
-        from backend.context_graph.symbol_resolution import (
-            resolve_python_import_guided_calls,
-        )
-
-        consumer = tmp_path / "consumer.py"
-        consumer.write_text("from auth import authenticate\n", encoding="utf-8")
-
-        nodes = [
-            _code_node("auth_authenticate", "authenticate", str(tmp_path / "auth.py")),
-            _code_node("consumer_main", "main", str(consumer)),
-        ]
-        per_file: list[dict] = [
-            {
-                "raw_calls": [
-                    {
-                        "callee": "authenticate",
-                        "caller_nid": "consumer_main",
-                        "is_member_call": False,
-                    }
-                ]
-            }
-        ]
-        edges = resolve_python_import_guided_calls(per_file, [consumer], nodes, [])
-        assert any(
-            e["source"] == "consumer_main" and e["target"] == "auth_authenticate"
-            for e in edges
-        )
-
-    def test_skips_member_calls(self, tmp_path: Path):
-        from backend.context_graph.symbol_resolution import (
-            resolve_python_import_guided_calls,
-        )
-
-        consumer = tmp_path / "consumer.py"
-        consumer.write_text("from auth import obj\n", encoding="utf-8")
-
-        nodes = [_code_node("auth_obj", "obj", str(tmp_path / "auth.py"))]
-        per_file: list[dict] = [
-            {
-                "raw_calls": [
-                    {"callee": "obj", "caller_nid": "main", "is_member_call": True}
-                ]
-            }
-        ]
-        edges = resolve_python_import_guided_calls(per_file, [consumer], nodes, [])
-        assert len(edges) == 0
-
-    def test_skips_non_python_files(self, tmp_path: Path):
-        from backend.context_graph.symbol_resolution import (
-            resolve_python_import_guided_calls,
-        )
-
-        ts_file = tmp_path / "app.ts"
-        ts_file.write_text("import { fn } from './lib';\n", encoding="utf-8")
-        nodes: list[dict] = []
-        edges = resolve_python_import_guided_calls([], [ts_file], nodes, [])
-        assert edges == []
-
-    def test_no_duplicate_edges(self, tmp_path: Path):
-        from backend.context_graph.symbol_resolution import (
-            resolve_python_import_guided_calls,
-        )
-
-        consumer = tmp_path / "consumer.py"
-        consumer.write_text("from auth import authenticate\n", encoding="utf-8")
-        nodes = [_code_node("auth_fn", "authenticate", str(tmp_path / "auth.py"))]
-        existing = [
-            {"source": "consumer_main", "target": "auth_fn", "relation": "calls"}
-        ]
-        per_file: list[dict] = [
-            {
-                "raw_calls": [
-                    {
-                        "callee": "authenticate",
-                        "caller_nid": "consumer_main",
-                        "is_member_call": False,
-                    }
-                ]
-            }
-        ]
-        edges = resolve_python_import_guided_calls(
-            per_file, [consumer], nodes, existing
-        )
-        assert len(edges) == 0

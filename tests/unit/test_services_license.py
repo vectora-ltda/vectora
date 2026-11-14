@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -55,70 +55,6 @@ class TestBootstrapVectoraHome:
         assert lic._bootstrap_vectora_home() == Path.home() / "vectora-license"
 
 
-def test_bypass_returns_active_pro(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VECTORA_LICENSE_BYPASS", "1")
-    info = lic.validate_license_sync()
-    assert info.tier == "pro"
-    assert info.status == "active"
-    assert info.days_remaining > 300
-
-
-def test_missing_token_returns_free_tier() -> None:
-    """Sem VECTORA_TOKEN → tier free direto (uso local, sem conta), não erro."""
-    info = lic.validate_license_sync()
-    assert info.tier == "free"
-    assert info.status == "active"
-    assert info.cached is False
-
-
-def test_missing_token_writes_cache() -> None:
-    """O status free é escrito no cache — sem isso, get_current_tier()/GET
-    /license/status veriam tier=None (não free) até a 1ª validação com token,
-    quebrando o gating de subscription logo após o boot (par de erro)."""
-    assert not lic.CACHE_PATH.exists()
-    lic.validate_license_sync()
-    assert lic.CACHE_PATH.exists()
-    cached = lic.read_cached_status()
-    assert cached is not None
-    assert cached.tier == "free"
-
-
-def test_cache_fresh_returns_cached(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VECTORA_TOKEN", "tok_abc")
-    _write_cache_fixture(
-        {
-            "tier": "free",
-            "status": "active",
-            "days_remaining": 25,
-            "expires_at": "2027-01-01",
-            "validated_at": datetime.now(UTC).isoformat(),
-        }
-    )
-    info = lic.validate_license_sync()
-    assert info.cached is True
-    assert info.tier == "free"
-    assert info.days_remaining == 25
-
-
-def test_cache_stale_offline_within_48h(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Cache ficou >6h mas <48h → ainda devolve em modo offline graceful."""
-    monkeypatch.setenv("VECTORA_TOKEN", "tok_abc")
-    monkeypatch.setenv("VECTORA_LICENSE_URL", "http://127.0.0.1:1/should-fail")
-    stale = (datetime.now(UTC) - timedelta(hours=10)).isoformat()
-    _write_cache_fixture(
-        {
-            "tier": "free",
-            "status": "active",
-            "days_remaining": 25,
-            "expires_at": "2027-01-01",
-            "validated_at": stale,
-        }
-    )
-    info = lic.validate_license_sync()
-    assert info.cached is True
-    assert info.status == "active"
-
-
 class _FakeResponse:
     """Resposta httpx mínima para simular a edge function."""
 
@@ -149,41 +85,6 @@ def _patch_remote(
             return _FakeResponse(payload, status_code)
 
     monkeypatch.setattr(lic.httpx, "AsyncClient", _FakeClient)
-
-
-def test_remote_valid_false_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Edge function responde 200 {valid: false} → LicenseError (não 'active')."""
-    monkeypatch.setenv("VECTORA_TOKEN", "tok_invalido")
-    _patch_remote(monkeypatch, {"valid": False, "reason": "not_found"})
-    with pytest.raises(lic.LicenseError, match="inválido"):
-        lic.validate_license_sync()
-
-
-def test_remote_valid_false_expired_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VECTORA_TOKEN", "tok_abc")
-    _patch_remote(monkeypatch, {"valid": False, "reason": "expired"})
-    with pytest.raises(lic.LicenseError, match="expirada"):
-        lic.validate_license_sync()
-
-
-def test_remote_valid_true_parses_fields(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("VECTORA_TOKEN", "tok_abc")
-    _patch_remote(
-        monkeypatch,
-        {
-            "valid": True,
-            "reason": "valid",
-            "tier": "pro",
-            "status": "trial",
-            "days_remaining": 12,
-            "expires_at": "2026-06-23",
-        },
-    )
-    info = lic.validate_license_sync()
-    assert info.tier == "pro"
-    assert info.status == "trial"
-    assert info.days_remaining == 12
-    assert info.cached is False
 
 
 def test_force_skips_fresh_cache(monkeypatch: pytest.MonkeyPatch) -> None:

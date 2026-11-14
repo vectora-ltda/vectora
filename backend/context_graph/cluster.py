@@ -59,7 +59,7 @@ def _partition(G: nx.Graph, resolution: float = 1.0) -> dict[str, int]:
         if "resolution" in lsig:
             kwargs["resolution"] = resolution
         # Suppress graspologic output to prevent ANSI escape codes from
-        # corrupting PowerShell 5.1 scroll buffer (issue #19)
+        # corrupting PowerShell 5.1 scroll buffer
         old_stderr = sys.stderr
         try:
             sys.stderr = io.StringIO()
@@ -113,27 +113,6 @@ def label_communities_by_hub(
         name = name.removesuffix("()")
         labels[cid] = name or f"Community {cid}"
     return labels
-
-
-def community_member_sigs(communities: dict[int, list[str]]) -> dict[int, str]:
-    """Per-community membership fingerprints: ``{cid: sha256(sorted member ids)}``.
-
-    Lets a later rebuild tell which communities actually changed members since a
-    previous run. A cid whose members no longer hash the same is a different
-    community — reusing an old (e.g. LLM-assigned) label there would be a stale
-    label after re-scoping. Deterministic; independent of cid index, node order,
-    and machine.
-    """
-    import hashlib
-
-    sigs: dict[int, str] = {}
-    for cid, members in communities.items():
-        h = hashlib.sha256()
-        for nid in sorted(str(n) for n in members):
-            h.update(nid.encode("utf-8", "replace"))
-            h.update(b"\x00")
-        sigs[cid] = h.hexdigest()[:16]
-    return sigs
 
 
 def cluster(
@@ -241,7 +220,7 @@ def cluster(
     # Without it, the hundreds of equal-sized small communities are ordered by the
     # partitioner's (not seed-stable) enumeration order, so their integer IDs
     # permute run-to-run - which reads as massive "community churn" in a per-node
-    # cid diff even though the actual grouping is reproducible (#1090 follow-up).
+    # cid diff even though the actual grouping is reproducible.
     final_communities.sort(
         key=lambda nodes: (-len(nodes), tuple(sorted(map(str, nodes))))
     )
@@ -279,56 +258,3 @@ def cohesion_score(G: nx.Graph, community_nodes: list[str]) -> float:
 
 def score_all(G: nx.Graph, communities: dict[int, list[str]]) -> dict[int, float]:
     return {cid: cohesion_score(G, nodes) for cid, nodes in communities.items()}
-
-
-def remap_communities_to_previous(
-    communities: dict[int, list[str]],
-    previous_node_community: dict[str, int],
-) -> dict[int, list[str]]:
-    """Remap community IDs to maximize overlap with a previous assignment.
-
-    Uses greedy one-to-one matching by intersection size, then assigns fresh IDs
-    to unmatched communities in deterministic order (size desc, lexical tie-break).
-    """
-    if not communities:
-        return {}
-
-    new_sets = {cid: set(nodes) for cid, nodes in communities.items()}
-    old_sets: dict[int, set[str]] = {}
-    for node, old_cid in previous_node_community.items():
-        old_sets.setdefault(old_cid, set()).add(node)
-
-    overlaps: list[tuple[int, int, int]] = []
-    for old_cid, old_nodes in old_sets.items():
-        for new_cid, new_nodes in new_sets.items():
-            overlap = len(old_nodes & new_nodes)
-            if overlap > 0:
-                overlaps.append((overlap, old_cid, new_cid))
-    overlaps.sort(key=lambda x: (-x[0], x[1], x[2]))
-
-    new_to_final: dict[int, int] = {}
-    used_old_ids: set[int] = set()
-    matched_new_ids: set[int] = set()
-    for _overlap, old_cid, new_cid in overlaps:
-        if old_cid in used_old_ids or new_cid in matched_new_ids:
-            continue
-        new_to_final[new_cid] = old_cid
-        used_old_ids.add(old_cid)
-        matched_new_ids.add(new_cid)
-
-    unmatched = [cid for cid in communities if cid not in matched_new_ids]
-    unmatched.sort(
-        key=lambda cid: (-len(communities[cid]), tuple(sorted(communities[cid])))
-    )
-    next_id = 0
-    for new_cid in unmatched:
-        while next_id in used_old_ids:
-            next_id += 1
-        new_to_final[new_cid] = next_id
-        used_old_ids.add(next_id)
-        next_id += 1
-
-    remapped: dict[int, list[str]] = {}
-    for new_cid, nodes in communities.items():
-        remapped[new_to_final[new_cid]] = sorted(nodes)
-    return dict(sorted(remapped.items(), key=lambda kv: kv[0]))

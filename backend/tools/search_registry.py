@@ -124,11 +124,6 @@ _BACKENDS: tuple[SearchBackend, ...] = (
 _POR_NOME = {b.name: b for b in _BACKENDS}
 
 
-def available_backends() -> list[SearchBackend]:
-    """Backends utilizáveis agora — usado pelo seletor das Settings."""
-    return [b for b in _BACKENDS if b.is_available()]
-
-
 def _escolha_do_usuario() -> str:
     try:
         from backend.workspace.runtime_settings import runtime_settings

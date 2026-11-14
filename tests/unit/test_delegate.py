@@ -15,7 +15,6 @@ import pytest
 from backend.scheduling.delegate import (
     DelegateError,
     create_task_worktree,
-    remove_task_worktree,
 )
 
 
@@ -72,59 +71,6 @@ async def test_create_task_worktree_git_failure_raises_delegate_error():
 
         with pytest.raises(DelegateError, match="disk full"):
             await create_task_worktree("ws1", "task-42")
-
-
-@pytest.mark.asyncio
-async def test_remove_task_worktree_is_idempotent_on_missing_worktree():
-    # Erro/borda: remover um worktree que já não existe (ou nunca existiu)
-    # não levanta exceção — só loga e segue.
-    with (
-        patch("backend.workspace.workspace.workspace_registry") as mock_registry,
-        patch("git.Repo") as mock_repo_cls,
-        patch("backend.tools.git._git_worktree_impl") as mock_impl,
-    ):
-        mock_registry.get.return_value = _fake_workspace()
-        mock_repo_cls.return_value = MagicMock()
-        mock_impl.return_value = {"status": "error", "message": "not found"}
-
-        await remove_task_worktree("ws1", "task-42")  # não deve levantar
-
-
-@pytest.mark.asyncio
-async def test_remove_task_worktree_also_deletes_the_branch():
-    # `git worktree add <task_id>` cria implicitamente uma branch com o
-    # nome da task; remover só o worktree deixaria essa branch órfã.
-    with (
-        patch("backend.workspace.workspace.workspace_registry") as mock_registry,
-        patch("git.Repo") as mock_repo_cls,
-        patch("backend.tools.git._git_worktree_impl") as mock_impl,
-    ):
-        mock_registry.get.return_value = _fake_workspace()
-        mock_repo = MagicMock()
-        mock_repo_cls.return_value = mock_repo
-        mock_impl.return_value = {"status": "ok", "action": "remove"}
-
-        await remove_task_worktree("ws1", "task-42")
-
-        mock_repo.git.branch.assert_called_once_with("-D", "task-42")
-
-
-@pytest.mark.asyncio
-async def test_remove_task_worktree_branch_delete_failure_does_not_raise():
-    # Erro/borda: branch já deletada manualmente, ou checked out em outro
-    # lugar — best-effort, nunca propaga (a remoção do worktree já valeu).
-    with (
-        patch("backend.workspace.workspace.workspace_registry") as mock_registry,
-        patch("git.Repo") as mock_repo_cls,
-        patch("backend.tools.git._git_worktree_impl") as mock_impl,
-    ):
-        mock_registry.get.return_value = _fake_workspace()
-        mock_repo = MagicMock()
-        mock_repo.git.branch.side_effect = Exception("branch not found")
-        mock_repo_cls.return_value = mock_repo
-        mock_impl.return_value = {"status": "ok", "action": "remove"}
-
-        await remove_task_worktree("ws1", "task-42")  # não deve levantar
 
 
 @pytest.mark.asyncio
@@ -238,22 +184,6 @@ async def test_criacao_concorrente_de_dois_worktrees_para_tasks_diferentes_nao_c
         assert path_a == call_paths["task-a"]
         assert path_b == call_paths["task-b"]
         assert path_a != path_b
-
-
-@pytest.mark.asyncio
-async def test_remove_task_worktree_com_task_id_vazio_ainda_chama_impl():
-    with (
-        patch("backend.workspace.workspace.workspace_registry") as mock_registry,
-        patch("git.Repo") as mock_repo_cls,
-        patch("backend.tools.git._git_worktree_impl") as mock_impl,
-    ):
-        mock_registry.get.return_value = _fake_workspace()
-        mock_repo_cls.return_value = MagicMock()
-        mock_impl.return_value = {"status": "error", "message": "invalid name"}
-
-        await remove_task_worktree("ws1", "")  # não deve levantar
-
-        assert mock_impl.call_args.kwargs["name"] == ""
 
 
 # ---------------------------------------------------------------------------

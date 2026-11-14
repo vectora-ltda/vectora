@@ -26,9 +26,7 @@ import contextlib
 import json
 import logging
 import os
-import re
 import sys
-import unicodedata
 from pathlib import Path
 
 import networkx as nx
@@ -41,7 +39,7 @@ from .validate import validate_extraction
 
 # Synonym mapper for known invalid file_type values that LLM subagents commonly
 # emit. Keeps semantic intent close (markdown→document, tool→code) and falls
-# back to "concept" for any other invalid value (see #840).
+# back to "concept" for any other invalid value.
 _FILE_TYPE_SYNONYMS = {
     "markdown": "document",
     "text": "document",
@@ -86,56 +84,6 @@ def edge_data(G: nx.Graph, u: str, v: str) -> dict:
     if isinstance(G, (nx.MultiGraph, nx.MultiDiGraph)):
         return next(iter(raw.values()), {})
     return raw
-
-
-def edge_datas(G: nx.Graph, u: str, v: str) -> list[dict]:
-    """Return every edge attribute dict for (u, v); always a list."""
-    raw = G[u][v]
-    if isinstance(G, (nx.MultiGraph, nx.MultiDiGraph)):
-        return list(raw.values())
-    return [raw]
-
-
-def dedupe_nodes(nodes: list[dict]) -> list[dict]:
-    """Collapse nodes sharing an ``id``, last-writer-wins on attributes.
-
-    Mirrors what ``build_from_json``'s ``G.add_node`` does implicitly (idempotent;
-    a later node overwrites an earlier one's attributes). The ``--no-cluster``
-    write path dumps the raw node list without building a graph, so same-id nodes
-    — e.g. a Swift ``type=module`` anchor emitted once per importing file
-    — would otherwise appear as duplicates. Insertion order follows each id's
-    first appearance; the retained dict is the last one seen.
-    """
-    by_id: dict = {}
-    for n in nodes:
-        nid = n.get("id")
-        if nid is None:
-            continue
-        by_id[nid] = n
-    return list(by_id.values())
-
-
-def dedupe_edges(edges: list[dict]) -> list[dict]:
-    """Collapse exact parallel edges by ``(source, target, relation)``, keeping the
-    first occurrence.
-
-    The clustered build path runs edges through a NetworkX ``DiGraph``, which
-    collapses parallel edges automatically. The ``--no-cluster`` and incremental
-    ``update`` write paths bypass NetworkX and concatenate edge lists raw, so
-    duplicates accumulate and edge counts become non-deterministic across build
-    modes / repeated updates. Deduping on the connectivity identity is
-    zero-signal-loss and restores idempotency. Callers that intentionally keep
-    parallel edges (multigraph output) must not use this.
-    """
-    seen: set[tuple] = set()
-    out: list[dict] = []
-    for e in edges:
-        key = (e.get("source"), e.get("target"), e.get("relation"))
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(e)
-    return out
 
 
 def build_from_json(
@@ -203,7 +151,7 @@ def build_from_json(
         G.add_node(node["id"], **{k: v for k, v in node.items() if k != "id"})
     node_set = set(G.nodes())
 
-    # #1145 (extended): merge LLM ghost-duplicate nodes into AST canonical nodes.
+    # Merge LLM ghost-duplicate nodes into AST canonical nodes.
     # Original bug: AST uses parent-qualified IDs (mingpt_bpe_get_pairs) while LLM
     # uses bare-stem IDs (bpe_get_pairs) — different IDs, same symbol.
     # Original fix only caught LLM nodes with source_location=None; LLM now
@@ -429,61 +377,6 @@ def build(
     return build_from_json(combined, directed=directed, root=root)
 
 
-def _norm_label(label: str | None) -> str:
-    """Canonical dedup key — Unicode-aware, preserves CJK/word characters."""
-    if not isinstance(label, str):
-        label = "" if label is None else str(label)
-    label = unicodedata.normalize("NFKC", label)
-    return re.sub(r"[\W_ ]+", " ", label.casefold(), flags=re.UNICODE).strip()
-
-
-def deduplicate_by_label(
-    nodes: list[dict], edges: list[dict]
-) -> tuple[list[dict], list[dict]]:
-    """Merge nodes that share a normalised label, rewriting edge references.
-
-    Prefers IDs without chunk suffixes (_c\\d+) and shorter IDs when tied.
-    Drops self-loops created by the merge. Called in build() automatically.
-    """
-    _CHUNK_SUFFIX = re.compile(r"_c\d+$")
-    canonical: dict[str, dict] = {}  # norm_label -> surviving node
-    remap: dict[str, str] = {}  # old_id -> surviving_id
-
-    for node in nodes:
-        key = _norm_label(node.get("label", node.get("id", "")))
-        if not key:
-            continue
-        existing = canonical.get(key)
-        if existing is None:
-            canonical[key] = node
-        else:
-            has_suffix = bool(_CHUNK_SUFFIX.search(node["id"]))
-            existing_has_suffix = bool(_CHUNK_SUFFIX.search(existing["id"]))
-            if has_suffix and not existing_has_suffix:
-                remap[node["id"]] = existing["id"]
-            elif (existing_has_suffix and not has_suffix) or len(node["id"]) < len(
-                existing["id"]
-            ):
-                remap[existing["id"]] = node["id"]
-                canonical[key] = node
-            else:
-                remap[node["id"]] = existing["id"]
-
-    if not remap:
-        return nodes, edges
-
-    logger.debug("Deduplicated %d duplicate node(s) by label.", len(remap))
-    deduped_nodes = list(canonical.values())
-    deduped_edges = []
-    for edge in edges:
-        e = dict(edge)
-        e["source"] = remap.get(e["source"], e["source"])
-        e["target"] = remap.get(e["target"], e["target"])
-        if e["source"] != e["target"]:
-            deduped_edges.append(e)
-    return deduped_nodes, deduped_edges
-
-
 def build_merge(
     new_chunks: list[dict],
     graph_path: str | Path | None = None,
@@ -575,7 +468,7 @@ def build_merge(
         # that were relativised by _norm_source_file at build time).
         # .resolve() handles symlinked roots and redundant ".." / "./" segments
         # so Path.relative_to() succeeds even when the scan root is a symlink.
-        # (#1007: manifest absolute paths vs graph relative source_file mismatch)
+        # (manifest com caminhos absolutos contra source_file relativo no grafo)
         _root_str = str(Path(root).resolve()) if root is not None else None
         prune_set: set[str] = set()
         for p in prune_sources:
@@ -625,26 +518,3 @@ def build_merge(
             )
 
     return G
-
-
-def prefix_graph_for_global(G: nx.Graph, repo_tag: str) -> nx.Graph:
-    """Return a copy of G with all node IDs prefixed with repo_tag::.
-
-    Labels are preserved unchanged (for display). A 'local_id' attribute
-    is added to each node so the original ID can be recovered. Edges are
-    rewritten to match the new prefixed IDs. The 'repo' attribute is set
-    on every node.
-    """
-    relabel = {n: f"{repo_tag}::{n}" for n in G.nodes}
-    H = nx.relabel_nodes(G, relabel, copy=True)
-    for node, data in H.nodes(data=True):
-        data["repo"] = repo_tag
-        data.setdefault("local_id", node.split("::", 1)[1])
-    return H
-
-
-def prune_repo_from_graph(G: nx.Graph, repo_tag: str) -> int:
-    """Remove all nodes tagged with repo_tag from G in-place. Returns count removed."""
-    to_remove = [n for n, d in G.nodes(data=True) if d.get("repo") == repo_tag]
-    G.remove_nodes_from(to_remove)
-    return len(to_remove)

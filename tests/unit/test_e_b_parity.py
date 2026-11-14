@@ -12,7 +12,6 @@ Cobertura:
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
@@ -200,13 +199,6 @@ class TestFilesystemPermission:
 
         assert FS_PERMISSION.is_allowed("/workspace/file.py", "read") is True
         assert FS_PERMISSION.is_allowed(".env", "read") is False
-
-    def test_requires_interrupt_helper(self):
-        """requires_interrupt() detecta ops que precisam de aprovação."""
-        from backend.rbac.permissions import FS_PERMISSION
-
-        assert FS_PERMISSION.requires_interrupt("/tmp/file.txt", "write") is True
-        assert FS_PERMISSION.requires_interrupt("/workspace/file.py", "write") is False
 
 
 # ---------------------------------------------------------------------------

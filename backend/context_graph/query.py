@@ -7,10 +7,8 @@ tools do agente (tools/context_graph.py) quanto pelos handlers REST
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any, cast
 
 import networkx as nx
@@ -19,24 +17,6 @@ from networkx.readwrite import json_graph
 from backend.vtypes.context_graph import GraphDocument, GraphEdge, GraphNode
 
 logger = logging.getLogger(__name__)
-
-
-def load_graph_nx(graph_file: Path) -> nx.DiGraph:
-    """Carrega graph.json como DiGraph NetworkX (directed=True).
-
-    Normaliza edges→links para compatibilidade com node_link_graph.
-    """
-    raw = json.loads(graph_file.read_text(encoding="utf-8"))
-    raw = {**raw, "directed": True}
-    if "links" not in raw and "edges" in raw:
-        raw = dict(raw, links=raw["edges"])
-    try:
-        g = json_graph.node_link_graph(raw, edges="links")
-    except TypeError:
-        g = json_graph.node_link_graph(raw)
-    if not isinstance(g, nx.DiGraph):
-        g = g.to_directed()
-    return g
 
 
 def _nx_from_data(data: dict[str, Any]) -> nx.DiGraph:

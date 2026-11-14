@@ -18,28 +18,6 @@ router = APIRouter(prefix="/url-preview", tags=["url-preview"])
 MAX_PREVIEW_BYTES = 512_000
 
 
-def _public_host(host: str) -> bool:
-    try:
-        addresses = socket.getaddrinfo(host, None)
-        if not addresses:
-            return False
-        return all(
-            not (
-                address.is_private
-                or address.is_loopback
-                or address.is_link_local
-                or address.is_multicast
-                or address.is_reserved
-                or address.is_unspecified
-                or not address.is_global
-            )
-            for item in addresses
-            if (address := ipaddress.ip_address(item[4][0]))
-        )
-    except (OSError, ValueError):
-        return False
-
-
 def _validated_ip(host: str) -> str | None:
     """Retorna um IP público validado para evitar uma nova resolução DNS."""
     try:

@@ -1325,40 +1325,6 @@ async def run_task(
             await _watchdog_task
 
 
-async def _mark_kanban_after_success(
-    task: BackgroundTask, *, run_id: str | None = None
-) -> None:
-    """Fecha o ciclo do Kanban após uma run bem-sucedida.
-
-    Recorrente (`interval`) nunca termina de verdade — volta pra `ready`
-    pro próximo disparo, nunca `done` (que seria um estado terminal errado
-    pra algo que roda de novo amanhã). Qualquer outro `trigger_type` (
-    `manual`/`webhook`/`once`) é execução única: `done` é terminal — a
-    menos que `trigger_config.requires_review` peça revisão humana antes,
-    caso em que vai pra `review` em vez de `done` diretamente.
-    `recompute_ready()` promove tasks que dependiam desta, quando existirem.
-    Quando ``run_id`` é informado, a escrita é cercada pelo claim dessa run e
-    libera o claim no mesmo ``UPDATE``; se a task se bloqueou durante a
-    execução, o fencing falha e preserva o bloqueio.
-    """
-    try:
-        from backend.scheduling.kanban import recompute_ready, set_status
-
-        if task.trigger_type == "interval":
-            novo_status = "ready"
-        elif task.trigger_config.get("requires_review"):
-            novo_status = "review"
-        else:
-            novo_status = "done"
-        await set_status(task.id, novo_status, authorized_run_id=run_id)
-        await recompute_ready()
-    except Exception:
-        logger.warning(
-            "background_tasks: falha ao atualizar status do kanban pós-run",
-            exc_info=True,
-        )
-
-
 async def _finish_run_and_mark_kanban(
     run_id: str,
     task: BackgroundTask,

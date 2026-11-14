@@ -91,47 +91,6 @@ class TestValidateUrl:
                 validate_url("http://nonexistent-hostname-xyz.example.com/")
 
 
-class TestValidateGraphPath:
-    def test_valid_path_inside_base(self, tmp_path: Path):
-        from backend.context_graph.security import validate_graph_path
-
-        base = tmp_path / ".vectora/context-graph"
-        base.mkdir(parents=True)
-        target = base / "graph.json"
-        target.write_text("{}", encoding="utf-8")
-
-        result = validate_graph_path(target, base=base)
-        assert result == target.resolve()
-
-    def test_path_escape_raises_value_error(self, tmp_path: Path):
-        from backend.context_graph.security import validate_graph_path
-
-        base = tmp_path / ".vectora/context-graph"
-        base.mkdir(parents=True)
-        escaped = tmp_path / "secret.json"
-        escaped.write_text("data", encoding="utf-8")
-
-        with pytest.raises(ValueError, match="escapes"):
-            validate_graph_path(escaped, base=base)
-
-    def test_missing_file_raises_file_not_found(self, tmp_path: Path):
-        from backend.context_graph.security import validate_graph_path
-
-        base = tmp_path / ".vectora/context-graph"
-        base.mkdir(parents=True)
-        target = base / "nonexistent.json"
-
-        with pytest.raises(FileNotFoundError):
-            validate_graph_path(target, base=base)
-
-    def test_nonexistent_base_raises_value_error(self, tmp_path: Path):
-        from backend.context_graph.security import validate_graph_path
-
-        base = tmp_path / "does_not_exist"
-        with pytest.raises(ValueError, match="does not exist"):
-            validate_graph_path(tmp_path / "something.json", base=base)
-
-
 class TestCheckGraphFileSizeCap:
     def test_small_file_passes(self, tmp_path: Path):
         from backend.context_graph.security import check_graph_file_size_cap

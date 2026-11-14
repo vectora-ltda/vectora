@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 
 _RATIONALE_MIN_CHARS = 80
 _RATIONALE_MIN_WORDS = 8
@@ -112,24 +111,6 @@ def validate_semantic_fragment(fragment: object) -> list[str]:
                 _validate_semantic_id(errors, f"hyperedges[{i}].nodes[{j}]", ref)
 
     return errors
-
-
-def load_validated_semantic_fragment(path: Path) -> tuple[dict | None, list[str]]:
-    """Carrega e valida fragmento semântico, rejeitando arquivos gigantes antes do parse."""
-    try:
-        size = path.stat().st_size
-    except OSError as exc:
-        return None, [f"could not stat {path}: {exc}"]
-    if size > MAX_SEMANTIC_FRAGMENT_BYTES:
-        return None, [f"payload is {size} bytes; max is {MAX_SEMANTIC_FRAGMENT_BYTES}"]
-    try:
-        fragment = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
-        return None, [f"invalid JSON: {exc}"]
-    except OSError as exc:
-        return None, [f"could not read {path}: {exc}"]
-    errors = validate_semantic_fragment(fragment)
-    return (None, errors) if errors else (fragment, [])
 
 
 def _validate_semantic_id(errors: list[str], field: str, value: object) -> None:

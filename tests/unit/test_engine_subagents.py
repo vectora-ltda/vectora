@@ -21,7 +21,6 @@ from backend.engine.subagents import (
     SubagentSpec,
     request_hard_interrupt,
     run_subagent,
-    spawn_subagent_background,
     subagent_capability_token,
 )
 from backend.persistence.native.session_store import SessionStore
@@ -291,27 +290,6 @@ class TestRunSubagentSincrono:
 
         assert resultado == ""
         assert [e.status for e in eventos] == ["running"]
-
-
-class TestSpawnSubagentBackground:
-    async def test_roda_em_background_e_pode_ser_esperada_depois(
-        self, session_store, ctx
-    ):
-        client = _ScriptedChatClient([[_texto_chunk("resultado em background")]])
-
-        task = spawn_subagent_background(
-            _spec(),
-            "faça em background",
-            session_store=session_store,
-            chat_client=client,
-            ctx=ctx,
-            parent_thread_id="thread-pai",
-            should_require_approval=None,
-        )
-
-        assert isinstance(task, asyncio.Task)
-        resultado = await task
-        assert resultado == "resultado em background"
 
 
 class TestTurnBudgetDoTurnoPai:

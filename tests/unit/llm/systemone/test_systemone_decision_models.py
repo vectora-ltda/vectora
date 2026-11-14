@@ -34,7 +34,6 @@ from backend.llm.systemone.types import (
     SystemOneMetadata,
     SystemOneRequest,
     SystemOneResponse,
-    SystemOneUsage,
 )
 
 
@@ -465,40 +464,6 @@ class TestDecisionPolicyEngine:
         eval_result = engine.evaluate_response(resp, is_high_impact=False)
         assert eval_result.outcome == "requires_hitl"
         assert "Empate ou ambiguidade" in eval_result.reason
-
-    @pytest.mark.asyncio
-    async def test_remote_fallback_policy_disabled_by_default(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # Fallback desabilitado por padrão
-        """Verifica o comportamento de remote fallback policy disabled by default."""
-        settings = SystemOneSettings(enabled=True, allow_remote_fallback=False)
-        engine = DecisionPolicyEngine(settings)
-
-        async def fake_post(*args: object, **kwargs: object) -> httpx.Response:
-            """Executa a operação fake post."""
-            raise httpx.ConnectError("Local provider down")
-
-        monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
-
-        primary = ClefLocalAdapter()
-        fallback = ClefApiAdapter(api_key="key", account_id="test-account")
-
-        req = SystemOneRequest(
-            model="clef-flash",
-            state="state",
-            questions={"q1": NoulQuestion(criterion="crit")},
-        )
-
-        result = await engine.execute_decision(
-            primary,
-            req,
-            fallback_provider=fallback,
-            is_high_impact=False,
-        )
-        # Como o primário falha (sem servidor) e o fallback está desabilitado, deve acionar HITL sem chamar remoto
-        assert result.outcome == "requires_hitl"
-        assert "Falha no provedor de decisão" in result.reason
 
 
 class TestSettingsAndSecrets:

@@ -1020,44 +1020,6 @@ class Settings(BaseSettings):
         """
         return self.llm_provider
 
-    def get_llm_model(self) -> str:
-        """Get the model name for the active provider.
-
-        Returns:
-            Model name configured for current provider
-        """
-        model_map = {
-            "google-genai": self.google_model,
-            "openai": self.openai_model,
-            "anthropic": self.anthropic_model,
-            "ollama": self.ollama_model,
-            "cohere": self.cohere_chat_model,
-            "openrouter": self.openrouter_model,
-            "nine_router": self.nine_router_default_model or "",
-            "llamacpp": self.llamacpp_model or "",
-            "dmr": self.dmr_model or "",
-        }
-        return model_map.get(self.llm_provider, self.google_model)
-
-    def get_llm_api_key(self) -> str | None:
-        """Get the API key for the active provider.
-
-        Returns:
-            API key or None if not configured
-        """
-        key_map = {
-            "google-genai": self.google_api_key,
-            "openai": self.openai_api_key,
-            "anthropic": self.anthropic_api_key,
-            "ollama": None,  # Ollama doesn't require API key
-            "cohere": self.cohere_api_key,
-            "openrouter": self.openrouter_api_key,
-            "nine_router": self.nine_router_api_key,
-            "llamacpp": self.llamacpp_api_key,
-            "dmr": None,
-        }
-        return key_map.get(self.llm_provider)
-
     def configured_llm_providers(self) -> list[str]:
         """Providers de LLM com credencial configurada (para o model selector).
 
@@ -1107,14 +1069,6 @@ class Settings(BaseSettings):
             Cohere API key ou None se não configurado.
         """
         return self.cohere_api_key or os.getenv("COHERE_API_KEY")
-
-    def get_available_providers(self) -> list[str]:
-        """Return every configured chat provider, including local runtimes.
-
-        Keep this legacy accessor aligned with ``configured_llm_providers`` so
-        callers do not silently omit 9Router, llama.cpp or Docker Model Runner.
-        """
-        return self.configured_llm_providers()
 
     def set_model(self, provider: str, model: str) -> None:
         """Update model for a specific provider.

@@ -10,7 +10,7 @@ import httpx
 import pytest
 from fastapi import HTTPException
 
-from backend.api.handlers.url_preview import _public_host, preview_url
+from backend.api.handlers.url_preview import preview_url
 
 
 class _FakeResponse:
@@ -68,17 +68,6 @@ class _FakeClient:
         )
         assert self.response is not None
         return self.response
-
-
-def test_public_host_rejects_private_and_loopback_addresses(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        socket,
-        "getaddrinfo",
-        lambda *_args: [(socket.AF_INET, 0, 0, "", ("127.0.0.1", 0))],
-    )
-    assert _public_host("internal.example") is False
 
 
 def test_validated_ip_rejects_shared_cgnat_range(

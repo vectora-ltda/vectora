@@ -1134,7 +1134,6 @@ async def test_run_task_interrupt_marks_awaiting_and_resume_completes(
 ):
     """Uma run que pausa em HITL fica 'awaiting_approval' (não 'done') e o
     resume_background_run a retoma até concluir."""
-    from backend.tools.context import ToolContext
     from backend.tools.registry import TOOL_REGISTRY, ToolExtras, vtool
 
     if TOOL_REGISTRY.get("escrever_arquivo_bg") is None:
@@ -1212,36 +1211,6 @@ async def test_run_task_interrupt_marks_awaiting_and_resume_completes(
     historico = await native_session_store.get_history(run_thread_id)
     assert [m.role.value for m in historico[-3:]] == ["assistant", "tool", "assistant"]
     assert historico[-2].text() == "arquivo escrito"  # resultado real da tool
-
-
-async def test_self_block_survives_success_epilogue(db: str) -> None:
-    """Um bloqueio feito pela própria run não pode ser sobrescrito por done."""
-    from backend.scheduling import kanban
-
-    task = await bg.create_task(
-        session_id="sess-self-block",
-        user_id="u-self-block",
-        kind="routine",
-        name="Bloqueia",
-        instruction="aguarde intervenção",
-        trigger_type="manual",
-        trigger_config={},
-    )
-    run_id = "run-self-block"
-    assert await kanban.claim_task(task.id, run_id)
-    await kanban.block_task(
-        task.id,
-        "needs_input",
-        "aguardando credencial",
-        authorized_run_id=run_id,
-    )
-
-    await bg._mark_kanban_after_success(task, run_id=run_id)
-
-    estado = await kanban.get_task_status(task.id)
-    assert estado["status"] == "blocked"
-    assert estado["block_kind"] == "needs_input"
-    assert estado["claim_lock"] is None
 
 
 async def test_interval_success_advances_next_run_with_claim_release(
@@ -1400,7 +1369,6 @@ async def _run_task_ate_pausar(
     """Roda `run_task` até pausar em HITL (chamando `tool_name` sinalizada
     como destrutiva) e devolve `(task, run_id)` — helper compartilhado pelos
     testes de decision (reject/edit) de `resume_background_run`."""
-    from backend.tools.context import ToolContext
     from backend.tools.registry import TOOL_REGISTRY, ToolExtras, vtool
 
     if TOOL_REGISTRY.get(tool_name) is None:
@@ -1576,7 +1544,6 @@ async def test_resume_background_run_reject_and_edit_decisions(
     )
     # A `tool_registry` do resume precisa incluir a tool sinalizada (senão
     # `_execute_single_call` não a encontra) — reusa a mesma do pause.
-    from backend.tools.registry import TOOL_REGISTRY
 
     registry_reject = ToolRegistry()
     registry_reject.register(_require_spec("anotar_bg_reject"))
@@ -1656,7 +1623,6 @@ async def test_resume_background_run_repauses_same_turn(
         tool_name="anotar_bg_repause",
         session_id="sess-repause",
     )
-    from backend.tools.registry import TOOL_REGISTRY
 
     registry = ToolRegistry()
     registry.register(_require_spec("anotar_bg_repause"))
@@ -1700,7 +1666,6 @@ async def test_resume_background_run_run_conversation_exception_marks_error(
         tool_name="anotar_bg_resume_exc",
         session_id="sess-resume-exc",
     )
-    from backend.tools.registry import TOOL_REGISTRY
 
     registry = ToolRegistry()
     registry.register(_require_spec("anotar_bg_resume_exc"))
@@ -1732,7 +1697,6 @@ async def test_resume_background_run_reporta_conclusao_na_sessao_mae(
         tool_name="anotar_bg_report_resume",
         session_id="parent-resume",
     )
-    from backend.tools.registry import TOOL_REGISTRY
 
     registry = ToolRegistry()
     registry.register(_require_spec("anotar_bg_report_resume"))
@@ -2020,7 +1984,6 @@ async def test_approve_task_action_approve_reject_edit(
         tool_name="anotar_bg_tool_approve",
         session_id="sess-approve-tool",
     )
-    from backend.tools.registry import TOOL_REGISTRY
 
     registry = ToolRegistry()
     registry.register(_require_spec("anotar_bg_tool_approve"))
@@ -2081,58 +2044,6 @@ async def test_approve_task_action_approve_reject_edit(
 # ---------------------------------------------------------------------------
 # Scheduler (interval)
 # ---------------------------------------------------------------------------
-
-
-async def test_scheduler_runs_due_and_skips_disabled(db, monkeypatch):
-    fired: list[str] = []
-    from backend.scheduling import kanban
-
-    async def _fake_run(task, trigger_source, payload=None):
-        fired.append(task.id)
-        run_id = f"run-{task.id}"
-        assert await kanban.claim_task(task.id, run_id)
-        await bg._mark_kanban_after_success(task, run_id=run_id)
-        return "bg-x"
-
-    monkeypatch.setattr(bg, "run_task", _fake_run)
-
-    due = await bg.create_task(
-        session_id="s",
-        user_id="u",
-        kind="routine",
-        name="due",
-        instruction="i",
-        trigger_type="interval",
-        trigger_config={"cron_expr": "* * * * *"},
-    )
-    # Força o vencimento (next_run_at no passado, mas dentro da janela de
-    # catch-up — passado remoto seria pulado como disparo obsoleto).
-    from datetime import UTC as _UTC
-    from datetime import datetime as _dt
-    from datetime import timedelta as _td
-
-    vencido = (_dt.now(_UTC) - _td(minutes=1)).isoformat()
-    await bg._set_next_run(due.id, vencido)
-
-    disabled = await bg.create_task(
-        session_id="s",
-        user_id="u",
-        kind="routine",
-        name="off",
-        instruction="i",
-        trigger_type="interval",
-        trigger_config={"cron_expr": "* * * * *"},
-    )
-    await bg._set_next_run(disabled.id, vencido)
-    await bg.update_task(disabled.id, enabled=False)
-
-    await bg.get_scheduler().tick()
-
-    assert fired == [due.id]  # só a vencida e habilitada roda
-    # Reagendou para o futuro.
-    rescheduled = await bg.get_task(due.id)
-    assert rescheduled is not None
-    assert rescheduled.next_run_at != vencido
 
 
 async def test_scheduler_keeps_running_when_dag_recovery_fails(db, monkeypatch):

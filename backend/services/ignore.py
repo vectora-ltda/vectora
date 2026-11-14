@@ -53,33 +53,6 @@ ALWAYS_SKIP_DIRS: frozenset[str] = frozenset(
 ALWAYS_ALLOW_DIRS: frozenset[str] = frozenset({".vectora"})
 
 
-def load_vectoraignore_spec(base_dir: Path) -> pathspec.PathSpec | None:
-    """Carrega o .vectoraignore mais próximo e retorna um PathSpec gitwildmatch.
-
-    Mesmo comportamento de busca do ``load_gitignore_spec``: sobe a árvore de
-    diretórios a partir de ``base_dir`` até encontrar um ``.vectoraignore``.
-
-    O ``.vectoraignore`` usa exatamente o mesmo formato do ``.gitignore`` —
-    padrões gitwildmatch como ``*.log``, ``data/**``, ``!important.txt``.
-
-    Args:
-        base_dir: Diretório de partida para a busca.
-
-    Returns:
-        PathSpec pronto para uso em ``match_file()``, ou None se não houver
-        nenhum ``.vectoraignore`` acessível.
-    """
-    for parent in [base_dir.resolve(), *base_dir.resolve().parents]:
-        vectoraignore = parent / ".vectoraignore"
-        if vectoraignore.is_file():
-            try:
-                patterns = vectoraignore.read_text(encoding="utf-8", errors="ignore")
-                return pathspec.PathSpec.from_lines("gitignore", patterns.splitlines())
-            except Exception:
-                return None
-    return None
-
-
 def load_ignore_spec(base_dir: Path) -> pathspec.PathSpec | None:
     """Combina .gitignore + .vectoraignore num único PathSpec gitwildmatch.
 

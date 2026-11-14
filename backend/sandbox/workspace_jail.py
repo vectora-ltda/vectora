@@ -315,15 +315,5 @@ class WorkspaceJailManager:
         if worker is not None:
             await worker.close()
 
-    async def close_idle(self) -> None:
-        now = time.monotonic()
-        stale = [
-            wid
-            for wid, w in self._workers.items()
-            if now - w.last_used > self._idle_timeout_s
-        ]
-        for wid in stale:
-            await self.close(wid)
-
 
 jail_manager = WorkspaceJailManager()

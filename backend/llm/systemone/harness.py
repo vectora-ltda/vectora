@@ -42,7 +42,6 @@ from backend.llm.systemone.policy import DecisionPolicyEngine, PolicyEvaluationR
 from backend.llm.systemone.protocol import SystemOneProvider
 from backend.llm.systemone.settings import SystemOneSettings
 from backend.llm.systemone.types import (
-    ChoiceAnswer,
     ChoiceQuestion,
     ScoreAnswer,
     SystemOneQuestion,
@@ -132,19 +131,6 @@ class WorkspaceBudgetTracker:
             return
         self._consumed.pop(workspace_id, None)
         self._window_started_at.pop(workspace_id, None)
-
-    def set_workspace_limit(self, workspace_id: str, limit_tokens: int) -> None:
-        """Executa a operação set workspace limit."""
-        self._limits[workspace_id] = max(0, limit_tokens)
-
-    def get_consumed(self, workspace_id: str) -> int:
-        """Executa a operação get consumed."""
-        self._refresh_window_if_expired(workspace_id)
-        return self._consumed.get(workspace_id, 0)
-
-    def get_reserved(self, workspace_id: str) -> int:
-        """Executa a operação get reserved."""
-        return self._reserved.get(workspace_id, 0)
 
     def reserve(self, workspace_id: str, estimated_tokens: int) -> bool:
         """Executa a operação reserve."""
@@ -912,22 +898,6 @@ class SystemOneHarness:
             attempts=attempts,
             used_fallback=used_fallback,
             from_cache=False,
-        )
-
-    async def classify_kanban_block(
-        self,
-        *,
-        workspace_id: str,
-        task_id: str,
-        error_summary: str,
-        correlation_id: str | None = None,
-    ) -> HarnessDecisionResult:
-        """Classifica a razão de bloqueio de uma task entre os 4 BLOCK_KINDS."""
-        return await self.decide_pattern(
-            "kanban_block_classifier",
-            {"task_id": task_id, "error_summary": error_summary[:4000]},
-            workspace_id=workspace_id,
-            correlation_id=correlation_id,
         )
 
     async def propose_kanban_transition(

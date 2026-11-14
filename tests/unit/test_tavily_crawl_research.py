@@ -14,8 +14,7 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from backend.tools.tavily.client import TavilyClient, TavilyResponseError
-from backend.tools.tavily.research import ResearchTimeoutError, run_research
+from backend.tools.tavily.client import TavilyClient
 
 
 def _client(handler) -> TavilyClient:
@@ -117,66 +116,3 @@ class TestResearchAssincrono:
             return httpx.Response(200, json={"request_id": "req-1", "status": status})
 
         return handler
-
-    @pytest.mark.asyncio
-    async def test_201_seguido_de_polling_ate_completed(self):
-        async with _client(self._handler(["pending", "running"])) as c:
-            saida = await run_research(
-                c, "qual o estado da arte?", poll_interval_s=0, timeout_s=30
-            )
-
-        assert saida["output"]["answer"] == "a resposta"
-
-    @pytest.mark.asyncio
-    async def test_resposta_sem_request_id_falha_na_largada(self):
-        """Erro/borda: sem id não há como acompanhar — o job rodaria e
-        cobraria sem ninguém buscar o resultado."""
-
-        def handler(_req):
-            return httpx.Response(201, json={"status": "pending"})
-
-        async with _client(handler) as c:
-            with pytest.raises(TavilyResponseError, match="request_id"):
-                await run_research(c, "q", poll_interval_s=0, timeout_s=30)
-
-    @pytest.mark.asyncio
-    async def test_estado_failed_vira_erro_e_nao_continua_consultando(self):
-        def handler(req: httpx.Request) -> httpx.Response:
-            if req.method == "POST":
-                return httpx.Response(
-                    201, json={"request_id": "req-1", "status": "pending"}
-                )
-            return httpx.Response(200, json={"status": "failed", "error": "sem fontes"})
-
-        async with _client(handler) as c:
-            with pytest.raises(TavilyResponseError, match="failed"):
-                await run_research(c, "q", poll_interval_s=0, timeout_s=30)
-
-    @pytest.mark.asyncio
-    async def test_polling_que_nunca_conclui_respeita_o_teto(self):
-        """Erro/borda crítico: mesma trava do vídeo do OpenRouter e do
-        incidente do NATS — loop de espera sem corte gira para sempre."""
-        consultas = 0
-
-        def handler(req: httpx.Request) -> httpx.Response:
-            nonlocal consultas
-            if req.method == "POST":
-                return httpx.Response(
-                    201, json={"request_id": "req-1", "status": "pending"}
-                )
-            consultas += 1
-            return httpx.Response(200, json={"status": "running"})
-
-        async with _client(handler) as c:
-            with pytest.raises(ResearchTimeoutError):
-                await run_research(c, "q", poll_interval_s=0, timeout_s=0.05)
-
-        assert consultas > 0, "desistiu antes de consultar uma vez"
-
-    @pytest.mark.asyncio
-    async def test_completed_sem_saida_vira_erro(self):
-        """Erro/borda: concluir sem entregar a pesquisa é falha disfarçada
-        de sucesso."""
-        async with _client(self._handler([], com_resultado=False)) as c:
-            with pytest.raises(TavilyResponseError, match="output"):
-                await run_research(c, "q", poll_interval_s=0, timeout_s=30)

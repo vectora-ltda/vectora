@@ -36,13 +36,6 @@ logger = logging.getLogger(__name__)
 limiter = Limiter(key_func=get_remote_address, storage_uri="memory://")
 
 
-def _get_client_ip(request: Request) -> str:
-    forwarded = request.headers.get("X-Forwarded-For", "")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else "unknown"
-
-
 def attach_limiter(app: FastAPI) -> None:
     """Liga o ``limiter`` (módulo) ao app FastAPI e religa o storage backend."""
     try:

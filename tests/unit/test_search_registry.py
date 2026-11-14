@@ -11,7 +11,6 @@ import pytest
 
 from backend.tools.search_registry import (
     SearchBackendUnavailableError,
-    available_backends,
     resolve_backend,
 )
 
@@ -48,27 +47,6 @@ def _liga_ollama_cloud(monkeypatch):
     from backend.settings import settings as _s
 
     monkeypatch.setattr(_s, "ollama_api_key", "oll-test", raising=False)
-
-
-class TestDisponibilidade:
-    def test_backends_sem_credencial_ficam_de_fora(self):
-        """`browser` e `duckduckgo` não precisam de chave — sempre estão lá.
-        `tavily` e `ollama-web` precisam."""
-        nomes = {b.name for b in available_backends()}
-
-        assert "browser" in nomes
-        assert "duckduckgo" in nomes
-        assert "tavily" not in nomes
-        assert "ollama-web" not in nomes
-
-    def test_credencial_configurada_habilita_o_backend(self, monkeypatch):
-        _liga_tavily(monkeypatch)
-        _liga_ollama_cloud(monkeypatch)
-
-        nomes = {b.name for b in available_backends()}
-
-        assert "tavily" in nomes
-        assert "ollama-web" in nomes
 
 
 class TestResolucaoAutomatica:

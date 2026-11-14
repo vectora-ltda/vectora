@@ -128,56 +128,6 @@ async def index_graph_nodes(
         return 0
 
 
-async def search_graph_nodes(
-    question: str,
-    workspace_id: str,
-    *,
-    top_k: int = 10,
-    collection: str = _COLLECTION,
-) -> list[str]:
-    """Busca nós semanticamente similares à questão. Retorna lista de node_ids.
-
-    Retorna [] silenciosamente se LanceDB ou embeddings não estiverem disponíveis.
-    """
-    try:
-        vectors = await _embed_texts([question])
-        if not vectors:
-            return []
-
-        db = await _get_db()
-        existing = await db.table_names()
-        if collection not in existing:
-            return []
-
-        table = await db.open_table(collection)
-        search_results = await (
-            table.vector_search(vectors[0]).limit(top_k * 2).to_pandas()
-        )
-
-        node_ids: list[str] = []
-        for _, row in search_results.iterrows():
-            meta_raw = row.get("metadata", "{}")
-            try:
-                meta = json.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
-            except (json.JSONDecodeError, TypeError):
-                meta = {}
-            if meta.get("workspace_id") == workspace_id:
-                nid = meta.get("node_id") or str(row.get("id", ""))
-                if nid:
-                    node_ids.append(nid)
-            if len(node_ids) >= top_k:
-                break
-
-        return node_ids
-
-    except Exception:
-        logger.exception(
-            "context_graph: falha na busca vetorial de nós",
-            extra={"workspace_id": workspace_id},
-        )
-        return []
-
-
 async def purge_graph_index(
     workspace_id: str,
     collection: str = _COLLECTION,

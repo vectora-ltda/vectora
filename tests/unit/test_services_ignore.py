@@ -8,73 +8,9 @@ Cobre:
 
 from __future__ import annotations
 
-from pathlib import Path
-
-import pytest
-
 
 class TestLoadVectoraignoreSpec:
     """load_vectoraignore_spec: carrega .vectoraignore como PathSpec."""
-
-    def test_returns_none_when_no_file(self, tmp_path):
-        from backend.services.ignore import load_vectoraignore_spec
-
-        spec = load_vectoraignore_spec(tmp_path)
-        assert spec is None
-
-    def test_loads_simple_pattern(self, tmp_path):
-        from backend.services.ignore import load_vectoraignore_spec
-
-        (tmp_path / ".vectoraignore").write_text("*.log\n")
-        spec = load_vectoraignore_spec(tmp_path)
-        assert spec is not None
-        assert spec.match_file("error.log")
-        assert not spec.match_file("main.py")
-
-    def test_loads_directory_pattern(self, tmp_path):
-        from backend.services.ignore import load_vectoraignore_spec
-
-        (tmp_path / ".vectoraignore").write_text("tests/fixtures/**\n")
-        spec = load_vectoraignore_spec(tmp_path)
-        assert spec is not None
-        assert spec.match_file("tests/fixtures/data.json")
-        assert not spec.match_file("src/main.py")
-
-    def test_ignores_comment_lines(self, tmp_path):
-        from backend.services.ignore import load_vectoraignore_spec
-
-        (tmp_path / ".vectoraignore").write_text("# comment\n*.generated.py\n")
-        spec = load_vectoraignore_spec(tmp_path)
-        assert spec is not None
-        assert spec.match_file("schema.generated.py")
-        assert not spec.match_file("models.py")
-
-    def test_searches_up_to_parent(self, tmp_path):
-        from backend.services.ignore import load_vectoraignore_spec
-
-        (tmp_path / ".vectoraignore").write_text("*.secret\n")
-        subdir = tmp_path / "src" / "core"
-        subdir.mkdir(parents=True)
-
-        spec = load_vectoraignore_spec(subdir)
-        assert spec is not None
-        assert spec.match_file("credentials.secret")
-
-    def test_uses_closest_vectoraignore(self, tmp_path):
-        """Quando há dois .vectoraignore em níveis distintos, usa o mais próximo."""
-        from backend.services.ignore import load_vectoraignore_spec
-
-        (tmp_path / ".vectoraignore").write_text("*.parent\n")
-        subdir = tmp_path / "sub"
-        subdir.mkdir()
-        (subdir / ".vectoraignore").write_text("*.child\n")
-
-        spec = load_vectoraignore_spec(subdir)
-        assert spec is not None
-        # bate padrão do filho
-        assert spec.match_file("a.child")
-        # NÃO bate padrão do pai (usa apenas o mais próximo)
-        assert not spec.match_file("a.parent")
 
 
 class TestLoadIgnoreSpec:

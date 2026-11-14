@@ -44,15 +44,6 @@ def test_settings_get_cohere_api_key_returns_none_or_str():
     assert key is None or isinstance(key, str)
 
 
-def test_settings_gets_nine_router_model_and_api_key():
-    s = Settings()
-    s.llm_provider = "nine_router"
-    s.nine_router_default_model = "cx/gpt-5.6-luna"
-    s.nine_router_api_key = "test-key"
-    assert s.get_llm_model() == "cx/gpt-5.6-luna"
-    assert s.get_llm_api_key() == "test-key"
-
-
 def test_settings_set_model_updates_nine_router_default():
     s = Settings()
     s.set_model("nine_router", "cx/gpt-5.6-luna")
@@ -144,36 +135,6 @@ def test_cohere_in_get_llm_model_when_provider_set(monkeypatch):
     assert isinstance(s.cohere_chat_model, str)
 
 
-def test_cohere_available_when_api_key_set(monkeypatch):
-    monkeypatch.setenv("COHERE_API_KEY", "cohere_test_key_fake")
-    s = Settings()
-    providers = s.get_available_providers()
-    assert "cohere" in providers
-
-
-def test_cohere_not_available_without_api_key(monkeypatch):
-    monkeypatch.delenv("COHERE_API_KEY", raising=False)
-    s = Settings()
-    # Só aparece se a chave estiver configurada
-    providers = s.get_available_providers()
-    # Se cohere_api_key não está setado no env, não deve aparecer
-    if not s.cohere_api_key:
-        assert "cohere" not in providers
-
-
-def test_available_providers_includes_configured_local_runtimes() -> None:
-    settings = Settings()
-    object.__setattr__(settings, "ollama_base_url", "http://127.0.0.1:11434")
-    object.__setattr__(settings, "llamacpp_base_url", "http://127.0.0.1:18080/v1")
-    object.__setattr__(settings, "dmr_base_url", "http://127.0.0.1:12434")
-    object.__setattr__(settings, "nine_router_base_url", "http://127.0.0.1:8000")
-    object.__setattr__(settings, "nine_router_api_key", "local-key")
-
-    providers = settings.get_available_providers()
-
-    assert {"ollama", "llamacpp", "dmr", "nine_router"}.issubset(providers)
-
-
 def test_set_model_cohere():
     s = Settings()
     s.set_model("cohere", "command-r-plus-08-2024")
@@ -207,27 +168,6 @@ def test_openai_model_default_is_gpt4o():
 # ---------------------------------------------------------------------------
 # get_llm_model e get_llm_api_key por provider
 # ---------------------------------------------------------------------------
-
-
-def test_get_llm_model_google():
-    # Testa a lógica de get_llm_model() diretamente, sem depender da hierarquia de env
-    s = Settings()
-    s.llm_provider = "google-genai"
-    assert s.get_llm_model() == s.google_model
-
-
-def test_get_llm_model_openai():
-    s = Settings()
-    s.llm_provider = "openai"
-    # openai_model padrão é "gpt-4o" (corrigido em fix/critical-bugs)
-    assert s.get_llm_model() == s.openai_model
-
-
-def test_get_llm_model_cohere():
-    # Testa que get_llm_model() retorna cohere_chat_model quando provider=cohere
-    s = Settings()
-    s.llm_provider = "cohere"
-    assert s.get_llm_model() == s.cohere_chat_model
 
 
 # ---------------------------------------------------------------------------

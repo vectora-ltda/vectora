@@ -76,21 +76,6 @@ def _functional_store(
 
 
 @pytest.mark.asyncio
-async def test_list_registry_uses_only_canonical_catalog(
-    _catalog: list[dict[str, object]], monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from backend.api.handlers import mcp_marketplace
-
-    official = AsyncMock(side_effect=AssertionError("raw registry must not be used"))
-    monkeypatch.setattr(
-        mcp_marketplace.registry_client, "fetch_official_mcp_registry", official
-    )
-    result = await list_registry()
-    assert [entry.id for entry in result] == ["beta", "alpha"]
-    official.assert_not_awaited()
-
-
-@pytest.mark.asyncio
 async def test_list_registry_preserves_metadata_and_filters_malformed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

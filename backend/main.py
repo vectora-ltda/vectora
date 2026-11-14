@@ -35,29 +35,9 @@ import asyncio
 import contextlib
 import logging
 import signal
-import socket
 import sys
 from pathlib import Path
 from typing import Any
-
-
-def _find_free_port(preferred: int | None = None) -> int:
-    """Devolve uma porta TCP livre em 127.0.0.1.
-
-    Se ``preferred`` for fornecida e estiver disponível, é retornada como está;
-    caso contrário (ou se já estiver ocupada), o SO escolhe uma porta efêmera.
-    """
-    if preferred is not None:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            try:
-                s.bind(("127.0.0.1", preferred))
-                return preferred
-            except OSError:
-                pass
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
 
 # Configure UTF-8 on Windows before any output
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")

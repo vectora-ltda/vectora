@@ -13,19 +13,7 @@ import pytest
 from backend.workspace.workspace import (
     WorkspaceLockTimeoutError,
     acquire_workspace_lock,
-    is_workspace_locked,
 )
-
-
-@pytest.mark.asyncio
-async def test_acquires_and_releases_lock():
-    wsid, tid = "ws-acquire", "thread-1"
-    assert is_workspace_locked(wsid, tid) is False
-
-    async with acquire_workspace_lock(wsid, tid):
-        assert is_workspace_locked(wsid, tid) is True
-
-    assert is_workspace_locked(wsid, tid) is False
 
 
 @pytest.mark.asyncio
@@ -74,16 +62,3 @@ async def test_raises_timeout_when_lock_held_too_long():
     assert exc_info.value.workspace_id == wsid
     assert exc_info.value.thread_id == tid
     assert exc_info.value.timeout == 0.05
-
-
-@pytest.mark.asyncio
-async def test_releases_lock_on_exception_inside_block():
-    wsid, tid = "ws-exception", "thread-1"
-
-    with pytest.raises(RuntimeError):
-        async with acquire_workspace_lock(wsid, tid):
-            raise RuntimeError("boom")
-
-    assert is_workspace_locked(wsid, tid) is False
-    async with acquire_workspace_lock(wsid, tid):
-        assert is_workspace_locked(wsid, tid) is True

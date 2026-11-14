@@ -150,10 +150,3 @@ class FileWatcher:
             "changed_paths": list(paths),
         }
         await _kv_publish(self._workspace_id, "vectora:files_changed", payload)
-
-
-def get_watcher(workspace_path: str, workspace_id: str) -> FileWatcher:
-    """Retorna o FileWatcher singleton para este workspace_id."""
-    if workspace_id not in _registry:
-        _registry[workspace_id] = FileWatcher(workspace_path, workspace_id)
-    return _registry[workspace_id]

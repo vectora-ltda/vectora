@@ -47,8 +47,3 @@ _GENERIC_LABEL = "Processando…"
 def get_node_label(node: str) -> str:
     """Retorna o label legível para um nó do grafo."""
     return NODE_LABELS.get(node, _GENERIC_LABEL)
-
-
-def get_routing_label(delegate_to: str) -> str:
-    """Retorna o label de roteamento quando o agente delega a um sub-agent."""
-    return _ROUTING_LABELS.get(delegate_to, f"Roteando para {delegate_to}…")

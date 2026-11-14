@@ -7,11 +7,9 @@ import socket
 import pytest
 
 from backend.services.egress_policy import (
-    BackendEgressCapability,
     EgressPolicy,
     async_is_url_allowed,
     is_url_allowed,
-    validate_backend_egress_support,
 )
 
 
@@ -100,30 +98,6 @@ def test_is_url_allowed_loopback_with_dev_port() -> None:
     policy_dev = EgressPolicy(block_private_ips=True, allow_localhost_dev_ports=[3000])
     ok, _ = is_url_allowed("http://localhost:3000", policy_dev)
     assert ok is True
-
-
-def test_validate_backend_egress_support() -> None:
-    """Verifica o comportamento de validate backend egress support."""
-    policy_restricted = EgressPolicy(block_private_ips=True)
-    policy_open = EgressPolicy(
-        block_private_ips=False,
-        allowed_hosts=[],
-        denied_hosts=[],
-        allowed_ports=[],
-    )
-
-    # Política sem restrição passa sempre
-    ok, _ = validate_backend_egress_support("windows", policy_open)
-    assert ok is True
-
-    # Docker suporta isolamento
-    ok, _ = validate_backend_egress_support("docker", policy_restricted)
-    assert ok is True
-
-    # Windows sandbox nativo não aplica isolamento de rede avançado -> fail-closed
-    ok, reason = validate_backend_egress_support("windows", policy_restricted)
-    assert ok is False
-    assert "fail-closed" in reason
 
 
 def test_is_url_allowed_non_global_ip_blocked(monkeypatch: pytest.MonkeyPatch) -> None:

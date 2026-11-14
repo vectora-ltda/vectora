@@ -11,7 +11,6 @@ import asyncio
 import ipaddress
 import logging
 import socket
-from collections.abc import Sequence
 from enum import StrEnum
 from typing import Any
 from urllib.parse import urlparse
@@ -354,26 +353,3 @@ async def async_is_url_allowed(  # noqa: PLR0911
         return False, f"Falha na resolução de DNS para '{host}'", None
 
     return _validate_addr_infos_and_port(host, port, pol, addr_infos)
-
-
-def validate_backend_egress_support(
-    backend_name: str, policy: EgressPolicy
-) -> tuple[bool, str]:
-    """Verifica se o backend de sandbox é capaz de aplicar as restrições exigidas.
-
-    Aplica fail-closed: se a política exigir restrição de rede e o backend não
-    oferecer suporte, recusa a execução.
-    """
-    if not policy.requires_network_restriction():
-        return True, ""
-
-    cap = BACKEND_EGRESS_CAPABILITIES.get(
-        backend_name.lower(), BackendEgressCapability.DOES_NOT_APPLY
-    )
-    if cap == BackendEgressCapability.DOES_NOT_APPLY:
-        return (
-            False,
-            f"Backend de isolamento '{backend_name}' não aplica restrições de rede exigidas (fail-closed)",
-        )
-
-    return True, ""

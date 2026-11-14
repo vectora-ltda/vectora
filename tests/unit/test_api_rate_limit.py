@@ -8,8 +8,6 @@ Cobre:
 
 from __future__ import annotations
 
-import pytest
-
 # ---------------------------------------------------------------------------
 # _get_client_ip
 # ---------------------------------------------------------------------------
@@ -33,28 +31,6 @@ class TestGetClientIp:
         req.client = MagicMock()
         req.client.host = client_host
         return req
-
-    def test_returns_forwarded_for_when_present(self):
-        from backend.api.middleware.rate_limit import _get_client_ip
-
-        req = self._make_request(headers={"X-Forwarded-For": "10.0.0.1, 192.168.0.1"})
-        assert _get_client_ip(req) == "10.0.0.1"
-
-    def test_returns_client_host_when_no_forwarded(self):
-        from backend.api.middleware.rate_limit import _get_client_ip
-
-        req = self._make_request(headers={}, client_host="192.168.1.5")
-        assert _get_client_ip(req) == "192.168.1.5"
-
-    def test_returns_unknown_when_no_client(self):
-        from unittest.mock import MagicMock
-
-        from backend.api.middleware.rate_limit import _get_client_ip
-
-        req = MagicMock()
-        req.headers = {}
-        req.client = None
-        assert _get_client_ip(req) == "unknown"
 
 
 # ---------------------------------------------------------------------------

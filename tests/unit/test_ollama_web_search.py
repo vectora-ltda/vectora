@@ -15,7 +15,6 @@ import pytest
 
 from backend.llm.ollama.web_search import (
     OLLAMA_CLOUD_URL,
-    ollama_web_fetch,
     ollama_web_search,
     web_search_available,
 )
@@ -137,53 +136,3 @@ class TestWebSearch:
             await ollama_web_search(
                 "q", api_key="oll-errada", http_client=_client(handler)
             )
-
-
-class TestWebFetch:
-    @pytest.mark.asyncio
-    async def test_devolve_titulo_conteudo_e_links(self):
-        def handler(_req):
-            return httpx.Response(
-                200,
-                json={
-                    "title": "Página",
-                    "content": "corpo",
-                    "links": ["https://a.test"],
-                },
-            )
-
-        pagina = await ollama_web_fetch(
-            "https://exemplo.test", api_key="oll-test", http_client=_client(handler)
-        )
-
-        assert pagina["title"] == "Página"
-        assert pagina["content"] == "corpo"
-        assert pagina["links"] == ["https://a.test"]
-
-    @pytest.mark.asyncio
-    async def test_url_vazia_nem_chama_a_api(self):
-        chamou = False
-
-        def handler(_req):
-            nonlocal chamou
-            chamou = True
-            return httpx.Response(200, json={})
-
-        with pytest.raises(ValueError, match="url"):
-            await ollama_web_fetch("", api_key="oll-test", http_client=_client(handler))
-        assert not chamou
-
-    @pytest.mark.asyncio
-    async def test_pagina_sem_conteudo_devolve_campos_vazios_sem_lancar(self):
-        """Erro/borda: página que o extrator não entendeu devolve estrutura
-        vazia — o agente decide o que fazer, a tool não derruba o turno."""
-
-        def handler(_req):
-            return httpx.Response(200, json={"title": "", "content": ""})
-
-        pagina = await ollama_web_fetch(
-            "https://vazia.test", api_key="oll-test", http_client=_client(handler)
-        )
-
-        assert pagina["content"] == ""
-        assert pagina["links"] == []

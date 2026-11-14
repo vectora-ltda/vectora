@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import html
-import http.client
 import ipaddress
 import os
 import re
@@ -13,8 +12,6 @@ import urllib.request
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
-
-from .paths import GRAPH_OUT, GRAPH_OUT_NAME
 
 _ALLOWED_SCHEMES = {"http", "https"}
 _MAX_FETCH_BYTES = 52_428_800  # 50 MB hard cap for binary downloads
@@ -91,77 +88,6 @@ def validate_url(url: str) -> str:
                 f"DNS resolution failed for '{hostname}': {exc}. Got: {url!r}"
             ) from exc
     return url
-
-
-def _resolve_and_validate(host: str, port: int) -> tuple[int, str]:
-    infos = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
-    for family, _type, _proto, _canon, sockaddr in infos:
-        addr = sockaddr[0]
-        try:
-            ip = ipaddress.ip_address(addr)
-        except ValueError:
-            continue
-        if _ip_is_blocked(ip):
-            raise OSError(
-                f"SSRF blocked: IP {addr} resolved from '{host}' is private/reserved"
-            )
-        return family, addr
-    raise OSError(f"SSRF blocked: no usable address resolved from '{host}'")
-
-
-class _SSRFGuardedHTTPConnection(http.client.HTTPConnection):
-    def connect(self) -> None:
-        _family, ip = _resolve_and_validate(self.host, self.port)
-        self.sock = socket.create_connection(
-            (ip, self.port),
-            self.timeout,
-            self.source_address,
-        )
-        if self._tunnel_host:
-            self._tunnel()
-
-
-class _SSRFGuardedHTTPSConnection(http.client.HTTPSConnection):
-    def connect(self) -> None:
-        _family, ip = _resolve_and_validate(self.host, self.port)
-        sock = socket.create_connection(
-            (ip, self.port),
-            self.timeout,
-            self.source_address,
-        )
-        if self._tunnel_host:
-            self.sock = sock
-            self._tunnel()
-            sock = self.sock
-        self.sock = self._context.wrap_socket(sock, server_hostname=self.host)
-
-
-def validate_graph_path(path: str | Path, base: Path | None = None) -> Path:
-    if base is None:
-        resolved_hint = Path(path).resolve()
-        for candidate in [resolved_hint, *resolved_hint.parents]:
-            if candidate.name == GRAPH_OUT_NAME:
-                base = candidate
-                break
-        if base is None:
-            base = Path(GRAPH_OUT).resolve()
-    base = base.resolve()
-    if not base.exists():
-        raise ValueError(
-            f"Graph base directory does not exist: {base}. "
-            "Run /build first to build the graph."
-        )
-    resolved = Path(path).resolve()
-    try:
-        resolved.relative_to(base)
-    except ValueError:
-        raise ValueError(
-            f"Path {path!r} escapes the allowed directory {base}. "
-            "Only paths inside the graph output directory are permitted."
-        )
-    if not resolved.exists():
-        raise FileNotFoundError(f"Graph file not found: {resolved}")
-    return resolved
 
 
 def check_graph_file_size_cap(path: Path) -> None:

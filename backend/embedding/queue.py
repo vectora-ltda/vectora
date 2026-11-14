@@ -238,33 +238,6 @@ class EmbeddingQueue:
         except Exception:
             return 0
 
-    async def get_stats(self) -> dict[str, int]:
-        """Retorna contagem de registros por status para o painel /rag.
-
-        Returns:
-            Dict com chaves pending, processing, success, failed, dlq — cada uma
-            com o número de registros naquele status.
-        """
-        statuses = [s.value for s in EmbeddingStatus]
-        result = dict.fromkeys(statuses, 0)
-        try:
-            if self.AsyncSessionLocal is None:
-                return result
-            async with self.AsyncSessionLocal() as session:
-                from sqlalchemy import func, select
-
-                query = select(
-                    EmbeddingQueueRecord.status,
-                    func.count().label("cnt"),
-                ).group_by(EmbeddingQueueRecord.status)
-                rows = await session.execute(query)
-                for status, cnt in rows:
-                    if status in result:
-                        result[status] = cnt
-        except Exception:
-            pass
-        return result
-
     async def get_job_stats(self, job_id: str) -> dict[str, int]:
         """Contagem por status dos chunks de um job de ingest (progresso).
 
@@ -359,39 +332,6 @@ class EmbeddingQueue:
                 extra={"queue_id": queue_id},
             )
 
-    async def mark_failed(self, queue_id: str, error_message: str) -> None:
-        """Marca um registro da fila como falha.
-
-        Args:
-            queue_id: ID do registro a marcar
-            error_message: Mensagem de erro
-        """
-        try:
-            if self.AsyncSessionLocal is None:
-                msg = "AsyncSessionLocal não foi inicializado"
-                raise RuntimeError(msg)
-            async with self.AsyncSessionLocal() as session:
-                from sqlalchemy import update
-
-                query = (
-                    update(EmbeddingQueueRecord)
-                    .where(EmbeddingQueueRecord.queue_id == queue_id)
-                    .values(status=EmbeddingStatus.FAILED, error_message=error_message)
-                )
-                await session.execute(query)
-                await session.commit()
-
-            logger.error(
-                "embedding_queue_marked_failed",
-                extra={"queue_id": queue_id, "error": error_message},
-            )
-
-        except Exception:
-            logger.exception(
-                "embedding_queue_mark_failed_failed",
-                extra={"queue_id": queue_id},
-            )
-
     async def mark_dlq(self, queue_id: str, reason: str) -> None:
         """Move um registro para Dead Letter Queue (falha permanente).
 
@@ -471,44 +411,6 @@ class EmbeddingQueue:
         except Exception:
             logger.exception("embedding_queue_archive_pending_failed")
             return 0
-
-    async def get_failed(self, limit: int = 10) -> list[EmbeddingQueueRecord]:
-        """Obtém registros com falha (status='failed' ou 'dlq').
-
-        Útil para monitoramento e auditoria de embeddings que falharam.
-
-        Args:
-            limit: Máximo de registros a retornar
-
-        Returns:
-            Lista de registros com falha
-        """
-        try:
-            if self.AsyncSessionLocal is None:
-                msg = "AsyncSessionLocal não foi inicializado"
-                raise RuntimeError(msg)
-            async with self.AsyncSessionLocal() as session:
-                from sqlalchemy import or_, select
-
-                query = select(EmbeddingQueueRecord).where(
-                    or_(
-                        EmbeddingQueueRecord.status == EmbeddingStatus.FAILED,
-                        EmbeddingQueueRecord.status == EmbeddingStatus.DLQ,
-                    )
-                )
-                result = await session.execute(query)
-                records = result.scalars().all()
-
-                logger.debug(
-                    "embedding_queue_get_failed",
-                    extra={"count": len(records), "limit": limit},
-                )
-
-                return records[:limit]
-
-        except Exception:
-            logger.exception("embedding_queue_get_failed_failed")
-            return []
 
     async def reconcile(self) -> None:
         """Recupera registros travados em 'processing' que não terminaram.
@@ -795,21 +697,6 @@ class PostgresQueueDB:
                 queue_id,
             )
 
-    async def nack(self, queue_id: str, error: str = "") -> None:
-        """Marca a tarefa como falha (voltará para reprocessamento em F8)."""
-        from backend.storage.factory import get_pg_pool
-
-        pool = await get_pg_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """
-                UPDATE vectora_embedding_queue
-                SET status = 'failed', processed_at = now()
-                WHERE queue_id = $1
-                """,
-                queue_id,
-            )
-
     # ------------------------------------------------------------------
     # Compatibilidade com a interface do BackgroundEmbeddingWorker (F8)
     # ------------------------------------------------------------------
@@ -842,27 +729,6 @@ class PostgresQueueDB:
     async def mark_success(self, queue_id: str) -> None:
         """Alias de ``ack`` para compatibilidade com o worker."""
         await self.ack(queue_id)
-
-    async def mark_failed(
-        self, queue_id: str, error: str = "", move_to_dlq: bool = False
-    ) -> None:
-        """Alias de ``nack`` para compatibilidade com o worker."""
-        await self.nack(queue_id, error)
-
-    async def move_to_dlq(self, queue_id: str, reason: str = "") -> None:
-        """Marca a tarefa como DLQ (dead-letter)."""
-        from backend.storage.factory import get_pg_pool
-
-        pool = await get_pg_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """
-                UPDATE vectora_embedding_queue
-                SET status = 'dlq', processed_at = now()
-                WHERE queue_id = $1
-                """,
-                queue_id,
-            )
 
     async def reconcile(self) -> None:
         """Reset de tarefas presas em 'processing' por mais de 5 minutos."""

@@ -129,10 +129,3 @@ async def list_service_tokens(db: Any) -> list[ServiceToken]:
         )
         for r in rows
     ]
-
-
-def has_scope(token: ServiceToken, required_scope: str) -> bool:
-    """`True` se `token` tem `required_scope` explicitamente, ou o
-    coringa `"*"` (acesso total — só pra tokens administrativos, nunca o
-    default de `create_service_token`)."""
-    return required_scope in token.scopes or "*" in token.scopes

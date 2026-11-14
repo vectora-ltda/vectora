@@ -11,7 +11,6 @@ from backend.context_graph.graph_index import (
     _node_text,
     index_graph_nodes,
     purge_graph_index,
-    search_graph_nodes,
 )
 
 _GETDB = "backend.context_graph.graph_index._get_db"
@@ -264,130 +263,6 @@ class TestIndexGraphNodes:
 # ---------------------------------------------------------------------------
 # search_graph_nodes
 # ---------------------------------------------------------------------------
-
-
-class TestSearchGraphNodes:
-    @pytest.mark.asyncio
-    async def test_returns_node_ids_from_search(self) -> None:
-        db = _mock_lancedb()
-        _search_table(
-            db,
-            _df(
-                [
-                    (
-                        0,
-                        {
-                            "id": "n.auth",
-                            "metadata": '{"node_id":"n.auth","workspace_id":"ws-1"}',
-                        },
-                    )
-                ]
-            ),
-        )
-        with (
-            patch(_GETDB, new_callable=AsyncMock, return_value=db),
-            patch(_EMBED, new_callable=AsyncMock, return_value=[[0.1] * 10]),
-        ):
-            ids = await search_graph_nodes("authentication", "ws-1", top_k=5)
-        assert ids == ["n.auth"]
-
-    @pytest.mark.asyncio
-    async def test_embeddings_empty_returns_empty(self) -> None:
-        with patch(_EMBED, new_callable=AsyncMock, return_value=[]):
-            assert await search_graph_nodes("q", "ws-1") == []
-
-    @pytest.mark.asyncio
-    async def test_collection_absent_returns_empty(self) -> None:
-        db = _mock_lancedb()
-        db.table_names = AsyncMock(return_value=[])
-        with (
-            patch(_GETDB, new_callable=AsyncMock, return_value=db),
-            patch(_EMBED, new_callable=AsyncMock, return_value=[[0.1] * 10]),
-        ):
-            assert await search_graph_nodes("q", "ws-1") == []
-
-    @pytest.mark.asyncio
-    async def test_filters_by_workspace_id(self) -> None:
-        db = _mock_lancedb()
-        _search_table(
-            db,
-            _df(
-                [
-                    (
-                        0,
-                        {
-                            "id": "n.a",
-                            "metadata": '{"node_id":"n.a","workspace_id":"ws-1"}',
-                        },
-                    ),
-                    (
-                        1,
-                        {
-                            "id": "n.b",
-                            "metadata": '{"node_id":"n.b","workspace_id":"OTHER"}',
-                        },
-                    ),
-                ]
-            ),
-        )
-        with (
-            patch(_GETDB, new_callable=AsyncMock, return_value=db),
-            patch(_EMBED, new_callable=AsyncMock, return_value=[[0.1] * 10]),
-        ):
-            ids = await search_graph_nodes("q", "ws-1", top_k=10)
-        assert ids == ["n.a"]
-
-    @pytest.mark.asyncio
-    async def test_respects_top_k(self) -> None:
-        db = _mock_lancedb()
-        rows = [
-            (
-                i,
-                {
-                    "id": f"n.{i}",
-                    "metadata": f'{{"node_id":"n.{i}","workspace_id":"ws-1"}}',
-                },
-            )
-            for i in range(10)
-        ]
-        _search_table(db, _df(rows))
-        with (
-            patch(_GETDB, new_callable=AsyncMock, return_value=db),
-            patch(_EMBED, new_callable=AsyncMock, return_value=[[0.1] * 10]),
-        ):
-            ids = await search_graph_nodes("q", "ws-1", top_k=3)
-        assert len(ids) == 3
-
-    @pytest.mark.asyncio
-    async def test_malformed_metadata_skipped(self) -> None:
-        db = _mock_lancedb()
-        _search_table(db, _df([(0, {"id": "n.a", "metadata": "NOTJSON{"})]))
-        with (
-            patch(_GETDB, new_callable=AsyncMock, return_value=db),
-            patch(_EMBED, new_callable=AsyncMock, return_value=[[0.1] * 10]),
-        ):
-            assert await search_graph_nodes("q", "ws-1") == []
-
-    @pytest.mark.asyncio
-    async def test_node_id_falls_back_to_row_id(self) -> None:
-        db = _mock_lancedb()
-        _search_table(
-            db, _df([(0, {"id": "row-id", "metadata": '{"workspace_id":"ws-1"}'})])
-        )
-        with (
-            patch(_GETDB, new_callable=AsyncMock, return_value=db),
-            patch(_EMBED, new_callable=AsyncMock, return_value=[[0.1] * 10]),
-        ):
-            ids = await search_graph_nodes("q", "ws-1")
-        assert ids == ["row-id"]
-
-    @pytest.mark.asyncio
-    async def test_lancedb_unavailable_returns_empty(self) -> None:
-        with (
-            patch(_GETDB, side_effect=Exception("LanceDB not available")),
-            patch(_EMBED, new_callable=AsyncMock, return_value=[[0.1] * 10]),
-        ):
-            assert await search_graph_nodes("anything", "ws-1") == []
 
 
 # ---------------------------------------------------------------------------

@@ -1,14 +1,12 @@
 # write graph to HTML, JSON, SVG, GraphML, Obsidian vault, and Neo4j Cypher
 from __future__ import annotations
 
-import hashlib
 import html as _html
 import json
 import logging
 import os
 import re
 import shutil
-from datetime import date
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -29,85 +27,6 @@ _BACKUP_ARTIFACTS = [
     ".vectora_semantic_marker",
     "cost.json",
 ]
-
-
-def backup_if_protected(out_dir: Path) -> Path | None:
-    """Snapshot graph artifacts to a dated subfolder before an overwrite.
-
-    Triggers when graph.json exists AND either:
-    - .vectora_semantic_marker is present (graph cost real LLM tokens), or
-    - .vectora_labels.json contains at least one non-default community label
-      (graph has been curated by a human or skill).
-
-    Returns the backup folder path, or None if no backup was taken.
-    Never raises — backup failure prints a warning but never blocks the write.
-    Set GRAPH_NO_BACKUP=1 to disable.
-    """
-    if os.environ.get("GRAPH_NO_BACKUP"):
-        return None
-    out = Path(out_dir)
-    if not (out / "graph.json").exists():
-        return None
-
-    is_semantic = (out / ".vectora_semantic_marker").exists()
-    is_curated = False
-    labels_file = out / ".vectora_labels.json"
-    if labels_file.exists():
-        try:
-            labels = json.loads(labels_file.read_text(encoding="utf-8"))
-            is_curated = any(v != f"Community {k}" for k, v in labels.items())
-        except Exception:
-            pass
-
-    if not is_semantic and not is_curated:
-        return None
-
-    reason = "+".join(
-        filter(
-            None, ["semantic" if is_semantic else "", "curated" if is_curated else ""]
-        )
-    )
-    today = date.today().isoformat()
-    backup_dir = out / today
-    graph_src = out / "graph.json"
-
-    # Skip re-copying if today's backup already has identical graph.json content.
-    # If content differs (graph changed since the last backup today), overwrite
-    # the backup in place — one folder per day, always the latest pre-overwrite state.
-    if backup_dir.exists() and (backup_dir / "graph.json").exists():
-        src_hash = hashlib.sha256(graph_src.read_bytes()).hexdigest()
-        bak_hash = hashlib.sha256((backup_dir / "graph.json").read_bytes()).hexdigest()
-        if src_hash == bak_hash:
-            return backup_dir  # identical content, nothing to do
-
-    try:
-        backup_dir.mkdir(parents=True, exist_ok=True)
-        copied = 0
-        for name in _BACKUP_ARTIFACTS:
-            src = out / name
-            if src.exists():
-                try:
-                    shutil.copy2(src, backup_dir / name)
-                    copied += 1
-                except Exception:
-                    pass
-        if copied:
-            logger.debug(
-                "backed up %s graph (%d files) -> %s/", reason, copied, backup_dir.name
-            )
-        return backup_dir
-    except Exception as exc:
-        logger.warning("backup failed (%s) - continuing with overwrite", exc)
-        return None
-
-
-def _obsidian_tag(name: str) -> str:
-    """Sanitize a community name for use as an Obsidian tag.
-
-    Obsidian tags only allow alphanumerics, hyphens, underscores, and slashes.
-    Spaces become underscores; everything else is stripped.
-    """
-    return re.sub(r"[^a-zA-Z0-9_\-/]", "", name.replace(" ", "_"))
 
 
 def _strip_diacritics(text: str | None) -> str:
@@ -179,7 +98,6 @@ def _viz_node_limit() -> int:
     Falls back to MAX_NODES_FOR_VIZ when the env var is unset, empty, or non-integer.
     Set to 0 to disable HTML viz unconditionally (useful for CI runners).
     """
-    import os
 
     raw = os.environ.get("GRAPH_VIZ_NODE_LIMIT")
     if raw is None or not raw.strip():
@@ -480,7 +398,6 @@ _CONFIDENCE_SCORE_DEFAULTS = {"EXTRACTED": 1.0, "INFERRED": 0.5, "AMBIGUOUS": 0.
 
 def _git_head() -> str | None:
     """Return the current git HEAD commit hash, or None if not in a git repo."""
-    import shutil
     import subprocess as _sp  # nosec B404 - fixed git argv without a shell
 
     executable = shutil.which("git")
@@ -564,65 +481,9 @@ def to_json(
     return True
 
 
-def prune_dangling_edges(graph_data: dict) -> tuple[dict, int]:
-    """Remove edges whose source or target node is not in the node set.
-
-    Returns the cleaned graph_data dict and the number of pruned edges.
-    """
-    node_ids = {n["id"] for n in graph_data["nodes"]}
-    links_key = "links" if "links" in graph_data else "edges"
-    before = len(graph_data[links_key])
-    graph_data[links_key] = [
-        e
-        for e in graph_data[links_key]
-        if e["source"] in node_ids and e["target"] in node_ids
-    ]
-    return graph_data, before - len(graph_data[links_key])
-
-
-def _cypher_escape(s: str) -> str:
-    """Escape a string for safe embedding in a Cypher single-quoted literal.
-
-    Handles all characters that could prematurely terminate the literal or
-    inject control sequences:
-      - `\\` and `'` (literal terminators)
-      - newlines/CRs (would break the per-line statement framing)
-      - NUL/control bytes (defensive — Neo4j errors on raw NULs)
-
-    Also strips any leading/trailing whitespace that would let an attacker
-    break the `;`-terminated statement boundary used by `cypher-shell`.
-    Closing `}` and `)` are NOT special inside a single-quoted Cypher string,
-    so escaping the quote and backslash correctly is sufficient (a `}` inside
-    a properly-closed `'...'` literal is just a character) — but we previously
-    missed `\\n` / `\\r` which DO let a payload break out of the statement
-    line and inject a fresh MATCH/DELETE on the following line. See F-008.
-    """
-    # First normalise: drop NUL and other C0 control chars except tab.
-    s = "".join(ch for ch in s if ch >= " " or ch == "\t")
-    return (
-        s.replace("\\", "\\\\")
-        .replace("'", "\\'")
-        .replace("\n", "\\n")
-        .replace("\r", "\\r")
-    )
-
-
 # Restrict identifier-position values (labels and relationship types are NOT
 # quoted in Cypher and so cannot be safely escaped — they must be allowlisted).
 _CYPHER_IDENT_RE = re.compile(r"[^A-Za-z0-9_]")
-
-
-def _cypher_label(raw: str, fallback: str) -> str:
-    """Sanitise a value used in identifier position (node label / rel type).
-
-    Cypher does not provide a way to escape `:Foo` label syntax, so we must
-    strip everything except `[A-Za-z0-9_]` and require the result to start
-    with a letter; otherwise we fall back to a safe constant.
-    """
-    cleaned = _CYPHER_IDENT_RE.sub("", raw or "")
-    if not cleaned or not cleaned[0].isalpha():
-        return fallback
-    return cleaned
 
 
 def to_html(

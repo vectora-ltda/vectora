@@ -16,7 +16,6 @@ from backend.context_graph.affected import (
     _normalize_label,
     affected_nodes,
     format_affected,
-    load_graph,
     resolve_seed,
 )
 
@@ -287,29 +286,3 @@ class TestAffectedNodesExtra:
 
 
 # ─────────────────────────── load_graph ──────────────────────────────────────
-
-
-class TestLoadGraph:
-    def test_roundtrip_nodes_and_edges(self, tmp_path) -> None:
-        import json
-
-        data = {
-            "directed": True,
-            "nodes": [{"id": "n1", "label": "N1"}, {"id": "n2", "label": "N2"}],
-            "edges": [{"source": "n1", "target": "n2", "relation": "calls"}],
-        }
-        p = tmp_path / "graph.json"
-        p.write_text(json.dumps(data), encoding="utf-8")
-        g = load_graph(p)
-        assert "n1" in g.nodes and "n2" in g.nodes
-        assert g.has_edge("n1", "n2")
-
-    def test_returns_directed_graph(self, tmp_path) -> None:
-        import json
-
-        p = tmp_path / "g.json"
-        p.write_text(
-            json.dumps({"nodes": [{"id": "a"}], "edges": []}), encoding="utf-8"
-        )
-        g = load_graph(p)
-        assert g.is_directed()

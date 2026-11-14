@@ -144,10 +144,6 @@ class ContextProjection:
             )
             self.projection_id = hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
-    def is_valid_for(self, current_transcript_hash: str) -> bool:
-        """Verifica se a projeção é compatível com o hash atual do transcript."""
-        return self.source_transcript_hash == current_transcript_hash
-
     def to_evidence_entry(self) -> ContextProjectionEvidence:
         """Executa a operação to evidence entry."""
         return {

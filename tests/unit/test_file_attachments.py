@@ -579,43 +579,6 @@ class TestBuildUserVMessage:
 # ===========================================================================
 
 
-class TestMimeToLang:
-    def test_python_by_extension(self) -> None:
-        from backend.api.handlers.chat import _mime_to_lang
-
-        assert _mime_to_lang("script.py") == "python"
-
-    def test_typescript_by_extension(self) -> None:
-        from backend.api.handlers.chat import _mime_to_lang
-
-        assert _mime_to_lang("app.ts") == "typescript"
-
-    def test_tsx_by_extension(self) -> None:
-        from backend.api.handlers.chat import _mime_to_lang
-
-        assert _mime_to_lang("component.tsx") == "typescript"
-
-    def test_json_by_extension(self) -> None:
-        from backend.api.handlers.chat import _mime_to_lang
-
-        assert _mime_to_lang("config.json") == "json"
-
-    def test_pdf_returns_empty_string(self) -> None:
-        from backend.api.handlers.chat import _mime_to_lang
-
-        assert _mime_to_lang("doc.pdf") == ""
-
-    def test_unknown_extension_returns_empty(self) -> None:
-        from backend.api.handlers.chat import _mime_to_lang
-
-        assert _mime_to_lang("file.xyz") == ""
-
-    def test_shell_script(self) -> None:
-        from backend.api.handlers.chat import _mime_to_lang
-
-        assert _mime_to_lang("run.sh") == "bash"
-
-
 # ===========================================================================
 # Classe 5 — stream_chat recusa imagem quando o provider não suporta visão
 # ===========================================================================

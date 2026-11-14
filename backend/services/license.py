@@ -30,7 +30,6 @@ apenas; nunca documentar em produção).
 
 from __future__ import annotations
 
-import asyncio
 import contextlib
 import json
 import logging
@@ -324,11 +323,6 @@ async def validate_license_async(*, force: bool = False) -> LicenseStatusInfo:
             "Falha ao validar licença e cache local expirou. Verifique sua "
             "conexão ou renove o token em https://vectora.company/dashboard."
         ) from exc
-
-
-def validate_license_sync() -> LicenseStatusInfo:
-    """Versão síncrona — usada pelo Launcher antes do uvicorn subir."""
-    return asyncio.run(validate_license_async())
 
 
 def _toml_value(value: str | int | bool) -> str:

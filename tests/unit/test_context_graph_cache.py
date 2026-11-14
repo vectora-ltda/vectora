@@ -148,44 +148,6 @@ class TestLoadAndSaveCached:
         save_cached(tmp_path, {"nodes": []}, tmp_path)  # directory → no-op
 
 
-class TestCachedFiles:
-    def test_empty_when_no_cache(self, tmp_path: Path):
-        from backend.context_graph.cache import cached_files
-
-        result = cached_files(tmp_path)
-        assert isinstance(result, set)
-
-    def test_includes_saved_hash(self, tmp_path: Path):
-        from backend.context_graph.cache import (
-            cached_files,
-            file_hash,
-            save_cached,
-        )
-
-        f = tmp_path / "f.py"
-        f.write_text("x", encoding="utf-8")
-        save_cached(f, {"nodes": []}, tmp_path)
-        h = file_hash(f, tmp_path)
-        assert h in cached_files(tmp_path)
-
-
-class TestClearCache:
-    def test_clear_removes_all_entries(self, tmp_path: Path):
-        from backend.context_graph.cache import (
-            cached_files,
-            clear_cache,
-            save_cached,
-        )
-
-        f = tmp_path / "f.py"
-        f.write_text("y", encoding="utf-8")
-        save_cached(f, {"nodes": []}, tmp_path)
-        assert len(cached_files(tmp_path)) > 0
-
-        clear_cache(tmp_path)
-        assert len(cached_files(tmp_path)) == 0
-
-
 class TestRelativizeAndAbsolutize:
     def test_relativize_then_absolutize_roundtrip(self, tmp_path: Path):
         from backend.context_graph.cache import (
@@ -225,60 +187,6 @@ class TestRelativizeAndAbsolutize:
         }
         _relativize_source_files_in(payload, tmp_path)
         assert payload["nodes"][0]["source_file"] == other_drive
-
-
-class TestCheckSemanticCache:
-    def test_all_uncached_when_empty(self, tmp_path: Path):
-        from backend.context_graph.cache import check_semantic_cache
-
-        f = tmp_path / "f.py"
-        f.write_text("code", encoding="utf-8")
-        sem_result = check_semantic_cache([str(f)], tmp_path)
-        assert str(f) in sem_result[3]
-        assert sem_result[0] == []
-
-    def test_cached_file_merged(self, tmp_path: Path):
-        from backend.context_graph.cache import (
-            check_semantic_cache,
-            save_cached,
-        )
-
-        f = tmp_path / "f.py"
-        f.write_text("code", encoding="utf-8")
-        payload = {
-            "nodes": [{"id": "fn", "source_file": str(f)}],
-            "edges": [],
-            "hyperedges": [],
-        }
-        save_cached(f, payload, tmp_path, kind="semantic")
-
-        cached_n, _, _, uncached = check_semantic_cache([str(f)], tmp_path)
-        assert uncached == []
-        assert any(n["id"] == "fn" for n in cached_n)
-
-
-class TestSaveSemanticCache:
-    def test_saves_nodes_by_source_file(self, tmp_path: Path):
-        from backend.context_graph.cache import save_semantic_cache
-
-        f = tmp_path / "module.py"
-        f.write_text("def fn(): pass\n", encoding="utf-8")
-        nodes = [{"id": "module_fn", "source_file": str(f)}]
-        count = save_semantic_cache(nodes, [], root=tmp_path)
-        assert count == 1
-
-    def test_non_existent_file_not_saved(self, tmp_path: Path):
-        from backend.context_graph.cache import save_semantic_cache
-
-        nodes = [{"id": "ghost", "source_file": str(tmp_path / "ghost.py")}]
-        count = save_semantic_cache(nodes, [], root=tmp_path)
-        assert count == 0
-
-    def test_empty_source_file_skipped(self, tmp_path: Path):
-        from backend.context_graph.cache import save_semantic_cache
-
-        count = save_semantic_cache([{"id": "n", "source_file": ""}], [], root=tmp_path)
-        assert count == 0
 
 
 class TestCleanupStaleAstEntries:

@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
-from .security import sanitize_metadata
 
 
 @dataclass(frozen=True)
@@ -49,23 +46,6 @@ def node_is_resolvable_symbol(node: dict[str, Any]) -> bool:
     return bool(normalise_callable_label(label))
 
 
-def build_label_index(nodes: list[dict[str, Any]]) -> dict[str, list[str]]:
-    """Build label -> node id list for conservative cross-file resolution."""
-
-    index: dict[str, list[str]] = {}
-    for node in nodes:
-        if not node_is_resolvable_symbol(node):
-            continue
-        node_id = node.get("id")
-        if not node_id:
-            continue
-        key = normalise_callable_label(str(node.get("label", "")))
-        if not key:
-            continue
-        index.setdefault(key, []).append(str(node_id))
-    return index
-
-
 def existing_edge_pairs(edges: list[dict[str, Any]]) -> set[tuple[str, str, str]]:
     """Return all existing source/target/relation edge triples.
 
@@ -81,30 +61,6 @@ def existing_edge_pairs(edges: list[dict[str, Any]]) -> set[tuple[str, str, str]
         if source and target:
             triples.add((str(source), str(target), str(relation)))
     return triples
-
-
-def iter_raw_calls(per_file: Sequence[object]) -> list[dict[str, Any]]:
-    """Return raw calls from all per-file extraction fragments.
-
-    Parameter is ``Sequence[object]`` (not ``Sequence[dict[str, Any] | None]``)
-    because external extraction output may contain arbitrary deserialized
-    JSON. Defensive against malformed fragments: non-dict per-file entries
-    are skipped, non-list ``raw_calls`` are treated as empty, and non-dict
-    items inside the list are silently dropped. The downstream resolvers
-    assume every returned item is a dict and they expect this guarantee.
-    """
-
-    calls: list[dict[str, Any]] = []
-    for result in per_file:
-        if not isinstance(result, dict):
-            continue
-        raw_calls = result.get("raw_calls", [])
-        if not isinstance(raw_calls, list):
-            continue
-        for raw_call in raw_calls:
-            if isinstance(raw_call, dict):
-                calls.append(raw_call)
-    return calls
 
 
 def _module_stem(module_name: str | None) -> str:
@@ -212,97 +168,3 @@ def find_unique_python_symbol(
     if len(candidates) == 1:
         return candidates[0]
     return None
-
-
-def resolve_python_import_guided_calls(
-    per_file: Sequence[object],
-    paths: Sequence[Path],
-    all_nodes: list[dict[str, Any]],
-    all_edges: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Resolve raw Python calls using explicit import evidence.
-
-    Only ``from module import symbol [as alias]`` forms are handled. Member calls
-    remain skipped because the current raw call fact does not carry receiver
-    information.
-
-    Parameter ``per_file`` is ``Sequence[object]`` because external extraction
-    output may contain arbitrary deserialized JSON. Non-dict slots are
-    treated as empty fragments, and indices past ``len(per_file)`` are also
-    treated as empty (paths longer than per_file is tolerated).
-    """
-
-    symbol_index = build_python_symbol_index(all_nodes)
-    known_pairs = existing_edge_pairs(all_edges)
-    # Build result_by_file defensively:
-    #   - skip indices past the end of per_file (paths shorter than per_file
-    #     also OK; the zip-like behavior is what callers expect)
-    #   - non-dict per_file slots fall back to the empty fragment so the
-    #     downstream `.get("raw_calls", [])` lookup never raises
-    result_by_file: dict[str, dict[str, Any]] = {}
-    for index, path in enumerate(paths):
-        if path.suffix != ".py":
-            continue
-        slot: Any = per_file[index] if index < len(per_file) else None
-        result_by_file[str(path)] = (
-            slot if isinstance(slot, dict) else {"nodes": [], "edges": []}
-        )
-    resolved_edges: list[dict[str, Any]] = []
-
-    for path in paths:
-        if path.suffix != ".py":
-            continue
-        source_file = str(path)
-        aliases = parse_python_import_aliases(path)
-        if not aliases:
-            continue
-        file_result = result_by_file.get(source_file, {"raw_calls": []})
-        raw_calls = file_result.get("raw_calls", [])
-        if not isinstance(raw_calls, list):
-            continue
-        for raw_call in raw_calls:
-            if not isinstance(raw_call, dict):
-                continue
-            if raw_call.get("is_member_call"):
-                continue
-            callee = str(raw_call.get("callee", "")).strip()
-            if not callee:
-                continue
-            imported = aliases.get(callee)
-            if imported is None:
-                continue
-            target = find_unique_python_symbol(symbol_index, imported)
-            if target is None:
-                continue
-            caller = str(raw_call.get("caller_nid", ""))
-            if not caller or caller == target:
-                continue
-            pair = (caller, target, "calls")
-            if pair in known_pairs:
-                continue
-            known_pairs.add(pair)
-            resolved_edges.append(
-                {
-                    "source": caller,
-                    "target": target,
-                    "relation": "calls",
-                    "context": "import_guided_call",
-                    "confidence": "EXTRACTED",
-                    "confidence_score": 1.0,
-                    "source_file": raw_call.get("source_file", source_file),
-                    "source_location": raw_call.get("source_location")
-                    or imported.source_location,
-                    "weight": 1.0,
-                    "metadata": sanitize_metadata(
-                        {
-                            "resolver": "python_import_guided",
-                            "local_name": imported.local_name,
-                            "imported_name": imported.imported_name,
-                            "module_stem": imported.module_stem,
-                            "import_source_location": imported.source_location,
-                        }
-                    ),
-                }
-            )
-
-    return resolved_edges

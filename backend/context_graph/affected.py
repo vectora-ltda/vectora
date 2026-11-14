@@ -10,7 +10,6 @@ import unicodedata
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass
-from pathlib import Path
 
 import networkx as nx
 
@@ -172,19 +171,3 @@ def format_affected(
             f"- {_node_label(graph, hit.node_id)} [{hit.via_relation}] {_format_location(data)}"
         )
     return "\n".join(lines)
-
-
-def load_graph(path: Path) -> nx.Graph:
-    """Carrega graph.json como DiGraph NetworkX, normalizando edges/links."""
-    import json
-
-    from networkx.readwrite import json_graph
-
-    raw = json.loads(path.read_text(encoding="utf-8"))
-    raw = {**raw, "directed": True}
-    if "links" not in raw and "edges" in raw:
-        raw = dict(raw, links=raw["edges"])
-    try:
-        return json_graph.node_link_graph(raw, edges="links")
-    except TypeError:
-        return json_graph.node_link_graph(raw)

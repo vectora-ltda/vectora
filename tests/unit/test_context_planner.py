@@ -7,8 +7,6 @@ from types import SimpleNamespace
 import pytest
 
 from backend.services.context_manifest import (
-    ContextBlock,
-    ContextManifest,
     ContextProjection,
 )
 from backend.services.context_planner import (
@@ -18,7 +16,6 @@ from backend.services.context_planner import (
     plan_context,
 )
 from backend.services.memory_store import MemoryConflictError, MemoryStore
-from backend.services.policy_compiler import PolicySnapshot
 from backend.vtypes.message import ContentBlock, MessageRole, VMessage
 
 
@@ -40,37 +37,6 @@ def test_transcript_hash_consistency() -> None:
     assert h1 == h2
     assert h1 != h3
     assert len(h1) == 64
-
-
-def test_context_projection_validity() -> None:
-    """Verifica o comportamento de context projection validity."""
-    proj = ContextProjection(
-        start_seq=0,
-        end_seq=5,
-        source_transcript_hash="hash123",
-        tokens_before=1000,
-        tokens_after=500,
-    )
-
-    assert proj.is_valid_for("hash123") is True
-    assert proj.is_valid_for("hash456") is False
-
-    evidence = proj.to_evidence_entry()
-    assert evidence["kind"] == "context_projection"
-    assert len(evidence["projection_id"]) == 64
-    assert evidence["source_transcript_hash"] == "hash123"
-    assert evidence["preserved_decisions"] == []
-    assert evidence["preserved_errors"] == []
-    assert evidence["preserved_approvals"] == []
-
-    equivalent = ContextProjection(
-        start_seq=0,
-        end_seq=5,
-        source_transcript_hash="hash123",
-        tokens_before=200,
-        tokens_after=100,
-    )
-    assert equivalent.projection_id == proj.projection_id
 
 
 def test_memory_store_domains_and_retrieval() -> None:

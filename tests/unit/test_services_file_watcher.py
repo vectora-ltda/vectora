@@ -99,13 +99,3 @@ async def test_file_watcher_publishes_on_change(
     assert len(published) == 1
     assert published[0]["workspace_id"] == "ws-42"
     assert "files" in published[0].get("tabs", [])
-
-
-@pytest.mark.asyncio
-async def test_file_watcher_singleton_per_workspace(tmp_path: Path):
-    """get_watcher retorna a mesma instancia para o mesmo workspace_id."""
-    from backend.scheduling.file_watcher import get_watcher
-
-    w1 = get_watcher(str(tmp_path), workspace_id="ws-singleton")
-    w2 = get_watcher(str(tmp_path), workspace_id="ws-singleton")
-    assert w1 is w2
